@@ -67,7 +67,16 @@ Week 5 (executor depth + memory + second trigger):
 
 134 unit tests passing (was 121). Ruff and mypy strict clean across 77 source files. The frontend has no specs yet (will follow component refactors).
 
-End of Phase 1. Next up per `docs/BUILD_PLAN.md`: **Phase 2 / Week 7 — Connector framework + first connectors.** Plugin interface (trigger_listen / trigger_poll / send / query / authenticate / health_check), credential storage (AWS Secrets Manager), generic webhook + S3 connectors. M365/Google/Slack connectors remain deferred until a specific workload demands them.
+**Phase 2 / Week 7 (connector framework) is complete.**
+
+- `Connector` ABC with the six methods from `docs/INTEGRATIONS.md` (trigger_listen / trigger_poll / send / query / authenticate / health_check); default no-ops for trigger and `NotImplementedError` for send/query so connectors only implement what they support.
+- `SecretStore` ABC with `EnvSecretStore` (dev) and `AwsSecretsManagerStore` (SaaS, boto3 + asyncio.to_thread).
+- `WebhookConnector` (outbound HTTP via httpx; auth headers from a SecretStore key) and `S3Connector` (boto3 S3 wrapped in asyncio.to_thread; `trigger_poll` emits new keys via an in-memory cursor).
+- `ConnectorRegistry` plus `ConnectorSendTool` and `ConnectorQueryTool` for agent access. Capability allowlist still gates whether the agent can call connector tools.
+
+164 unit tests passing (was 138). Ruff and mypy strict clean across 89 source files.
+
+Next up per `docs/BUILD_PLAN.md`: **Phase 2 / Week 8 — Cost metering and budget enforcement.** Token attribution chain (step agent → workflow instance → workflow definition → system), real-time tracking at all three levels, configurable budget actions (`notify` / `pause` / `escalate`; `degrade` deferred until model-quality data exists). Cost dashboard widget. M365/Google/Slack connectors remain deferred until a workload pulls them in.
 
 Run `git log --oneline` for the live state of the tree.
 
