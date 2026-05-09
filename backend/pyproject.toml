@@ -18,6 +18,7 @@ dependencies = [
     "alembic>=1.13",
     "greenlet>=3.0",
     "pyjwt[crypto]>=2.10",
+    "simpleeval>=1.0",
 ]
 
 [dependency-groups]
@@ -90,5 +91,5 @@ files = ["src", "tests"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["fitz", "pytesseract", "pdf2image", "pdf2image.*", "boto3", "botocore.*"]
+module = ["fitz", "pytesseract", "pdf2image", "pdf2image.*", "boto3", "botocore.*", "simpleeval"]
 ignore_missing_imports = true

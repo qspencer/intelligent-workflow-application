@@ -24,6 +24,13 @@ class TriggerSpec(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
 
 
+class StepRuntimePolicy(BaseModel):
+    """Runtime constraints common to all step types."""
+
+    retries: int = 0
+    timeout_seconds: float | None = None
+
+
 class DeterministicStep(BaseModel):
     id: str
     type: Literal["deterministic"] = "deterministic"
@@ -31,6 +38,7 @@ class DeterministicStep(BaseModel):
     config: dict[str, Any] = Field(default_factory=dict)
     outputs: list[str] = Field(default_factory=list)
     capabilities: CapabilityPolicy | None = None
+    runtime: StepRuntimePolicy = Field(default_factory=StepRuntimePolicy)
 
 
 class AgenticStepPolicy(BaseModel):
@@ -49,22 +57,32 @@ class AgenticStep(BaseModel):
     policy: AgenticStepPolicy = Field(default_factory=AgenticStepPolicy)
     outputs: list[str] = Field(default_factory=list)
     capabilities: CapabilityPolicy | None = None
+    runtime: StepRuntimePolicy = Field(default_factory=StepRuntimePolicy)
 
 
 Step = Annotated[DeterministicStep | AgenticStep, Field(discriminator="type")]
 
 
 class Edge(BaseModel):
-    """Directed edge in the DAG. Uses the schema's `from` / `to` keys."""
+    """Directed edge in the DAG. Uses the schema's `from` / `to` keys.
+
+    `condition` (optional) is a sandboxed Python expression evaluated against the
+    workflow context after the source step completes. If it returns falsy the
+    edge is "inactive" — the target won't be entered through this edge. A target
+    whose every incoming edge is inactive is marked SKIPPED (and the skip
+    propagates downstream).
+    """
 
     model_config = ConfigDict(populate_by_name=True)
 
     source: str = Field(alias="from")
     target: str = Field(alias="to")
+    condition: str | None = None
 
 
 class WorkflowPolicy(BaseModel):
     max_total_tokens: int | None = None
+    timeout_seconds: float | None = None
 
 
 class WorkflowDefinition(BaseModel):

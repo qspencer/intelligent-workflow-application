@@ -41,9 +41,24 @@ Lessons learned across sessions live in the auto-memory system. Update it as you
 
 **Phase 0 success criteria met:** workflow runs end to end against MockWorld with full audit trail, the same workflow re-runs as a deterministic test in CI in <1 s, and the architecture is shaped so a second engineer can add a tool or step function in under a day.
 
-**Phase 1 / Week 4 (security spine) is complete.** Capability model + intersection (system → workflow → step → runtime, most restrictive wins), capability enforcement in Agent dispatch + FileRead/FileWrite/PdfExtract tools, OIDC token validation (PyJWT against JWKS, issuer/audience/expiry checks) with a `dev` mode bypass for local development, RBAC with five roles (Admin / Workflow Designer / Operator / Viewer / Auditor) mapped from IdP groups, FastAPI auth middleware + `require_roles` dependency on the audit endpoints. 100 unit tests passing.
+**Phase 1 / Weeks 4–5 are complete.** Security spine + executor depth + memory + a second trigger.
 
-Next up per `docs/BUILD_PLAN.md`: **Week 5 — Executor depth and memory.** Parallel step execution (independent steps run concurrently), conditional edges, pause/resume + per-step retry + per-step + per-workflow timeouts, agent memory Phase A (text files per agent identity, append-only, no compaction yet), webhook trigger as a second trigger to validate the plugin shape. Don't build out of order.
+Week 4 (security spine):
+- Capability model + intersection (system → workflow → step → runtime, most restrictive wins), enforced in Agent dispatch + FileRead/FileWrite/PdfExtract tools.
+- OIDC validation (PyJWT against JWKS, iss/aud/exp checks) with a `dev` header-based bypass for local development.
+- RBAC: 5 roles (Admin / Workflow Designer / Operator / Viewer / Auditor) mapped from IdP groups, AuthMiddleware + `require_roles` dependency on audit endpoints.
+
+Week 5 (executor depth + memory + second trigger):
+- Parallel DAG execution (asyncio.wait FIRST_COMPLETED, edge-driven readiness; failure cancels in-flight siblings).
+- Conditional edges with simpleeval-sandboxed expressions; targets whose every incoming edge is inactive transition to SKIPPED, and skip propagates downstream.
+- Per-step retries (`runtime.retries`) + per-step / per-workflow timeouts (`runtime.timeout_seconds`, `policies.timeout_seconds`); `step_retry` audit entries.
+- Pause/resume: `WorkflowInstanceState.PAUSED`, between-step state polling, `engine.resume(definition, instance_id)` continues from where it left off; `POST /api/workflow-instances/{id}/{pause,resume}` (Admin/Operator).
+- Agent memory Phase A: `MemoryManager` (file-backed, structured Markdown), engine prepends loaded memory to each agentic step's system prompt under "Prior agent memory".
+- Webhook trigger: `WebhookRegistry` + `WebhookTrigger`; `POST /api/triggers/webhook/{trigger_id}` is exempt from user-auth middleware (production must add HMAC verification).
+
+121 unit tests passing (was 100). Ruff and mypy strict clean across 72 source files.
+
+Next up per `docs/BUILD_PLAN.md`: **Week 6 — Static dashboard and operator workflow.** Angular dashboard (workflow definitions list, instance list with status, instance detail with step trace, retry/pause/kill buttons, audit log query view); WebSocket for live status updates; replay-mode CLI to re-run any past instance from its recording. Don't build out of order; Phase 2 connectors (M365/Google/Slack), generative UI, and cost analyst remain deferred.
 
 Run `git log --oneline` for the live state of the tree.
 

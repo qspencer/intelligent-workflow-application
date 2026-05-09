@@ -24,6 +24,7 @@ from workflow_platform.auth.oidc import OidcValidator
 from workflow_platform.auth.rbac import assign_roles
 
 UNAUTHENTICATED_PATHS = {"/api/health", "/openapi.json", "/docs", "/redoc"}
+UNAUTHENTICATED_PREFIXES = ("/api/triggers/webhook/",)
 
 
 def auth_mode() -> str:
@@ -53,7 +54,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
-        if request.url.path in UNAUTHENTICATED_PATHS:
+        path = request.url.path
+        if path in UNAUTHENTICATED_PATHS or path.startswith(UNAUTHENTICATED_PREFIXES):
             return await call_next(request)
 
         mode = auth_mode()

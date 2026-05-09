@@ -26,6 +26,7 @@ def _new_id() -> str:
 class WorkflowInstanceState(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
+    PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
 
@@ -35,6 +36,7 @@ class StepExecutionState(StrEnum):
     RUNNING = "running"
     COMPLETED = "completed"
     FAILED = "failed"
+    SKIPPED = "skipped"
 
 
 class WorkflowInstance(BaseModel):
