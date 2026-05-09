@@ -12,7 +12,7 @@ import asyncio
 from pathlib import Path
 from typing import Any, ClassVar
 
-from workflow_platform.tools.base import Tool, ToolResult
+from workflow_platform.tools.base import Tool, ToolContext, ToolResult
 
 
 class PdfExtractTool(Tool):
@@ -35,7 +35,9 @@ class PdfExtractTool(Tool):
 
     NATIVE_THRESHOLD: ClassVar[int] = 30
 
-    async def execute(self, params: dict[str, Any]) -> ToolResult:
+    async def execute(
+        self, params: dict[str, Any], context: ToolContext | None = None
+    ) -> ToolResult:
         filepath = params.get("filepath")
         if not isinstance(filepath, str) or not filepath:
             return ToolResult(error="filepath is required")

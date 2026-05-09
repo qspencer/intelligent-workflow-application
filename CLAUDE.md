@@ -26,9 +26,17 @@ Lessons learned across sessions live in the auto-memory system. Update it as you
 
 ## Current status
 
-The repository is on `main`. Phase 0 / Week 1 is complete: repo scaffold, `uv`-managed Python 3.12 backend with FastAPI, Bedrock wrapper with live/record/replay modes, Tool ABC, `pdf_extract` ported from the prototype, 14 tests passing, ruff + mypy strict + GitHub Actions CI, backend Dockerfile with tesseract + poppler, docker-compose with Postgres staged for Week 3.
+Phase 0 / Weeks 1–2 are complete on `main`:
 
-Next up per `docs/BUILD_PLAN.md`: **Week 2 — Agent class with tool-use loop, and the mock-world testing primitive.** Don't build out of order. When asked to do work that belongs to a later phase, push back and explain why it's deferred.
+- Repo scaffold, `uv`-managed Python 3.12 backend, FastAPI, ruff + mypy strict + GitHub Actions CI, backend Dockerfile with tesseract + poppler, docker-compose with Postgres staged for Week 3.
+- Bedrock wrapper with live/record/replay modes; tests cannot accidentally hit AWS.
+- `Tool` ABC with `ToolContext` (carries world reference + agent identity).
+- `pdf_extract` ported from the prototype; `file_read` / `file_write` exercise the World abstraction.
+- `World` abstraction: `Filesystem` (substantive), `Messaging` and `Database` (stubs scaffolded for Week 7's connector framework). `RealWorld` for production, `MockWorld` for tests.
+- `Agent` class with tool-use loop, `AgentPolicy` (max iterations, max total tokens, inference config), `AgentUsage` tracking, full conversation + per-call tool log on `AgentResult`.
+- 42 tests passing; one OCR test skips when tesseract is absent locally.
+
+Next up per `docs/BUILD_PLAN.md`: **Week 3 — Workflow engine and first end-to-end run.** DAG executor (sequential, no parallel/conditional yet — those land in Phase 1), workflow definition loader, file-watch trigger, Postgres tables + audit log writes from the first run. Don't build out of order; if asked for a later-phase feature, push back and explain why it's deferred.
 
 Run `git log --oneline` for the live state of the tree.
 
