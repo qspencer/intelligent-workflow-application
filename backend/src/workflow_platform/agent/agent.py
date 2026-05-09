@@ -185,6 +185,12 @@ class Agent:
     async def _dispatch(
         self, name: str, params: dict[str, Any], context: ToolContext | None
     ) -> ToolResult:
+        if (
+            context is not None
+            and context.capabilities is not None
+            and not context.capabilities.tool_allowed(name)
+        ):
+            return ToolResult(error=f"Capability denied: tool {name!r} is not in the allowlist")
         tool = self.registry.get(name)
         if tool is None:
             return ToolResult(error=f"Unknown tool: {name}")

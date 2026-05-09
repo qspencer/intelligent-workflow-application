@@ -31,7 +31,11 @@ async def pdf_extract(
     if not filepath:
         raise StepFailure("pdf_extract requires `filepath` or `filepath_from` in config")
 
-    tool_ctx = ToolContext(world=world, workflow_instance_id=context.instance_id)
+    tool_ctx = ToolContext(
+        world=world,
+        workflow_instance_id=context.instance_id,
+        capabilities=context.capabilities,
+    )
     result = await PdfExtractTool().execute({"filepath": filepath}, context=tool_ctx)
     if not result.ok:
         raise StepFailure(result.error or "pdf_extract failed")

@@ -32,6 +32,8 @@ class FileReadTool(Tool):
             return ToolResult(error="path is required")
         if context is None or context.world is None:
             return ToolResult(error="world unavailable")
+        if context.capabilities is not None and not context.capabilities.can_read(path):
+            return ToolResult(error=f"Capability denied: read {path!r} is outside file_read ACL")
         try:
             text = await context.world.fs.read_text(path)
         except FileNotFoundError:
@@ -66,6 +68,8 @@ class FileWriteTool(Tool):
             return ToolResult(error="content is required and must be a string")
         if context is None or context.world is None:
             return ToolResult(error="world unavailable")
+        if context.capabilities is not None and not context.capabilities.can_write(path):
+            return ToolResult(error=f"Capability denied: write {path!r} is outside file_write ACL")
         try:
             await context.world.fs.write_text(path, content)
         except Exception as exc:

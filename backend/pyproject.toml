@@ -17,6 +17,7 @@ dependencies = [
     "asyncpg>=0.30",
     "alembic>=1.13",
     "greenlet>=3.0",
+    "pyjwt[crypto]>=2.10",
 ]
 
 [dependency-groups]
@@ -63,6 +64,19 @@ select = [
 ]
 ignore = [
     "E501",  # line length handled by formatter
+]
+
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's Depends/Query/Path/Body etc. are idiomatic in default positions,
+# as are project dependency factories that wrap Depends.
+extend-immutable-calls = [
+    "fastapi.Depends",
+    "fastapi.Query",
+    "fastapi.Path",
+    "fastapi.Body",
+    "fastapi.Header",
+    "workflow_platform.auth.require_roles",
+    "workflow_platform.auth.rbac.require_roles",
 ]
 
 [tool.ruff.format]

@@ -41,6 +41,14 @@ class PdfExtractTool(Tool):
         filepath = params.get("filepath")
         if not isinstance(filepath, str) or not filepath:
             return ToolResult(error="filepath is required")
+        if (
+            context is not None
+            and context.capabilities is not None
+            and not context.capabilities.can_read(filepath)
+        ):
+            return ToolResult(
+                error=f"Capability denied: read {filepath!r} is outside file_read ACL"
+            )
         path = Path(filepath)
         if not path.is_file():
             return ToolResult(error=f"File not found: {filepath}")

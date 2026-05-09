@@ -14,6 +14,8 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from workflow_platform.security import CapabilityPolicy
+
 
 class TriggerSpec(BaseModel):
     """Declarative trigger config. The trigger registry resolves `type` at runtime."""
@@ -28,6 +30,7 @@ class DeterministicStep(BaseModel):
     function: str
     config: dict[str, Any] = Field(default_factory=dict)
     outputs: list[str] = Field(default_factory=list)
+    capabilities: CapabilityPolicy | None = None
 
 
 class AgenticStepPolicy(BaseModel):
@@ -45,6 +48,7 @@ class AgenticStep(BaseModel):
     system_prompt: str | None = None
     policy: AgenticStepPolicy = Field(default_factory=AgenticStepPolicy)
     outputs: list[str] = Field(default_factory=list)
+    capabilities: CapabilityPolicy | None = None
 
 
 Step = Annotated[DeterministicStep | AgenticStep, Field(discriminator="type")]
@@ -71,3 +75,4 @@ class WorkflowDefinition(BaseModel):
     steps: list[Step]
     edges: list[Edge] = Field(default_factory=list)
     policies: WorkflowPolicy = Field(default_factory=WorkflowPolicy)
+    capabilities: CapabilityPolicy | None = None

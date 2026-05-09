@@ -17,6 +17,7 @@ from fastapi import FastAPI
 
 from workflow_platform import __version__
 from workflow_platform.api.workflows import build_router
+from workflow_platform.auth import AuthMiddleware
 from workflow_platform.persistence import Repositories, in_memory_repositories
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
@@ -53,6 +54,7 @@ def create_app(repositories: Repositories | None = None) -> FastAPI:
         version=__version__,
         lifespan=lifespan,
     )
+    app.add_middleware(AuthMiddleware)
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:

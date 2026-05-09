@@ -12,6 +12,7 @@ from typing import Any, ClassVar
 
 from pydantic import BaseModel, ConfigDict
 
+from workflow_platform.security import ResolvedCapabilities
 from workflow_platform.world import World
 
 
@@ -28,6 +29,7 @@ class ToolContext(BaseModel):
     world: World | None = None
     agent_id: str | None = None
     workflow_instance_id: str | None = None
+    capabilities: ResolvedCapabilities | None = None
 
 
 class ToolResult(BaseModel):

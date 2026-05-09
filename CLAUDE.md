@@ -41,7 +41,9 @@ Lessons learned across sessions live in the auto-memory system. Update it as you
 
 **Phase 0 success criteria met:** workflow runs end to end against MockWorld with full audit trail, the same workflow re-runs as a deterministic test in CI in <1 s, and the architecture is shaped so a second engineer can add a tool or step function in under a day.
 
-Next up per `docs/BUILD_PLAN.md`: **Phase 1 / Week 4 — Security spine.** OIDC integration, RBAC roles + IdP-group mapping, agent capabilities (tools, file ACLs, network ACLs, max tokens) with runtime enforcement before every tool call. *Capabilities are not retrofittable; they land before the executor gets more capable.* Don't build out of order; if asked for a later-phase feature, push back and explain why it's deferred.
+**Phase 1 / Week 4 (security spine) is complete.** Capability model + intersection (system → workflow → step → runtime, most restrictive wins), capability enforcement in Agent dispatch + FileRead/FileWrite/PdfExtract tools, OIDC token validation (PyJWT against JWKS, issuer/audience/expiry checks) with a `dev` mode bypass for local development, RBAC with five roles (Admin / Workflow Designer / Operator / Viewer / Auditor) mapped from IdP groups, FastAPI auth middleware + `require_roles` dependency on the audit endpoints. 100 unit tests passing.
+
+Next up per `docs/BUILD_PLAN.md`: **Week 5 — Executor depth and memory.** Parallel step execution (independent steps run concurrently), conditional edges, pause/resume + per-step retry + per-step + per-workflow timeouts, agent memory Phase A (text files per agent identity, append-only, no compaction yet), webhook trigger as a second trigger to validate the plugin shape. Don't build out of order.
 
 Run `git log --oneline` for the live state of the tree.
 

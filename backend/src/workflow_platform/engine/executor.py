@@ -30,6 +30,8 @@ from workflow_platform.persistence import (
     WorkflowInstanceState,
 )
 from workflow_platform.persistence.models import _new_id, _utcnow
+from workflow_platform.security import CapabilityPolicy, resolve_capabilities
+from workflow_platform.security.capabilities import ResolvedCapabilities
 from workflow_platform.tools import Tool, ToolContext
 from workflow_platform.workflow import (
     AgenticStep,
@@ -68,6 +70,7 @@ class WorkflowEngine:
     tools: ToolCatalog
     bedrock: BedrockClient
     world: World
+    system_capabilities: CapabilityPolicy | None = None
 
     async def run(
         self,
@@ -100,7 +103,11 @@ class WorkflowEngine:
 
         try:
             for step_id in ordered_step_ids:
-                await self._run_step(steps_by_id[step_id], context, instance.id)
+                step = steps_by_id[step_id]
+                capabilities = resolve_capabilities(
+                    self.system_capabilities, definition.capabilities, step.capabilities
+                )
+                await self._run_step(step, context, instance.id, capabilities)
             instance = await self._mark_instance(
                 instance, WorkflowInstanceState.COMPLETED, context, error=None
             )
@@ -129,6 +136,7 @@ class WorkflowEngine:
         step: DeterministicStep | AgenticStep,
         context: WorkflowContext,
         instance_id: str,
+        capabilities: ResolvedCapabilities,
     ) -> None:
         execution = StepExecution(
             instance_id=instance_id,
@@ -148,9 +156,9 @@ class WorkflowEngine:
 
         try:
             if isinstance(step, DeterministicStep):
-                output = await self._run_deterministic(step, context)
+                output = await self._run_deterministic(step, context, capabilities)
             else:
-                output = await self._run_agentic(step, context, instance_id)
+                output = await self._run_agentic(step, context, instance_id, capabilities)
         except StepFailure as exc:
             execution.state = StepExecutionState.FAILED
             execution.error = str(exc)
@@ -181,11 +189,17 @@ class WorkflowEngine:
         )
 
     async def _run_deterministic(
-        self, step: DeterministicStep, context: WorkflowContext
+        self,
+        step: DeterministicStep,
+        context: WorkflowContext,
+        capabilities: ResolvedCapabilities,
     ) -> dict[str, Any]:
         fn = self.functions.get(step.function)
         if fn is None:
             raise StepFailure(f"Unknown step function: {step.function!r}")
+        # Capabilities are exposed on the WorkflowContext so step functions /
+        # tools they call can enforce ACLs.
+        context.capabilities = capabilities
         return await fn(step.config, context, self.world)
 
     async def _run_agentic(
@@ -193,6 +207,7 @@ class WorkflowEngine:
         step: AgenticStep,
         context: WorkflowContext,
         instance_id: str,
+        capabilities: ResolvedCapabilities,
     ) -> dict[str, Any]:
         registry = AgentToolRegistry()
         for tool_name in step.tools:
@@ -216,7 +231,10 @@ class WorkflowEngine:
         user_message = _build_user_message(step, context)
         agent_id = f"agent:{step.id}"
         tool_ctx = ToolContext(
-            world=self.world, agent_id=agent_id, workflow_instance_id=instance_id
+            world=self.world,
+            agent_id=agent_id,
+            workflow_instance_id=instance_id,
+            capabilities=capabilities,
         )
         result = await agent.run(user_message, context=tool_ctx)
 
