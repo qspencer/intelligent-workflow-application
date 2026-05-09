@@ -98,6 +98,18 @@ class PostgresInstanceRepo(InstanceRepo):
             rows = result.scalars().all()
         return [_from_instance_row(r) for r in rows]
 
+    async def list_recent(
+        self, limit: int = 1000, since: datetime | None = None
+    ) -> list[WorkflowInstance]:
+        async with self._sf() as s:
+            stmt = select(WorkflowInstanceRow).order_by(WorkflowInstanceRow.created_at.desc())
+            if since is not None:
+                stmt = stmt.where(WorkflowInstanceRow.created_at >= since)
+            stmt = stmt.limit(max(0, limit))
+            result = await s.execute(stmt)
+            rows = result.scalars().all()
+        return [_from_instance_row(r) for r in rows]
+
 
 class PostgresStepExecutionRepo(StepExecutionRepo):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:

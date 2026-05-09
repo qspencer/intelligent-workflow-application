@@ -64,6 +64,15 @@ class InMemoryInstanceRepo(InstanceRepo):
             i.model_copy(deep=True) for i in self._items.values() if i.workflow_id == workflow_id
         ]
 
+    async def list_recent(
+        self, limit: int = 1000, since: datetime | None = None
+    ) -> list[WorkflowInstance]:
+        items = list(self._items.values())
+        if since is not None:
+            items = [i for i in items if i.created_at >= since]
+        items.sort(key=lambda i: i.created_at, reverse=True)
+        return [i.model_copy(deep=True) for i in items[: max(0, limit)]]
+
 
 class InMemoryStepExecutionRepo(StepExecutionRepo):
     def __init__(self) -> None:

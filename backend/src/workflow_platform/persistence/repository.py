@@ -44,6 +44,12 @@ class InstanceRepo(ABC):
     @abstractmethod
     async def list_by_workflow(self, workflow_id: str) -> list[WorkflowInstance]: ...
 
+    @abstractmethod
+    async def list_recent(
+        self, limit: int = 1000, since: datetime | None = None
+    ) -> list[WorkflowInstance]:
+        """System-wide list of instances ordered by created_at DESC."""
+
 
 class StepExecutionRepo(ABC):
     @abstractmethod

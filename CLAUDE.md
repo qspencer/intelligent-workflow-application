@@ -86,7 +86,16 @@ Week 5 (executor depth + memory + second trigger):
 
 180 unit tests passing (was 164). Ruff and mypy strict clean across 93 source files.
 
-Next up per `docs/BUILD_PLAN.md`: **Phase 2 / Week 9 — Orchestrator (passive monitoring only).** Background async monitoring loop checking stuck workflows, error rate, queue depth, token burn rate; threshold-based alerts to the dashboard; escalation receiver where workflow agents can post escalation requests + humans resolve via the dashboard. **No LLM-driven active reasoning yet** — defer until enough running workflows exist to give it real signal.
+**Phase 2 / Week 9 (passive orchestrator) is complete.**
+
+- `MonitoringService` runs an async background loop with configurable `interval_seconds`. Four threshold-based checks emit `alert_*` audit entries (and EventBus events when wired): `alert_stuck_workflow` (per-instance, fires once per process), `alert_high_error_rate` (rate over a recent window with a min-sample floor), `alert_high_queue_depth` (PENDING count), `alert_high_token_burn` (sum across recent agentic step outputs). `run_once(now=)` is exposed for deterministic tests.
+- New `InstanceRepo.list_recent(limit, since)` on both in-memory and Postgres impls so the loop can scan system-wide instances without going through every workflow definition.
+- `RequestHumanReviewTool` (`request_human_review`) writes an `escalation_requested` audit entry; per `docs/ARCHITECTURE.md` D7 this is the human-operator hop. `GET /api/escalations` lists pending (filters out resolved); `POST /api/escalations/{id}/resolve` (Admin/Operator) appends an `escalation_resolved` entry referencing the original.
+- **No LLM-driven active reasoning yet** — strictly deterministic checks. The active-reasoning orchestrator lands when there's enough running-workflow signal to make its decisions worth making.
+
+197 unit tests passing (was 180). Ruff and mypy strict clean across 98 source files.
+
+Next up per `docs/BUILD_PLAN.md`: **Phase 2 / Week 10 — Generality validation.** A third workflow of a deliberately different shape (scheduled report generation, or a contract-review flow that branches on document type), workflow definition export/import (JSON/YAML), and tighten anything brittle. Reassessment checkpoint at the end of Phase 2.
 
 Run `git log --oneline` for the live state of the tree.
 

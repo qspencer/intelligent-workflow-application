@@ -212,6 +212,83 @@ def build_router(
                 )
             return {"status": "fired", "trigger_id": trigger_id}
 
+    @router.get("/escalations")
+    async def list_escalations(
+        state: str = "pending",
+        limit: int = 50,
+        _: UserIdentity = Depends(current_user),
+    ) -> list[dict[str, Any]]:
+        # Walk the recent audit log; pair `escalation_requested` with
+        # `escalation_resolved` entries that reference them.
+        audit = await repositories.audit.list_recent(limit=2000)
+        resolved_ids: set[str] = {
+            str(e.detail.get("original_id"))
+            for e in audit
+            if e.action == "escalation_resolved" and e.detail.get("original_id")
+        }
+        requested = [e for e in audit if e.action == "escalation_requested"]
+        if state == "pending":
+            requested = [e for e in requested if e.id not in resolved_ids]
+        return [
+            {
+                "id": e.id,
+                "instance_id": e.workflow_instance_id,
+                "step_id": e.step_id,
+                "actor_id": e.actor_id,
+                "reason": e.detail.get("reason"),
+                "context": e.detail.get("context"),
+                "created_at": e.timestamp.isoformat(),
+                "resolved": e.id in resolved_ids,
+            }
+            for e in requested[: max(1, min(limit, 200))]
+        ]
+
+    @router.post("/escalations/{escalation_id}/resolve")
+    async def resolve_escalation(
+        escalation_id: str,
+        body: dict[str, Any],
+        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+    ) -> dict[str, Any]:
+        from workflow_platform.persistence.models import (
+            AuditEntry as _AuditEntry,
+        )
+        from workflow_platform.persistence.models import (
+            _new_id,
+            _utcnow,
+        )
+
+        audit = await repositories.audit.list_recent(limit=2000)
+        requested = next(
+            (e for e in audit if e.id == escalation_id and e.action == "escalation_requested"),
+            None,
+        )
+        if requested is None:
+            raise HTTPException(status_code=404, detail="Escalation not found")
+
+        already = any(
+            e.action == "escalation_resolved" and e.detail.get("original_id") == escalation_id
+            for e in audit
+        )
+        if already:
+            raise HTTPException(status_code=400, detail="Escalation already resolved")
+
+        await repositories.audit.append(
+            _AuditEntry(
+                id=_new_id(),
+                timestamp=_utcnow(),
+                actor_type="human",
+                actor_id=user.sub,
+                action="escalation_resolved",
+                workflow_instance_id=requested.workflow_instance_id,
+                step_id=requested.step_id,
+                detail={
+                    "original_id": escalation_id,
+                    "resolution": body.get("resolution", ""),
+                },
+            )
+        )
+        return {"status": "resolved", "escalation_id": escalation_id}
+
     cost_service = CostReportService(repositories)
 
     def _parse_since(raw: str | None) -> datetime | None:
