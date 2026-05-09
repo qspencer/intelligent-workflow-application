@@ -21,6 +21,7 @@ All design docs live under `docs/`. The `README.md` at the root has the quick-st
 | `docs/INTEGRATIONS.md` | Connector strategy, tier 1–3 priorities |
 | `docs/GENERATIVE_UI.md` | Conversational UI generation (deferred until Phase 2+) |
 | `docs/AGENT_SETUP.md` | How this project is configured for Claude Code |
+| `docs/BEDROCK_SETUP.md` | Operator-facing AWS Bedrock onboarding (model access, inference profiles, use-case form, quotas) |
 
 Lessons learned across sessions live in the auto-memory system. Update it as you discover things worth remembering. Memory takes precedence over assumptions; verify before acting on it.
 
