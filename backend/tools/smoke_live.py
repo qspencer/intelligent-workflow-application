@@ -23,18 +23,18 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
-from workflow_platform.bedrock import BedrockClient, BedrockMode  # noqa: E402
-from workflow_platform.engine import (  # noqa: E402
+from workflow_platform.bedrock import BedrockClient, BedrockMode
+from workflow_platform.engine import (
     FunctionRegistry,
     ToolCatalog,
     WorkflowEngine,
 )
-from workflow_platform.persistence import (  # noqa: E402
+from workflow_platform.persistence import (
     WorkflowInstanceState,
     in_memory_repositories,
 )
-from workflow_platform.workflow import load_definition  # noqa: E402
-from workflow_platform.world import mock_world  # noqa: E402
+from workflow_platform.workflow import load_definition
+from workflow_platform.world import mock_world
 
 MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
@@ -45,9 +45,7 @@ async def step_1_direct_converse() -> None:
     start = time.perf_counter()
     response = await bedrock.converse(
         model_id=MODEL,
-        messages=[
-            {"role": "user", "content": [{"text": "Reply with one word: alive."}]}
-        ],
+        messages=[{"role": "user", "content": [{"text": "Reply with one word: alive."}]}],
         inference_config={"maxTokens": 20, "temperature": 0.0},
     )
     elapsed = time.perf_counter() - start
@@ -72,9 +70,7 @@ async def step_2_agent_no_tools() -> None:
     elapsed = time.perf_counter() - start
     print(f"  output ({elapsed:.2f}s): {result.output_text!r}")
     print(f"  stop_reason: {result.stop_reason.value}")
-    print(
-        f"  usage: tokens={result.usage.total_tokens} iterations={result.usage.iterations}"
-    )
+    print(f"  usage: tokens={result.usage.total_tokens} iterations={result.usage.iterations}")
 
 
 async def step_3_workflow_engine() -> None:
