@@ -1,0 +1,25 @@
+# Copy to terraform.tfvars and edit. terraform.tfvars is gitignored.
+
+region        = "us-east-1"
+environment   = "dev"
+project_name  = "workflow-platform"
+
+# Sized for a low-traffic dev workload. Bump CPU/memory or desired_count
+# when you add real load.
+container_cpu    = 512
+container_memory = 1024
+desired_count    = 1
+
+db_instance_class = "db.t4g.micro"
+db_storage_gb     = 20
+
+# Override on `terraform apply` once your image is pushed to ECR. Until then
+# the service runs the placeholder image and stays unhealthy — that's fine.
+# container_image = "<account>.dkr.ecr.us-east-1.amazonaws.com/workflow-platform-backend:latest"
+
+auth_mode = "dev"  # switch to "oidc" once an IdP is wired up
+
+# Tighten for production: use the inference-profile ARN you actually call.
+# bedrock_model_arns = [
+#   "arn:aws:bedrock:us-east-1:<account>:inference-profile/us.anthropic.claude-haiku-4-5-20251001-v1:0",
+# ]

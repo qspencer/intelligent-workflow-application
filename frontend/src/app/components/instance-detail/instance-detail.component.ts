@@ -17,7 +17,8 @@ import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../
       <p>Loading…</p>
     } @else if (error()) {
       <p class="error">{{ error() }}</p>
-    } @else if (instance(); as inst) {
+    } @else if (instance()) {
+      @let inst = instance()!;
       <h2>
         Instance <code>{{ short(inst.id) }}</code>
         <span class="badge" [class]="'badge ' + inst.state">{{ inst.state }}</span>
