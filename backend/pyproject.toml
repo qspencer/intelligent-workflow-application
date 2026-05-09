@@ -19,6 +19,8 @@ dependencies = [
     "greenlet>=3.0",
     "pyjwt[crypto]>=2.10",
     "simpleeval>=1.0",
+    "croniter>=2.0",
+    "PyYAML>=6.0",
 ]
 
 [dependency-groups]
@@ -28,6 +30,8 @@ dev = [
     "pytest-cov>=5.0",
     "ruff>=0.7",
     "mypy>=1.13",
+    "types-PyYAML>=6.0",
+    "types-croniter>=2.0",
 ]
 
 [build-system]

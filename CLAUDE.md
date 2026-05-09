@@ -95,7 +95,23 @@ Week 5 (executor depth + memory + second trigger):
 
 197 unit tests passing (was 180). Ruff and mypy strict clean across 98 source files.
 
-Next up per `docs/BUILD_PLAN.md`: **Phase 2 / Week 10 — Generality validation.** A third workflow of a deliberately different shape (scheduled report generation, or a contract-review flow that branches on document type), workflow definition export/import (JSON/YAML), and tighten anything brittle. Reassessment checkpoint at the end of Phase 2.
+**Phase 2 is complete.** Week 10 closed it with a third workflow shape (`ScheduleTrigger` via `croniter`), JSON/YAML export-import for definitions, and explicit verification of all four Phase 2 success criteria.
+
+Week 10:
+- `ScheduleTrigger`: cron expression (optional timezone) or `interval_seconds` shorthand. Background loop sleeps until next fire; callback exceptions don't kill the loop.
+- `dump_definition_to_{json,yaml}` + `load_definition_from_yaml`. `GET /api/workflows/{id}/export?format=json|yaml` returns the right Content-Type; `POST /api/workflows/import` accepts JSON or YAML body (Designer/Admin role-gated; 400 on invalid).
+- 4 Phase 2 verification tests pass: three concurrent shapes against local fs + mocked S3; error-rate alert with audit detail (`failed`/`total_terminal`/`rate`/`threshold`); runaway instance pauses while siblings continue; per-workflow / per-day cost reports.
+
+219 unit tests passing (was 197). Ruff and mypy strict clean across 102 source files.
+
+**Re-evaluation checkpoint** per `docs/BUILD_PLAN.md`. Deferred items, revisited at the end of Phase 2:
+- Knowledge ingestion / contextual retrieval (Phases B–F): no concrete workload demanding it. Remain deferred.
+- Generative UI: dashboard polling is sufficient. Remain deferred.
+- M365 / Google / Slack connectors: pull in when a customer asks. Remain deferred.
+- LLM-driven orchestrator active reasoning: passive monitoring covers current needs. Revisit when production traffic produces patterns worth reasoning over.
+- Cost analyst LLM: deterministic cost reports cover operator needs. Revisit when pattern-finding adds real value.
+
+Next steps are operator-facing: production deployment hardening (`docs/IMPLEMENTATION_PLAN.md` Phase 11), structured logging + metrics export for operability, and the customer pull that will sequence which connectors land first. The build plan's three planned phases are done; further work is workload-driven rather than schedule-driven.
 
 Run `git log --oneline` for the live state of the tree.
 

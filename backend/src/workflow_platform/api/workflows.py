@@ -12,10 +12,11 @@ Role gating (per `docs/ARCHITECTURE.md` D4):
 from __future__ import annotations
 
 import asyncio
+import json
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Request, Response
 
 from workflow_platform.auth import Role, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
@@ -29,7 +30,14 @@ from workflow_platform.persistence import (
     WorkflowInstanceState,
 )
 from workflow_platform.triggers import WebhookRegistry
-from workflow_platform.workflow import WorkflowDefinition
+from workflow_platform.workflow import (
+    WorkflowDefinition,
+    WorkflowDefinitionError,
+    dump_definition_to_json,
+    dump_definition_to_yaml,
+    load_definition,
+    load_definition_from_yaml,
+)
 
 
 def build_router(
@@ -55,6 +63,49 @@ def build_router(
         if definition is None:
             raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
         return definition
+
+    @router.get("/workflows/{workflow_id}/export")
+    async def export_workflow(
+        workflow_id: str,
+        format: str = "json",
+        _: UserIdentity = Depends(current_user),
+    ) -> Response:
+        definition = await repositories.definitions.get(workflow_id)
+        if definition is None:
+            raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
+        fmt = format.lower()
+        if fmt == "json":
+            return Response(
+                content=dump_definition_to_json(definition),
+                media_type="application/json",
+            )
+        if fmt in ("yaml", "yml"):
+            return Response(
+                content=dump_definition_to_yaml(definition),
+                media_type="application/yaml",
+            )
+        raise HTTPException(status_code=400, detail=f"Unknown format: {format!r}")
+
+    @router.post("/workflows/import")
+    async def import_workflow(
+        request: Request,
+        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
+    ) -> dict[str, Any]:
+        body = await request.body()
+        text = body.decode("utf-8") if body else ""
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="Empty body")
+        content_type = (request.headers.get("content-type") or "").lower()
+        is_yaml = "yaml" in content_type or not text.lstrip().startswith(("{", "["))
+        try:
+            if is_yaml:
+                definition = load_definition_from_yaml(text)
+            else:
+                definition = load_definition(json.loads(text))
+        except (WorkflowDefinitionError, ValueError) as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        await repositories.definitions.save(definition)
+        return {"status": "imported", "workflow_id": definition.id}
 
     @router.get("/workflow-instances")
     async def list_instances(

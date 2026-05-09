@@ -9,7 +9,13 @@ from workflow_platform.workflow.definition import (
     WorkflowDefinition,
     WorkflowPolicy,
 )
-from workflow_platform.workflow.loader import load_definition, load_definition_from_file
+from workflow_platform.workflow.loader import (
+    dump_definition_to_json,
+    dump_definition_to_yaml,
+    load_definition,
+    load_definition_from_file,
+    load_definition_from_yaml,
+)
 from workflow_platform.workflow.topology import WorkflowDefinitionError, validate_and_order
 
 __all__ = [
@@ -23,7 +29,10 @@ __all__ = [
     "WorkflowDefinition",
     "WorkflowDefinitionError",
     "WorkflowPolicy",
+    "dump_definition_to_json",
+    "dump_definition_to_yaml",
     "load_definition",
     "load_definition_from_file",
+    "load_definition_from_yaml",
     "validate_and_order",
 ]
