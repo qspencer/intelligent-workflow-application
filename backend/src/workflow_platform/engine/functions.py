@@ -1,0 +1,63 @@
+"""Stock deterministic step functions.
+
+Workflows reference these by name in `step.function`. New functions register
+through `FunctionRegistry`.
+"""
+
+from __future__ import annotations
+
+from typing import Any
+
+from workflow_platform.engine.context import WorkflowContext
+from workflow_platform.engine.registry import FunctionRegistry, StepFailure
+from workflow_platform.tools import PdfExtractTool, ToolContext
+from workflow_platform.world import World
+
+
+async def noop(config: dict[str, Any], context: WorkflowContext, world: World) -> dict[str, Any]:
+    """Pass `config` through unchanged. Useful for tests and placeholder steps."""
+    return dict(config)
+
+
+async def pdf_extract(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Extract text from a PDF via PdfExtractTool.
+
+    Reads the file path from `config["filepath"]` if present, else from the
+    dotted context path in `config["filepath_from"]` (e.g. "trigger.file_path").
+    """
+    filepath = config.get("filepath") or _resolve_path(context, config.get("filepath_from"))
+    if not filepath:
+        raise StepFailure("pdf_extract requires `filepath` or `filepath_from` in config")
+
+    tool_ctx = ToolContext(world=world, workflow_instance_id=context.instance_id)
+    result = await PdfExtractTool().execute({"filepath": filepath}, context=tool_ctx)
+    if not result.ok:
+        raise StepFailure(result.error or "pdf_extract failed")
+    return dict(result.content) if isinstance(result.content, dict) else {"value": result.content}
+
+
+def _resolve_path(context: WorkflowContext, dotted: str | None) -> str | None:
+    if not dotted:
+        return None
+    parts = dotted.split(".")
+    head = parts[0]
+    rest = parts[1:]
+    cursor: Any
+    if head == "trigger":
+        cursor = context.trigger
+    elif head == "steps":
+        cursor = context.steps
+    else:
+        return None
+    for part in rest:
+        if not isinstance(cursor, dict) or part not in cursor:
+            return None
+        cursor = cursor[part]
+    return cursor if isinstance(cursor, str) else None
+
+
+def default_function_registry() -> FunctionRegistry:
+    """Registry pre-populated with stock step functions."""
+    return FunctionRegistry({"noop": noop, "pdf_extract": pdf_extract})

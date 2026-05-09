@@ -26,17 +26,22 @@ Lessons learned across sessions live in the auto-memory system. Update it as you
 
 ## Current status
 
-Phase 0 / Weeks 1–2 are complete on `main`:
+**Phase 0 is complete on `main`.** Weeks 1–3 landed:
 
-- Repo scaffold, `uv`-managed Python 3.12 backend, FastAPI, ruff + mypy strict + GitHub Actions CI, backend Dockerfile with tesseract + poppler, docker-compose with Postgres staged for Week 3.
-- Bedrock wrapper with live/record/replay modes; tests cannot accidentally hit AWS.
-- `Tool` ABC with `ToolContext` (carries world reference + agent identity).
-- `pdf_extract` ported from the prototype; `file_read` / `file_write` exercise the World abstraction.
-- `World` abstraction: `Filesystem` (substantive), `Messaging` and `Database` (stubs scaffolded for Week 7's connector framework). `RealWorld` for production, `MockWorld` for tests.
-- `Agent` class with tool-use loop, `AgentPolicy` (max iterations, max total tokens, inference config), `AgentUsage` tracking, full conversation + per-call tool log on `AgentResult`.
-- 42 tests passing; one OCR test skips when tesseract is absent locally.
+- **Spine** — `uv` Python 3.12 backend, FastAPI, ruff + mypy strict, GitHub Actions CI with Postgres service, backend Dockerfile (tesseract + poppler), docker-compose with Postgres.
+- **Bedrock wrapper** — live/record/replay modes; tests cannot accidentally hit AWS.
+- **Tools** — `Tool` ABC with `ToolContext`; `pdf_extract` (ported from the prototype), `file_read` + `file_write` (go through World).
+- **World abstraction** — `Filesystem` substantive on both sides; `Messaging` and `Database` are scaffolds (real impl raises `NotImplementedError` until the Week 7 connector framework). `MockWorld` for tests.
+- **Agent loop** — tool-use loop with `AgentPolicy`, `AgentUsage`, full conversation + per-call tool log on `AgentResult`.
+- **Workflow engine** — `WorkflowDefinition` (Pydantic, discriminated union over deterministic / agentic steps), DAG validator (Kahn's), `WorkflowEngine` walks topological order sequentially. Per-step lifecycle. Audit log writes for every transition + every agent tool call.
+- **Persistence** — repository interface + `InMemoryRepositories` (unit tests) + `PostgresRepositories` (production). SQLAlchemy 2.0 async + asyncpg. Alembic with one migration creating `workflow_definitions`, `workflow_instances`, `step_executions`, `audit_log`.
+- **Triggers** — `Trigger` plugin interface; `FilesystemTrigger` watches a folder.
+- **API** — `/api/health`, `/api/workflows`, `/api/workflow-instances/{id}`, `/api/audit`. Picks Postgres or in-memory repos from `DATABASE_URL`.
+- **Tests** — 62 unit + 2 integration (Postgres-gated). End-to-end test exercises the BUILD_PLAN success criterion (PDF-drop simulation → workflow → MockWorld + audit log) in under one second. Alembic up/down sanity check in CI.
 
-Next up per `docs/BUILD_PLAN.md`: **Week 3 — Workflow engine and first end-to-end run.** DAG executor (sequential, no parallel/conditional yet — those land in Phase 1), workflow definition loader, file-watch trigger, Postgres tables + audit log writes from the first run. Don't build out of order; if asked for a later-phase feature, push back and explain why it's deferred.
+**Phase 0 success criteria met:** workflow runs end to end against MockWorld with full audit trail, the same workflow re-runs as a deterministic test in CI in <1 s, and the architecture is shaped so a second engineer can add a tool or step function in under a day.
+
+Next up per `docs/BUILD_PLAN.md`: **Phase 1 / Week 4 — Security spine.** OIDC integration, RBAC roles + IdP-group mapping, agent capabilities (tools, file ACLs, network ACLs, max tokens) with runtime enforcement before every tool call. *Capabilities are not retrofittable; they land before the executor gets more capable.* Don't build out of order; if asked for a later-phase feature, push back and explain why it's deferred.
 
 Run `git log --oneline` for the live state of the tree.
 
