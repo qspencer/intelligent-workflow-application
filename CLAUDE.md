@@ -58,7 +58,16 @@ Week 5 (executor depth + memory + second trigger):
 
 121 unit tests passing (was 100). Ruff and mypy strict clean across 72 source files.
 
-Next up per `docs/BUILD_PLAN.md`: **Week 6 — Static dashboard and operator workflow.** Angular dashboard (workflow definitions list, instance list with status, instance detail with step trace, retry/pause/kill buttons, audit log query view); WebSocket for live status updates; replay-mode CLI to re-run any past instance from its recording. Don't build out of order; Phase 2 connectors (M365/Google/Slack), generative UI, and cost analyst remain deferred.
+**Phase 1 / Week 6 (static dashboard) is complete.** Backend lifecycle endpoints (kill, retry, list-instances), WebSocket event stream, replay-mode CLI, and a hand-written Angular 18 standalone dashboard.
+
+- Backend: `WorkflowInstanceState.KILLED`, `POST /api/workflow-instances/{id}/kill`, `POST .../retry` (transitions FAILED → resume), `GET /api/workflow-instances` with `workflow_id` / `state` / `limit` filters.
+- WebSocket: `EventBus` mirrors every audit append. `/ws/events` streams JSON to authenticated subscribers; dev mode reads identity from query params, oidc validates a `?token=` JWT.
+- Replay CLI: `tools/replay.py --definition X --trigger '{...}' --recordings-dir Y` re-runs a workflow against in-memory repos + replay-mode Bedrock.
+- Frontend: Angular 18 standalone, three lazy-loaded routes (workflows / instances / instance detail), `ApiService` over `/api`, dev-mode auth interceptor (X-Dev-User from localStorage), polling-based refresh (3-5s), retry/pause/kill/resume buttons, audit log inline. WebSocket integration deferred — polling cadence is sufficient for Week 6.
+
+134 unit tests passing (was 121). Ruff and mypy strict clean across 77 source files. The frontend has no specs yet (will follow component refactors).
+
+End of Phase 1. Next up per `docs/BUILD_PLAN.md`: **Phase 2 / Week 7 — Connector framework + first connectors.** Plugin interface (trigger_listen / trigger_poll / send / query / authenticate / health_check), credential storage (AWS Secrets Manager), generic webhook + S3 connectors. M365/Google/Slack connectors remain deferred until a specific workload demands them.
 
 Run `git log --oneline` for the live state of the tree.
 

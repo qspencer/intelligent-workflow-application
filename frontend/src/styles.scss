@@ -1,0 +1,84 @@
+:root {
+  --bg: #f7f7f8;
+  --panel: #ffffff;
+  --border: #e3e3e6;
+  --text: #1c1c1e;
+  --muted: #6e6e73;
+  --accent: #0066cc;
+  --ok: #1f8a3b;
+  --warn: #b87b00;
+  --err: #c62828;
+  --skip: #6e6e73;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  font: inherit;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 4px;
+  cursor: pointer;
+}
+button:hover {
+  background: #f0f0f3;
+}
+button.danger {
+  border-color: var(--err);
+  color: var(--err);
+}
+
+table {
+  width: 100%;
+  border-collapse: collapse;
+  background: var(--panel);
+  border: 1px solid var(--border);
+}
+th,
+td {
+  text-align: left;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: top;
+}
+th {
+  background: #fafafa;
+  font-weight: 600;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 12px;
+  font-weight: 500;
+  text-transform: capitalize;
+}
+.badge.completed { background: #e6f4ea; color: var(--ok); }
+.badge.running { background: #e6f0fa; color: var(--accent); }
+.badge.failed { background: #fce4e4; color: var(--err); }
+.badge.killed { background: #fce4e4; color: var(--err); }
+.badge.paused { background: #fff4e0; color: var(--warn); }
+.badge.skipped { background: #ececec; color: var(--skip); }
+.badge.pending { background: #ececec; color: var(--muted); }

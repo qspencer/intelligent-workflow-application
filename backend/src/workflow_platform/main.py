@@ -18,8 +18,10 @@ from fastapi import FastAPI
 
 from workflow_platform import __version__
 from workflow_platform.api.workflows import build_router
+from workflow_platform.api.ws import build_ws_router
 from workflow_platform.auth import AuthMiddleware
 from workflow_platform.engine import WorkflowEngine
+from workflow_platform.events import EventBus
 from workflow_platform.persistence import Repositories, in_memory_repositories
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
@@ -44,6 +46,7 @@ def create_app(
     *,
     engine: WorkflowEngine | None = None,
     webhook_registry: WebhookRegistry | None = None,
+    events: EventBus | None = None,
 ) -> FastAPI:
     db_engine: Any | None = None
     if repositories is None:
@@ -69,6 +72,8 @@ def create_app(
         return {"status": "ok", "version": __version__}
 
     app.include_router(build_router(repositories, engine=engine, webhook_registry=webhook_registry))
+    if events is not None:
+        app.include_router(build_ws_router(events))
     return app
 
 

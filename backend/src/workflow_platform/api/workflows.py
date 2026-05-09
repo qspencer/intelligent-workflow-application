@@ -54,6 +54,25 @@ def build_router(
             raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
         return definition
 
+    @router.get("/workflow-instances")
+    async def list_instances(
+        workflow_id: str | None = None,
+        state: str | None = None,
+        limit: int = 50,
+        _: UserIdentity = Depends(current_user),
+    ) -> list[dict[str, Any]]:
+        if workflow_id:
+            items = await repositories.instances.list_by_workflow(workflow_id)
+        else:
+            # No global list method on the repo yet — list across known definitions.
+            items = []
+            for definition in await repositories.definitions.list_all():
+                items.extend(await repositories.instances.list_by_workflow(definition.id))
+        if state:
+            items = [i for i in items if i.state.value == state]
+        items.sort(key=lambda i: i.created_at, reverse=True)
+        return [i.model_dump() for i in items[: max(1, min(limit, 200))]]
+
     @router.get("/workflow-instances/{instance_id}")
     async def get_instance(
         instance_id: str, _: UserIdentity = Depends(current_user)
@@ -109,6 +128,59 @@ def build_router(
         background_tasks.add(task)
         task.add_done_callback(background_tasks.discard)
         return {"status": "resume_started", "instance_id": instance_id}
+
+    @router.post("/workflow-instances/{instance_id}/retry")
+    async def retry_instance(
+        instance_id: str,
+        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+    ) -> dict[str, Any]:
+        if engine is None:
+            raise HTTPException(
+                status_code=503, detail="Retry requires a WorkflowEngine bound to the API."
+            )
+        instance = await repositories.instances.get(instance_id)
+        if instance is None:
+            raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
+        if instance.state != WorkflowInstanceState.FAILED:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot retry: instance is {instance.state.value}",
+            )
+        definition = await repositories.definitions.get(instance.workflow_id)
+        if definition is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Definition {instance.workflow_id} not found; cannot retry.",
+            )
+        # The engine's resume path re-runs failed steps (already_done filters
+        # only COMPLETED + SKIPPED).
+        instance.state = WorkflowInstanceState.PAUSED
+        await repositories.instances.update(instance)
+        task = asyncio.create_task(engine.resume(definition, instance_id))
+        background_tasks.add(task)
+        task.add_done_callback(background_tasks.discard)
+        return {"status": "retry_started", "instance_id": instance_id}
+
+    @router.post("/workflow-instances/{instance_id}/kill")
+    async def kill_instance(
+        instance_id: str,
+        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+    ) -> dict[str, Any]:
+        instance = await repositories.instances.get(instance_id)
+        if instance is None:
+            raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
+        if instance.state in (
+            WorkflowInstanceState.COMPLETED,
+            WorkflowInstanceState.FAILED,
+            WorkflowInstanceState.KILLED,
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot kill: instance is already terminal ({instance.state.value})",
+            )
+        instance.state = WorkflowInstanceState.KILLED
+        await repositories.instances.update(instance)
+        return {"status": "kill_requested", "instance_id": instance_id}
 
     @router.get(
         "/workflow-instances/{instance_id}/audit",

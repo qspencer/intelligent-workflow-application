@@ -1,0 +1,154 @@
+"""Tests for the kill / retry / list-instances API endpoints."""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+import pytest
+from fastapi.testclient import TestClient
+
+from tests._bedrock_fakes import FakeBedrock
+from workflow_platform.engine import FunctionRegistry, ToolCatalog, WorkflowEngine
+from workflow_platform.main import create_app
+from workflow_platform.persistence import (
+    StepExecution,
+    StepExecutionState,
+    WorkflowInstance,
+    WorkflowInstanceState,
+    in_memory_repositories,
+)
+from workflow_platform.workflow import load_definition
+
+
+def _seed(repos: Any) -> None:
+    """Synchronous helper that runs async setup."""
+
+    async def _do() -> None:
+        await repos.definitions.save(
+            load_definition(
+                {
+                    "id": "wf-1",
+                    "name": "wf-1",
+                    "trigger": {"type": "manual"},
+                    "steps": [{"id": "a", "type": "deterministic", "function": "noop"}],
+                    "edges": [],
+                }
+            )
+        )
+        running = WorkflowInstance(workflow_id="wf-1", state=WorkflowInstanceState.RUNNING)
+        await repos.instances.create(running)
+        failed = WorkflowInstance(workflow_id="wf-1", state=WorkflowInstanceState.FAILED)
+        await repos.instances.create(failed)
+        completed = WorkflowInstance(workflow_id="wf-1", state=WorkflowInstanceState.COMPLETED)
+        await repos.instances.create(completed)
+        # Mark the failed instance's step as actually failed so retry has work to do.
+        await repos.steps.create(
+            StepExecution(instance_id=failed.id, step_id="a", state=StepExecutionState.FAILED)
+        )
+
+    asyncio.run(_do())
+
+
+@pytest.fixture
+def dev_app(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, Any, WorkflowEngine]:
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    repos = in_memory_repositories()
+    _seed(repos)
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=FunctionRegistry(),
+        tools=ToolCatalog(),
+        bedrock=FakeBedrock([]),
+        world=__import__("workflow_platform.world", fromlist=["mock_world"]).mock_world(),
+    )
+
+    # noop function so retry's resume can run
+    async def noop(config: dict[str, Any], ctx: Any, world: Any) -> dict[str, Any]:
+        return {}
+
+    engine.functions.register("noop", noop)
+    app = create_app(repositories=repos, engine=engine)
+    return TestClient(app), repos, engine
+
+
+def _admin() -> dict[str, str]:
+    return {"X-Dev-User": "alice", "X-Dev-Groups": "admins"}
+
+
+def _viewer() -> dict[str, str]:
+    return {"X-Dev-User": "bob", "X-Dev-Groups": "viewers"}
+
+
+def test_list_instances_returns_seeded(dev_app: tuple[TestClient, Any, WorkflowEngine]) -> None:
+    client, _repos, _engine = dev_app
+    r = client.get("/api/workflow-instances", headers=_admin())
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 3
+    states = {i["state"] for i in data}
+    assert states == {"running", "failed", "completed"}
+
+
+def test_list_instances_filters_by_state(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, *_ = dev_app
+    r = client.get("/api/workflow-instances?state=failed", headers=_admin())
+    assert r.status_code == 200
+    data = r.json()
+    assert len(data) == 1
+    assert data[0]["state"] == "failed"
+
+
+def test_kill_running_instance(dev_app: tuple[TestClient, Any, WorkflowEngine]) -> None:
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    running_id = next(i.id for i in instances if i.state == WorkflowInstanceState.RUNNING)
+    r = client.post(f"/api/workflow-instances/{running_id}/kill", headers=_admin())
+    assert r.status_code == 200
+    fresh = asyncio.run(repos.instances.get(running_id))
+    assert fresh is not None
+    assert fresh.state == WorkflowInstanceState.KILLED
+
+
+def test_kill_terminal_instance_rejected(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    completed_id = next(i.id for i in instances if i.state == WorkflowInstanceState.COMPLETED)
+    r = client.post(f"/api/workflow-instances/{completed_id}/kill", headers=_admin())
+    assert r.status_code == 400
+
+
+def test_kill_requires_admin_or_operator(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    running_id = next(i.id for i in instances if i.state == WorkflowInstanceState.RUNNING)
+    r = client.post(f"/api/workflow-instances/{running_id}/kill", headers=_viewer())
+    assert r.status_code == 403
+
+
+def test_retry_failed_instance_returns_resume_started(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    failed_id = next(i.id for i in instances if i.state == WorkflowInstanceState.FAILED)
+    r = client.post(f"/api/workflow-instances/{failed_id}/retry", headers=_admin())
+    assert r.status_code == 200
+    assert r.json()["status"] == "retry_started"
+
+
+def test_retry_running_instance_rejected(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    running_id = next(i.id for i in instances if i.state == WorkflowInstanceState.RUNNING)
+    r = client.post(f"/api/workflow-instances/{running_id}/retry", headers=_admin())
+    assert r.status_code == 400

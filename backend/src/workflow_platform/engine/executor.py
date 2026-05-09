@@ -29,6 +29,7 @@ from workflow_platform.agent.registry import ToolRegistry as AgentToolRegistry
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.engine.context import WorkflowContext
 from workflow_platform.engine.registry import FunctionRegistry, StepFailure
+from workflow_platform.events import EventBus
 from workflow_platform.memory import MemoryManager
 from workflow_platform.persistence import (
     AuditEntry,
@@ -56,6 +57,13 @@ logger = logging.getLogger(__name__)
 
 class _PauseRequested(Exception):
     """Internal signal: the instance was paused externally; bail out cleanly."""
+
+
+class _KillRequested(Exception):
+    """Internal signal: the instance was killed externally; bail out cleanly.
+
+    Distinct from pause: KILLED is terminal — the instance cannot be resumed.
+    """
 
 
 class ToolCatalog:
@@ -102,6 +110,7 @@ class WorkflowEngine:
     world: World
     system_capabilities: CapabilityPolicy | None = None
     memory: MemoryManager | None = None
+    events: EventBus | None = None
     pause_check_interval: float = 0.0  # seconds; 0 disables polling-based pause checks
 
     # --- public API ---
@@ -197,6 +206,17 @@ class WorkflowEngine:
             )
             await self._audit(
                 "workflow_paused",
+                actor_type="engine",
+                actor_id="workflow_engine",
+                instance_id=instance.id,
+            )
+            return instance
+        except _KillRequested:
+            instance = await self._mark_instance(
+                instance, WorkflowInstanceState.KILLED, context, error="killed by operator"
+            )
+            await self._audit(
+                "workflow_killed",
                 actor_type="engine",
                 actor_id="workflow_engine",
                 instance_id=instance.id,
@@ -363,9 +383,14 @@ class WorkflowEngine:
         self, instance_id: str, in_progress: dict[str, asyncio.Task[Any]]
     ) -> None:
         fresh = await self.repositories.instances.get(instance_id)
-        if fresh is not None and fresh.state == WorkflowInstanceState.PAUSED:
+        if fresh is None:
+            return
+        if fresh.state == WorkflowInstanceState.PAUSED:
             await self._cancel_pending(in_progress)
             raise _PauseRequested()
+        if fresh.state == WorkflowInstanceState.KILLED:
+            await self._cancel_pending(in_progress)
+            raise _KillRequested()
 
     @staticmethod
     async def _cancel_pending(in_progress: dict[str, asyncio.Task[Any]]) -> None:
@@ -633,6 +658,8 @@ class WorkflowEngine:
             detail=dict(detail or {}),
         )
         await self.repositories.audit.append(entry)
+        if self.events is not None:
+            await self.events.publish(entry.model_dump(mode="json"))
 
 
 def _build_user_message(step: AgenticStep, context: WorkflowContext) -> str:

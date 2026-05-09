@@ -29,6 +29,7 @@ class WorkflowInstanceState(StrEnum):
     PAUSED = "paused"
     COMPLETED = "completed"
     FAILED = "failed"
+    KILLED = "killed"
 
 
 class StepExecutionState(StrEnum):
