@@ -1,6 +1,6 @@
 # Intelligent Workflow Platform
 
-An AI-powered workflow platform that you talk to, not configure. See `VISION.md`.
+An AI-powered workflow platform that you talk to, not configure. See `docs/VISION.md`.
 
 ## Status
 
@@ -13,7 +13,7 @@ Phase 0, Week 1 — foundations. The system runs no real workflows yet. This wee
 - CI skeleton (GitHub Actions: ruff + mypy + pytest)
 - Local dev via Docker Compose (Postgres + backend; frontend lands in Phase 1)
 
-See `BUILD_PLAN.md` for the full execution sequence and `IMPLEMENTATION_PLAN.md` for layer-by-layer scope.
+See `docs/BUILD_PLAN.md` for the full execution sequence and `docs/IMPLEMENTATION_PLAN.md` for layer-by-layer scope.
 
 ## Quick start
 
@@ -54,10 +54,17 @@ docker compose up --build
 ├── frontend/          Angular UI (placeholder until Phase 1)
 ├── shared/            Cross-cutting schemas (placeholder)
 ├── tools/             Dev/ops scripts (placeholder)
-├── ARCHITECTURE.md    Design and decisions (D1–D13)
-├── BUILD_PLAN.md      Recommended execution sequence
-├── IMPLEMENTATION_PLAN.md  Layer-by-layer scope
-└── VISION.md          Product vision and anti-goals
+├── docs/              Design and onboarding docs
+│   ├── VISION.md              Product vision and anti-goals
+│   ├── ARCHITECTURE.md        Decisions D1–D13
+│   ├── BUILD_PLAN.md          Recommended execution sequence
+│   ├── IMPLEMENTATION_PLAN.md Layer-by-layer scope
+│   ├── LEARNING.md
+│   ├── LEARNING_IMPLEMENTATION.md
+│   ├── INTEGRATIONS.md
+│   ├── GENERATIVE_UI.md
+│   └── AGENT_SETUP.md         Claude Code config notes
+└── CLAUDE.md          Operating manual (auto-loaded by Claude Code)
 ```
 
 ## Tooling choices
