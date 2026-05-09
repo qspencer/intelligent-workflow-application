@@ -27,6 +27,7 @@ import simpleeval
 from workflow_platform.agent import Agent, AgentPolicy
 from workflow_platform.agent.registry import ToolRegistry as AgentToolRegistry
 from workflow_platform.bedrock import BedrockClient
+from workflow_platform.cost import cost_for_usage
 from workflow_platform.engine.context import WorkflowContext
 from workflow_platform.engine.registry import FunctionRegistry, StepFailure
 from workflow_platform.events import EventBus
@@ -316,7 +317,10 @@ class WorkflowEngine:
                     await self._cancel_pending(in_progress)
                     raise
 
-                # Step succeeded; resolve outgoing edges, dispatch newly-ready dependents.
+                # Step succeeded; check the workflow budget before resolving
+                # downstream — pause/escalate must take effect immediately.
+                await self._check_budget(definition, context, instance_id, in_progress)
+
                 for edge in state.edges_by_source.get(sid, []):
                     active = self._is_edge_active(edge, context)
                     state.incoming_resolved[edge.target] += 1
@@ -378,6 +382,57 @@ class WorkflowEngine:
         in_progress[sid] = asyncio.create_task(
             self._run_step_with_retry(step, context, instance_id, capabilities)
         )
+
+    async def _check_budget(
+        self,
+        definition: WorkflowDefinition,
+        context: WorkflowContext,
+        instance_id: str,
+        in_progress: dict[str, asyncio.Task[Any]],
+    ) -> None:
+        """Enforce workflow.policies.max_total_tokens with the configured action.
+
+        notify  — audit the breach and continue.
+        pause   — audit + raise _PauseRequested to exit the dispatch loop.
+        escalate — audit a special escalation entry + pause.
+        """
+        cap = definition.policies.max_total_tokens
+        if cap is None or context.total_tokens <= cap:
+            return
+        action = definition.policies.budget_action
+        detail: dict[str, Any] = {
+            "tokens_used": context.total_tokens,
+            "tokens_limit": cap,
+            "cost_usd": round(context.total_cost_usd, 6),
+            "action": action,
+        }
+        if action == "notify":
+            await self._audit(
+                "budget_exceeded",
+                actor_type="engine",
+                actor_id="workflow_engine",
+                instance_id=instance_id,
+                detail=detail,
+            )
+            return
+        if action == "escalate":
+            await self._audit(
+                "budget_escalated",
+                actor_type="engine",
+                actor_id="workflow_engine",
+                instance_id=instance_id,
+                detail=detail,
+            )
+        else:
+            await self._audit(
+                "budget_exceeded",
+                actor_type="engine",
+                actor_id="workflow_engine",
+                instance_id=instance_id,
+                detail=detail,
+            )
+        await self._cancel_pending(in_progress)
+        raise _PauseRequested()
 
     async def _maybe_pause(
         self, instance_id: str, in_progress: dict[str, asyncio.Task[Any]]
@@ -614,10 +669,17 @@ class WorkflowEngine:
                 detail={"name": call.name, "input": call.input, "result": call.result},
             )
 
+        usage_dict = result.usage.model_dump()
+        cost_usd = cost_for_usage(usage_dict, step.model)
+        context.total_tokens += result.usage.total_tokens
+        context.total_cost_usd += cost_usd
+
         return {
             "output_text": result.output_text,
             "stop_reason": result.stop_reason.value,
-            "usage": result.usage.model_dump(),
+            "usage": usage_dict,
+            "model": step.model,
+            "cost_usd": cost_usd,
             "tool_calls": [c.model_dump() for c in result.tool_calls],
         }
 

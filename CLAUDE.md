@@ -76,7 +76,17 @@ Week 5 (executor depth + memory + second trigger):
 
 164 unit tests passing (was 138). Ruff and mypy strict clean across 89 source files.
 
-Next up per `docs/BUILD_PLAN.md`: **Phase 2 / Week 8 — Cost metering and budget enforcement.** Token attribution chain (step agent → workflow instance → workflow definition → system), real-time tracking at all three levels, configurable budget actions (`notify` / `pause` / `escalate`; `degrade` deferred until model-quality data exists). Cost dashboard widget. M365/Google/Slack connectors remain deferred until a workload pulls them in.
+**Phase 2 / Week 8 (cost metering + budget enforcement) is complete.**
+
+- `workflow_platform.cost.pricing` — Bedrock model pricing table (per-1M-token input/output prices for the main Anthropic models). `cost_for_usage(usage, model_id)` computes USD; unknown models return 0.0 with a debug log. Operators override via the `WORKFLOW_PLATFORM_PRICING` env var (JSON).
+- Engine attribution — `_run_agentic` adds `model` and `cost_usd` to each step output; `WorkflowContext` accumulates `total_tokens` + `total_cost_usd` across the run; final values land on the `WorkflowInstance.context`.
+- Budget enforcement — `WorkflowPolicy.budget_action: "notify" | "pause" | "escalate"` (default `pause`). After every step, the engine checks `total_tokens` against `policies.max_total_tokens`. `notify` audits `budget_exceeded` and continues; `pause` does the same audit + raises `_PauseRequested` (instance ends in `PAUSED`, resumable); `escalate` audits `budget_escalated` + pauses.
+- `CostReportService` (`by_workflow` / `by_model` / `by_day`) aggregates over recent step executions. New `StepExecutionRepo.list_recent(limit, since)` on both in-memory and Postgres impls.
+- API — `GET /api/cost/{by-workflow,by-model,by-day}`, all auth-gated, with optional `since=` ISO datetime filter.
+
+180 unit tests passing (was 164). Ruff and mypy strict clean across 93 source files.
+
+Next up per `docs/BUILD_PLAN.md`: **Phase 2 / Week 9 — Orchestrator (passive monitoring only).** Background async monitoring loop checking stuck workflows, error rate, queue depth, token burn rate; threshold-based alerts to the dashboard; escalation receiver where workflow agents can post escalation requests + humans resolve via the dashboard. **No LLM-driven active reasoning yet** — defer until enough running workflows exist to give it real signal.
 
 Run `git log --oneline` for the live state of the tree.
 

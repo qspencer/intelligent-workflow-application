@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 from sqlalchemy import select
@@ -126,6 +127,18 @@ class PostgresStepExecutionRepo(StepExecutionRepo):
                 .where(StepExecutionRow.instance_id == instance_id)
                 .order_by(StepExecutionRow.started_at.asc().nullsfirst())
             )
+            rows = result.scalars().all()
+        return [_from_step_row(r) for r in rows]
+
+    async def list_recent(
+        self, limit: int = 1000, since: datetime | None = None
+    ) -> list[StepExecution]:
+        async with self._sf() as s:
+            stmt = select(StepExecutionRow).order_by(StepExecutionRow.started_at.desc().nullslast())
+            if since is not None:
+                stmt = stmt.where(StepExecutionRow.started_at >= since)
+            stmt = stmt.limit(max(0, limit))
+            result = await s.execute(stmt)
             rows = result.scalars().all()
         return [_from_step_row(r) for r in rows]
 

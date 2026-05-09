@@ -8,6 +8,7 @@ gives you a clean slate.
 from __future__ import annotations
 
 from copy import deepcopy
+from datetime import UTC, datetime
 
 from workflow_platform.persistence.models import (
     AuditEntry,
@@ -84,6 +85,15 @@ class InMemoryStepExecutionRepo(StepExecutionRepo):
         return [
             e.model_copy(deep=True) for e in self._items.values() if e.instance_id == instance_id
         ]
+
+    async def list_recent(
+        self, limit: int = 1000, since: datetime | None = None
+    ) -> list[StepExecution]:
+        items = list(self._items.values())
+        if since is not None:
+            items = [e for e in items if e.started_at is not None and e.started_at >= since]
+        items.sort(key=lambda e: e.started_at or datetime.min.replace(tzinfo=UTC), reverse=True)
+        return [e.model_copy(deep=True) for e in items[: max(0, limit)]]
 
 
 class InMemoryAuditRepo(AuditRepo):

@@ -83,6 +83,7 @@ class Edge(BaseModel):
 class WorkflowPolicy(BaseModel):
     max_total_tokens: int | None = None
     timeout_seconds: float | None = None
+    budget_action: Literal["notify", "pause", "escalate"] = "pause"
 
 
 class WorkflowDefinition(BaseModel):

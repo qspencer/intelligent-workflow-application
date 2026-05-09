@@ -28,6 +28,8 @@ class WorkflowContext(BaseModel):
     trigger: dict[str, Any] = Field(default_factory=dict)
     steps: dict[str, dict[str, Any]] = Field(default_factory=dict)
     capabilities: ResolvedCapabilities | None = None
+    total_tokens: int = 0
+    total_cost_usd: float = 0.0
 
     def step_output(self, step_id: str) -> dict[str, Any] | None:
         return self.steps.get(step_id)

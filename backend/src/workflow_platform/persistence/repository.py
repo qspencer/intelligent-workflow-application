@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
+from datetime import datetime
 
 from workflow_platform.persistence.models import (
     AuditEntry,
@@ -53,6 +54,12 @@ class StepExecutionRepo(ABC):
 
     @abstractmethod
     async def list_by_instance(self, instance_id: str) -> list[StepExecution]: ...
+
+    @abstractmethod
+    async def list_recent(
+        self, limit: int = 1000, since: datetime | None = None
+    ) -> list[StepExecution]:
+        """Recent step executions, newest first (by started_at)."""
 
 
 class AuditRepo(ABC):

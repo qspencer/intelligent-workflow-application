@@ -12,12 +12,14 @@ Role gating (per `docs/ARCHITECTURE.md` D4):
 from __future__ import annotations
 
 import asyncio
+from datetime import datetime
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 
 from workflow_platform.auth import Role, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
+from workflow_platform.cost import CostReportService
 from workflow_platform.engine import WorkflowEngine
 from workflow_platform.persistence import (
     AuditEntry,
@@ -209,6 +211,64 @@ def build_router(
                     status_code=404, detail=f"No webhook trigger registered for {trigger_id!r}"
                 )
             return {"status": "fired", "trigger_id": trigger_id}
+
+    cost_service = CostReportService(repositories)
+
+    def _parse_since(raw: str | None) -> datetime | None:
+        if not raw:
+            return None
+        try:
+            return datetime.fromisoformat(raw)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid `since`: {exc}") from exc
+
+    @router.get("/cost/by-workflow")
+    async def cost_by_workflow(
+        since: str | None = None,
+        _: UserIdentity = Depends(current_user),
+    ) -> list[dict[str, Any]]:
+        rows = await cost_service.by_workflow(_parse_since(since))
+        return [
+            {
+                "workflow_id": r.key,
+                "total_cost_usd": r.total_cost_usd,
+                "total_tokens": r.total_tokens,
+                "step_count": r.step_count,
+            }
+            for r in rows
+        ]
+
+    @router.get("/cost/by-model")
+    async def cost_by_model(
+        since: str | None = None,
+        _: UserIdentity = Depends(current_user),
+    ) -> list[dict[str, Any]]:
+        rows = await cost_service.by_model(_parse_since(since))
+        return [
+            {
+                "model": r.key,
+                "total_cost_usd": r.total_cost_usd,
+                "total_tokens": r.total_tokens,
+                "step_count": r.step_count,
+            }
+            for r in rows
+        ]
+
+    @router.get("/cost/by-day")
+    async def cost_by_day(
+        since: str | None = None,
+        _: UserIdentity = Depends(current_user),
+    ) -> list[dict[str, Any]]:
+        rows = await cost_service.by_day(_parse_since(since))
+        return [
+            {
+                "date": r.key,
+                "total_cost_usd": r.total_cost_usd,
+                "total_tokens": r.total_tokens,
+                "step_count": r.step_count,
+            }
+            for r in rows
+        ]
 
     return router
 
