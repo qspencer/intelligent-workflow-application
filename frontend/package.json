@@ -7,7 +7,8 @@
     "start": "ng serve",
     "build": "ng build",
     "watch": "ng build --watch --configuration development",
-    "test": "ng test",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "lint": "ng lint || true"
   },
   "dependencies": {
@@ -28,6 +29,8 @@
     "@angular/cli": "^18.2.0",
     "@angular/compiler-cli": "^18.2.0",
     "@types/node": "^22.0.0",
-    "typescript": "~5.5.0"
+    "jsdom": "^29.1.1",
+    "typescript": "~5.5.0",
+    "vitest": "^2.1.9"
   }
 }
