@@ -64,6 +64,23 @@ def test_pricing_table_includes_main_anthropic_models() -> None:
     assert isinstance(MODEL_PRICING[HAIKU], ModelPrice)
 
 
+def test_cost_for_usage_strips_region_inference_profile_prefix() -> None:
+    # Claude 4.x is invoked via a regional inference profile id, e.g.
+    # "us.anthropic.claude-haiku-4-5-20251001-v1:0". The bare id
+    # ("anthropic.claude-haiku-4-5-...") is what's keyed in MODEL_PRICING.
+    bare = "anthropic.claude-haiku-4-5-20251001-v1:0"
+    assert bare in MODEL_PRICING
+    profiled = f"us.{bare}"
+    cost = cost_for_usage({"input_tokens": 1_000_000, "output_tokens": 1_000_000}, profiled)
+    # Haiku 4.5: $1.00 in + $5.00 out per 1M.
+    assert cost == pytest.approx(6.0)
+
+
+def test_cost_for_usage_unknown_prefix_still_zero() -> None:
+    cost = cost_for_usage({"input_tokens": 1000, "output_tokens": 1000}, "us.made-up-model")
+    assert cost == 0.0
+
+
 # --- Engine cost attribution ---
 
 

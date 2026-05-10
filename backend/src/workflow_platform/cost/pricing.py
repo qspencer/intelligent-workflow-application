@@ -26,6 +26,11 @@ class ModelPrice:
     output_per_million: float
 
 
+# Regional inference-profile prefixes Bedrock applies in front of a model id
+# (us.foo, eu.foo, apac.foo, global.foo). `cost_for_usage` strips these before
+# lookup so the table only needs the bare model id.
+_REGION_PREFIXES: tuple[str, ...] = ("us.", "eu.", "apac.", "global.")
+
 # Defaults (USD per 1M tokens). Tracker can override via env at startup.
 _DEFAULT_PRICING: dict[str, ModelPrice] = {
     # Claude 3 family
@@ -36,6 +41,13 @@ _DEFAULT_PRICING: dict[str, ModelPrice] = {
     "anthropic.claude-3-5-sonnet-20240620-v1:0": ModelPrice(3.00, 15.00),
     "anthropic.claude-3-5-sonnet-20241022-v2:0": ModelPrice(3.00, 15.00),
     "anthropic.claude-3-5-haiku-20241022-v1:0": ModelPrice(0.80, 4.00),
+    # Claude 4 family — Bedrock requires invocation via a regional inference
+    # profile, so callers pass e.g. "us.anthropic.claude-haiku-4-5-...". The
+    # lookup in cost_for_usage strips the region prefix before matching here.
+    "anthropic.claude-haiku-4-5-20251001-v1:0": ModelPrice(1.00, 5.00),
+    "anthropic.claude-sonnet-4-6": ModelPrice(3.00, 15.00),
+    "anthropic.claude-opus-4-6": ModelPrice(5.00, 25.00),
+    "anthropic.claude-opus-4-7": ModelPrice(5.00, 25.00),
 }
 
 
@@ -60,14 +72,23 @@ def _load_pricing() -> dict[str, ModelPrice]:
 MODEL_PRICING: dict[str, ModelPrice] = _load_pricing()
 
 
+def _strip_region_prefix(model_id: str) -> str:
+    for prefix in _REGION_PREFIXES:
+        if model_id.startswith(prefix):
+            return model_id[len(prefix) :]
+    return model_id
+
+
 def cost_for_usage(usage: dict[str, int] | None, model_id: str) -> float:
     """Compute USD cost from an `AgentUsage`-shaped dict and a Bedrock model id.
 
-    Returns 0.0 if usage is empty or the model is unpriced (with a debug log so
-    the gap is visible to operators)."""
+    Tries the literal id first, then falls back to the bare id after stripping
+    a leading regional inference-profile prefix. Returns 0.0 if usage is empty
+    or the model is unpriced (with a debug log so the gap is visible to
+    operators)."""
     if not usage:
         return 0.0
-    price = MODEL_PRICING.get(model_id)
+    price = MODEL_PRICING.get(model_id) or MODEL_PRICING.get(_strip_region_prefix(model_id))
     if price is None:
         logger.debug("No pricing for model %r — recording cost=0.0", model_id)
         return 0.0

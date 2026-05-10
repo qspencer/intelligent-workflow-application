@@ -4,34 +4,29 @@ This is the friction list an operator encounters between "AWS credentials exist"
 
 The smoke script at `backend/tools/smoke_live.py` exercises the full path. Run it after each step to know whether the gate is cleared.
 
-## Gate 1 — Model access enabled
+## Gate 1 — Model access (retired by AWS, mostly automatic)
 
-**Symptom**
+**Status as of 2026-05** — AWS retired the Bedrock **Model access** console page. The page now displays:
+
+> Model access page has been retired. Serverless foundation models are now automatically enabled across all AWS commercial regions when first invoked in your account, so you can start using them instantly.
+
+Practically:
+- Serverless foundation models (which is what we use) auto-enable on **first invocation**.
+- For **Anthropic models**, first-time users still need to submit the use-case form — see Gate 3.
+- For **AWS Marketplace models**, a principal with AWS Marketplace permissions must invoke the model once to enable it account-wide.
+- IAM policies and Service Control Policies remain the way administrators restrict access.
+
+**Legacy "model marked Legacy" symptom** — older Anthropic models (e.g. Haiku 3) get marked legacy and refuse to respond after long inactivity:
 
 ```
-ResourceNotFoundException: An error occurred (ResourceNotFoundException)
-when calling the Converse operation: Access denied. This Model is marked
-by provider as Legacy and you have not been actively using the model in
-the last 30 days. Please upgrade to an active model on Amazon Bedrock
+ResourceNotFoundException: This Model is marked by provider as Legacy
+and you have not been actively using the model in the last 30 days.
+Please upgrade to an active model on Amazon Bedrock
 ```
 
-…or, on a never-used account:
+**Fix** — pick an active Claude 4.x model. Don't rely on the retired Model access page; just invoke the model and Bedrock will route it.
 
-```
-AccessDeniedException: Your account is not authorized to invoke this
-API operation
-```
-
-**Why** — Bedrock requires an explicit per-account, per-model opt-in. Some Anthropic models also auto-deactivate after 30 days of non-use ("legacy") and need to be re-requested.
-
-**Fix**
-
-1. AWS Console → **Bedrock** → **Model access** (left sidebar).
-2. Click **Modify model access**.
-3. Tick the Anthropic models you intend to use. For this platform: at least one Claude 4.x family model (Haiku 4.5 is the cheapest active option as of the date this was written; check `aws bedrock list-foundation-models --by-provider Anthropic` for what's currently active in your region).
-4. Submit. Most models grant within seconds. Some take minutes.
-
-**Verify** — `aws bedrock list-foundation-models --region us-east-1 --by-provider Anthropic --query 'modelSummaries[?modelLifecycle.status==\`ACTIVE\`].modelId' --output text` should return at least one Claude 4 model.
+**Verify** — `aws bedrock list-foundation-models --region us-east-1 --by-provider Anthropic --query 'modelSummaries[?modelLifecycle.status==\`ACTIVE\`].modelId' --output text` should list active Claude 4 models you can use.
 
 ## Gate 2 — Inference profile required for Claude 4.x
 
@@ -118,7 +113,7 @@ ThrottlingException: Too many requests, please wait before trying again
 
 Each gate above corresponds to an actual error our smoke script surfaced on the development account on 2026-05-09:
 
-1. Gate 1: Haiku 3 marked legacy after 30 days unused.
+1. Gate 1: Haiku 3 marked legacy after 30 days unused. (The Model access page itself was retired shortly after; Anthropic models auto-enable on first invocation now, modulo Gate 3.)
 2. Gate 2: `claude-sonnet-4-6` rejected on-demand; only the inference profile ARN works.
 3. Gate 3: Use case details form never submitted; even Haiku 4.5 via inference profile failed.
 
