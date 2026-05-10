@@ -6,6 +6,9 @@ through `FunctionRegistry`.
 
 from __future__ import annotations
 
+import json
+import re
+from pathlib import PurePosixPath
 from typing import Any
 
 from workflow_platform.engine.context import WorkflowContext
@@ -42,6 +45,75 @@ async def pdf_extract(
     return dict(result.content) if isinstance(result.content, dict) else {"value": result.content}
 
 
+async def route_by_classification(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Copy a file into a per-category subfolder based on a prior agent's classification.
+
+    Config:
+      source_from        — dotted context path to the source file (default `"trigger.file_path"`).
+      classification_from — dotted context path to a string containing JSON with a
+                            `document_type` field (default `"steps.classify.output_text"`).
+      output_root        — destination root directory.
+      categories         — allowed document_type values; anything outside is mapped to
+                            `fallback_category` (default category list mirrors the prototype's).
+      fallback_category  — used when document_type is missing or unrecognized (default `"other"`).
+    """
+    source = _resolve_path(context, config.get("source_from", "trigger.file_path"))
+    if not source:
+        raise StepFailure("route_by_classification could not resolve source file path")
+
+    raw = _resolve_path(context, config.get("classification_from", "steps.classify.output_text"))
+    if not raw:
+        raise StepFailure("route_by_classification could not resolve classification output")
+
+    extracted = _extract_document_type(raw)
+    categories = config.get(
+        "categories",
+        ["invoice", "receipt", "contract", "report", "letter", "form", "other"],
+    )
+    fallback = str(config.get("fallback_category", "other"))
+    document_type: str = (
+        extracted if extracted is not None and extracted in categories else fallback
+    )
+
+    output_root = config.get("output_root")
+    if not output_root:
+        raise StepFailure("route_by_classification requires `output_root` in config")
+
+    filename = PurePosixPath(source).name
+    destination = str(PurePosixPath(output_root) / document_type / filename)
+
+    payload = await world.fs.read_bytes(source)
+    await world.fs.write_bytes(destination, payload)
+
+    return {
+        "source": source,
+        "destination": destination,
+        "document_type": document_type,
+        "bytes_copied": len(payload),
+    }
+
+
+_JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
+
+
+def _extract_document_type(raw: str) -> str | None:
+    """Pull `document_type` out of an agent's text response.
+
+    Tolerant of: bare JSON, JSON wrapped in ``` fences, surrounding prose. Returns None
+    if no JSON object with a string `document_type` field is parseable."""
+    match = _JSON_OBJECT_RE.search(raw)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    value = parsed.get("document_type") if isinstance(parsed, dict) else None
+    return value if isinstance(value, str) else None
+
+
 def _resolve_path(context: WorkflowContext, dotted: str | None) -> str | None:
     if not dotted:
         return None
@@ -64,4 +136,10 @@ def _resolve_path(context: WorkflowContext, dotted: str | None) -> str | None:
 
 def default_function_registry() -> FunctionRegistry:
     """Registry pre-populated with stock step functions."""
-    return FunctionRegistry({"noop": noop, "pdf_extract": pdf_extract})
+    return FunctionRegistry(
+        {
+            "noop": noop,
+            "pdf_extract": pdf_extract,
+            "route_by_classification": route_by_classification,
+        }
+    )

@@ -21,6 +21,7 @@ dependencies = [
     "simpleeval>=1.0",
     "croniter>=2.0",
     "PyYAML>=6.0",
+    "prometheus-client>=0.21",
 ]
 
 [dependency-groups]
@@ -48,6 +49,7 @@ addopts = "-ra --strict-markers"
 pythonpath = ["src"]
 markers = [
     "integration: requires external services (Postgres). Set TEST_DATABASE_URL to run.",
+    "live: hits real AWS Bedrock — costs a few cents per run. Set BEDROCK_LIVE=1 to run.",
 ]
 
 [tool.ruff]

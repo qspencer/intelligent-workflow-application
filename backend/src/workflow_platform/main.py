@@ -15,6 +15,7 @@ from contextlib import asynccontextmanager
 from typing import Any
 
 from fastapi import FastAPI
+from fastapi.responses import Response
 
 from workflow_platform import __version__
 from workflow_platform.api.workflows import build_router
@@ -22,11 +23,17 @@ from workflow_platform.api.ws import build_ws_router
 from workflow_platform.auth import AuthMiddleware
 from workflow_platform.engine import WorkflowEngine
 from workflow_platform.events import EventBus
+from workflow_platform.observability import (
+    CONTENT_TYPE,
+    PrometheusMetrics,
+    configure_logging,
+)
 from workflow_platform.persistence import Repositories, in_memory_repositories
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
 from workflow_platform.triggers import WebhookRegistry
 
+configure_logging(level=logging.INFO, json_output=True)
 logger = logging.getLogger(__name__)
 
 
@@ -47,6 +54,7 @@ def create_app(
     engine: WorkflowEngine | None = None,
     webhook_registry: WebhookRegistry | None = None,
     events: EventBus | None = None,
+    metrics: PrometheusMetrics | None = None,
 ) -> FastAPI:
     db_engine: Any | None = None
     if repositories is None:
@@ -67,9 +75,15 @@ def create_app(
     )
     app.add_middleware(AuthMiddleware)
 
+    metrics = metrics or PrometheusMetrics()
+
     @app.get("/api/health")
     async def health() -> dict[str, str]:
         return {"status": "ok", "version": __version__}
+
+    @app.get("/metrics")
+    async def metrics_endpoint() -> Response:
+        return Response(content=metrics.render(), media_type=CONTENT_TYPE)
 
     app.include_router(build_router(repositories, engine=engine, webhook_registry=webhook_registry))
     if events is not None:

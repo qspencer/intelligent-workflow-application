@@ -23,7 +23,7 @@ from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.auth.oidc import OidcValidator
 from workflow_platform.auth.rbac import assign_roles
 
-UNAUTHENTICATED_PATHS = {"/api/health", "/openapi.json", "/docs", "/redoc"}
+UNAUTHENTICATED_PATHS = {"/api/health", "/metrics", "/openapi.json", "/docs", "/redoc"}
 UNAUTHENTICATED_PREFIXES = ("/api/triggers/webhook/",)
 
 

@@ -112,7 +112,19 @@ Week 10:
 - LLM-driven orchestrator active reasoning: passive monitoring covers current needs. Revisit when production traffic produces patterns worth reasoning over.
 - Cost analyst LLM: deterministic cost reports cover operator needs. Revisit when pattern-finding adds real value.
 
-Next steps are operator-facing: production deployment hardening (`docs/IMPLEMENTATION_PLAN.md` Phase 11), structured logging + metrics export for operability, and the customer pull that will sequence which connectors land first. The build plan's three planned phases are done; further work is workload-driven rather than schedule-driven.
+**Post-Phase-2 (operator readiness + first real workload):**
+
+- AWS Bedrock onboarding (`docs/BEDROCK_SETUP.md`): the four gates (model access — now retired by AWS; inference profile required for Claude 4.x; Anthropic use-case-details form; service quotas) documented with literal error strings. Live smoke verified end-to-end against `us.anthropic.claude-haiku-4-5-20251001-v1:0`.
+- `backend/tools/smoke_live.py` rewritten: per-step pass/fail formatting, gate diagnosis (cause + action) on known errors, stops at first failure.
+- `cost/pricing.py`: Claude 4 family entries (Haiku 4.5 = $1/$5; Sonnet 4.6 = $3/$15; Opus 4.6 / 4.7 = $5/$25 per 1M tokens) + a region-prefix normalization step so `us.` / `eu.` / `apac.` / `global.` inference-profile ids attribute correctly.
+- Deployment IaC: `infra/` is written and `terraform validate` clean (~$53/mo idle when applied). Not yet applied — solo-dev posture means run-locally is fine; if deployed, restrict ALB ingress to a single IP.
+- First real workload: PDF classifier example under `examples/pdf_classifier/`. Trigger = filesystem inbox; deterministic `pdf_extract` → agentic `classify` (Claude returns JSON: `document_type` + `summary` + `key_fields`) → deterministic `route_by_classification` (copies the PDF into `output/<category>/`). Categories mirror the prototype's seven (invoice / receipt / contract / report / letter / form / other). End-to-end test in `backend/tests/test_pdf_classifier_workflow.py` drives a real PyMuPDF extraction with a faked Bedrock response and asserts the file lands in the right folder.
+- Observability (`workflow_platform.observability`): structured JSON logging via `JsonFormatter` on stdlib `logging` (no extra deps) + a `configure_logging(level, json_output=True)` helper called from `main.py`. Prometheus metrics via `prometheus-client`: `Metrics` protocol + `NoopMetrics` (default) + `PrometheusMetrics`. The engine records workflow runs by state, workflow / step durations as histograms, agent tokens by model + kind, and Bedrock cost by model. `/metrics` endpoint exposed in `main.py`, exempt from auth.
+- Live Bedrock smoke folded into pytest as `@pytest.mark.live`, opt-in via `BEDROCK_LIVE=1` — mirrors the Postgres `@pytest.mark.integration` + `TEST_DATABASE_URL` pattern. Three checks (direct converse / Agent.run / WorkflowEngine end-to-end) deselect by default and never run in CI. The standalone `backend/tools/smoke_live.py` stays as the printable diagnostic harness.
+
+240 unit tests passing (was 219); 2 Postgres-gated + 3 Bedrock-gated integration tests deselect by default. Ruff and mypy strict clean across 109 source files.
+
+Looking ahead: applying the IaC if/when there's a reason to deploy (and a frontend smoke test as the next gap to close, per the integration-test audit). Further connectors and the LLM-driven orchestrator stay deferred until a workload pulls them in.
 
 Run `git log --oneline` for the live state of the tree.
 

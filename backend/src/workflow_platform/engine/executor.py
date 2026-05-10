@@ -32,6 +32,7 @@ from workflow_platform.engine.context import WorkflowContext
 from workflow_platform.engine.registry import FunctionRegistry, StepFailure
 from workflow_platform.events import EventBus
 from workflow_platform.memory import MemoryManager
+from workflow_platform.observability import Metrics, NoopMetrics
 from workflow_platform.persistence import (
     AuditEntry,
     Repositories,
@@ -112,6 +113,7 @@ class WorkflowEngine:
     system_capabilities: CapabilityPolicy | None = None
     memory: MemoryManager | None = None
     events: EventBus | None = None
+    metrics: Metrics = field(default_factory=NoopMetrics)
     pause_check_interval: float = 0.0  # seconds; 0 disables polling-based pause checks
 
     # --- public API ---
@@ -123,13 +125,15 @@ class WorkflowEngine:
     ) -> WorkflowInstance:
         validate_and_order(definition)
 
+        started = _utcnow()
         instance = WorkflowInstance(
             workflow_id=definition.id,
             state=WorkflowInstanceState.RUNNING,
             trigger_payload=dict(trigger_payload or {}),
-            started_at=_utcnow(),
+            started_at=started,
         )
         instance = await self.repositories.instances.create(instance)
+        self.metrics.workflow_started(definition.id)
         await self._audit(
             "workflow_started",
             actor_type="engine",
@@ -143,7 +147,9 @@ class WorkflowEngine:
             workflow_id=definition.id,
             trigger=dict(instance.trigger_payload),
         )
-        return await self._drive(definition, instance, context, already_done=set())
+        result = await self._drive(definition, instance, context, already_done=set())
+        self._record_workflow_finished(definition.id, result, started)
+        return result
 
     async def resume(self, definition: WorkflowDefinition, instance_id: str) -> WorkflowInstance:
         """Resume a paused instance. Replays no completed work; picks up where
@@ -154,6 +160,7 @@ class WorkflowEngine:
         if instance.state != WorkflowInstanceState.PAUSED:
             raise ValueError(f"Instance {instance_id} is {instance.state.value}, cannot resume")
 
+        resumed_at = _utcnow()
         instance.state = WorkflowInstanceState.RUNNING
         instance = await self.repositories.instances.update(instance)
         await self._audit(
@@ -177,7 +184,21 @@ class WorkflowEngine:
             for s in prior
             if s.state in (StepExecutionState.COMPLETED, StepExecutionState.SKIPPED)
         }
-        return await self._drive(definition, instance, context, already_done=already_done)
+        result = await self._drive(definition, instance, context, already_done=already_done)
+        self._record_workflow_finished(definition.id, result, resumed_at)
+        return result
+
+    def _record_workflow_finished(
+        self,
+        workflow_id: str,
+        instance: WorkflowInstance,
+        started: Any,
+    ) -> None:
+        """Record terminal-state metrics. PAUSED is not terminal, so skip it."""
+        if instance.state == WorkflowInstanceState.PAUSED:
+            return
+        elapsed = (_utcnow() - started).total_seconds()
+        self.metrics.workflow_finished(workflow_id, instance.state.value, elapsed)
 
     # --- core dispatch loop ---
 
@@ -517,11 +538,12 @@ class WorkflowEngine:
         capabilities: ResolvedCapabilities,
         attempt: int,
     ) -> None:
+        started_at = _utcnow()
         execution = StepExecution(
             instance_id=instance_id,
             step_id=step.id,
             state=StepExecutionState.RUNNING,
-            started_at=_utcnow(),
+            started_at=started_at,
         )
         execution = await self.repositories.steps.create(execution)
         await self._audit(
@@ -539,8 +561,14 @@ class WorkflowEngine:
             error_msg = "step timeout" if isinstance(exc, TimeoutError) else str(exc)
             execution.state = StepExecutionState.FAILED
             execution.error = error_msg
-            execution.completed_at = _utcnow()
+            completed_at = _utcnow()
+            execution.completed_at = completed_at
             await self.repositories.steps.update(execution)
+            self.metrics.step_finished(
+                step.type,
+                StepExecutionState.FAILED.value,
+                (completed_at - started_at).total_seconds(),
+            )
             await self._audit(
                 "step_failed",
                 actor_type="engine",
@@ -554,8 +582,14 @@ class WorkflowEngine:
         context.record_step_output(step.id, output)
         execution.state = StepExecutionState.COMPLETED
         execution.output = output
-        execution.completed_at = _utcnow()
+        completed_at = _utcnow()
+        execution.completed_at = completed_at
         await self.repositories.steps.update(execution)
+        self.metrics.step_finished(
+            step.type,
+            StepExecutionState.COMPLETED.value,
+            (completed_at - started_at).total_seconds(),
+        )
         await self._audit(
             "step_completed",
             actor_type="engine",
@@ -673,6 +707,12 @@ class WorkflowEngine:
         cost_usd = cost_for_usage(usage_dict, step.model)
         context.total_tokens += result.usage.total_tokens
         context.total_cost_usd += cost_usd
+        self.metrics.agent_tokens(
+            step.model,
+            int(usage_dict.get("input_tokens", 0)),
+            int(usage_dict.get("output_tokens", 0)),
+        )
+        self.metrics.bedrock_cost(step.model, cost_usd)
 
         return {
             "output_text": result.output_text,

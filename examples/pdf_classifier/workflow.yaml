@@ -1,0 +1,69 @@
+id: pdf-classifier
+name: PDF Classifier
+description: |
+  Watches an inbox folder for PDFs. For each new PDF: extracts the text,
+  asks Claude to classify it (invoice / receipt / contract / report /
+  letter / form / other), and copies the file into a per-category
+  subfolder. The classification step is the only LLM call; routing is
+  deterministic.
+
+trigger:
+  type: filesystem
+  config:
+    path: ./examples/pdf_classifier/sample_inbox
+    pattern: "*.pdf"
+
+steps:
+  - id: extract
+    type: deterministic
+    function: pdf_extract
+    config:
+      filepath_from: trigger.file_path
+
+  - id: classify
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: |
+      You are a document classifier. The context below contains text extracted
+      from a PDF (under prior_steps.extract.text). Decide what kind of document
+      it is and respond with a single JSON object on one line — no prose, no
+      markdown fences.
+
+      Schema:
+      {"document_type": "<invoice|receipt|contract|report|letter|form|other>",
+       "summary": "<one short sentence>",
+       "key_fields": {<extracted fields like vendor, total, date — {} if none>}}
+
+      If you are not confident, return "other". Be conservative: a misfile is
+      worse than a generic bucket.
+    policy:
+      max_iterations: 2
+      max_total_tokens: 4000
+
+  - id: route
+    type: deterministic
+    function: route_by_classification
+    config:
+      source_from: trigger.file_path
+      classification_from: steps.classify.output_text
+      output_root: ./examples/pdf_classifier/output
+      categories:
+        - invoice
+        - receipt
+        - contract
+        - report
+        - letter
+        - form
+        - other
+      fallback_category: other
+
+edges:
+  - from: extract
+    to: classify
+  - from: classify
+    to: route
+
+policies:
+  max_total_tokens: 20000
+  budget_action: pause
