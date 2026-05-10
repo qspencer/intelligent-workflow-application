@@ -22,6 +22,8 @@ All design docs live under `docs/`. The `README.md` at the root has the quick-st
 | `docs/GENERATIVE_UI.md` | Conversational UI generation (deferred until Phase 2+) |
 | `docs/AGENT_SETUP.md` | How this project is configured for Claude Code |
 | `docs/BEDROCK_SETUP.md` | Operator-facing AWS Bedrock onboarding (model access, inference profiles, use-case form, quotas) |
+| `docs/MANUAL_TESTING.md` | Operator-facing local manual-test playbook (smoke + role checks + observability + what's not yet manually testable) |
+| `docs/NEXT_STEPS.md` | Prioritized backlog (P0 / P1 / P2) for closing the manual-testing gaps surfaced in `MANUAL_TESTING.md` |
 
 Lessons learned across sessions live in the auto-memory system. Update it as you discover things worth remembering. Memory takes precedence over assumptions; verify before acting on it.
 
