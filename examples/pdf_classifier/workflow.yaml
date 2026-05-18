@@ -58,12 +58,49 @@ steps:
         - other
       fallback_category: other
 
+  - id: evaluate
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: |
+      You are an evaluator scoring the classifier's output. The context below
+      contains:
+        - prior_steps.extract.text — the raw text extracted from the PDF
+        - prior_steps.classify.output_text — a JSON object from the classifier
+          with document_type, summary, key_fields
+
+      Score the classification on two dimensions, 0 (worst) to 5 (best):
+        - faithfulness_score: do the summary and key_fields accurately reflect
+          what's in the extracted text? Penalize invented facts, dates, or
+          totals that don't appear in the text.
+        - category_score: is the chosen document_type reasonable for this
+          content? "other" is a valid choice when nothing else fits.
+
+      Respond with ONLY a JSON object on one line — no prose, no fences:
+      {"faithfulness_score": <0-5>, "category_score": <0-5>,
+       "reasoning": "<one short sentence>", "issues": [<list of strings; [] if none>]}
+    policy:
+      max_iterations: 2
+      max_total_tokens: 4000
+
+  - id: record_eval
+    type: deterministic
+    function: record_evaluation
+    config:
+      evaluation_from: steps.evaluate.output_text
+
 edges:
   - from: extract
     to: classify
+  # Diamond: classify fans out to route + evaluate; record_eval depends on evaluate.
+  # Routing is the user-facing outcome; evaluation runs in parallel for observability.
   - from: classify
     to: route
+  - from: classify
+    to: evaluate
+  - from: evaluate
+    to: record_eval
 
 policies:
-  max_total_tokens: 20000
+  max_total_tokens: 30000
   budget_action: pause

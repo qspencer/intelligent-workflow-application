@@ -23,7 +23,7 @@ from workflow_platform.engine import (
     WorkflowEngine,
     default_function_registry,
 )
-from workflow_platform.engine.functions import _extract_document_type
+from workflow_platform.engine.functions import _extract_document_type, _extract_eval_scores
 from workflow_platform.persistence import (
     WorkflowInstanceState,
     in_memory_repositories,
@@ -76,12 +76,46 @@ def _classifier_definition(inbox_root: Path, output_root: Path) -> Any:
                         "output_root": str(output_root),
                     },
                 },
+                {
+                    "id": "evaluate",
+                    "type": "agentic",
+                    "model": MODEL,
+                    "tools": [],
+                    "goal": "Score the classification. Return a JSON object on one line.",
+                    "policy": {"max_iterations": 2, "max_total_tokens": 4000},
+                },
+                {
+                    "id": "record_eval",
+                    "type": "deterministic",
+                    "function": "record_evaluation",
+                    "config": {"evaluation_from": "steps.evaluate.output_text"},
+                },
             ],
             "edges": [
                 {"from": "extract", "to": "classify"},
                 {"from": "classify", "to": "route"},
+                {"from": "classify", "to": "evaluate"},
+                {"from": "evaluate", "to": "record_eval"},
             ],
         }
+    )
+
+
+def _eval_response(
+    *, faithfulness: float = 5.0, category: float = 5.0, issues: list[str] | None = None
+) -> dict[str, Any]:
+    """Build a FakeBedrock response shaped like the evaluator's expected JSON."""
+    return text_response(
+        json.dumps(
+            {
+                "faithfulness_score": faithfulness,
+                "category_score": category,
+                "reasoning": "Looks consistent with the source text.",
+                "issues": issues or [],
+            }
+        ),
+        input_tokens=400,
+        output_tokens=60,
     )
 
 
@@ -141,6 +175,7 @@ async def test_classifier_routes_invoice_to_invoice_folder(tmp_path: Path) -> No
                 input_tokens=300,
                 output_tokens=80,
             ),
+            _eval_response(faithfulness=5.0, category=5.0),
         ]
     )
 
@@ -169,6 +204,10 @@ async def test_classifier_routes_invoice_to_invoice_folder(tmp_path: Path) -> No
     assert by_id["route"].output is not None
     assert by_id["route"].output["document_type"] == "invoice"
     assert by_id["route"].output["bytes_copied"] > 0
+    assert by_id["record_eval"].output is not None
+    assert by_id["record_eval"].output["parse_ok"] is True
+    assert by_id["record_eval"].output["faithfulness_score"] == 5.0
+    assert by_id["record_eval"].output["category_score"] == 5.0
 
 
 @pytest.mark.asyncio
@@ -185,6 +224,7 @@ async def test_classifier_unknown_type_falls_through_to_other(tmp_path: Path) ->
             text_response(
                 json.dumps({"document_type": "manifesto", "summary": "?"}),
             ),
+            _eval_response(faithfulness=2.0, category=1.0, issues=["unrecognizable content"]),
         ]
     )
 
@@ -220,7 +260,7 @@ def test_example_workflow_yaml_parses() -> None:
     definition = load_definition_from_yaml(yaml_path.read_text())
     assert definition.id == "pdf-classifier"
     step_ids = [s.id for s in definition.steps]
-    assert step_ids == ["extract", "classify", "route"]
+    assert step_ids == ["extract", "classify", "route", "evaluate", "record_eval"]
 
 
 # --- world is unused in extract; sanity check the workflow still touches it ---
@@ -230,3 +270,106 @@ def test_real_world_is_used_for_routing(tmp_path: Path) -> None:
     """Sanity: real_world() returns a usable World."""
     world: World = real_world()
     assert world.fs is not None
+
+
+# --- _extract_eval_scores ---
+
+
+def test_extract_eval_scores_full_object() -> None:
+    raw = json.dumps(
+        {
+            "faithfulness_score": 4,
+            "category_score": 5,
+            "reasoning": "Looks good.",
+            "issues": ["minor: date format inferred"],
+        }
+    )
+    scores = _extract_eval_scores(raw)
+    assert scores == {
+        "faithfulness_score": 4.0,
+        "category_score": 5.0,
+        "reasoning": "Looks good.",
+        "issues": ["minor: date format inferred"],
+    }
+
+
+def test_extract_eval_scores_coerces_int_to_float() -> None:
+    raw = '{"faithfulness_score": 3, "category_score": 0}'
+    scores = _extract_eval_scores(raw)
+    assert scores is not None
+    assert scores["faithfulness_score"] == 3.0
+    assert scores["category_score"] == 0.0
+    assert isinstance(scores["faithfulness_score"], float)
+
+
+def test_extract_eval_scores_drops_unknown_fields() -> None:
+    raw = '{"faithfulness_score": 5, "category_score": 5, "vibes": "good"}'
+    scores = _extract_eval_scores(raw)
+    assert scores is not None
+    assert "vibes" not in scores
+
+
+def test_extract_eval_scores_returns_none_on_invalid_json() -> None:
+    assert _extract_eval_scores("not even close to JSON") is None
+
+
+def test_extract_eval_scores_returns_none_when_no_known_fields_present() -> None:
+    # Valid JSON, but none of the expected keys.
+    assert _extract_eval_scores('{"unrelated": 1}') is None
+
+
+def test_extract_eval_scores_with_fences() -> None:
+    raw = (
+        "Sure, here's the score:\n```json\n"
+        + json.dumps({"faithfulness_score": 2, "category_score": 4})
+        + "\n```"
+    )
+    scores = _extract_eval_scores(raw)
+    assert scores is not None
+    assert scores["faithfulness_score"] == 2.0
+    assert scores["category_score"] == 4.0
+
+
+# --- record_evaluation graceful-failure case ---
+
+
+@pytest.mark.asyncio
+async def test_classifier_evaluator_garbage_output_does_not_fail_workflow(
+    tmp_path: Path,
+) -> None:
+    """If the evaluator agent returns prose instead of JSON, record_evaluation
+    captures parse_ok=False and the workflow still completes — routing must
+    not be held hostage by eval failures."""
+    inbox = tmp_path / "inbox"
+    output = tmp_path / "output"
+    inbox.mkdir()
+    pdf_path = inbox / "doc.pdf"
+    _make_pdf(pdf_path, "INVOICE\nVendor: X\nTotal: $1")
+
+    fake_bedrock = FakeBedrock(
+        [
+            text_response(json.dumps({"document_type": "invoice", "summary": "X"})),
+            text_response("I'm not going to give you JSON, sorry."),
+        ]
+    )
+
+    repos = in_memory_repositories()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=default_function_registry(),
+        tools=ToolCatalog(),
+        bedrock=fake_bedrock,
+        world=real_world(),
+    )
+    instance = await engine.run(
+        _classifier_definition(inbox, output),
+        trigger_payload={"file_path": str(pdf_path)},
+    )
+
+    assert instance.state == WorkflowInstanceState.COMPLETED
+    assert (output / "invoice" / "doc.pdf").is_file()
+    steps = await repos.steps.list_by_instance(instance.id)
+    record_eval = next(s for s in steps if s.step_id == "record_eval")
+    assert record_eval.output is not None
+    assert record_eval.output["parse_ok"] is False
+    assert "raw" in record_eval.output

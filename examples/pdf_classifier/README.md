@@ -9,12 +9,29 @@ definition.
 
 ## Files
 
-- `workflow.yaml` — the definition. Trigger + 3 steps + 2 edges.
+- `workflow.yaml` — the definition. Trigger + 5 steps + 4 edges (a diamond
+  after `classify`).
 - `agent_memory.md` — seed memory for the classifier agent. Loaded by
   the engine into the agentic step's system prompt at runtime.
 - `sample_inbox/` — drop folder. Empty by default.
 - `output/` — destination root. Per-category subfolders are created on
   demand (`output/invoice/`, `output/receipt/`, etc.).
+
+## Shape
+
+```
+extract → classify → route
+                  → evaluate → record_eval
+```
+
+The `evaluate` step is an LLM-as-judge: it scores the classifier's output for
+faithfulness (does the summary / key_fields reflect the text?) and category
+plausibility (was the chosen document_type reasonable?). `record_eval` is a
+deterministic step that parses the evaluator's JSON into structured fields so
+they're queryable directly off `step_executions.output`.
+
+Routing is the user-facing outcome and runs in parallel with evaluation —
+eval failures don't block routing.
 
 ## Run it
 

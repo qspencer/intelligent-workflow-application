@@ -15,6 +15,7 @@ repo between iterations of the dispatch loop.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import json
 import logging
 from collections import defaultdict
@@ -668,6 +669,10 @@ class WorkflowEngine:
         if self.memory is not None:
             memory_text = await self.memory.load(agent_id)
 
+        memory_hash: str | None = None
+        if memory_text:
+            memory_hash = "sha256:" + hashlib.sha256(memory_text.encode()).hexdigest()[:16]
+
         system_prompt = step.system_prompt or step.goal
         if memory_text:
             system_prompt = f"{system_prompt}\n\n--- Prior agent memory ---\n{memory_text}"
@@ -721,6 +726,7 @@ class WorkflowEngine:
             "model": step.model,
             "cost_usd": cost_usd,
             "tool_calls": [c.model_dump() for c in result.tool_calls],
+            "memory_hash": memory_hash,
         }
 
     # --- repository helpers ---

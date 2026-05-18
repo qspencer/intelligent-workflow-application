@@ -4,6 +4,7 @@ from workflow_platform.engine.functions import (
     default_function_registry,
     noop,
     pdf_extract,
+    record_evaluation,
     route_by_classification,
 )
 from workflow_platform.engine.registry import FunctionRegistry, StepFailure, StepFunction
@@ -18,5 +19,6 @@ __all__ = [
     "default_function_registry",
     "noop",
     "pdf_extract",
+    "record_evaluation",
     "route_by_classification",
 ]

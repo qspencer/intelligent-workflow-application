@@ -114,6 +114,65 @@ def _extract_document_type(raw: str) -> str | None:
     return value if isinstance(value, str) else None
 
 
+def _extract_eval_scores(raw: str) -> dict[str, Any] | None:
+    """Pull evaluator scores out of a judge agent's text response.
+
+    Expected JSON shape:
+        {"faithfulness_score": 0..5, "category_score": 0..5,
+         "reasoning": "...", "issues": ["..."]}
+
+    Numeric fields are coerced to float; strings/lists are passed through with
+    light validation. Returns None if no parseable JSON object is found.
+    Unknown keys are dropped — the schema is what `record_evaluation` queries
+    against."""
+    match = _JSON_OBJECT_RE.search(raw)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    out: dict[str, Any] = {}
+    for key in ("faithfulness_score", "category_score"):
+        val = parsed.get(key)
+        if isinstance(val, int | float) and not isinstance(val, bool):
+            out[key] = float(val)
+    reasoning = parsed.get("reasoning")
+    if isinstance(reasoning, str):
+        out["reasoning"] = reasoning
+    issues = parsed.get("issues")
+    if isinstance(issues, list):
+        out["issues"] = [str(x) for x in issues]
+    return out or None
+
+
+async def record_evaluation(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Parse a judge agent's JSON output into structured score fields.
+
+    Reads the evaluator's `output_text` (default
+    `"steps.evaluate.output_text"`) and lifts `faithfulness_score`,
+    `category_score`, `reasoning`, `issues` into the step's own output dict.
+    Downstream queries hit those fields directly instead of re-parsing the
+    JSON string.
+
+    On unparseable input: returns a record with `parse_ok=False` and the raw
+    text under `raw`. The step does not fail — the workflow continues.
+    """
+    source = config.get("evaluation_from", "steps.evaluate.output_text")
+    raw = _resolve_path(context, source)
+    if not raw:
+        raise StepFailure(f"record_evaluation could not resolve {source!r}")
+
+    scores = _extract_eval_scores(raw)
+    if scores is None:
+        return {"parse_ok": False, "raw": raw}
+    return {"parse_ok": True, **scores}
+
+
 def _resolve_path(context: WorkflowContext, dotted: str | None) -> str | None:
     if not dotted:
         return None
@@ -141,5 +200,6 @@ def default_function_registry() -> FunctionRegistry:
             "noop": noop,
             "pdf_extract": pdf_extract,
             "route_by_classification": route_by_classification,
+            "record_evaluation": record_evaluation,
         }
     )
