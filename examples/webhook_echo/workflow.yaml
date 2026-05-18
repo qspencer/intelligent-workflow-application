@@ -1,0 +1,32 @@
+id: webhook-echo
+name: Webhook Echo
+description: |
+  Smallest possible webhook workflow. Receives a JSON payload via
+  POST /api/triggers/webhook/echo and asks Claude to summarize it in one
+  sentence. Useful as a "does my webhook plumbing work?" smoke target and
+  as a template to copy for real webhook integrations.
+
+trigger:
+  type: webhook
+  config:
+    trigger_id: echo
+
+steps:
+  - id: summarize
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: |
+      You will receive a JSON payload from an incoming webhook (under
+      `trigger` in the context). Respond with ONE plain-English sentence
+      summarizing what the payload describes. Don't quote the JSON;
+      describe it.
+    policy:
+      max_iterations: 2
+      max_total_tokens: 2000
+
+edges: []
+
+policies:
+  max_total_tokens: 5000
+  budget_action: pause

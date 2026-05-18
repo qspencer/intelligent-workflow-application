@@ -95,6 +95,40 @@ async def route_by_classification(
     }
 
 
+async def append_file(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Append a string to a file via `World.fs`.
+
+    Config:
+      content_from — dotted context path to the string content (required).
+      path         — destination file path (required). Created if absent.
+
+    Each call appends `<content>\\n`, with a separator newline inserted if the
+    existing file doesn't end in one. Useful for periodic log-style outputs
+    written from a scheduled workflow.
+    """
+    content = _resolve_path(context, config.get("content_from"))
+    if content is None:
+        raise StepFailure("append_file requires `content_from` resolving to a string")
+    path = config.get("path")
+    if not isinstance(path, str) or not path:
+        raise StepFailure("append_file requires `path` in config")
+
+    existing = b""
+    if await world.fs.exists(path):
+        existing = await world.fs.read_bytes(path)
+    separator = b"" if not existing or existing.endswith(b"\n") else b"\n"
+    payload = existing + separator + content.encode() + b"\n"
+    await world.fs.write_bytes(path, payload)
+
+    return {
+        "path": path,
+        "appended_chars": len(content),
+        "total_bytes": len(payload),
+    }
+
+
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
 
@@ -201,5 +235,6 @@ def default_function_registry() -> FunctionRegistry:
             "pdf_extract": pdf_extract,
             "route_by_classification": route_by_classification,
             "record_evaluation": record_evaluation,
+            "append_file": append_file,
         }
     )

@@ -199,6 +199,75 @@ a faked Bedrock response and a real PyMuPDF extraction.
 
 ---
 
+## 4b. Webhook example (real backend, no Bedrock recordings)
+
+**What:** the `webhook_echo` example workflow under
+`examples/webhook_echo/`. Smallest possible "does the webhook trigger
+work?" check.
+
+**Why manual:** exercises the orchestrator → webhook registry →
+`POST /api/triggers/webhook/<id>` → engine path that automated tests
+hit in isolation.
+
+Start the backend with the orchestrator pointing at `examples/`:
+
+```bash
+cd backend
+DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
+WORKFLOW_DEFINITIONS_DIR=../examples \
+AUTH_MODE=dev \
+  uv run uvicorn workflow_platform.main:app --port 8000
+```
+
+Look for `Started webhook trigger for workflow webhook-echo` in the log.
+Then in another shell:
+
+```bash
+curl -s -X POST -H 'Content-Type: application/json' \
+  -d '{"event":"build_completed","project":"alpha","duration_s":12.7}' \
+  http://localhost:8000/api/triggers/webhook/echo
+
+# Show the run that just fired:
+curl -s -H 'X-Dev-User: alice' -H 'X-Dev-Groups: admins' \
+  'http://localhost:8000/api/workflow-instances?workflow_id=webhook-echo' | jq '.[0]'
+```
+
+**Pass when:** the instance is `completed` and
+`context.steps.summarize.output_text` is the model's one-sentence summary
+of the payload. Also visible on the dashboard at `/instances` after a
+refresh.
+
+---
+
+## 4c. Schedule example (real backend, watch it tick)
+
+**What:** the `scheduled_health_report` example workflow under
+`examples/scheduled_health_report/`. Fires once a minute, appends a
+status line to `/tmp/scheduled-health-report.log`.
+
+**Why manual:** the schedule trigger has wall-clock behavior unit tests
+can only simulate. Watching the file grow is the most direct proof.
+
+Start the backend (same command as 4b), then:
+
+```bash
+# Wait a minute for the first fire, then:
+tail -f /tmp/scheduled-health-report.log
+
+# Instances per fire:
+curl -s -H 'X-Dev-User: alice' -H 'X-Dev-Groups: admins' \
+  'http://localhost:8000/api/workflow-instances?workflow_id=scheduled-health-report&limit=5' \
+  | jq '.[] | {id, state, started_at}'
+```
+
+**Pass when:** the log file gains one line per minute and the instance
+list grows by one each tick.
+
+**Cost note:** ~$0.0001 per fire at Haiku 4.5. Leave the backend running
+overnight only if you mean to spend a few cents.
+
+---
+
 ## 5. Live Bedrock smoke through pytest
 
 **What:** the three end-to-end live tests in `backend/tests/test_smoke_live.py`

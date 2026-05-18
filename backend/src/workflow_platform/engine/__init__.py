@@ -1,6 +1,7 @@
 from workflow_platform.engine.context import WorkflowContext
 from workflow_platform.engine.executor import ToolCatalog, WorkflowEngine
 from workflow_platform.engine.functions import (
+    append_file,
     default_function_registry,
     noop,
     pdf_extract,
@@ -16,6 +17,7 @@ __all__ = [
     "ToolCatalog",
     "WorkflowContext",
     "WorkflowEngine",
+    "append_file",
     "default_function_registry",
     "noop",
     "pdf_extract",

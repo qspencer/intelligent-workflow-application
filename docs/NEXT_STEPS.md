@@ -86,28 +86,13 @@ Acceptance:
 
 Effort: **S+**.
 
-### P1.3 — Sample workloads for the other two trigger shapes
+### P1.3 — Sample workloads for the other two trigger shapes — **Done**
 
-**The pain.** PDF classifier covers filesystem trigger only. Webhook +
-schedule are tested in pytest but have no example you can fire by hand.
+Landed: `examples/webhook_echo/` (webhook → one agentic summarizer) and `examples/scheduled_health_report/` (schedule → agentic status line → `append_file`). New stock function `append_file` registered in the default function registry. Each example has a README, a replay-mode pytest (8 tests in `test_example_workflows.py`), and a curl-fire section in `docs/MANUAL_TESTING.md`. PDF classifier categories untouched.
 
-**Proposal.** Two small additions under `examples/`:
+### P1.5 — Surface eval scores in the dashboard — **Done**
 
-- `examples/webhook_echo/workflow.yaml` + a README. Trigger:
-  `{"type": "webhook", "config": {"trigger_id": "echo"}}`. One agentic step
-  that summarizes the incoming payload. Demonstrates the webhook path end
-  to end.
-- `examples/scheduled_health_report/workflow.yaml` + README. Trigger:
-  `{"type": "schedule", "config": {"interval_seconds": 60}}` or a cron
-  expression. One agentic step, one deterministic step that writes a
-  summary file. Demonstrates the schedule path.
-
-Acceptance:
-- Each example has its own README, replay-mode pytest, and a curl-line in
-  `docs/MANUAL_TESTING.md` that fires it.
-- The category list in the PDF classifier doesn't change.
-
-Effort: **S** (mostly YAML + a few lines of agent prompt per workflow).
+Landed: `frontend/src/app/services/evaluation.ts` — pure helper that finds steps whose output looks like a `record_evaluation` result (parse_ok-keyed shape) and lifts the score fields. Instance-detail component gained an "Evaluation" panel above the steps table — score badges color-coded by value (faithfulness + category), reasoning text, issues list, and a `raw` fallback when `parse_ok=false`. 13 new Vitest tests cover the helper. Closest signal-to-effort ratio of any post-P1.3 polish item.
 
 ### P1.4 — Frontend role switcher widget
 

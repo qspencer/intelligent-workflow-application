@@ -1,0 +1,48 @@
+id: scheduled-health-report
+name: Scheduled Health Report
+description: |
+  Fires on a fixed interval, asks Claude to write a one-line status entry,
+  appends it to a log file via the `append_file` stock function. Useful as
+  a "does the schedule trigger fire?" smoke target and as a template for
+  any periodic agentic workflow.
+
+trigger:
+  type: schedule
+  config:
+    # Every 60s. Change to `cron: "*/5 * * * *"` for cron-style.
+    interval_seconds: 60
+
+steps:
+  - id: status
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: |
+      You are generating a periodic system status line. The trigger payload
+      under `trigger.triggered_at` has the fire time in ISO format.
+
+      Write a single short line (under 120 chars total) in this exact
+      format — no fences, no prose around it:
+
+        [<iso-timestamp>] system: ok — <one short observation>
+
+      The observation can be light (e.g. "no alerts pending",
+      "background jobs idle"). Don't invent specifics you don't have.
+    policy:
+      max_iterations: 2
+      max_total_tokens: 1500
+
+  - id: append
+    type: deterministic
+    function: append_file
+    config:
+      content_from: steps.status.output_text
+      path: /tmp/scheduled-health-report.log
+
+edges:
+  - from: status
+    to: append
+
+policies:
+  max_total_tokens: 8000
+  budget_action: pause

@@ -1,9 +1,14 @@
 import { CommonModule, DatePipe } from '@angular/common';
-import { Component, inject, Input, OnDestroy, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, Input, OnDestroy, OnInit, signal } from '@angular/core';
 import { Router, RouterLink } from '@angular/router';
 import { Subject, interval, takeUntil } from 'rxjs';
 
 import { ApiService } from '../../services/api.service';
+import {
+  EvaluationResult,
+  extractEvaluations,
+  scoreClass,
+} from '../../services/evaluation';
 import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../../types';
 
 @Component({
@@ -51,6 +56,52 @@ import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../
           <button (click)="action('retry')">Retry</button>
         }
       </div>
+
+      @if (evaluations().length > 0) {
+        <h3>Evaluation</h3>
+        @for (e of evaluations(); track e.step_id) {
+          <div class="eval">
+            <div class="eval-head">
+              <span class="step">{{ e.step_id }}</span>
+              @if (!e.parse_ok) {
+                <span class="badge failed">parse failed</span>
+              }
+            </div>
+            @if (e.parse_ok) {
+              <div class="scores">
+                @if (e.faithfulness_score !== undefined) {
+                  <div class="score">
+                    <span class="label">Faithfulness</span>
+                    <span class="value" [class]="'value ' + scoreClass(e.faithfulness_score)">
+                      {{ e.faithfulness_score }} / 5
+                    </span>
+                  </div>
+                }
+                @if (e.category_score !== undefined) {
+                  <div class="score">
+                    <span class="label">Category</span>
+                    <span class="value" [class]="'value ' + scoreClass(e.category_score)">
+                      {{ e.category_score }} / 5
+                    </span>
+                  </div>
+                }
+              </div>
+              @if (e.reasoning) {
+                <div class="reasoning">{{ e.reasoning }}</div>
+              }
+              @if (e.issues && e.issues.length > 0) {
+                <ul class="issues">
+                  @for (issue of e.issues; track issue) {
+                    <li>{{ issue }}</li>
+                  }
+                </ul>
+              }
+            } @else if (e.raw) {
+              <pre class="raw">{{ e.raw }}</pre>
+            }
+          </div>
+        }
+      }
 
       <h3>Steps</h3>
       <table>
@@ -148,6 +199,72 @@ import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../
         align-items: center;
         gap: 12px;
       }
+      .eval {
+        background: var(--panel);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 12px 16px;
+        margin: 8px 0;
+      }
+      .eval-head {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 8px;
+      }
+      .eval-head .step {
+        color: var(--muted);
+        font-family: ui-monospace, monospace;
+        font-size: 13px;
+      }
+      .scores {
+        display: flex;
+        gap: 16px;
+        flex-wrap: wrap;
+      }
+      .score {
+        display: flex;
+        flex-direction: column;
+        gap: 2px;
+      }
+      .score .label {
+        color: var(--muted);
+        font-size: 12px;
+      }
+      .score .value {
+        font-weight: 600;
+        font-size: 16px;
+        font-variant-numeric: tabular-nums;
+      }
+      .score .value.good {
+        color: var(--ok);
+      }
+      .score .value.warn {
+        color: var(--warn);
+      }
+      .score .value.err {
+        color: var(--err);
+      }
+      .reasoning {
+        margin-top: 8px;
+        font-size: 14px;
+        color: var(--text);
+      }
+      ul.issues {
+        margin: 6px 0 0;
+        padding-left: 20px;
+        color: var(--err);
+        font-size: 13px;
+      }
+      pre.raw {
+        background: var(--bg);
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        padding: 8px;
+        font-size: 12px;
+        max-height: 160px;
+        overflow: auto;
+      }
     `,
   ],
 })
@@ -163,6 +280,10 @@ export class InstanceDetailComponent implements OnInit, OnDestroy {
   readonly auditEntries = signal<AuditEntry[]>([]);
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
+
+  readonly evaluations = computed<EvaluationResult[]>(() => extractEvaluations(this.steps()));
+
+  readonly scoreClass = scoreClass;
 
   ngOnInit(): void {
     this.refresh();
