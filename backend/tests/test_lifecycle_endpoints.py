@@ -152,3 +152,60 @@ def test_retry_running_instance_rejected(
     running_id = next(i.id for i in instances if i.state == WorkflowInstanceState.RUNNING)
     r = client.post(f"/api/workflow-instances/{running_id}/retry", headers=_admin())
     assert r.status_code == 400
+
+
+# --- POST /api/workflows/{id}/run ---
+
+
+def test_run_workflow_creates_instance(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, _, _ = dev_app
+    r = client.post(
+        "/api/workflows/wf-1/run",
+        json={"key": "value"},
+        headers=_admin(),
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["status"] == "started"
+    assert body["state"] == "completed"
+    assert body["instance_id"]
+
+
+def test_run_unknown_workflow_404(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, *_ = dev_app
+    r = client.post("/api/workflows/does-not-exist/run", json={}, headers=_admin())
+    assert r.status_code == 404
+
+
+def test_run_rejects_non_object_payload(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, *_ = dev_app
+    r = client.post(
+        "/api/workflows/wf-1/run",
+        content='["not", "an", "object"]',
+        headers={**_admin(), "Content-Type": "application/json"},
+    )
+    assert r.status_code == 400
+    assert "JSON object" in r.json()["detail"]
+
+
+def test_run_requires_operator_role(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, *_ = dev_app
+    r = client.post("/api/workflows/wf-1/run", json={}, headers=_viewer())
+    assert r.status_code == 403
+
+
+def test_run_empty_body_treated_as_empty_dict(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, *_ = dev_app
+    r = client.post("/api/workflows/wf-1/run", headers=_admin())
+    assert r.status_code == 200
+    assert r.json()["status"] == "started"

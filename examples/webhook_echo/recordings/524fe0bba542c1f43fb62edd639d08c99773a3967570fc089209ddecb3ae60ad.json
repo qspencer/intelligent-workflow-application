@@ -1,0 +1,46 @@
+{
+  "recorded_at": "2026-05-18T18:36:55.727213+00:00",
+  "request": {
+    "messages": [
+      {
+        "content": [
+          {
+            "text": "You will receive a JSON payload from an incoming webhook (under\n`trigger` in the context). Respond with ONE plain-English sentence\nsummarizing what the payload describes. Don't quote the JSON;\ndescribe it.\n\n\nContext:\n{\n  \"trigger\": {\n    \"event\": \"build_completed\",\n    \"project\": \"alpha\",\n    \"duration_s\": 12.7\n  },\n  \"prior_steps\": {}\n}"
+          }
+        ],
+        "role": "user"
+      }
+    ],
+    "modelId": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+    "system": [
+      {
+        "text": "You will receive a JSON payload from an incoming webhook (under\n`trigger` in the context). Respond with ONE plain-English sentence\nsummarizing what the payload describes. Don't quote the JSON;\ndescribe it.\n"
+      }
+    ]
+  },
+  "request_hash": "524fe0bba542c1f43fb62edd639d08c99773a3967570fc089209ddecb3ae60ad",
+  "response": {
+    "metrics": {
+      "latencyMs": 2729
+    },
+    "output": {
+      "message": {
+        "content": [
+          {
+            "text": "A build for the alpha project has completed successfully in approximately 12.7 seconds."
+          }
+        ],
+        "role": "assistant"
+      }
+    },
+    "stopReason": "end_turn",
+    "usage": {
+      "cacheReadInputTokens": 0,
+      "cacheWriteInputTokens": 0,
+      "inputTokens": 152,
+      "outputTokens": 21,
+      "totalTokens": 173
+    }
+  },
+  "schema_version": 1
+}

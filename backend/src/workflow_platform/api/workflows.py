@@ -107,6 +107,41 @@ def build_router(
         await repositories.definitions.save(definition)
         return {"status": "imported", "workflow_id": definition.id}
 
+    @router.post("/workflows/{workflow_id}/run")
+    async def run_workflow(
+        workflow_id: str,
+        request: Request,
+        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+    ) -> dict[str, Any]:
+        """Manually fire a workflow once with a caller-supplied trigger payload.
+
+        Body: JSON object accepted verbatim as the trigger payload. Empty body
+        is treated as `{}`. Returns the new instance's id + state synchronously
+        — the engine.run call is awaited so callers can navigate straight to
+        the dashboard."""
+        if engine is None:
+            raise HTTPException(
+                status_code=503, detail="Run requires a WorkflowEngine bound to the API."
+            )
+        definition = await repositories.definitions.get(workflow_id)
+        if definition is None:
+            raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
+        body = await request.body()
+        text = body.decode("utf-8") if body else ""
+        try:
+            payload = json.loads(text) if text.strip() else {}
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="Trigger payload must be a JSON object")
+
+        instance = await engine.run(definition, trigger_payload=payload)
+        return {
+            "status": "started",
+            "instance_id": instance.id,
+            "state": instance.state.value,
+        }
+
     @router.get("/workflow-instances")
     async def list_instances(
         workflow_id: str | None = None,

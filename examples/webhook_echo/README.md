@@ -8,6 +8,25 @@ one sentence, persists the run.
 
 - `workflow.yaml` — the definition. Trigger = webhook (`trigger_id: echo`),
   one agentic step, no edges.
+- `recordings/` — committed Bedrock response fixture so this workflow can
+  run in `BEDROCK_MODE=replay` without AWS credentials. The recording is
+  keyed on the request hash, so the payload below must be used verbatim for
+  the replay to match.
+
+## Run offline (no AWS, no money)
+
+```bash
+cd backend
+BEDROCK_MODE=replay \
+BEDROCK_RECORDINGS_DIR=../examples/webhook_echo/recordings \
+  uv run python tools/replay.py \
+  --definition ../examples/webhook_echo/workflow.yaml \
+  --trigger '{"event":"build_completed","project":"alpha","duration_s":12.7}' \
+  --recordings-dir ../examples/webhook_echo/recordings
+```
+
+To regenerate the recording (e.g. after changing the workflow prompt), run
+the same shape with `BEDROCK_MODE=record` and your AWS creds set.
 
 ## Run it (orchestrator-wired backend)
 

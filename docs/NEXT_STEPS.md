@@ -42,49 +42,13 @@ Landed at `backend/src/workflow_platform/orchestrator.py` + wired into `main.py`
 
 ## P1 — high value, lower urgency
 
-### P1.1 — Frontend "fire instance" affordance
+### P1.1 — Frontend "fire instance" affordance — **Done**
 
-**The pain.** Even with P0.1 + P0.2, manually exercising a workflow in the
-dashboard means switching to a terminal. For a demo audience, that breaks
-the flow.
+Landed: new `POST /api/workflows/{id}/run` endpoint (Admin/Operator), accepts JSON payload, awaits `engine.run`, returns `{status, instance_id, state}`. 5 new backend tests cover happy path / 404 / non-object body / role gating / empty body. Frontend gained a "Run" button per workflow row + a dialog with a JSON-validating textarea; on submit it navigates to the new instance's detail page.
 
-**Proposal.** On the workflows tab, each row gets a "Run with payload"
-button. Clicking it opens a JSON editor pre-filled with the trigger schema
-(if known) or `{}`. Submitting POSTs to a new
-`POST /api/workflows/{id}/run` endpoint that calls into the engine with
-the same Postgres-backed repos the API uses elsewhere.
+### P1.2 — Persistent workflow definition store + dashboard import — **Done**
 
-Acceptance:
-- New API endpoint, role-gated to Operator+.
-- Frontend dialog with JSON validation, displays errors inline.
-- After submit, navigate to the new instance's detail view automatically.
-- Doesn't replace P0.2 — both paths into the engine should keep working.
-
-Effort: **M** (split: backend endpoint S, frontend dialog S+).
-
-### P1.2 — Persistent workflow definition store + dashboard import
-
-**The pain.** Definitions imported via `POST /api/workflows/import`
-disappear on backend restart unless Postgres is wired up. And when Postgres
-is wired up, you still have to re-curl every time you reset state.
-
-**Proposal.** Two tiny pieces:
-1. A "definitions directory" the backend syncs from at startup
-   (`WORKFLOW_DEFINITIONS_DIR` again — same env var as P0.2). YAML files
-   become rows in `workflow_definitions`. Re-import on every startup is
-   cheap and idempotent.
-2. A frontend "Import workflow" button that pastes YAML into the existing
-   `/api/workflows/import` endpoint, surfaces validation errors inline, and
-   refreshes the list.
-
-Acceptance:
-- Files in `examples/` get loaded into Postgres on startup.
-- Editing one of the YAML files and restarting the backend updates the
-  stored definition (last-writer-wins by id).
-- Frontend import dialog closes on success, shows the validation error from
-  the backend on failure.
-
-Effort: **S+**.
+The auto-load half was already covered by P0.2 (`TriggerOrchestrator` reads `WORKFLOW_DEFINITIONS_DIR` and saves each YAML idempotently). Remaining work was the frontend "Import workflow" dialog: now in `WorkflowsListComponent` as a modal with YAML/JSON toggle, error surfacing, and list refresh on success. Two new `api.service` Vitest tests cover content-type negotiation.
 
 ### P1.3 — Sample workloads for the other two trigger shapes — **Done**
 
@@ -94,63 +58,27 @@ Landed: `examples/webhook_echo/` (webhook → one agentic summarizer) and `examp
 
 Landed: `frontend/src/app/services/evaluation.ts` — pure helper that finds steps whose output looks like a `record_evaluation` result (parse_ok-keyed shape) and lifts the score fields. Instance-detail component gained an "Evaluation" panel above the steps table — score badges color-coded by value (faithfulness + category), reasoning text, issues list, and a `raw` fallback when `parse_ok=false`. 13 new Vitest tests cover the helper. Closest signal-to-effort ratio of any post-P1.3 polish item.
 
-### P1.4 — Frontend role switcher widget
+### P1.6 — Surface `memory_hash` in step views — **Done**
 
-**The pain.** Manually testing the role matrix means opening DevTools and
-running `localStorage.setItem('wp.user', 'alice')`. Easy to forget, easy
-to leave in the wrong state.
+Landed: instance-detail Steps table gained a "Memory" column. Agent steps show the first 8 chars of the `sha256:` memory hash (with the full hash on hover via the `title` attribute); non-agentic steps show `—`. Closes the "data's in the audit log but invisible at a glance" gap from the post-R2 work.
 
-**Proposal.** A small dropdown in the dashboard header: "Acting as: 
-Admin / Designer / Operator / Viewer / Auditor". Picks update localStorage
-and trigger a refresh of the current page. Default reads from current
-state; falls back to "dev-user / admins".
+### P1.4 — Frontend role switcher widget — **Done**
 
-Acceptance:
-- Visible on every route.
-- Role change reflected on the next API call (DevTools → Network confirms).
-- Persists across reloads (already does, since localStorage).
-
-Effort: **S**.
+Landed at `frontend/src/app/components/role-switcher/`. Dropdown in the dashboard header with the five roles (Admin / Designer / Operator / Viewer / Auditor → group names). Updates localStorage and reloads the page so every component re-fetches with the new identity. Defaults to whatever's already in localStorage; falls back to `admins` on unknown / missing values. 5 Vitest tests cover defaults, unknown values, change-then-reload, and username preservation.
 
 ---
 
 ## P2 — polish
 
-### P2.1 — Frontend WebSocket event subscription
+### P2.1 — Frontend WebSocket event subscription — **Done**
 
-**The pain.** The dashboard polls every 3–5s. Audit log + state changes
-appear with that lag — fine for testing logic, surprising during demos.
+Landed: new `EventsService` (`frontend/src/app/services/events.service.ts`) opens a WS to `/ws/events?user=&groups=`, parses each audit-entry frame, and reconnects every 2s on close. Instance-detail component subscribes, filters by `workflow_instance_id`, and appends to the audit list with dedupe-by-id (so the polling refresh + WS push don't double-render the same entry). `main.py` now always builds an `EventBus` (was conditional) so the WS endpoint is live in every deployment. 7 new Vitest tests cover the service end-to-end (open / parse / malformed / reconnect / no-reconnect-after-unsub / close-on-unsub).
 
-**Proposal.** Subscribe `/ws/events` from the instance-detail component,
-merge incoming events into the existing audit log + state signals. Polling
-stays as a fallback if the socket disconnects.
+### P2.2 — Pre-recorded Bedrock fixtures — **Done (partial)**
 
-Acceptance:
-- New audit entries appear within 200ms of a state change in another tab.
-- If the WebSocket fails, the existing polling refresh keeps working.
-- No flicker on the audit log when the same entry arrives via both paths
-  (the EventBus currently mirrors audit, so dedupe is needed).
+Landed: `examples/webhook_echo/recordings/` has a committed Bedrock response fixture for the canonical payload. A new pytest in `test_example_workflows.py` runs the whole webhook_echo flow in REPLAY mode against the fixture, asserting no AWS credentials are needed. README updated with the replay command.
 
-Effort: **M**. The backend half is already there.
-
-### P2.2 — Pre-recorded Bedrock fixtures for the PDF classifier
-
-**The pain.** `tools/replay.py` against the PDF classifier example fails
-out of the box because no recordings exist. Anyone trying to verify the
-flow without AWS access hits a wall.
-
-**Proposal.** Run the workflow once with `BEDROCK_MODE=record` against a
-known-input PDF, commit the recording files under `tests/recordings/`. The
-example README adds a "play this back" command.
-
-Acceptance:
-- `cd backend && uv run python tools/replay.py --definition
-  ../examples/pdf_classifier/workflow.yaml --trigger
-  '{"file_path":"path/to/sample.pdf"}'` succeeds without AWS creds.
-- The committed sample PDF is small (under 50 KB) and unambiguously
-  classifiable as one of the seven categories.
-
-Effort: **S**.
+**Scope adjustment vs. original proposal:** the PDF classifier was the original target, but its request hash incorporates `trigger.file_path` and the full extracted text — both vary by machine + filesystem path. Webhook_echo's request depends only on the trigger payload, so the recording is portable. PDF classifier recordings would need either a path-normalization step (intrusive change to BedrockClient) or a fixed-path convention; deferring until there's demand.
 
 ### P2.3 — Apply Terraform once and verify
 
@@ -173,22 +101,9 @@ Acceptance:
 
 Effort: **M**. The IaC is written; risk is operational, not coding.
 
-### P2.4 — JSON log tail-friendly view in dev
+### P2.4 — JSON log tail-friendly view in dev — **Done**
 
-**The pain.** Reading raw JSON log lines while you're poking at the
-running server is harder than it should be.
-
-**Proposal.** A `LOG_FORMAT` env var (default `json`, accept `text`).
-Default `text` in `docker compose up backend` for dev ergonomics; default
-`json` in `infra/ecs.tf` for CloudWatch parsing. No code change beyond
-plumbing the env var into `configure_logging(json_output=...)`.
-
-Acceptance:
-- `LOG_FORMAT=text uv run uvicorn ...` produces human-readable lines
-  locally.
-- `LOG_FORMAT=json` (or unset) keeps the production behavior.
-
-Effort: **S**.
+Landed: `main.py` reads `LOG_FORMAT` env var. `LOG_FORMAT=text` → plain text via `logging.Formatter()`; anything else (or unset) keeps the production JSON behavior. Default unchanged from before, so deployed environments don't shift.
 
 ---
 

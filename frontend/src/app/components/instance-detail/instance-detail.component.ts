@@ -9,6 +9,7 @@ import {
   extractEvaluations,
   scoreClass,
 } from '../../services/evaluation';
+import { EventsService } from '../../services/events.service';
 import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../../types';
 
 @Component({
@@ -111,6 +112,7 @@ import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../
             <th>State</th>
             <th>Started</th>
             <th>Finished</th>
+            <th>Memory</th>
             <th>Error</th>
           </tr>
         </thead>
@@ -121,6 +123,14 @@ import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../
               <td><span class="badge" [class]="'badge ' + s.state">{{ s.state }}</span></td>
               <td>{{ s.started_at ? (s.started_at | date: 'short') : '—' }}</td>
               <td>{{ s.completed_at ? (s.completed_at | date: 'short') : '—' }}</td>
+              <td>
+                @let mh = memoryHash(s);
+                @if (mh) {
+                  <code class="mh" [title]="mh">{{ shortHash(mh) }}</code>
+                } @else {
+                  <span class="muted">—</span>
+                }
+              </td>
               <td class="error">{{ s.error ?? '' }}</td>
             </tr>
           }
@@ -265,6 +275,11 @@ import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../
         max-height: 160px;
         overflow: auto;
       }
+      code.mh {
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        color: var(--muted);
+      }
     `,
   ],
 })
@@ -272,6 +287,7 @@ export class InstanceDetailComponent implements OnInit, OnDestroy {
   @Input({ required: true }) id!: string;
 
   private readonly api = inject(ApiService);
+  private readonly events = inject(EventsService);
   private readonly router = inject(Router);
   private readonly destroy$ = new Subject<void>();
 
@@ -287,9 +303,23 @@ export class InstanceDetailComponent implements OnInit, OnDestroy {
 
   ngOnInit(): void {
     this.refresh();
+    // Polling refresh — catches state transitions the WebSocket doesn't emit
+    // (the `events` bus only mirrors audit appends, not instance state).
     interval(3000)
       .pipe(takeUntil(this.destroy$))
       .subscribe(() => this.refresh());
+    // Live audit-event stream — appended to `auditEntries` immediately on
+    // arrival. Duplicate IDs (also picked up by polling) are filtered out.
+    this.events
+      .stream()
+      .pipe(takeUntil(this.destroy$))
+      .subscribe((entry) => {
+        if (entry.workflow_instance_id !== this.id) return;
+        this.auditEntries.update((current) => {
+          if (current.some((e) => e.id === entry.id)) return current;
+          return [...current, entry];
+        });
+      });
   }
 
   ngOnDestroy(): void {
@@ -299,6 +329,17 @@ export class InstanceDetailComponent implements OnInit, OnDestroy {
 
   short(id: string): string {
     return id.slice(0, 8);
+  }
+
+  memoryHash(s: StepExecution): string | null {
+    const value = s.output?.['memory_hash'];
+    return typeof value === 'string' ? value : null;
+  }
+
+  shortHash(hash: string): string {
+    // Strip "sha256:" prefix and show first 8 chars.
+    const stripped = hash.startsWith('sha256:') ? hash.slice(7) : hash;
+    return stripped.slice(0, 8);
   }
 
   action(name: 'pause' | 'resume' | 'retry' | 'kill'): void {

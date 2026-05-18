@@ -183,3 +183,41 @@ def _real_world_for_tmp() -> World:
     from workflow_platform.world import real_world
 
     return real_world()
+
+
+# --- replay-mode end-to-end using committed Bedrock recordings (P2.2) ---
+
+
+@pytest.mark.asyncio
+async def test_webhook_echo_runs_in_replay_mode_against_committed_recording() -> None:
+    """Confirms that `examples/webhook_echo/recordings/` contains a valid
+    fixture for the canonical payload, and that the workflow runs end-to-end
+    in REPLAY mode without AWS credentials."""
+    from workflow_platform.bedrock import BedrockClient, BedrockMode
+
+    yaml_path = EXAMPLES_ROOT / "webhook_echo" / "workflow.yaml"
+    recordings = EXAMPLES_ROOT / "webhook_echo" / "recordings"
+    definition = load_definition_from_yaml(yaml_path.read_text())
+
+    bedrock = BedrockClient(mode=BedrockMode.REPLAY, recordings_dir=recordings)
+    repos = in_memory_repositories()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=default_function_registry(),
+        tools=ToolCatalog(),
+        bedrock=bedrock,
+        world=mock_world(),
+    )
+    # The payload must match what the recording was generated with — any
+    # change to either side requires a fresh recording.
+    payload: dict[str, Any] = {
+        "event": "build_completed",
+        "project": "alpha",
+        "duration_s": 12.7,
+    }
+    instance = await engine.run(definition, trigger_payload=payload)
+
+    assert instance.state == WorkflowInstanceState.COMPLETED
+    steps = await repos.steps.list_by_instance(instance.id)
+    assert steps[0].output is not None
+    assert "alpha" in steps[0].output["output_text"]

@@ -42,7 +42,10 @@ from workflow_platform.tools import FileReadTool, FileWriteTool, PdfExtractTool
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.world import real_world
 
-configure_logging(level=logging.INFO, json_output=True)
+configure_logging(
+    level=logging.INFO,
+    json_output=os.environ.get("LOG_FORMAT", "json").lower() != "text",
+)
 logger = logging.getLogger(__name__)
 
 
@@ -93,6 +96,7 @@ def create_app(
 
     metrics = metrics or PrometheusMetrics()
     webhook_registry = webhook_registry or WebhookRegistry()
+    events = events or EventBus()
     engine = engine or _default_engine(repositories, metrics, events)
 
     # Default-on in production; off in tests unless a test explicitly opts in.
@@ -136,8 +140,7 @@ def create_app(
         return Response(content=metrics.render(), media_type=CONTENT_TYPE)
 
     app.include_router(build_router(repositories, engine=engine, webhook_registry=webhook_registry))
-    if events is not None:
-        app.include_router(build_ws_router(events))
+    app.include_router(build_ws_router(events))
     return app
 
 

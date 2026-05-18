@@ -1,10 +1,12 @@
 import { Component } from '@angular/core';
 import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
 
+import { RoleSwitcherComponent } from './components/role-switcher/role-switcher.component';
+
 @Component({
   selector: 'wp-root',
   standalone: true,
-  imports: [RouterLink, RouterLinkActive, RouterOutlet],
+  imports: [RouterLink, RouterLinkActive, RouterOutlet, RoleSwitcherComponent],
   template: `
     <header>
       <h1>Workflow Platform</h1>
@@ -12,6 +14,7 @@ import { RouterLink, RouterLinkActive, RouterOutlet } from '@angular/router';
         <a routerLink="/instances" routerLinkActive="active">Instances</a>
         <a routerLink="/workflows" routerLinkActive="active">Workflows</a>
       </nav>
+      <wp-role-switcher />
     </header>
     <main>
       <router-outlet />

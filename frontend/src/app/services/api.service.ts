@@ -55,6 +55,24 @@ export class ApiService {
     return this.http.post(`${API_BASE}/workflow-instances/${id}/kill`, {});
   }
 
+  importWorkflow(body: string, contentType: 'yaml' | 'json'): Observable<WorkflowDefinition> {
+    const mime =
+      contentType === 'json' ? 'application/json' : 'application/x-yaml';
+    return this.http.post<WorkflowDefinition>(`${API_BASE}/workflows/import`, body, {
+      headers: { 'Content-Type': mime },
+    });
+  }
+
+  runWorkflow(
+    workflowId: string,
+    triggerPayload: Record<string, unknown>,
+  ): Observable<{ status: string; instance_id: string; state: string }> {
+    return this.http.post<{ status: string; instance_id: string; state: string }>(
+      `${API_BASE}/workflows/${workflowId}/run`,
+      triggerPayload,
+    );
+  }
+
   private cleanParams(input: Record<string, unknown>): Record<string, string> {
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(input)) {

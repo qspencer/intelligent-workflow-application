@@ -65,4 +65,33 @@ describe('ApiService', () => {
     (service[method] as (id: string) => unknown)('x');
     expect(http.post).toHaveBeenCalledWith(expectedUrl, {});
   });
+
+  it('importWorkflow sends YAML with the right content-type', () => {
+    const { service, http } = makeService();
+    service.importWorkflow('id: x\nname: X', 'yaml');
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/workflows/import',
+      'id: x\nname: X',
+      { headers: { 'Content-Type': 'application/x-yaml' } },
+    );
+  });
+
+  it('importWorkflow sends JSON with application/json', () => {
+    const { service, http } = makeService();
+    service.importWorkflow('{"id":"x"}', 'json');
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/workflows/import',
+      '{"id":"x"}',
+      { headers: { 'Content-Type': 'application/json' } },
+    );
+  });
+
+  it('runWorkflow posts trigger payload to /workflows/{id}/run', () => {
+    const { service, http } = makeService();
+    service.runWorkflow('wf-1', { file_path: '/abs/foo.pdf' });
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/workflows/wf-1/run',
+      { file_path: '/abs/foo.pdf' },
+    );
+  });
 });
