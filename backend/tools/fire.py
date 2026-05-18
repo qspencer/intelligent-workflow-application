@@ -38,6 +38,8 @@ from workflow_platform.engine import (
     WorkflowEngine,
     default_function_registry,
 )
+from workflow_platform.memory import MemoryManager
+from workflow_platform.orchestrator import seed_memory_from_workflow_dir
 from workflow_platform.persistence import (
     Repositories,
     WorkflowInstanceState,
@@ -64,14 +66,18 @@ def _build_repos() -> tuple[Repositories, Any | None]:
 
 
 async def fire(args: argparse.Namespace) -> int:
-    definition = load_definition_from_file(args.definition)
+    definition_path = Path(args.definition).resolve()
+    definition = load_definition_from_file(definition_path)
     trigger_payload: dict[str, Any] = json.loads(args.trigger) if args.trigger else {}
 
     repos, db_engine = _build_repos()
     backend = "postgres" if db_engine is not None else "in-memory"
+    memory_dir = os.environ.get("WORKFLOW_PLATFORM_MEMORY_DIR", ".memory")
+    memory = MemoryManager(memory_dir)
 
     try:
         await repos.definitions.save(definition)
+        await seed_memory_from_workflow_dir(definition, definition_path, memory)
 
         engine = WorkflowEngine(
             repositories=repos,
@@ -79,6 +85,7 @@ async def fire(args: argparse.Namespace) -> int:
             tools=ToolCatalog([PdfExtractTool(), FileReadTool(), FileWriteTool()]),
             bedrock=BedrockClient(),
             world=real_world(),
+            memory=memory,
         )
         instance = await engine.run(definition, trigger_payload=trigger_payload)
     finally:

@@ -149,6 +149,50 @@ The `memory_hash` versioning was added precisely to make this loop legible.
   `WebhookConnector`). Worth adding once the offline iteration plateaus
   and we trust the agent enough to comment on real PRs.
 
+## Findings from the first real-world iteration
+
+Fired 50 closed PRs (25 from `anthropics/anthropic-sdk-python`, 25 from
+`fastapi/fastapi`) through the workflow four times, editing the rubric
+between runs. ~$1.75 of Haiku 4.5 spend total.
+
+**Finding 1 — `agent_memory.md` files were not auto-loaded at runtime
+(fixed in G6).** The original `workflow.yaml` referenced "the agent
+memory loaded above this prompt," but the engine's `MemoryManager` was
+only populated when called explicitly, and nothing read adjacent example
+memory files at load time. Every step output had `memory_hash: null`.
+**Resolution:** `seed_memory_from_workflow_dir` now runs in both
+`TriggerOrchestrator._register_one` and `tools/fire.py`. On a fresh
+batch with the system_prompt block removed from the YAML, `memory_hash`
+is non-null and behavior matches v4. The rubric in `agent_memory.md`
+is now the single source of truth.
+
+**Finding 2 — once loaded, the rubric works as designed.** v1/v2 had 78
+and 86 total concerns across 50 PRs, with phrasing inconsistent across
+runs and post-review state leaking in (`"PR closed without merge"`,
+`"already merged"`). v3 (rubric inlined) dropped to 47 concerns, all
+catalog-compliant, no state leaks.
+
+**Finding 3 — `author_association` is the right signal for "external
+contributor."** v3 over-flagged: 25/50 PRs got `from external contributor`
+because the agent had no rule for who's a maintainer. v4 added
+"`author_association` ∈ `{NONE, FIRST_TIME_CONTRIBUTOR}`" to the rule.
+Result: 21/21 `NONE` PRs flagged, 0/16 `MEMBER` PRs flagged, 1/13
+`CONTRIBUTOR` PRs flagged (single edge case). Near-perfect alignment.
+
+**Finding 4 — cost per PR is dominated by the user message, not the
+system prompt.** Adding a 3.5KB system prompt only bumped per-run cost
+~6%. Bot-driven release PRs (with full changelogs in the body) are the
+expensive runs. Median run was ~8K tokens, ~$0.009.
+
+**Finding 5 — listing PRs via `gh api .../pulls` returns null for
+`additions`, `deletions`, `changed_files`.** Those only populate on the
+single-PR endpoint. `scripts/fetch_prs.sh` should be paired with a
+second enrichment pass via `gh api repos/X/Y/pulls/N`. Tracked as a
+follow-up in the script comments.
+
+These findings are the kind of thing you can't get from a unit test —
+which is the whole point of running validation workloads.
+
 ## Next graduation steps
 
 The test is already in `backend/tests/` and runs in CI. Remaining steps

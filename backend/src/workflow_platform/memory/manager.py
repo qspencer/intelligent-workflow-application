@@ -35,6 +35,22 @@ class MemoryManager:
         timestamp = datetime.now(UTC).isoformat()
         await asyncio.to_thread(self._append_sync, agent_id, observation, timestamp)
 
+    async def write_raw(self, agent_id: str, content: str) -> None:
+        """Replace the agent's memory file with `content` (overwriting).
+
+        Used to seed a pinned rubric from a workflow's adjacent
+        `agent_memory.md` at load time. The rubric is part of the agent's
+        memory rather than the step's `system_prompt` so the engine's
+        `memory_hash` reflects rubric edits — letting audit-log consumers
+        correlate behavior changes with the edit that caused them.
+        """
+        await asyncio.to_thread(self._write_raw_sync, agent_id, content)
+
+    def _write_raw_sync(self, agent_id: str, content: str) -> None:
+        path = self._path(agent_id)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(content)
+
     def _append_sync(self, agent_id: str, observation: str, timestamp: str) -> None:
         path = self._path(agent_id)
         path.parent.mkdir(parents=True, exist_ok=True)

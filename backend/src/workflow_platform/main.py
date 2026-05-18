@@ -29,6 +29,7 @@ from workflow_platform.engine import (
     default_function_registry,
 )
 from workflow_platform.events import EventBus
+from workflow_platform.memory import MemoryManager
 from workflow_platform.observability import (
     CONTENT_TYPE,
     PrometheusMetrics,
@@ -64,6 +65,7 @@ def _default_engine(
     repositories: Repositories,
     metrics: PrometheusMetrics,
     events: EventBus | None,
+    memory: MemoryManager,
 ) -> WorkflowEngine:
     """Construct an engine wired to the same repos the API serves from.
 
@@ -77,6 +79,7 @@ def _default_engine(
         world=real_world(),
         metrics=metrics,
         events=events,
+        memory=memory,
     )
 
 
@@ -97,7 +100,9 @@ def create_app(
     metrics = metrics or PrometheusMetrics()
     webhook_registry = webhook_registry or WebhookRegistry()
     events = events or EventBus()
-    engine = engine or _default_engine(repositories, metrics, events)
+    memory_dir = os.environ.get("WORKFLOW_PLATFORM_MEMORY_DIR", ".memory")
+    memory = MemoryManager(memory_dir)
+    engine = engine or _default_engine(repositories, metrics, events, memory)
 
     # Default-on in production; off in tests unless a test explicitly opts in.
     if start_triggers is None:

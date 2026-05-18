@@ -41,6 +41,18 @@ suggest (prose is faster to review than code).
 Pick the ones that apply; don't list every possibility. Empty list is a
 valid answer for a perfect PR.
 
+**Phrasing rules** (these matter — inconsistent concerns are hard to
+aggregate later):
+- Short imperative or noun phrases. 3–6 words. Examples below.
+- ✅ `"missing description"`, `"add tests"`, `"split into two PRs"`,
+  `"verify backward compatibility"`
+- ❌ Full sentences with semicolons: `"PR closed without merge; verify
+  this was intentional"`
+- ❌ Slug-style tags: `"automated-translation-quality"`,
+  `"requires-native-speaker-review"`. Use plain prose: `"verify
+  translation quality"`.
+
+**The catalog** (pick the right name; don't invent variants):
 - `missing description` — body empty or one-line "fix bug" with no context.
 - `no linked issue` — body doesn't reference a tracking issue or
   conversation. Acceptable for tiny PRs; flag for medium+.
@@ -54,8 +66,34 @@ valid answer for a perfect PR.
   Worth a human eyeball even if otherwise clean.
 - `mixed concerns` — refactor + feature + dependency bump in one PR.
   Reviewer can't easily separate "is this safe?" from "is this right?"
-- `from external contributor` — `user.login` is not a recognized
-  maintainer. Heightens the bar on the other checks.
+- `from external contributor` — `author_association` is `NONE` or
+  `FIRST_TIME_CONTRIBUTOR`. Do NOT flag for `OWNER`, `MEMBER`,
+  `COLLABORATOR`, or `CONTRIBUTOR` (those have prior merged PRs). Bot
+  accounts (`user.type == "Bot"` or login ending `[bot]`) are machines,
+  not external contributors — skip this flag for them.
+- `verify <specific thing>` — for narrowly-scoped checks the reviewer
+  should perform (e.g. `"verify backward compatibility"`,
+  `"verify translation quality"`).
+
+## What is NOT a concern
+
+These are easy to misread as concerns; the rubric explicitly excludes them.
+
+- **PR state (open / closed / merged / draft).** Triage assumes the PR
+  was just opened. The `state` field in the payload is for tooling, not
+  review. Do not flag `"PR closed without merge"`, `"already merged"`,
+  or anything about how old the PR is. We triage the *content*, not the
+  workflow status.
+- **Bot authorship by itself.** Dependabot, Renovate, release bots,
+  translation bots — automated PRs are routine. If a bot PR has a
+  problem (large diff, mixed concerns, no description on a non-trivial
+  change), flag the problem; don't flag "automated bot PR" as if it
+  were the problem.
+- **Number of commits.** "Single commit" or "many commits" is a
+  squash-strategy detail, not a triage concern.
+- **File-count comments alone.** "Three files changed" is data, not a
+  concern — only flag if it implies one of the named concerns above
+  (e.g. mixed concerns across modules).
 
 ## needs_tests heuristic
 

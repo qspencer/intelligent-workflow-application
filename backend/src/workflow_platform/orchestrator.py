@@ -27,6 +27,7 @@ from pathlib import Path
 from typing import Any
 
 from workflow_platform.engine import WorkflowEngine
+from workflow_platform.memory import MemoryManager
 from workflow_platform.persistence import Repositories
 from workflow_platform.triggers import (
     FilesystemTrigger,
@@ -40,6 +41,37 @@ from workflow_platform.workflow import WorkflowDefinition, load_definition_from_
 logger = logging.getLogger(__name__)
 
 TriggerFactory = Callable[[dict[str, Any]], Trigger]
+
+MEMORY_FILE_NAME = "agent_memory.md"
+
+
+async def seed_memory_from_workflow_dir(
+    definition: WorkflowDefinition,
+    yaml_path: Path,
+    memory: MemoryManager | None,
+) -> bool:
+    """If `<yaml_path>.parent/agent_memory.md` exists, write it as the pinned
+    memory for every agentic step in `definition`. No-op if `memory` is None
+    or the file is missing.
+
+    The rubric is the same for every agentic step in a workflow today;
+    per-step rubrics can be added later via an `agent_memory/<step_id>.md`
+    convention if a workload needs them. Returns True if any seeding happened.
+    """
+    if memory is None:
+        return False
+    memory_path = yaml_path.parent / MEMORY_FILE_NAME
+    if not memory_path.is_file():
+        return False
+    content = memory_path.read_text()
+    seeded = False
+    for step in definition.steps:
+        if step.type != "agentic":
+            continue
+        agent_id = f"steps/{definition.id}/{step.id}"
+        await memory.write_raw(agent_id, content)
+        seeded = True
+    return seeded
 
 
 class TriggerOrchestrator:
@@ -92,6 +124,9 @@ class TriggerOrchestrator:
     async def _register_one(self, path: Path) -> None:
         definition = load_definition_from_file(path)
         await self.repositories.definitions.save(definition)
+
+        if await seed_memory_from_workflow_dir(definition, path, self.engine.memory):
+            logger.info("Seeded agent memory for workflow %s from %s", definition.id, path.name)
 
         trigger = self._make_trigger(definition)
         if trigger is None:

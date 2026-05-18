@@ -23,6 +23,21 @@ async def test_memory_manager_load_returns_empty_for_unseen_agent(tmp_path: Path
     assert await mm.load("steps/wf/x") == ""
 
 
+async def test_memory_manager_write_raw_replaces_content(tmp_path: Path) -> None:
+    mm = MemoryManager(tmp_path)
+    await mm.append("steps/wf/x", "first observation")
+    await mm.write_raw("steps/wf/x", "# Pinned rubric\nSome content.")
+    content = await mm.load("steps/wf/x")
+    assert content == "# Pinned rubric\nSome content."
+    assert "first observation" not in content
+
+
+async def test_memory_manager_write_raw_creates_parent_dirs(tmp_path: Path) -> None:
+    mm = MemoryManager(tmp_path / "nested" / "deeper")
+    await mm.write_raw("steps/wf/y", "hello")
+    assert (tmp_path / "nested" / "deeper" / "steps" / "wf" / "y.md").read_text() == "hello"
+
+
 async def test_memory_manager_append_creates_file_with_observation(tmp_path: Path) -> None:
     mm = MemoryManager(tmp_path)
     await mm.append("steps/wf/x", "Vendor template changed")

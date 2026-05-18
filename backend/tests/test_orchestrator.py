@@ -323,6 +323,161 @@ edges: []
 # --- agentic workflow via webhook end-to-end ---
 
 
+# --- agent_memory.md auto-seeding (G6) ---
+
+
+async def test_seed_memory_writes_per_agentic_step(tmp_path: Path) -> None:
+    from workflow_platform.memory import MemoryManager
+    from workflow_platform.orchestrator import seed_memory_from_workflow_dir
+
+    yaml_path = _write_yaml(
+        tmp_path,
+        "wf.yaml",
+        """\
+id: seed-wf
+name: Seed WF
+trigger: {type: manual}
+steps:
+  - id: a
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: do
+  - id: b
+    type: deterministic
+    function: noop
+  - id: c
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: again
+edges: []
+""",
+    )
+    (tmp_path / "agent_memory.md").write_text("# Rubric\nfollow this")
+    memory_dir = tmp_path / "_mem"
+    memory = MemoryManager(memory_dir)
+
+    from workflow_platform.workflow import load_definition_from_file
+
+    definition = load_definition_from_file(yaml_path)
+    seeded = await seed_memory_from_workflow_dir(definition, yaml_path, memory)
+
+    assert seeded is True
+    # Both agentic steps got the rubric; the deterministic step did not.
+    assert (memory_dir / "steps" / "seed-wf" / "a.md").read_text() == "# Rubric\nfollow this"
+    assert (memory_dir / "steps" / "seed-wf" / "c.md").read_text() == "# Rubric\nfollow this"
+    assert not (memory_dir / "steps" / "seed-wf" / "b.md").exists()
+
+
+async def test_seed_memory_is_noop_without_file(tmp_path: Path) -> None:
+    from workflow_platform.memory import MemoryManager
+    from workflow_platform.orchestrator import seed_memory_from_workflow_dir
+    from workflow_platform.workflow import load_definition_from_file
+
+    yaml_path = _write_yaml(
+        tmp_path,
+        "wf.yaml",
+        """\
+id: no-mem-wf
+name: No Mem
+trigger: {type: manual}
+steps:
+  - id: a
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: do
+edges: []
+""",
+    )
+    memory = MemoryManager(tmp_path / "_mem")
+    definition = load_definition_from_file(yaml_path)
+    assert await seed_memory_from_workflow_dir(definition, yaml_path, memory) is False
+    assert not (tmp_path / "_mem").exists() or not list((tmp_path / "_mem").rglob("*.md"))
+
+
+async def test_seed_memory_is_noop_when_memory_is_none(tmp_path: Path) -> None:
+    from workflow_platform.orchestrator import seed_memory_from_workflow_dir
+    from workflow_platform.workflow import load_definition_from_file
+
+    yaml_path = _write_yaml(
+        tmp_path,
+        "wf.yaml",
+        """\
+id: no-mm-wf
+name: No MM
+trigger: {type: manual}
+steps:
+  - id: a
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: do
+edges: []
+""",
+    )
+    (tmp_path / "agent_memory.md").write_text("ignored")
+    definition = load_definition_from_file(yaml_path)
+    assert await seed_memory_from_workflow_dir(definition, yaml_path, None) is False
+
+
+async def test_orchestrator_start_seeds_memory_for_workflows_with_adjacent_md(
+    tmp_path: Path,
+) -> None:
+    """End-to-end: orchestrator.start finds adjacent agent_memory.md, seeds
+    the engine's MemoryManager, and the agent step's audit output has a
+    non-null memory_hash on the next run."""
+    from workflow_platform.memory import MemoryManager
+
+    defs_dir = tmp_path / "defs"
+    defs_dir.mkdir()
+    _write_yaml(
+        defs_dir,
+        "wf.yaml",
+        """\
+id: mem-orch-wf
+name: Mem Orch
+trigger: {type: webhook, config: {trigger_id: mem-hook}}
+steps:
+  - id: act
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: go
+edges: []
+""",
+    )
+    (defs_dir / "agent_memory.md").write_text("# Rubric\nbe concise")
+
+    memory = MemoryManager(tmp_path / "_mem")
+    repos = in_memory_repositories()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=FunctionRegistry(),
+        tools=ToolCatalog(),
+        bedrock=FakeBedrock([text_response("ok")]),
+        world=mock_world(),
+        memory=memory,
+    )
+    registry = WebhookRegistry()
+    orch = TriggerOrchestrator(
+        definitions_dir=defs_dir,
+        repositories=engine.repositories,
+        engine=engine,
+        webhook_registry=registry,
+    )
+    await orch.start()
+    await registry.fire("mem-hook", {"src": "test"})
+    await orch.stop()
+
+    steps = await repos.steps.list_by_instance((await repos.instances.list_recent(limit=1))[0].id)
+    assert steps[0].output is not None
+    memory_hash = steps[0].output["memory_hash"]
+    assert isinstance(memory_hash, str)
+    assert memory_hash.startswith("sha256:")
+
+
 async def test_orchestrator_routes_agentic_workflow_via_webhook(tmp_path: Path) -> None:
     _write_yaml(
         tmp_path,
