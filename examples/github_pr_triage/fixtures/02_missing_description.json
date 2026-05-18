@@ -1,0 +1,13 @@
+{
+  "number": 891,
+  "title": "fix bug",
+  "body": "",
+  "user": {"login": "jpark"},
+  "state": "open",
+  "draft": false,
+  "additions": 42,
+  "deletions": 18,
+  "changed_files": 4,
+  "base": {"ref": "main", "repo": {"full_name": "acme/api"}},
+  "head": {"ref": "jpark/quickfix"}
+}

@@ -24,6 +24,8 @@ All design docs live under `docs/`. The `README.md` at the root has the quick-st
 | `docs/BEDROCK_SETUP.md` | Operator-facing AWS Bedrock onboarding (model access, inference profiles, use-case form, quotas) |
 | `docs/MANUAL_TESTING.md` | Operator-facing local manual-test playbook (smoke + role checks + observability + what's not yet manually testable) |
 | `docs/NEXT_STEPS.md` | Prioritized backlog (P0 / P1 / P2) for closing the manual-testing gaps surfaced in `MANUAL_TESTING.md` |
+| `docs/USE_CASES.md` | Candidate validation workloads (filesystem / webhook / schedule), capability-fit map, recommended first build (GitHub PR triage) |
+| `docs/RAG_PRODUCTION_NOTES.md` | Notes from a production-RAG article: what aligns with current design, what to pull forward, what to capture as Phase B inputs |
 
 Lessons learned across sessions live in the auto-memory system. Update it as you discover things worth remembering. Memory takes precedence over assumptions; verify before acting on it.
 
@@ -134,8 +136,9 @@ Week 10:
 - Dashboard import + run (P1.2 + P1.1): "Import workflow" dialog on the Workflows page (YAML/JSON toggle, error surfacing) wired to the existing `POST /api/workflows/import` endpoint; "Run" button per row that opens a JSON-payload dialog wired to a new `POST /api/workflows/{id}/run` endpoint (Admin/Operator-gated, awaits `engine.run`, returns `instance_id`). After a successful Run, the dashboard navigates straight to the new instance's detail view. 5 new backend tests + 3 new frontend tests.
 - Live event stream (P2.1): new `EventsService` opens a WebSocket to `/ws/events`, parses audit-entry frames, reconnects every 2s on close. Instance-detail subscribes and merges incoming events into the audit list with dedupe-by-id (so the polling refresh + WS push don't double-render). `main.py` always builds an `EventBus` now (was conditional), so the WS endpoint is live in every deployment. 7 new Vitest tests cover open / parse / malformed / reconnect / no-reconnect-after-unsub / close-on-unsub.
 - Recorded Bedrock fixture (P2.2, partial): `examples/webhook_echo/recordings/` has a committed response that lets `tools/replay.py` run the workflow end-to-end with `BEDROCK_MODE=replay` and no AWS credentials. New pytest covers the replay path. PDF classifier recordings were the original target but deferred — its request hash includes file paths, which aren't portable across machines.
+- First validation workload: GitHub PR triage. `examples/github_pr_triage/` holds the workflow YAML, agent memory rubric (7 categories + 5-tier complexity + concerns checklist), five synthetic PR fixtures, and three helper scripts (`fetch_prs.sh` for `gh api`, `run_one.sh`, `run_batch.sh`). New stock function `record_pr_triage` parses the agent's JSON output into structured fields (`category`, `complexity`, `needs_tests`, `summary`, `concerns`, `concern_count`) so SQL queries over `step_executions.output` work directly. 13 replay-mode tests in `backend/tests/test_github_pr_triage.py`. See `docs/USE_CASES.md` for the catalog of candidate workloads and why this one came first.
 
-275 backend unit tests + 43 frontend tests passing; 2 Postgres-gated + 3 Bedrock-gated integration tests deselect by default. Ruff and mypy strict clean across 113 source files.
+288 backend unit tests + 43 frontend tests passing; 2 Postgres-gated + 3 Bedrock-gated integration tests deselect by default. Ruff and mypy strict clean across 113 source files.
 
 Looking ahead: applying the IaC if/when there's a reason to deploy. Further connectors and the LLM-driven orchestrator stay deferred until a workload pulls them in.
 

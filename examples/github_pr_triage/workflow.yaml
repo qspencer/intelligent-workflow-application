@@ -1,0 +1,55 @@
+id: github-pr-triage
+name: GitHub PR Triage
+description: |
+  Receives a GitHub pull-request payload (either via webhook or fired
+  manually with `tools/fire.py`), asks Claude to categorize the PR and
+  flag review concerns, and records the structured triage result. The
+  trigger payload is the same shape `gh api repos/<owner>/<repo>/pulls`
+  returns — title, body, additions, deletions, changed_files, user.login,
+  base/head refs, etc.
+
+trigger:
+  type: webhook
+  config:
+    trigger_id: github-pr-triage
+
+steps:
+  - id: triage
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: |
+      You are triaging a GitHub pull request. The `trigger` payload in the
+      context is the raw PR object (title, body, additions, deletions,
+      changed_files, user.login, base/head refs).
+
+      Read the agent memory (loaded above this prompt) for the categorization
+      rubric, complexity scale, and concern checklist. Then respond with
+      ONLY a JSON object on a single line — no prose, no markdown fences:
+
+      {"category": "<one of: bug_fix | feature | docs | chore | dependency | refactor | other>",
+       "complexity": "<one of: trivial | small | medium | large | gigantic>",
+       "needs_tests": <true|false>,
+       "summary": "<one short sentence>",
+       "concerns": [<list of short strings; [] if none>]}
+
+      Be conservative: when in doubt, lean toward "other" / "medium" /
+      adding a concern. False positives are cheap (humans skim them); false
+      negatives mean a problem PR ships unflagged.
+    policy:
+      max_iterations: 2
+      max_total_tokens: 4000
+
+  - id: record_triage
+    type: deterministic
+    function: record_pr_triage
+    config:
+      triage_from: steps.triage.output_text
+
+edges:
+  - from: triage
+    to: record_triage
+
+policies:
+  max_total_tokens: 10000
+  budget_action: pause

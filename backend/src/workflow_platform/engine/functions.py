@@ -182,6 +182,60 @@ def _extract_eval_scores(raw: str) -> dict[str, Any] | None:
     return out or None
 
 
+def _extract_pr_triage(raw: str) -> dict[str, Any] | None:
+    """Pull PR-triage fields from an agent's text response.
+
+    Expected JSON shape:
+        {"category": <str>, "complexity": <str>, "needs_tests": <bool>,
+         "summary": <str>, "concerns": [<str>...]}
+
+    Each field is independently optional; the function copies through
+    whatever is parseable and well-typed. Returns None when no JSON object
+    is found at all."""
+    match = _JSON_OBJECT_RE.search(raw)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    out: dict[str, Any] = {}
+    for key in ("category", "complexity", "summary"):
+        if isinstance(parsed.get(key), str):
+            out[key] = parsed[key]
+    if isinstance(parsed.get("needs_tests"), bool):
+        out["needs_tests"] = parsed["needs_tests"]
+    issues = parsed.get("concerns")
+    if isinstance(issues, list):
+        concerns = [str(x) for x in issues]
+        out["concerns"] = concerns
+        out["concern_count"] = len(concerns)
+    return out or None
+
+
+async def record_pr_triage(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Parse a PR-triage agent's JSON output into structured fields.
+
+    Mirrors `record_evaluation` for the eval loop: reads the agent's
+    `output_text`, lifts `category` / `complexity` / `needs_tests` /
+    `summary` / `concerns` / `concern_count` into the step's own output.
+    `parse_ok=False` + `raw` on parse failures — the workflow does not
+    fail, so downstream queries (`SELECT ... WHERE parse_ok = false`)
+    can find runs where the agent went off-script."""
+    source = config.get("triage_from", "steps.triage.output_text")
+    raw = _resolve_path(context, source)
+    if not raw:
+        raise StepFailure(f"record_pr_triage could not resolve {source!r}")
+    triage = _extract_pr_triage(raw)
+    if triage is None:
+        return {"parse_ok": False, "raw": raw}
+    return {"parse_ok": True, **triage}
+
+
 async def record_evaluation(
     config: dict[str, Any], context: WorkflowContext, world: World
 ) -> dict[str, Any]:
@@ -235,6 +289,7 @@ def default_function_registry() -> FunctionRegistry:
             "pdf_extract": pdf_extract,
             "route_by_classification": route_by_classification,
             "record_evaluation": record_evaluation,
+            "record_pr_triage": record_pr_triage,
             "append_file": append_file,
         }
     )

@@ -1,0 +1,13 @@
+{
+  "number": 4271,
+  "title": "fix(billing): retry stripe webhooks on transient 503 (closes #4203)",
+  "body": "## What\nStripe's webhook delivery occasionally returns 503 during their incident windows. We currently treat these as terminal failures and drop the event, leaving subscriptions out of sync.\n\n## Why\nIssue #4203 traced a customer's missing renewal to a 503 dropped silently in March. We're adding a bounded retry (3 attempts, exponential backoff) and dead-lettering the rest to the audit log for manual review.\n\n## Testing\n- New unit tests in `tests/billing/test_stripe_retry.py` cover the retry/backoff/dead-letter paths.\n- Hit the staging webhook with `tools/stripe_replay.py` and verified retries happen as configured.\n\nCloses #4203.",
+  "user": {"login": "maria-r"},
+  "state": "open",
+  "draft": false,
+  "additions": 64,
+  "deletions": 7,
+  "changed_files": 3,
+  "base": {"ref": "main", "repo": {"full_name": "acme/billing"}},
+  "head": {"ref": "maria/stripe-retry"}
+}

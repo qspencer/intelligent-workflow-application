@@ -1,0 +1,13 @@
+{
+  "number": 3318,
+  "title": "build(deps): bump axios from 1.6.7 to 1.7.4 in /frontend",
+  "body": "Bumps [axios](https://github.com/axios/axios) from 1.6.7 to 1.7.4.\n- [Release notes](https://github.com/axios/axios/releases)\n- [Changelog](https://github.com/axios/axios/blob/v1.x/CHANGELOG.md)\n- [Commits](https://github.com/axios/axios/compare/v1.6.7...v1.7.4)\n\nUpdates `axios` from 1.6.7 to 1.7.4.\n\nDependabot will resolve any conflicts with this PR as long as you don't alter it yourself.",
+  "user": {"login": "dependabot[bot]"},
+  "state": "open",
+  "draft": false,
+  "additions": 4,
+  "deletions": 4,
+  "changed_files": 2,
+  "base": {"ref": "main", "repo": {"full_name": "acme/web"}},
+  "head": {"ref": "dependabot/npm_and_yarn/frontend/axios-1.7.4"}
+}

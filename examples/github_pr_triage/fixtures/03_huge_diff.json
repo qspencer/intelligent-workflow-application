@@ -1,0 +1,13 @@
+{
+  "number": 1502,
+  "title": "Refactor: extract auth + billing + notifications into separate services",
+  "body": "Breaking the monolith into three services. This PR pulls auth, billing, and notifications out of `core/` into their own packages, wires up the new internal HTTP transport, updates the deployment topology, and migrates the test suite.\n\nLarge but mechanical. Reviewers should focus on the new package boundaries and the transport layer; everything else is moves.",
+  "user": {"login": "danielle-c"},
+  "state": "open",
+  "draft": false,
+  "additions": 6842,
+  "deletions": 5103,
+  "changed_files": 87,
+  "base": {"ref": "main", "repo": {"full_name": "acme/platform"}},
+  "head": {"ref": "danielle/services-split"}
+}

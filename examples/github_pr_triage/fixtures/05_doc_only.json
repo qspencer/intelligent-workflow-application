@@ -1,0 +1,13 @@
+{
+  "number": 612,
+  "title": "docs: clarify pagination semantics in /v1/orders",
+  "body": "Several customers have asked whether `cursor` advances on every page or only on non-empty responses. Documenting the actual behavior (advances only on non-empty) plus the rationale (allows safe polling).\n\nNo code changes.",
+  "user": {"login": "external-contributor-99"},
+  "state": "open",
+  "draft": false,
+  "additions": 38,
+  "deletions": 4,
+  "changed_files": 2,
+  "base": {"ref": "main", "repo": {"full_name": "acme/api"}},
+  "head": {"ref": "external-contributor-99/docs-pagination"}
+}
