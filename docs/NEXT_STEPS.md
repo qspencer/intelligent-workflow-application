@@ -30,66 +30,13 @@ phases B–F, generative UI, OAuth connectors (M365 / Google / Slack). See
 
 ## P0 — must-haves
 
-### P0.1 — `tools/fire.py`: one-shot workflow runner with persistence
+### P0.1 — `tools/fire.py`: one-shot workflow runner with persistence — **Done**
 
-**The pain.** To see anything in the dashboard, you currently paste 20+
-lines into a Python REPL (see `docs/MANUAL_TESTING.md` "Open gaps" #1). It
-works, but it's a barrier between "I want to demo this" and "I'm
-demoing this."
+Landed at `backend/tools/fire.py`. Reads `DATABASE_URL` (Postgres / in-memory) and `BEDROCK_MODE` (live / record / replay) from env, persists the definition idempotently, fires the workflow once, prints `instance / state / tokens / cost / backend / view-URL`, and exits non-zero on FAILED / KILLED. Verified end-to-end against Postgres + live Bedrock with the PDF classifier (5-step diamond) — eval scores landed as queryable JSON columns on `step_executions.output`.
 
-**Proposal.** A `tools/fire.py` CLI mirroring `tools/replay.py`'s shape but
-respecting `DATABASE_URL` (Postgres or in-memory) and `BEDROCK_MODE`
-(live / record / replay). Loads a workflow definition, persists it, fires
-it once with a trigger payload, prints the resulting instance id + state.
+### P0.2 — trigger orchestrator in the FastAPI process — **Done**
 
-```bash
-uv run python tools/fire.py \
-  --definition examples/pdf_classifier/workflow.yaml \
-  --trigger '{"file_path": "/abs/path/to/some.pdf"}'
-# → instance: 47b53c57…  state: completed  cost: $0.000123
-```
-
-Acceptance:
-- Reads `DATABASE_URL` and `BEDROCK_MODE` from env (no flags).
-- Persists the definition if not already present (idempotent on id).
-- Prints instance id in a format the dashboard URL can use directly.
-- Exits non-zero on FAILED / KILLED so it's CI-able.
-- Lives next to `tools/replay.py` and `tools/smoke_live.py` — same shape,
-  same conventions.
-
-Effort: **S**.
-
-### P0.2 — trigger orchestrator in the FastAPI process
-
-**The pain.** Filesystem and schedule triggers exist as classes but
-nothing in the running server starts them. Drop a PDF in `sample_inbox/`
-and nothing happens — open gap #2 and #3 in the manual-testing doc.
-
-**Proposal.** A small startup hook in `main.py` (or a sibling `triggers.py`
-module that `main.py` calls) that:
-
-1. Reads a directory of workflow YAML files (default
-   `examples/`, override via `WORKFLOW_DEFINITIONS_DIR`).
-2. For each one, registers its trigger (`filesystem` / `schedule` / 
-   `webhook`) against the in-process engine.
-3. Runs trigger callbacks asynchronously — file event / cron tick / 
-   webhook POST → `engine.run(definition, trigger_payload)` → audit + 
-   metrics + dashboard visibility.
-4. Stops cleanly on `lifespan` shutdown.
-
-Acceptance:
-- `docker compose up backend` brings the platform up such that dropping a
-  PDF into the inbox folder fires the PDF classifier end to end.
-- A `?cron=*/1 * * * *` schedule trigger fires once a minute against the
-  same running engine.
-- Webhook triggers register at startup; `POST /api/triggers/webhook/<id>`
-  works without per-process REPL setup.
-- If the YAML directory is empty or missing, the server starts cleanly with
-  a single warning log line.
-- Trigger errors don't crash the server — they audit + continue.
-
-Effort: **M**. The engine + trigger plugins exist; this is wiring + a
-small lifecycle dance.
+Landed at `backend/src/workflow_platform/orchestrator.py` + wired into `main.py` lifespan. Reads `WORKFLOW_DEFINITIONS_DIR` (default `examples`), registers filesystem / schedule / webhook triggers against an auto-built engine, audits + continues on per-trigger failures, stops cleanly on shutdown. `manual` trigger type is a deliberate no-op (fired by `tools/fire.py` instead). 11 new unit tests cover the registration matrix + error paths; end-to-end verified by dropping a PDF into a watched folder and seeing the classifier run live against Bedrock with the resulting instance visible via `/api/workflow-instances`.
 
 ---
 

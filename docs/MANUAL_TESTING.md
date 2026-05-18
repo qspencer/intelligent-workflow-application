@@ -402,73 +402,68 @@ npm run build    # AOT compile, catches template errors, ~6s
 
 These are real, and worth knowing before you go looking:
 
-1. **No "fire workflow" API.** Workflows only enter the engine through
-   triggers (filesystem, webhook, schedule). The webhook trigger has an HTTP
-   endpoint but needs a `WebhookRegistry` registration that nothing in
-   `main.py` populates today. So the dashboard sits empty unless you fire a
-   workflow into the engine yourself.
+1. **No "fire workflow" API yet** (the HTTP endpoint is on the backlog as
+   P1.1). For one-shot manual runs without going through a trigger, use
+   `backend/tools/fire.py` — respects `DATABASE_URL` (Postgres or
+   in-memory) and `BEDROCK_MODE` (live / record / replay):
 
-   **Workaround** — paste this into a Python REPL with the venv activated:
-
-   ```python
-   import asyncio, os
-   os.environ["DATABASE_URL"] = "postgresql+asyncpg://workflow:workflow@localhost:5432/workflow"
-   from workflow_platform.bedrock import BedrockClient, BedrockMode
-   from workflow_platform.engine import (
-       WorkflowEngine, ToolCatalog, default_function_registry,
-   )
-   from workflow_platform.persistence.db import make_engine, make_session_factory
-   from workflow_platform.persistence.postgres import postgres_repositories
-   from workflow_platform.workflow import load_definition_from_file
-   from workflow_platform.world import real_world
-
-   async def fire():
-       db = make_engine(os.environ["DATABASE_URL"])
-       repos = postgres_repositories(make_session_factory(db))
-       defn = load_definition_from_file("examples/pdf_classifier/workflow.yaml")
-       await repos.definitions.save(defn)
-       engine = WorkflowEngine(
-           repositories=repos,
-           functions=default_function_registry(),
-           tools=ToolCatalog(),
-           bedrock=BedrockClient(mode=BedrockMode.LIVE, region="us-east-1"),
-           world=real_world(),
-       )
-       inst = await engine.run(defn, trigger_payload={
-           "file_path": "/abs/path/to/some.pdf",
-       })
-       print(inst.id, inst.state.value)
-       await db.dispose()
-
-   asyncio.run(fire())
+   ```bash
+   cd backend
+   DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
+   BEDROCK_MODE=live \
+     uv run python tools/fire.py \
+     --definition ../examples/pdf_classifier/workflow.yaml \
+     --trigger '{"file_path": "/abs/path/to/some.pdf"}'
    ```
 
-   Refresh the dashboard's **Instances** tab — your run is now visible with
-   audit log, step outputs, and `pause` / `kill` buttons.
+   Output ends with a `view: http://localhost:4200/instances/<uuid>` line
+   you can click straight through. Non-zero exit on FAILED / KILLED so
+   it's CI-able.
 
-   This belongs in a small `tools/fire.py` once we hit the manual-test loop
-   often enough to justify it. Worth holding off until that pain is real.
+2. **Filesystem + schedule triggers ARE now wired** into the running
+   FastAPI process (P0.2). Drop a PDF into a folder a workflow watches,
+   or wait for a schedule tick, and the engine runs against the same
+   persistent repos the API serves from.
 
-2. **Filesystem trigger isn't wired into the running server.** `watchdog` is
-   the real watcher, and the unit tests prove it works, but the FastAPI
-   process doesn't start any triggers — the engine lives there but nothing
-   feeds it. Dropping a PDF in the inbox folder does nothing today.
+   **How:** set `WORKFLOW_DEFINITIONS_DIR` to point at a directory of
+   workflow YAMLs. On startup, the orchestrator loads each YAML, saves
+   the definition to repos, instantiates the right trigger based on
+   `definition.trigger.type`, and starts watching. Errors per
+   definition log + skip; the server stays up.
 
-3. **Schedule trigger same story.** Cron fires inside a test, not in the
-   server process.
+   ```bash
+   cd backend
+   DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
+   WORKFLOW_DEFINITIONS_DIR=../examples \
+   AUTH_MODE=dev \
+     uv run uvicorn workflow_platform.main:app --port 8000
 
-4. **No frontend WebSocket subscription yet.** The dashboard polls every
+   # In another shell, drop a PDF that matches the inbox config in
+   # examples/pdf_classifier/workflow.yaml:
+   cp my-invoice.pdf ../examples/pdf_classifier/sample_inbox/
+   ```
+
+   Watch logs for the `Started filesystem trigger` line on startup, then
+   the `workflow ... fired by trigger ... → instance ... state=completed`
+   line after the file drop. The instance also appears at
+   `GET /api/workflow-instances` and on the dashboard.
+
+   Caveat: the example workflow's `trigger.config.path` is relative
+   (`./examples/pdf_classifier/sample_inbox`). Start the server from a
+   working directory where that path resolves, or override the YAML's
+   path field, or point at a different definitions directory with
+   absolute paths.
+
+3. **No frontend WebSocket subscription yet.** The dashboard polls every
    3–5 s; the `/ws/events` endpoint is implemented but unused. So you won't
    see real-time updates — you'll see fresh data on the next poll tick.
 
-5. **The deployed Terraform stack** is unverified end-to-end. The IaC under
+4. **The deployed Terraform stack** is unverified end-to-end. The IaC under
    `infra/` is `terraform validate`-clean, but no one's run `terraform apply`
    yet. The whole "does the deployed system work?" question is open.
 
-Each of these is a clearly-scoped follow-up, not a deep design issue. Items 1
-and 2 share the same fix: a small entry point that loads workflows from a
-configured directory, registers their triggers against the in-process engine,
-and runs forever. Lands when there's a workflow worth running for hours.
+Each is a clearly-scoped follow-up, not a deep design issue. See
+`docs/NEXT_STEPS.md` for the prioritized backlog.
 
 ---
 

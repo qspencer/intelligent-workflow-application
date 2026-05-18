@@ -12,6 +12,7 @@ import logging
 import os
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+from pathlib import Path
 from typing import Any
 
 from fastapi import FastAPI
@@ -21,17 +22,25 @@ from workflow_platform import __version__
 from workflow_platform.api.workflows import build_router
 from workflow_platform.api.ws import build_ws_router
 from workflow_platform.auth import AuthMiddleware
-from workflow_platform.engine import WorkflowEngine
+from workflow_platform.bedrock import BedrockClient
+from workflow_platform.engine import (
+    ToolCatalog,
+    WorkflowEngine,
+    default_function_registry,
+)
 from workflow_platform.events import EventBus
 from workflow_platform.observability import (
     CONTENT_TYPE,
     PrometheusMetrics,
     configure_logging,
 )
+from workflow_platform.orchestrator import TriggerOrchestrator
 from workflow_platform.persistence import Repositories, in_memory_repositories
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
+from workflow_platform.tools import FileReadTool, FileWriteTool, PdfExtractTool
 from workflow_platform.triggers import WebhookRegistry
+from workflow_platform.world import real_world
 
 configure_logging(level=logging.INFO, json_output=True)
 logger = logging.getLogger(__name__)
@@ -48,6 +57,26 @@ def _build_repositories() -> tuple[Repositories, Any | None]:
     return postgres_repositories(session_factory), db_engine
 
 
+def _default_engine(
+    repositories: Repositories,
+    metrics: PrometheusMetrics,
+    events: EventBus | None,
+) -> WorkflowEngine:
+    """Construct an engine wired to the same repos the API serves from.
+
+    Real Bedrock / real filesystem; the BedrockClient defaults to `live` but
+    respects the `BEDROCK_MODE` env var so tests / replay still work."""
+    return WorkflowEngine(
+        repositories=repositories,
+        functions=default_function_registry(),
+        tools=ToolCatalog([PdfExtractTool(), FileReadTool(), FileWriteTool()]),
+        bedrock=BedrockClient(),
+        world=real_world(),
+        metrics=metrics,
+        events=events,
+    )
+
+
 def create_app(
     repositories: Repositories | None = None,
     *,
@@ -55,16 +84,39 @@ def create_app(
     webhook_registry: WebhookRegistry | None = None,
     events: EventBus | None = None,
     metrics: PrometheusMetrics | None = None,
+    definitions_dir: Path | None = None,
+    start_triggers: bool | None = None,
 ) -> FastAPI:
     db_engine: Any | None = None
     if repositories is None:
         repositories, db_engine = _build_repositories()
 
+    metrics = metrics or PrometheusMetrics()
+    webhook_registry = webhook_registry or WebhookRegistry()
+    engine = engine or _default_engine(repositories, metrics, events)
+
+    # Default-on in production; off in tests unless a test explicitly opts in.
+    if start_triggers is None:
+        start_triggers = os.environ.get("WORKFLOW_PLATFORM_START_TRIGGERS", "1") != "0"
+    if definitions_dir is None:
+        env_dir = os.environ.get("WORKFLOW_DEFINITIONS_DIR")
+        definitions_dir = Path(env_dir) if env_dir else Path("examples")
+
+    orchestrator = TriggerOrchestrator(
+        definitions_dir=definitions_dir,
+        repositories=repositories,
+        engine=engine,
+        webhook_registry=webhook_registry,
+    )
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        if start_triggers:
+            await orchestrator.start()
         try:
             yield
         finally:
+            await orchestrator.stop()
             if db_engine is not None and hasattr(db_engine, "dispose"):
                 await db_engine.dispose()
 
@@ -74,8 +126,6 @@ def create_app(
         lifespan=lifespan,
     )
     app.add_middleware(AuthMiddleware)
-
-    metrics = metrics or PrometheusMetrics()
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
