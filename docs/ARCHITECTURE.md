@@ -262,6 +262,15 @@ This means workflows naturally get cheaper and faster over time without manual o
 
 ## Knowledge System
 
+> **Status (Phase 2 complete):** the knowledge system described in this
+> section is **deferred** to Phases B–F of `docs/LEARNING_IMPLEMENTATION.md`.
+> Phase A (agent memory: file-backed Markdown, prepended to system prompts)
+> ships in Week 5; everything else here — knowledge ingestion, contextual
+> retrieval, knowledge manifests, learning loops — remains forward-looking
+> design captured here so it doesn't have to be re-derived when a workload
+> pulls for it. `docs/RAG_PRODUCTION_NOTES.md` carries the concrete
+> defaults gathered from external work for when Phase B starts.
+
 ### Concept
 
 Agents operate with two layers of knowledge:
@@ -600,6 +609,12 @@ The orchestrator is a full LLM-powered agent, not a deterministic rule engine. I
 To manage cost, the orchestrator operates in two modes:
 - **Passive monitoring**: lightweight polling loop checks metrics (deterministic, free)
 - **Active reasoning**: when metrics cross thresholds or anomalies are detected, the LLM is invoked to decide what to do
+
+> **Status (Phase 2 complete):** only the passive-monitoring half is
+> implemented (`MonitoringService` with four deterministic checks emitting
+> `alert_*` audit entries). The active-reasoning LLM mode is deferred until
+> there's enough running-workflow signal to make its decisions worth
+> making — see the re-evaluation checkpoint in `CLAUDE.md`.
 
 ### D2: Natural language workflow authoring with live GUI
 

@@ -1,5 +1,15 @@
 # Intelligent Workflow Platform — Implementation Plan
 
+> **Heads up:** this document and `BUILD_PLAN.md` describe the same project
+> with different numbering conventions. Phase boundaries here are
+> capability-grouped ("agent framework," "memory system," "security");
+> `BUILD_PLAN.md`'s phases are time-grouped (Phase 0 = Weeks 1–3,
+> Phase 1 = Weeks 4–6, Phase 2 = Weeks 7–10) and that's the sequence the
+> code actually followed. Cross-reference: e.g. this doc's Phase 1.2
+> (agent framework) shipped in BUILD_PLAN.md's Phase 0 / Week 2. Use
+> `BUILD_PLAN.md` for *when* and *in what order*; use this doc for
+> *what gets built within each capability area*.
+
 Ordered sequence of implementation phases. Each phase builds on the previous.
 
 ---
@@ -89,6 +99,13 @@ The core primitive everything else depends on. A thin wrapper around Bedrock's `
 - When thresholds crossed → invoke the orchestrator LLM agent for active reasoning
 
 ### 3.2 Orchestrator agent
+
+> **Status:** the LLM-driven active-reasoning orchestrator is **deferred**.
+> Phase 2 / Week 9 shipped only the passive monitoring loop described in
+> 3.1 — four deterministic threshold-based checks that emit `alert_*` audit
+> entries. The LLM agent lands when there's enough running-workflow signal
+> to make its decisions worth making. See `BUILD_PLAN.md` "Aggressively
+> deferred" and `CLAUDE.md`'s re-evaluation checkpoint.
 
 - LLM agent with system-wide context: active workflows, recent errors, resource usage, memory
 - Tools available to orchestrator: pause_workflow, resume_workflow, kill_workflow, retry_step, reassign_budget, send_notification, modify_priority, spawn_workflow

@@ -70,6 +70,14 @@ This document details the implementation approach for the platform's memory and 
 
 **Implementation effort:** ~2 days
 
+**Status (Phase 2 complete):** Shipped in Week 5. Agent memory loads from
+file-backed Markdown per the format below; engine prepends it to the system
+prompt as "Prior agent memory". `_run_agentic` also computes a
+`sha256:<16 chars>` hash of the loaded memory and emits it as `memory_hash`
+on the agent step's output, so audit-log consumers can correlate behavior
+changes with memory edits. Compaction (point 4) is not yet automated —
+files are short enough that manual review remains practical.
+
 ---
 
 ### Phase B: Knowledge Ingestion Pipeline
@@ -208,6 +216,11 @@ This document details the implementation approach for the platform's memory and 
 ---
 
 ## Storage Decisions
+
+The "Initial Storage" column for agent memory is what's shipping today
+(Phase A complete). The rest of the table describes the storage shape
+planned for Phases B–F, which remain deferred per `CLAUDE.md`'s
+re-evaluation checkpoint.
 
 | Component | Initial Storage | Scale-up Path |
 |-----------|----------------|---------------|
