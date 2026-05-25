@@ -111,6 +111,8 @@ module = [
     "googleapiclient",
     "googleapiclient.*",
     "google.auth.*",
+    "google.oauth2",
+    "google.oauth2.*",
     "google_auth_oauthlib",
     "google_auth_oauthlib.*",
 ]
