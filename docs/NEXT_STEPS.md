@@ -143,6 +143,9 @@ concrete workload requiring them:
   customer asks.
 - **Cost analyst LLM** — deterministic cost reports cover operator
   needs; revisit when pattern-finding adds real value.
+- **Formal ontology / knowledge graph / semantic layer** — each has a
+  specific decision trigger documented in `docs/SEMANTICS.md`; none
+  are needed at single-workload / single-engineer scale.
 
 See `CLAUDE.md`'s re-evaluation checkpoint for context.
 

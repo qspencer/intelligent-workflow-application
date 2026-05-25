@@ -26,6 +26,7 @@ All design docs live under `docs/`. The `README.md` at the root has the quick-st
 | `docs/NEXT_STEPS.md` | Prioritized backlog (P0 / P1 / P2) for closing the manual-testing gaps surfaced in `MANUAL_TESTING.md` |
 | `docs/USE_CASES.md` | Candidate validation workloads (filesystem / webhook / schedule), capability-fit map, recommended first build (GitHub PR triage) |
 | `docs/RAG_PRODUCTION_NOTES.md` | Notes from a production-RAG article: what aligns with current design, what to pull forward, what to capture as Phase B inputs |
+| `docs/SEMANTICS.md` | Decision log: why we haven't adopted a formal ontology / knowledge graph / semantic layer, and what trigger reopens each |
 
 Lessons learned across sessions live in the auto-memory system. Update it as you discover things worth remembering. Memory takes precedence over assumptions; verify before acting on it.
 
