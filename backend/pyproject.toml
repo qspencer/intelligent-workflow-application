@@ -22,6 +22,9 @@ dependencies = [
     "croniter>=2.0",
     "PyYAML>=6.0",
     "prometheus-client>=0.21",
+    "google-api-python-client>=2.140",
+    "google-auth>=2.35",
+    "google-auth-oauthlib>=1.2",
 ]
 
 [dependency-groups]
@@ -97,5 +100,18 @@ files = ["src", "tests"]
 plugins = ["pydantic.mypy"]
 
 [[tool.mypy.overrides]]
-module = ["fitz", "pytesseract", "pdf2image", "pdf2image.*", "boto3", "botocore.*", "simpleeval"]
+module = [
+    "fitz",
+    "pytesseract",
+    "pdf2image",
+    "pdf2image.*",
+    "boto3",
+    "botocore.*",
+    "simpleeval",
+    "googleapiclient",
+    "googleapiclient.*",
+    "google.auth.*",
+    "google_auth_oauthlib",
+    "google_auth_oauthlib.*",
+]
 ignore_missing_imports = true
