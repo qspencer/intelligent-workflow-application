@@ -215,6 +215,65 @@ def _extract_pr_triage(raw: str) -> dict[str, Any] | None:
     return out or None
 
 
+def _extract_paper_triage(raw: str) -> dict[str, Any] | None:
+    """Pull research-paper-triage fields from an agent's text response.
+
+    Expected JSON shape:
+        {"relevance_score": 0..5,
+         "relevance_bucket": <str>,
+         "summary": <str>,
+         "key_concepts": [<str>...],
+         "tags": [<str>...]}
+
+    Each field is independently optional; the function copies through
+    whatever is parseable and well-typed. Returns None when no JSON object
+    is found."""
+    match = _JSON_OBJECT_RE.search(raw)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    out: dict[str, Any] = {}
+    score = parsed.get("relevance_score")
+    if isinstance(score, int | float) and not isinstance(score, bool):
+        out["relevance_score"] = float(score)
+    for key in ("relevance_bucket", "summary"):
+        if isinstance(parsed.get(key), str):
+            out[key] = parsed[key]
+    for key in ("key_concepts", "tags"):
+        value = parsed.get(key)
+        if isinstance(value, list):
+            out[key] = [str(x) for x in value]
+    if "tags" in out:
+        out["tag_count"] = len(out["tags"])
+    if "key_concepts" in out:
+        out["concept_count"] = len(out["key_concepts"])
+    return out or None
+
+
+async def record_paper_triage(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Parse a paper-triage agent's JSON output into structured fields.
+
+    Same shape as `record_pr_triage`. Reads `output_text`, lifts
+    `relevance_score` / `relevance_bucket` / `summary` / `key_concepts` /
+    `tags` plus computed counts. `parse_ok=False` + `raw` on parse failure.
+    """
+    source = config.get("triage_from", "steps.triage.output_text")
+    raw = _resolve_path(context, source)
+    if not raw:
+        raise StepFailure(f"record_paper_triage could not resolve {source!r}")
+    triage = _extract_paper_triage(raw)
+    if triage is None:
+        return {"parse_ok": False, "raw": raw}
+    return {"parse_ok": True, **triage}
+
+
 async def record_pr_triage(
     config: dict[str, Any], context: WorkflowContext, world: World
 ) -> dict[str, Any]:
@@ -290,6 +349,7 @@ def default_function_registry() -> FunctionRegistry:
             "route_by_classification": route_by_classification,
             "record_evaluation": record_evaluation,
             "record_pr_triage": record_pr_triage,
+            "record_paper_triage": record_paper_triage,
             "append_file": append_file,
         }
     )

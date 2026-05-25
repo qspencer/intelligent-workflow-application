@@ -16,6 +16,9 @@ htmlcov/
 .venv/
 uv.lock.bak
 
+# Runtime agent memory (seeded from examples/<wf>/agent_memory.md at load time)
+.memory/
+
 # Node / Angular
 node_modules/
 dist/

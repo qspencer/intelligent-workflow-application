@@ -1,0 +1,10 @@
+{
+  "id": "2310.08560v2",
+  "title": "MemGPT: Towards LLMs as Operating Systems",
+  "abstract": "Large language models (LLMs) have revolutionized AI, but are constrained by limited context windows, hampering their utility in tasks like extended conversations and document analysis. To enable using context beyond limited context windows, we propose virtual context management, a technique drawing inspiration from hierarchical memory systems in traditional operating systems that provide the appearance of large memory resources through data movement between fast and slow memory. Using this technique, we introduce MemGPT, a system that intelligently manages different memory tiers in order to effectively provide extended context within the LLM's limited context window, and utilizes interrupts to manage control flow between itself and the user. We evaluate our OS-inspired design in two domains where the limited context windows of modern LLMs severely handicaps their performance: document analysis, where MemGPT is able to analyze large documents that far exceed the underlying LLM's context window, and multi-session chat, where MemGPT can create conversational agents that remember, reflect, and evolve dynamically through long-term interactions with their users.",
+  "authors": ["Charles Packer", "Sarah Wooders", "Kevin Lin", "Vivian Fang", "Shishir G. Patil", "Ion Stoica", "Joseph E. Gonzalez"],
+  "primary_category": "cs.AI",
+  "categories": ["cs.AI", "cs.CL"],
+  "published": "2023-10-12T18:00:21Z",
+  "comment": "Project website: https://memgpt.ai"
+}

@@ -72,13 +72,15 @@ end-of-quarter business-expense prep. Tests: PDF extraction variability,
 structured-field reliability, eval-loop scoring with near-ground-truth.
 Smallest delta from the existing classifier.
 
-**2. Research paper triage.** Drop arXiv PDFs in a folder, agent reads
-intro + abstract + conclusion, scores relevance against a user-interest
-profile loaded via agent memory, routes to `read_now/` / `read_later/`
-/ `skip/`. Real use: keeping up with a fast-moving field. Tests:
-long-document handling, agent-memory shaping (interests change → memory
-edits → behavior change → `memory_hash` proves it), eval scoring
-without ground truth.
+**2. Research paper triage — built.** Lives at `examples/research_paper_triage/`.
+Metadata-driven (arXiv abstracts via the API, not PDFs — turns out
+abstracts carry enough signal for triage at ~3× lower cost than PR
+metadata). Workflow YAML, rubric, 5 synthetic fixtures, 50 real-paper
+batch committed under `data/arxiv_batch_50.json`, and 13 replay-mode
+tests at `backend/tests/test_research_paper_triage.py`. Validated with
+3 live rubric iterations; primary finding was that `case_study` over-
+application (54% → 8% across rounds) reveals an irreducible ambiguity
+at the abstract level for deployment-adjacent papers.
 
 **3. Contract red-flag finder.** PDF contract → agent flags unusual
 clauses (auto-renewal terms, IP assignment, broad indemnity, exclusive

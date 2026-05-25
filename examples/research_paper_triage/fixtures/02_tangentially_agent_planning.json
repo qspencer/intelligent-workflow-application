@@ -1,0 +1,10 @@
+{
+  "id": "2403.12345v1",
+  "title": "Hierarchical Task Planning for LLM Agents in Web Environments",
+  "abstract": "Web navigation agents based on large language models often struggle with multi-step tasks that require decomposition across abstraction levels. We present HiPlan, a hierarchical task planner that produces a tree of intermediate goals and selects actions conditioned on the current subgoal. Unlike flat agentic planners, HiPlan separates the long-horizon plan from the per-step action policy, allowing the planner LLM to reason at the semantic level while a smaller policy model handles execution. We evaluate on WebArena and a new shopping-task benchmark, showing improved task completion rates versus ReAct and Reflexion baselines, particularly on tasks requiring more than ten steps. We do not address memory; agents in our setup re-derive context from the page state at each step.",
+  "authors": ["Jane Researcher", "Sam Co-Author", "Alex Lastauthor"],
+  "primary_category": "cs.CL",
+  "categories": ["cs.CL", "cs.AI"],
+  "published": "2024-03-19T15:42:11Z",
+  "comment": "12 pages, 6 figures. Code: https://example.org/hiplan"
+}

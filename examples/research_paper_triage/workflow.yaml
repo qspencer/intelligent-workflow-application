@@ -1,0 +1,46 @@
+id: research-paper-triage
+name: Research Paper Triage
+description: |
+  Receives an arXiv paper's metadata (title, abstract, authors, categories,
+  published date) and scores its relevance against a reader-interest profile
+  loaded from agent_memory.md. Outputs a structured triage record:
+  relevance score, bucket, summary, key concepts, and content tags. Trigger
+  payload shape matches what `scripts/fetch_papers.sh` emits — slim arXiv
+  metadata, not the full paper PDF.
+
+trigger:
+  type: webhook
+  config:
+    trigger_id: research-paper-triage
+
+steps:
+  - id: triage
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: |
+      You are triaging an arXiv research paper. The trigger payload contains
+      the paper's metadata: id, title, abstract, authors, primary_category,
+      categories, published, comment.
+
+      The rubric loaded into your memory (above this prompt) defines the
+      reader's interest profile, the relevance scoring scheme, the bucket
+      catalog, and the output format. Apply it and respond with ONLY the
+      JSON object on one line — no prose, no markdown fences.
+    policy:
+      max_iterations: 2
+      max_total_tokens: 4000
+
+  - id: record_triage
+    type: deterministic
+    function: record_paper_triage
+    config:
+      triage_from: steps.triage.output_text
+
+edges:
+  - from: triage
+    to: record_triage
+
+policies:
+  max_total_tokens: 10000
+  budget_action: pause

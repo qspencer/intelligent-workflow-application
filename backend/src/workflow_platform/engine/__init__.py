@@ -6,6 +6,7 @@ from workflow_platform.engine.functions import (
     noop,
     pdf_extract,
     record_evaluation,
+    record_paper_triage,
     record_pr_triage,
     route_by_classification,
 )
@@ -23,6 +24,7 @@ __all__ = [
     "noop",
     "pdf_extract",
     "record_evaluation",
+    "record_paper_triage",
     "record_pr_triage",
     "route_by_classification",
 ]

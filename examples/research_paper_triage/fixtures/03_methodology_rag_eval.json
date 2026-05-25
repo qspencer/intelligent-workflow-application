@@ -1,0 +1,10 @@
+{
+  "id": "2402.99887v3",
+  "title": "Beyond Recall@k: A Multi-Dimensional Evaluation Framework for Retrieval-Augmented Generation",
+  "abstract": "Existing evaluation of retrieval-augmented generation (RAG) systems typically reduces to Recall@k of retrieved passages or end-task accuracy, neither of which captures the full quality of the retrieval-generation interaction. We propose RAGEval, an evaluation framework that separately scores retrieval relevance, citation faithfulness, answer correctness, and answer-context alignment. We release a benchmark of 5,200 questions spanning open-domain QA, multi-hop reasoning, and long-document QA. Using RAGEval we show that high Recall@k can mask citation hallucination in 14-22% of generated answers, and that current RAG systems trade citation faithfulness for fluency. Our framework is independent of retrieval method (dense, sparse, hybrid) and generator architecture.",
+  "authors": ["Researcher A", "Researcher B", "Researcher C"],
+  "primary_category": "cs.IR",
+  "categories": ["cs.IR", "cs.CL"],
+  "published": "2024-02-28T09:13:44Z",
+  "comment": "Benchmark and code at https://example.org/rageval"
+}

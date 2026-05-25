@@ -1,0 +1,10 @@
+{
+  "id": "2401.77777v2",
+  "title": "A Survey of Long-Context Methods in Large Language Models",
+  "abstract": "Recent large language models have rapidly extended their effective context windows from a few thousand tokens to several million. This survey catalogues the techniques that made this possible: positional encoding modifications (RoPE scaling, ALiBi, PI), attention approximations (sparse, sliding-window, ring attention), KV-cache compression and offloading, and inference-time methods such as YaRN and self-extend. We taxonomize 60+ methods along four axes (training-time vs. inference-time, lossless vs. lossy, hardware-aware vs. agnostic, fine-tuned vs. zero-shot) and report comparable benchmarks across the LongBench, RULER, and InfiniteBench suites. We conclude with open problems: faithfulness over long inputs, retrieval-vs-context trade-offs, and the cost-quality Pareto front for production systems.",
+  "authors": ["Survey Author A", "Survey Author B", "Survey Author C", "Survey Author D"],
+  "primary_category": "cs.CL",
+  "categories": ["cs.CL", "cs.AI", "cs.LG"],
+  "published": "2024-01-31T17:55:09Z",
+  "comment": "60 pages, 12 figures, 8 tables. Living survey; updates at https://example.org/long-context-survey"
+}
