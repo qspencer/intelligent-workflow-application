@@ -41,6 +41,10 @@ dist/
 /data/
 *.pem
 *.key
+# OAuth credentials / refresh tokens / etc — only live under .secrets/
+/.secrets/
+# Catch-all for Google OAuth client JSONs that ever land at the project root
+client_secret_*.json
 
 # OS
 Thumbs.db

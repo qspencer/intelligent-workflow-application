@@ -276,6 +276,24 @@ agree).
 (installed application). Download credentials JSON; load into SecretStore
 as `gmail/<account>/client_credentials`.
 
+On-disk convention for solo-dev today (until AWS Secrets Manager comes
+online via the deferred Terraform apply, P2.3): the JSON file lives at
+`.secrets/gmail/<account>/client_credentials.json`. The `.secrets/`
+directory is gitignored, the file is chmod 0600, and the project root
+also has a `client_secret_*.json` ignore pattern to catch downloads
+that ever land there. The future `gmail_auth.py` CLI reads from
+`.secrets/...` on first run and seeds it into whichever `SecretStore`
+the process is configured to use (`EnvSecretStore` for dev,
+`AwsSecretsManagerStore` when the infra is live). The on-disk file
+remains the source of truth in dev — `EnvSecretStore` is process-local,
+so its `put()` doesn't persist across runs.
+
+Account namespace today is `intelligent.workflow.engine@quentinspencer.com`
+— the dedicated project Gmail (Google-Workspace-hosted on the personal
+domain). Single account; the namespace shape already supports a second
+account dropping in alongside (`gmail/<other-account>/...`) without any
+code or convention change.
+
 **Gate 4 — Run one-time consent.** `backend/tools/gmail_auth.py --account
 <email>` opens a browser to Google's consent page (sign in as the
 project account), captures the authorization code on localhost callback,
