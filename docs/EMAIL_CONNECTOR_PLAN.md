@@ -212,11 +212,17 @@ default-on access:
 | `email_send` | `EmailSendTool` (`send_email`) |
 | `email_label_apply` | `apply_labels` (deterministic post-step or agent tool) |
 
-The agent's tool surface in v1 is **just `email_send`**. The agent
-*reads* the message via the trigger payload it was invoked on — it has
-no general inbox-read tool. Broader read access (search, fetch by id,
-list-by-label) is deferred until a workload pulls; the constraint keeps
-the blast radius small while the rubric is still being iterated.
+The agent's tool surface in v1 is **`email_send` + `email_label_apply`**.
+The agent *reads* the triggering message via the trigger payload it
+was invoked on — it has no general inbox-read tool. Broader read access
+(search, fetch by id, list-by-label) is deferred until a workload
+pulls. Letting the agent apply labels directly (rather than routing
+through a deterministic post-step) means rubric iteration is visible
+in Gmail itself — you can scan the inbox and see what the agent
+actually decided, which speeds the iterate-on-real-mail loop the same
+way it sped PR triage and paper triage. Trade-off: every label-apply
+call is an auditable side effect, so the `email_label_apply` capability
+gate needs to be explicit per workflow.
 
 ### Trigger payload
 
@@ -258,19 +264,36 @@ project's dedicated Google account. Create a new GCP project (e.g.
 `workflow-platform-dev`); enable Gmail API via Console or
 `gcloud services enable gmail.googleapis.com`.
 
-**Gate 2 — Configure OAuth consent screen.** External user type
-(Internal requires Workspace). "Testing" status is fine — the
-refresh-token-on-Testing 7-day expiry is acceptable for a dedicated
-solo-dev account where re-running `gmail_auth.py` is cheap. Add the
-project account itself as the sole test user. (Promotion to "In
-production" with verification is months of process for sensitive
-scopes and not worth it pre-pull.)
+**Gate 2 — Configure OAuth consent screen.** User type depends on the
+account:
+
+- **Internal** (Google Workspace accounts only — applies here, since
+  `intelligent.workflow.engine@quentinspencer.com` is on Workspace):
+  consent is restricted to users in the same Workspace org, no test
+  user list required, refresh tokens don't expire on a 7-day clock.
+  Cleanest path.
+- **External + Testing**: any Google account, but refresh tokens
+  expire after 7 days, and only listed test users can consent. Fine
+  for solo-dev gmail.com accounts where re-running `gmail_auth.py`
+  weekly is cheap.
+- **External + In production**: requires Google verification (months
+  of process for sensitive scopes, including the full-mailbox scope
+  this project uses). Not worth it pre-pull.
 
 Upload `docs/assets/logo.png` (120×120 indigo-on-white diamond DAG,
 reproducible from `docs/assets/generate_logo.py`) as the application
 logo. App name: "Intelligent Workflow Platform" (or whatever name the
 dedicated GCP project carries — consent screen + project name must
 agree).
+
+**Scopes to add.** This project uses `https://mail.google.com/` (full
+mailbox access). The future tool surface only exercises send + modify,
+but going with the full-mailbox scope is a deliberate trade: one
+sensitive scope versus three less-sensitive ones with identical
+verification implications. Capability gating still constrains what the
+agent can actually do via `Tool` registration (`email_send`,
+`email_label_apply`); OAuth scope is the outer envelope, not the
+fine-grained permission boundary.
 
 **Gate 3 — Create OAuth Client ID.** Application type: Desktop app
 (installed application). Download credentials JSON; load into SecretStore
@@ -502,10 +525,14 @@ revision sees the decision, not the question):
    one-shot consent CLI + the operator-facing setup doc up front. Don't
    ship the connector without the gates documented as well as
    `docs/BEDROCK_SETUP.md`.
-2. **Sending wrong email is high-stakes.** Mitigation: dry-run mode
-   (open question #2), and per-workflow capability allowlist must
-   include `email_send` explicitly — no default-on access (see the
-   capability table above).
+2. **Sending wrong email — or applying wrong labels — is high-stakes.**
+   Both are auditable side effects that touch real mailbox state.
+   Mitigations: dry-run mode (open question #2), per-workflow
+   capability allowlist must include `email_send` /
+   `email_label_apply` explicitly (no default-on access, see the
+   capability table above), and the full-mailbox OAuth scope means
+   Tool registration is the *only* boundary preventing the agent from
+   doing more than send + label-apply — keep that boundary tight.
 3. **Email is a deliverability minefield at scale.** If this platform
    sends thousands of emails, providers will throttle and flag. Out of
    scope for v1; mention as a Phase 2+ concern when volume matters.
