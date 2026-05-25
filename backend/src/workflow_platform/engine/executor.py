@@ -189,6 +189,89 @@ class WorkflowEngine:
         self._record_workflow_finished(definition.id, result, resumed_at)
         return result
 
+    async def fork(
+        self,
+        definition: WorkflowDefinition,
+        source_instance_id: str,
+        from_step_id: str,
+    ) -> WorkflowInstance:
+        """Fork a prior instance: re-run from `from_step_id` onward in a new
+        instance, with the topological ancestors of that step preserved as
+        completed (their outputs carried over from the source). Useful for
+        rubric / prompt iteration without re-running the upstream work.
+
+        The source instance is unchanged. The new instance gets the same
+        trigger payload, copied step executions for the preserved ancestors,
+        and runs everything else fresh — including picking up any
+        `agent_memory.md` edits that have happened since the source run.
+        """
+        source = await self.repositories.instances.get(source_instance_id)
+        if source is None:
+            raise ValueError(f"Instance {source_instance_id} not found")
+        step_ids = {s.id for s in definition.steps}
+        if from_step_id not in step_ids:
+            raise ValueError(f"Step {from_step_id!r} not in workflow {definition.id!r}")
+
+        preserved = _ancestors(definition, from_step_id)
+        source_steps = await self.repositories.steps.list_by_instance(source_instance_id)
+        usable_outputs: dict[str, dict[str, Any]] = {}
+        for s in source_steps:
+            if s.step_id in preserved and s.state == StepExecutionState.COMPLETED and s.output:
+                usable_outputs[s.step_id] = dict(s.output)
+
+        missing = preserved - usable_outputs.keys()
+        if missing:
+            raise ValueError(
+                f"Cannot fork at {from_step_id!r}: source instance missing completed outputs for "
+                f"required ancestor(s) {sorted(missing)}"
+            )
+
+        started = _utcnow()
+        new_instance = WorkflowInstance(
+            workflow_id=definition.id,
+            state=WorkflowInstanceState.RUNNING,
+            trigger_payload=dict(source.trigger_payload),
+            started_at=started,
+        )
+        new_instance = await self.repositories.instances.create(new_instance)
+        self.metrics.workflow_started(definition.id)
+        await self._audit(
+            "workflow_forked",
+            actor_type="engine",
+            actor_id="workflow_engine",
+            instance_id=new_instance.id,
+            detail={
+                "source_instance_id": source_instance_id,
+                "from_step_id": from_step_id,
+                "preserved_step_ids": sorted(preserved),
+            },
+        )
+
+        # Materialize the preserved steps in the new instance as COMPLETED,
+        # carrying over their outputs verbatim.
+        for step_id, output in usable_outputs.items():
+            await self.repositories.steps.create(
+                StepExecution(
+                    instance_id=new_instance.id,
+                    step_id=step_id,
+                    state=StepExecutionState.COMPLETED,
+                    started_at=started,
+                    completed_at=started,
+                    output=output,
+                )
+            )
+
+        context = WorkflowContext(
+            instance_id=new_instance.id,
+            workflow_id=definition.id,
+            trigger=dict(new_instance.trigger_payload),
+            steps={sid: dict(out) for sid, out in usable_outputs.items()},
+        )
+
+        result = await self._drive(definition, new_instance, context, already_done=preserved)
+        self._record_workflow_finished(definition.id, result, started)
+        return result
+
     def _record_workflow_finished(
         self,
         workflow_id: str,
@@ -218,11 +301,15 @@ class WorkflowEngine:
             timeout = definition.policies.timeout_seconds
             if timeout:
                 await asyncio.wait_for(
-                    self._dispatch_loop(definition, steps_by_id, state, context, instance.id),
+                    self._dispatch_loop(
+                        definition, steps_by_id, state, context, instance.id, already_done
+                    ),
                     timeout=timeout,
                 )
             else:
-                await self._dispatch_loop(definition, steps_by_id, state, context, instance.id)
+                await self._dispatch_loop(
+                    definition, steps_by_id, state, context, instance.id, already_done
+                )
         except _PauseRequested:
             instance = await self._mark_instance(
                 instance, WorkflowInstanceState.PAUSED, context, error=None
@@ -306,9 +393,13 @@ class WorkflowEngine:
         state: _DagState,
         context: WorkflowContext,
         instance_id: str,
+        already_done: set[str],
     ) -> None:
         in_progress: dict[str, asyncio.Task[dict[str, Any] | None]] = {}
-        scheduled: set[str] = set()
+        # Seed `scheduled` with already-done steps so resume + fork don't
+        # re-run them. Their outgoing edges have already been advanced in
+        # `_build_dag_state`; downstream scheduling proceeds normally.
+        scheduled: set[str] = set(already_done)
         skipped: set[str] = set()
 
         # Schedule initially-ready steps.
@@ -768,6 +859,24 @@ class WorkflowEngine:
         await self.repositories.audit.append(entry)
         if self.events is not None:
             await self.events.publish(entry.model_dump(mode="json"))
+
+
+def _ancestors(definition: WorkflowDefinition, target_id: str) -> set[str]:
+    """Topological ancestors of `target_id` — every step that must complete
+    before `target_id` can run. Used by `fork` to pick the set of source-run
+    step outputs to preserve."""
+    incoming: dict[str, list[str]] = defaultdict(list)
+    for edge in definition.edges:
+        incoming[edge.target].append(edge.source)
+    visited: set[str] = set()
+    stack = [target_id]
+    while stack:
+        sid = stack.pop()
+        for src in incoming.get(sid, []):
+            if src not in visited:
+                visited.add(src)
+                stack.append(src)
+    return visited
 
 
 def _build_user_message(step: AgenticStep, context: WorkflowContext) -> str:

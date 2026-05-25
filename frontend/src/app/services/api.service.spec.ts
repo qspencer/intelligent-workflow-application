@@ -94,4 +94,13 @@ describe('ApiService', () => {
       { file_path: '/abs/foo.pdf' },
     );
   });
+
+  it('forkInstance posts from_step_id to /workflow-instances/{id}/fork', () => {
+    const { service, http } = makeService();
+    service.forkInstance('inst-9', 'classify');
+    expect(http.post).toHaveBeenCalledWith(
+      '/api/workflow-instances/inst-9/fork',
+      { from_step_id: 'classify' },
+    );
+  });
 });

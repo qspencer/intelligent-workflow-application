@@ -122,6 +122,7 @@ import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../
             <th>Usage</th>
             <th>Memory</th>
             <th>Error</th>
+            <th>Fork</th>
           </tr>
         </thead>
         <tbody>
@@ -152,6 +153,17 @@ import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../
                 }
               </td>
               <td class="error">{{ s.error ?? '' }}</td>
+              <td>
+                <button
+                  class="link"
+                  [disabled]="forking()"
+                  [title]="
+                    'Fork from this step — preserves outputs of every step before ' + s.step_id
+                    + ', re-runs ' + s.step_id + ' and everything downstream with current memory.'
+                  "
+                  (click)="forkFrom(s.step_id)"
+                >fork</button>
+              </td>
             </tr>
           }
         </tbody>
@@ -310,6 +322,22 @@ import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../
         color: var(--warn);
         font-weight: 500;
       }
+      button.link {
+        background: none;
+        border: 0;
+        color: var(--accent);
+        cursor: pointer;
+        padding: 0;
+        font: inherit;
+        font-size: 12px;
+      }
+      button.link:hover:not(:disabled) {
+        text-decoration: underline;
+      }
+      button.link:disabled {
+        opacity: 0.5;
+        cursor: wait;
+      }
     `,
   ],
 })
@@ -330,6 +358,8 @@ export class InstanceDetailComponent implements OnInit, OnDestroy {
   readonly evaluations = computed<EvaluationResult[]>(() => extractEvaluations(this.steps()));
 
   readonly scoreClass = scoreClass;
+
+  readonly forking = signal(false);
 
   ngOnInit(): void {
     this.refresh();
@@ -379,6 +409,21 @@ export class InstanceDetailComponent implements OnInit, OnDestroy {
   readonly formatUsage = formatUsage;
   readonly usageTooltip = usageTooltip;
   readonly costSkew = costSkew;
+
+  forkFrom(stepId: string): void {
+    if (this.forking()) return;
+    this.forking.set(true);
+    this.api.forkInstance(this.id, stepId).subscribe({
+      next: (res) => {
+        this.forking.set(false);
+        this.router.navigate(['/instances', res.instance_id]);
+      },
+      error: (err) => {
+        this.forking.set(false);
+        this.error.set(err.error?.detail ?? err.message ?? 'Fork failed');
+      },
+    });
+  }
 
   action(name: 'pause' | 'resume' | 'retry' | 'kill'): void {
     const op =

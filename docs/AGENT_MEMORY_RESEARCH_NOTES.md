@@ -351,12 +351,13 @@ least one non-retrieval-only approach against the
 
 Three actionable items that come out of this reading:
 
-**R1 — Fork-from-step affordance** (from paper #2). Add a
-"fork this instance at step X" button on the dashboard. Backend
-already supports it via `engine.resume`. Small platform addition that
-delivers a real superpower for rubric/prompt iteration: try the same
-input from step N with a tweaked rubric, without redoing steps 1..N-1.
-File as G8 in `docs/NEXT_STEPS.md`.
+**R1 — Fork-from-step affordance** (from paper #2). ✅ **Done** as G8
+in `docs/NEXT_STEPS.md`. New `WorkflowEngine.fork(...)` method,
+`POST /api/workflow-instances/{id}/fork` endpoint, and a per-step
+"fork" button on the dashboard's Steps table that navigates to the
+new instance. The ActiveGraph paper's "cheap forking that branches a
+run at any event without re-executing the shared prefix" property is
+now ours too.
 
 **R2 — Capture memory-isolated eval as a methodology note** (from
 paper #5). Add a one-paragraph note to

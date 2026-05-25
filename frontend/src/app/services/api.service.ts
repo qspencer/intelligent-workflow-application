@@ -73,6 +73,23 @@ export class ApiService {
     );
   }
 
+  forkInstance(
+    id: string,
+    fromStepId: string,
+  ): Observable<{
+    status: string;
+    source_instance_id: string;
+    instance_id: string;
+    state: string;
+  }> {
+    return this.http.post<{
+      status: string;
+      source_instance_id: string;
+      instance_id: string;
+      state: string;
+    }>(`${API_BASE}/workflow-instances/${id}/fork`, { from_step_id: fromStepId });
+  }
+
   private cleanParams(input: Record<string, unknown>): Record<string, string> {
     const out: Record<string, string> = {};
     for (const [k, v] of Object.entries(input)) {

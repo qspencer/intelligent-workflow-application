@@ -249,6 +249,54 @@ def build_router(
         task.add_done_callback(background_tasks.discard)
         return {"status": "retry_started", "instance_id": instance_id}
 
+    @router.post("/workflow-instances/{instance_id}/fork")
+    async def fork_instance(
+        instance_id: str,
+        request: Request,
+        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+    ) -> dict[str, Any]:
+        """Fork a prior instance at a specific step.
+
+        Body: `{"from_step_id": "<step-id>"}`. Creates a new instance with
+        the original's topological ancestors of `from_step_id` already
+        marked completed (their outputs preserved), and re-runs everything
+        from `from_step_id` onward — picking up any agent-memory edits
+        since the source run. The source instance is unchanged.
+        """
+        if engine is None:
+            raise HTTPException(
+                status_code=503, detail="Fork requires a WorkflowEngine bound to the API."
+            )
+        source = await repositories.instances.get(instance_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
+        definition = await repositories.definitions.get(source.workflow_id)
+        if definition is None:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Definition {source.workflow_id} not found; cannot fork.",
+            )
+
+        body = await request.body()
+        try:
+            payload = json.loads(body.decode("utf-8")) if body else {}
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
+        from_step_id = payload.get("from_step_id") if isinstance(payload, dict) else None
+        if not isinstance(from_step_id, str) or not from_step_id:
+            raise HTTPException(status_code=400, detail="Body must include `from_step_id` (string)")
+
+        try:
+            new_instance = await engine.fork(definition, instance_id, from_step_id)
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        return {
+            "status": "forked",
+            "source_instance_id": instance_id,
+            "instance_id": new_instance.id,
+            "state": new_instance.state.value,
+        }
+
     @router.post("/workflow-instances/{instance_id}/kill")
     async def kill_instance(
         instance_id: str,

@@ -209,3 +209,76 @@ def test_run_empty_body_treated_as_empty_dict(
     r = client.post("/api/workflows/wf-1/run", headers=_admin())
     assert r.status_code == 200
     assert r.json()["status"] == "started"
+
+
+# --- POST /api/workflow-instances/{id}/fork ---
+
+
+def test_fork_requires_operator_role(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    inst_id = next(i.id for i in instances if i.state == WorkflowInstanceState.COMPLETED)
+    r = client.post(
+        f"/api/workflow-instances/{inst_id}/fork",
+        json={"from_step_id": "a"},
+        headers=_viewer(),
+    )
+    assert r.status_code == 403
+
+
+def test_fork_unknown_instance_404(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, *_ = dev_app
+    r = client.post(
+        "/api/workflow-instances/does-not-exist/fork",
+        json={"from_step_id": "a"},
+        headers=_admin(),
+    )
+    assert r.status_code == 404
+
+
+def test_fork_missing_step_id_400(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    inst_id = next(i.id for i in instances if i.state == WorkflowInstanceState.COMPLETED)
+    r = client.post(
+        f"/api/workflow-instances/{inst_id}/fork",
+        json={},
+        headers=_admin(),
+    )
+    assert r.status_code == 400
+    assert "from_step_id" in r.json()["detail"]
+
+
+def test_fork_creates_new_instance(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    """Forking from the only step in this workflow re-runs that step fresh,
+    leaving the source instance untouched."""
+    client, repos, _ = dev_app
+    # The seeded `wf-1` instances have a single deterministic step `a`.
+    # Forking at `a` is "re-run the whole workflow with the same trigger."
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    source_id = next(i.id for i in instances if i.state == WorkflowInstanceState.COMPLETED)
+
+    r = client.post(
+        f"/api/workflow-instances/{source_id}/fork",
+        json={"from_step_id": "a"},
+        headers=_admin(),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["status"] == "forked"
+    assert body["source_instance_id"] == source_id
+    assert body["instance_id"] != source_id
+    assert body["state"] == "completed"
+
+    # The audit log of the new instance should record the fork event.
+    audit = asyncio.run(repos.audit.list_by_instance(body["instance_id"]))
+    actions = [e.action for e in audit]
+    assert "workflow_forked" in actions
