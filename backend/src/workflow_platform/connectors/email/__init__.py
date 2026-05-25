@@ -12,6 +12,12 @@ from workflow_platform.connectors.email.gmail import (
     GmailLabelNotFound,
     GmailMessageNotFound,
 )
+from workflow_platform.connectors.email.gmail_auth import (
+    GmailAuthError,
+    GmailAuthMisconfigured,
+    GmailAuthRevoked,
+    GmailOAuthProvider,
+)
 from workflow_platform.connectors.email.models import (
     EmailAddress,
     EmailMessage,
@@ -25,8 +31,12 @@ __all__ = [
     "EmailMessage",
     "EmailProvider",
     "EmailSendRequest",
+    "GmailAuthError",
+    "GmailAuthMisconfigured",
     "GmailAuthProvider",
+    "GmailAuthRevoked",
     "GmailConnector",
     "GmailLabelNotFound",
     "GmailMessageNotFound",
+    "GmailOAuthProvider",
 ]
