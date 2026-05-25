@@ -182,13 +182,23 @@ Result: 21/21 `NONE` PRs flagged, 0/16 `MEMBER` PRs flagged, 1/13
 **Finding 4 — cost per PR is dominated by the user message, not the
 system prompt.** Adding a 3.5KB system prompt only bumped per-run cost
 ~6%. Bot-driven release PRs (with full changelogs in the body) are the
-expensive runs. Median run was ~8K tokens, ~$0.009.
+expensive runs. Median run was ~8K tokens, ~$0.009. After Finding 5's
+fix slimmed the trigger payload, the user message is now just the PR
+body + small metadata — bot-driven release PRs with long changelogs
+remain the cost outliers, but everything else dropped substantially.
+Observational; no further action at current scale.
 
 **Finding 5 — listing PRs via `gh api .../pulls` returns null for
-`additions`, `deletions`, `changed_files`.** Those only populate on the
-single-PR endpoint. `scripts/fetch_prs.sh` should be paired with a
-second enrichment pass via `gh api repos/X/Y/pulls/N`. Tracked as a
-follow-up in the script comments.
+`additions`, `deletions`, `changed_files` (fixed).** The list endpoint
+omits those stats; only the per-PR detail call populates them. The
+fetcher script now does a second `gh api repos/X/Y/pulls/N` call per
+PR and slims the resulting payload to just the fields the rubric in
+`agent_memory.md` actually reads — number / title / body / user /
+author_association / additions / deletions / changed_files / base /
+head. The slim shape typically reduces payload size by ~95%, cutting
+both Bedrock input tokens *and* the `workflow_instances.trigger_payload`
+JSONB size in Postgres. (Also incidentally addresses Finding 4 — the
+PR body is now the only large variable left in the user message.)
 
 These findings are the kind of thing you can't get from a unit test —
 which is the whole point of running validation workloads.
