@@ -27,6 +27,7 @@ All design docs live under `docs/`. The `README.md` at the root has the quick-st
 | `docs/USE_CASES.md` | Candidate validation workloads (filesystem / webhook / schedule), capability-fit map, recommended first build (GitHub PR triage) |
 | `docs/RAG_PRODUCTION_NOTES.md` | Notes from a production-RAG article: what aligns with current design, what to pull forward, what to capture as Phase B inputs |
 | `docs/SEMANTICS.md` | Decision log: why we haven't adopted a formal ontology / knowledge graph / semantic layer, and what trigger reopens each |
+| `docs/AGENT_MEMORY_RESEARCH_NOTES.md` | Reading notes on 10 recent (May-2026 arXiv) papers on agent memory + context, with explicit links back to platform design choices and three concrete recommendations |
 
 Lessons learned across sessions live in the auto-memory system. Update it as you discover things worth remembering. Memory takes precedence over assumptions; verify before acting on it.
 
