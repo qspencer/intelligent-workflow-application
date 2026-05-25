@@ -1,0 +1,25 @@
+{
+  "provider": "gmail",
+  "message_id": "fixture-01",
+  "thread_id": "thread-fixture-01",
+  "from_address": {
+    "address": "alex.morgan@example.com",
+    "name": "Alex Morgan"
+  },
+  "to": [
+    {
+      "address": "intelligent.workflow.engine@quentinspencer.com"
+    }
+  ],
+  "cc": [],
+  "bcc": [],
+  "subject": "URGENT: Standup moved to 11am TODAY",
+  "body_text": "Quentin -- I just got pulled into a director sync at 10:30 that runs an hour. Can we slide our standup to 11:00 today? I'll send an updated invite once you confirm. The blocker on the migration timeline is what I most want to unstick.\n\nThanks,\nAlex",
+  "body_html": null,
+  "received_at": "2026-05-25T13:42:00+00:00",
+  "labels": ["INBOX", "UNREAD"],
+  "in_reply_to": null,
+  "headers": {
+    "Message-ID": "<fixture-01@example.com>"
+  }
+}

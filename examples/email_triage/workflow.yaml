@@ -1,0 +1,64 @@
+id: email-triage
+name: Email Triage
+description: |
+  Triages an inbound Gmail message using the rubric in `agent_memory.md`.
+  The agent decides a category (urgent / fyi / spam / personal /
+  awaiting-reply), optionally drafts a reply via `email_send`, and applies
+  one or more triage labels via `email_label_apply`. The deterministic
+  `record_email_triage` step parses the agent's JSON into structured fields
+  for downstream queries.
+
+  Trigger payload shape matches `EmailMessage.model_dump()` — what
+  `GmailPollTrigger` emits when the connector polls inbox.
+
+trigger:
+  type: gmail_poll
+  config:
+    account: intelligent.workflow.engine@quentinspencer.com
+    poll_interval_seconds: 60
+    label: INBOX
+
+steps:
+  - id: triage
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: [email_send, email_label_apply]
+    capabilities:
+      tools: [email_send, email_label_apply]
+    goal: |
+      You are triaging an inbound email. The trigger payload contains the
+      full message: provider, message_id, thread_id, from_address (with
+      address + optional name), to, cc, subject, body_text, body_html,
+      received_at, labels.
+
+      Apply the rubric in your memory (above this prompt) to:
+        1. Choose exactly one `category` from the five-bucket catalog.
+        2. Decide whether to draft a reply via the `email_send` tool. Only
+           reply when the rubric says you should — most emails should NOT
+           get an auto-reply.
+        3. Apply one triage label via `email_label_apply` (e.g.
+           `triaged/urgent`, `triaged/fyi`). The original Gmail message_id
+           is in the trigger payload as `message_id`.
+
+      Then respond with ONLY a JSON object on one line — no prose, no
+      markdown fences:
+        {"category": "<one of five>", "confidence": <0..1>,
+         "reply_drafted": <bool>, "labels_applied": [<labels you applied>],
+         "summary": "<one short sentence — why this category>"}
+    policy:
+      max_iterations: 5
+      max_total_tokens: 6000
+
+  - id: record
+    type: deterministic
+    function: record_email_triage
+    config:
+      triage_from: steps.triage.output_text
+
+edges:
+  - from: triage
+    to: record
+
+policies:
+  max_total_tokens: 10000
+  budget_action: pause

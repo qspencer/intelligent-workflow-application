@@ -1,0 +1,26 @@
+{
+  "provider": "gmail",
+  "message_id": "fixture-02",
+  "thread_id": "thread-fixture-02",
+  "from_address": {
+    "address": "newsletter@databricks-weekly.com",
+    "name": "Databricks Weekly"
+  },
+  "to": [
+    {
+      "address": "intelligent.workflow.engine@quentinspencer.com"
+    }
+  ],
+  "cc": [],
+  "bcc": [],
+  "subject": "This week in data: 14 new MLflow integrations, Unity Catalog updates",
+  "body_text": "Hi there,\n\nHere's what's new in the Databricks ecosystem this week:\n\n- MLflow 2.18 ships with native PyTorch Lightning 2.x integration\n- Unity Catalog now supports row-level security for views\n- Delta Sharing connectors for Snowflake and BigQuery moved to GA\n- 6 community-contributed tutorials on streaming ETL patterns\n\nRead the full digest at https://databricks-weekly.com/2026-21\n\nManage subscription: https://databricks-weekly.com/preferences",
+  "body_html": null,
+  "received_at": "2026-05-25T09:15:00+00:00",
+  "labels": ["INBOX", "CATEGORY_PROMOTIONS"],
+  "in_reply_to": null,
+  "headers": {
+    "Message-ID": "<fixture-02@databricks-weekly.com>",
+    "List-Unsubscribe": "<https://databricks-weekly.com/preferences>"
+  }
+}

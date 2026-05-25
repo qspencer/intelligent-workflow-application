@@ -274,6 +274,62 @@ async def record_paper_triage(
     return {"parse_ok": True, **triage}
 
 
+def _extract_email_triage(raw: str) -> dict[str, Any] | None:
+    """Pull email-triage fields from an agent's text response.
+
+    Expected JSON shape:
+        {"category": <str>, "confidence": 0..1, "reply_drafted": <bool>,
+         "labels_applied": [<str>...], "summary": <str>}
+
+    `confidence` is coerced to float; `labels_applied` is normalized to a
+    list of strings with `label_count` computed. Returns None if no parseable
+    JSON object is found. Unknown keys are dropped."""
+    match = _JSON_OBJECT_RE.search(raw)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    out: dict[str, Any] = {}
+    for key in ("category", "summary"):
+        if isinstance(parsed.get(key), str):
+            out[key] = parsed[key]
+    confidence = parsed.get("confidence")
+    if isinstance(confidence, int | float) and not isinstance(confidence, bool):
+        out["confidence"] = float(confidence)
+    if isinstance(parsed.get("reply_drafted"), bool):
+        out["reply_drafted"] = parsed["reply_drafted"]
+    labels = parsed.get("labels_applied")
+    if isinstance(labels, list):
+        out["labels_applied"] = [str(x) for x in labels]
+        out["label_count"] = len(out["labels_applied"])
+    return out or None
+
+
+async def record_email_triage(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Parse an email-triage agent's JSON output into structured fields.
+
+    Mirrors `record_pr_triage` / `record_paper_triage`. Reads the agent's
+    `output_text`, lifts `category` / `confidence` / `reply_drafted` /
+    `labels_applied` / `summary` plus a computed `label_count`.
+    `parse_ok=False` + `raw` on parse failure — the workflow does not fail,
+    so downstream queries (`SELECT ... WHERE parse_ok = false`) can find
+    runs where the agent went off-script."""
+    source = config.get("triage_from", "steps.triage.output_text")
+    raw = _resolve_path(context, source)
+    if not raw:
+        raise StepFailure(f"record_email_triage could not resolve {source!r}")
+    triage = _extract_email_triage(raw)
+    if triage is None:
+        return {"parse_ok": False, "raw": raw}
+    return {"parse_ok": True, **triage}
+
+
 async def record_pr_triage(
     config: dict[str, Any], context: WorkflowContext, world: World
 ) -> dict[str, Any]:
@@ -350,6 +406,7 @@ def default_function_registry() -> FunctionRegistry:
             "record_evaluation": record_evaluation,
             "record_pr_triage": record_pr_triage,
             "record_paper_triage": record_paper_triage,
+            "record_email_triage": record_email_triage,
             "append_file": append_file,
         }
     )

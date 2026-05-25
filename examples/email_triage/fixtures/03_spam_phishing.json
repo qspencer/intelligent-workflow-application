@@ -1,0 +1,26 @@
+{
+  "provider": "gmail",
+  "message_id": "fixture-03",
+  "thread_id": "thread-fixture-03",
+  "from_address": {
+    "address": "security-alerts-no-reply@am4z0n-acct-verify.cf",
+    "name": "Amazon Account Security"
+  },
+  "to": [
+    {
+      "address": "intelligent.workflow.engine@quentinspencer.com"
+    }
+  ],
+  "cc": [],
+  "bcc": [],
+  "subject": "URGENT: Your Amazon account will be SUSPENDED in 24 hours -- verify NOW",
+  "body_text": "Dear Customer,\n\nWe detected UNUSUAL ACTIVITY on your Amazon account from an unrecognized device. To prevent permanent SUSPENSION, you must verify your identity within 24 hours by clicking the link below:\n\nhttps://am4z0n-acct-verify.cf/login?ref=urgent-action-required\n\nFailure to verify will result in account closure and loss of all Prime benefits. This is your FINAL NOTICE.\n\nDo not reply to this email. Click the link above to confirm your identity NOW.\n\n-- Amazon Account Security Team",
+  "body_html": null,
+  "received_at": "2026-05-25T03:18:00+00:00",
+  "labels": ["INBOX", "CATEGORY_UPDATES"],
+  "in_reply_to": null,
+  "headers": {
+    "Message-ID": "<fixture-03@am4z0n-acct-verify.cf>",
+    "X-Spam-Score": "12.4"
+  }
+}

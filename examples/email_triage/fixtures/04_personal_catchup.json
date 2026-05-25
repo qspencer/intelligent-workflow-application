@@ -1,0 +1,25 @@
+{
+  "provider": "gmail",
+  "message_id": "fixture-04",
+  "thread_id": "thread-fixture-04",
+  "from_address": {
+    "address": "sam.kapoor@gmail.com",
+    "name": "Sam Kapoor"
+  },
+  "to": [
+    {
+      "address": "intelligent.workflow.engine@quentinspencer.com"
+    }
+  ],
+  "cc": [],
+  "bcc": [],
+  "subject": "long time! coffee next week?",
+  "body_text": "Hey, it's been ages -- I think the last time we caught up was right after you left the gig at Hooli? I'm finally back in town for a couple weeks before the next thing starts. Would love to grab coffee and hear what you've been up to. The 'intelligent.workflow.engine' address gave me a chuckle, btw.\n\nFree any weekday morning -- you pick the cafe.\n\n-- Sam",
+  "body_html": null,
+  "received_at": "2026-05-24T18:02:00+00:00",
+  "labels": ["INBOX", "UNREAD"],
+  "in_reply_to": null,
+  "headers": {
+    "Message-ID": "<fixture-04@gmail.com>"
+  }
+}

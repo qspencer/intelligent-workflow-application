@@ -1,0 +1,31 @@
+{
+  "provider": "gmail",
+  "message_id": "fixture-05",
+  "thread_id": "thread-fixture-05",
+  "from_address": {
+    "address": "procurement@aws-enterprise-sales.com",
+    "name": "Priya Raman (AWS Procurement)"
+  },
+  "to": [
+    {
+      "address": "intelligent.workflow.engine@quentinspencer.com"
+    }
+  ],
+  "cc": [
+    {
+      "address": "billing@aws-enterprise-sales.com"
+    }
+  ],
+  "bcc": [],
+  "subject": "Re: Bedrock provisioned-throughput quote -- following up",
+  "body_text": "Hi Quentin,\n\nCircling back on the quote I sent on the 17th for 2 PT units at the Sonnet 4.6 tier. We can hold the pricing until end of next week, but the rate increase across our enterprise tier kicks in June 8.\n\nLet me know if you've had a chance to discuss internally and whether you'd like me to set up a call with one of our solutions architects to walk through the migration plan we drafted.\n\nHappy to extend the hold if you need another week, just let me know.\n\nBest,\nPriya",
+  "body_html": null,
+  "received_at": "2026-05-25T11:30:00+00:00",
+  "labels": ["INBOX", "UNREAD"],
+  "in_reply_to": "<original-quote@aws-enterprise-sales.com>",
+  "headers": {
+    "Message-ID": "<fixture-05@aws-enterprise-sales.com>",
+    "In-Reply-To": "<original-quote@aws-enterprise-sales.com>",
+    "References": "<original-quote@aws-enterprise-sales.com>"
+  }
+}
