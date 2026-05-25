@@ -39,6 +39,7 @@ from workflow_platform.orchestrator import TriggerOrchestrator
 from workflow_platform.persistence import Repositories, in_memory_repositories
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
+from workflow_platform.secrets import AwsSecretsManagerStore, EnvSecretStore, SecretStore
 from workflow_platform.tools import FileReadTool, FileWriteTool, PdfExtractTool
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.world import real_world
@@ -83,6 +84,15 @@ def _default_engine(
     )
 
 
+def _default_secret_store() -> SecretStore:
+    """Pick a SecretStore by env: `aws` for the deployed stack,
+    `env` (default) for solo-dev."""
+    backend = os.environ.get("WORKFLOW_PLATFORM_SECRET_BACKEND", "env").lower()
+    if backend == "aws":
+        return AwsSecretsManagerStore()
+    return EnvSecretStore()
+
+
 def create_app(
     repositories: Repositories | None = None,
     *,
@@ -92,6 +102,7 @@ def create_app(
     metrics: PrometheusMetrics | None = None,
     definitions_dir: Path | None = None,
     start_triggers: bool | None = None,
+    secret_store: SecretStore | None = None,
 ) -> FastAPI:
     db_engine: Any | None = None
     if repositories is None:
@@ -111,11 +122,14 @@ def create_app(
         env_dir = os.environ.get("WORKFLOW_DEFINITIONS_DIR")
         definitions_dir = Path(env_dir) if env_dir else Path("examples")
 
+    secret_store = secret_store or _default_secret_store()
+
     orchestrator = TriggerOrchestrator(
         definitions_dir=definitions_dir,
         repositories=repositories,
         engine=engine,
         webhook_registry=webhook_registry,
+        secret_store=secret_store,
     )
 
     @asynccontextmanager

@@ -4,8 +4,10 @@ triggers against the running engine."""
 from __future__ import annotations
 
 import asyncio
+import json
 import logging
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -18,7 +20,9 @@ from workflow_platform.engine import (
 )
 from workflow_platform.orchestrator import TriggerOrchestrator
 from workflow_platform.persistence import in_memory_repositories
-from workflow_platform.triggers import WebhookRegistry
+from workflow_platform.secrets import EnvSecretStore
+from workflow_platform.triggers import GmailPollTrigger, WebhookRegistry
+from workflow_platform.workflow import load_definition
 from workflow_platform.world import mock_world
 
 MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
@@ -41,13 +45,18 @@ def _write_yaml(directory: Path, name: str, body: str) -> Path:
 
 
 def _orchestrator(
-    dir_path: Path, *, engine: WorkflowEngine, registry: WebhookRegistry | None = None
+    dir_path: Path,
+    *,
+    engine: WorkflowEngine,
+    registry: WebhookRegistry | None = None,
+    secret_store: Any = None,
 ) -> TriggerOrchestrator:
     return TriggerOrchestrator(
         definitions_dir=dir_path,
         repositories=engine.repositories,
         engine=engine,
         webhook_registry=registry or WebhookRegistry(),
+        secret_store=secret_store,
     )
 
 
@@ -516,3 +525,127 @@ edges: []
     steps = await engine.repositories.steps.list_by_instance(instances[0].id)
     assert steps[0].output is not None
     assert steps[0].output["output_text"] == "hi"
+
+
+# --- gmail_poll trigger wiring ---
+
+
+def _gmail_poll_definition(**config_overrides: Any) -> Any:
+    """Build a workflow definition with a gmail_poll trigger."""
+    config = {
+        "account": "intelligent.workflow.engine@quentinspencer.com",
+        "poll_interval_seconds": 60,
+        **config_overrides,
+    }
+    return load_definition(
+        {
+            "id": "gmail-wf",
+            "name": "Gmail",
+            "trigger": {"type": "gmail_poll", "config": config},
+            "steps": [{"id": "a", "type": "deterministic", "function": "noop"}],
+            "edges": [],
+        }
+    )
+
+
+async def test_gmail_poll_make_trigger_returns_gmail_poll_trigger(tmp_path: Path) -> None:
+    """`_make_trigger` constructs a GmailPollTrigger when secret_store is supplied
+    and the YAML has a valid `account`. We don't `start()` it — that would
+    actually try to call Google. Just verifying the wiring."""
+    store = EnvSecretStore()
+    orch = _orchestrator(tmp_path, engine=_make_engine(), secret_store=store)
+    definition = _gmail_poll_definition(poll_interval_seconds=30, label="UNREAD")
+    trigger = orch._make_trigger(definition)
+    assert isinstance(trigger, GmailPollTrigger)
+    assert trigger.poll_interval_seconds == 30.0
+    assert trigger.label == "UNREAD"
+    assert trigger.connector.account == "intelligent.workflow.engine@quentinspencer.com"
+
+
+async def test_gmail_poll_without_secret_store_skips_with_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A gmail_poll workflow without a SecretStore is an operator error;
+    log it and skip rather than crashing the orchestrator."""
+    orch = _orchestrator(tmp_path, engine=_make_engine(), secret_store=None)
+    caplog.set_level(logging.WARNING)
+    trigger = orch._make_trigger(_gmail_poll_definition())
+    assert trigger is None
+    assert "secretstore" in caplog.text.lower()
+
+
+async def test_gmail_poll_without_account_skips_with_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Missing `account` in YAML is a config error; warn + skip."""
+    orch = _orchestrator(tmp_path, engine=_make_engine(), secret_store=EnvSecretStore())
+    definition = load_definition(
+        {
+            "id": "gmail-no-account",
+            "name": "Gmail",
+            "trigger": {"type": "gmail_poll", "config": {}},
+            "steps": [{"id": "a", "type": "deterministic", "function": "noop"}],
+            "edges": [],
+        }
+    )
+    caplog.set_level(logging.WARNING)
+    trigger = orch._make_trigger(definition)
+    assert trigger is None
+    assert "account" in caplog.text.lower()
+
+
+async def test_gmail_poll_yaml_round_trip_through_orchestrator_start(
+    tmp_path: Path,
+) -> None:
+    """End-to-end: write a YAML with gmail_poll trigger, pre-seed SecretStore
+    so the credential lookup *would* succeed, start orchestrator, stop
+    immediately. Asserts the trigger landed in `_started`. We use a very
+    long poll interval so the loop never actually fires its first poll."""
+    _write_yaml(
+        tmp_path,
+        "gmail.yaml",
+        """\
+id: gmail-wf
+name: Gmail
+trigger:
+  type: gmail_poll
+  config:
+    account: intelligent.workflow.engine@quentinspencer.com
+    poll_interval_seconds: 3600
+steps:
+  - id: a
+    type: deterministic
+    function: noop
+edges: []
+""",
+    )
+    store = EnvSecretStore()
+    # Pre-seed so GmailOAuthProvider construction inside the orchestrator
+    # doesn't trip an exception. The trigger doesn't actually call Google
+    # because we stop before the first poll interval elapses.
+    await store.put(
+        "gmail/intelligent.workflow.engine@quentinspencer.com/client_credentials",
+        json.dumps(
+            {
+                "installed": {
+                    "client_id": "x",
+                    "client_secret": "y",
+                    "project_id": "p",
+                }
+            }
+        ),
+    )
+    await store.put("gmail/intelligent.workflow.engine@quentinspencer.com/refresh_token", "r")
+    try:
+        orch = _orchestrator(tmp_path, engine=_make_engine(), secret_store=store)
+        await orch.start()
+        try:
+            assert len(orch._started) == 1
+            assert isinstance(orch._started[0], GmailPollTrigger)
+        finally:
+            await orch.stop()
+    finally:
+        await store.delete(
+            "gmail/intelligent.workflow.engine@quentinspencer.com/client_credentials"
+        )
+        await store.delete("gmail/intelligent.workflow.engine@quentinspencer.com/refresh_token")

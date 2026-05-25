@@ -26,11 +26,17 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from workflow_platform.connectors.email import (
+    GmailConnector,
+    GmailOAuthProvider,
+)
 from workflow_platform.engine import WorkflowEngine
 from workflow_platform.memory import MemoryManager
 from workflow_platform.persistence import Repositories
+from workflow_platform.secrets import SecretStore
 from workflow_platform.triggers import (
     FilesystemTrigger,
+    GmailPollTrigger,
     ScheduleTrigger,
     Trigger,
     WebhookRegistry,
@@ -82,11 +88,15 @@ class TriggerOrchestrator:
         repositories: Repositories,
         engine: WorkflowEngine,
         webhook_registry: WebhookRegistry,
+        secret_store: SecretStore | None = None,
     ) -> None:
         self.definitions_dir = definitions_dir
         self.repositories = repositories
         self.engine = engine
         self.webhook_registry = webhook_registry
+        # `secret_store` is only required for triggers that need credentials
+        # (e.g., `gmail_poll`). Workflows that don't use them work without it.
+        self.secret_store = secret_store
         self._started: list[Trigger] = []
 
     async def start(self) -> None:
@@ -162,6 +172,29 @@ class TriggerOrchestrator:
             if spec.type == "webhook":
                 trigger_id = config.get("trigger_id") or definition.id
                 return WebhookTrigger(self.webhook_registry, trigger_id)
+            if spec.type == "gmail_poll":
+                if self.secret_store is None:
+                    logger.warning(
+                        "Workflow %s: gmail_poll trigger requires a SecretStore; "
+                        "TriggerOrchestrator was constructed without one. Skipping.",
+                        definition.id,
+                    )
+                    return None
+                account = config.get("account")
+                if not isinstance(account, str) or not account:
+                    logger.warning(
+                        "Workflow %s: gmail_poll trigger requires `account` in config; skipping.",
+                        definition.id,
+                    )
+                    return None
+                auth_provider = GmailOAuthProvider(account=account, secret_store=self.secret_store)
+                connector = GmailConnector(account=account, auth_provider=auth_provider)
+                return GmailPollTrigger(
+                    connector=connector,
+                    poll_interval_seconds=float(config.get("poll_interval_seconds", 60.0)),
+                    label=config.get("label", "INBOX"),
+                    max_messages=int(config.get("max_messages", 50)),
+                )
             if spec.type == "manual":
                 # `manual` is a deliberate no-op — definitions tagged this way
                 # are fired via tools/fire.py or the (planned) HTTP endpoint.
