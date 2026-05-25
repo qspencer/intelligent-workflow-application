@@ -182,6 +182,16 @@ Each candidate workload turns into:
    curl-line in `docs/MANUAL_TESTING.md`.
 5. An update to `CLAUDE.md`'s status section once it's running real
    traffic.
+6. **A committed reproducible input set** under
+   `examples/<workload>/data/<sample_name>.json` (~50 items is a useful
+   minimum). The research paper triage example shipped
+   `data/arxiv_batch_50.json` — the same 50 papers fired through
+   three rubric iterations made A/B comparison trivial (filter by
+   `memory_hash` in Postgres, diff bucket distributions). Without a
+   stable input set, every iteration regenerates inputs and you can't
+   tell whether output shifts came from rubric edits or new data.
+   Regenerable from the workload's fetcher script when the corpus
+   should refresh.
 
 That sequence is the same one the PDF classifier and the two example
 workloads (webhook_echo, scheduled_health_report) already followed —

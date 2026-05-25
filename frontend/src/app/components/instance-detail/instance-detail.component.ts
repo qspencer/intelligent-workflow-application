@@ -10,6 +10,13 @@ import {
   scoreClass,
 } from '../../services/evaluation';
 import { EventsService } from '../../services/events.service';
+import {
+  TokenUsage,
+  costSkew,
+  extractUsage,
+  formatUsage,
+  usageTooltip,
+} from '../../services/usage';
 import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../../types';
 
 @Component({
@@ -112,6 +119,7 @@ import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../
             <th>State</th>
             <th>Started</th>
             <th>Finished</th>
+            <th>Usage</th>
             <th>Memory</th>
             <th>Error</th>
           </tr>
@@ -123,6 +131,18 @@ import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../
               <td><span class="badge" [class]="'badge ' + s.state">{{ s.state }}</span></td>
               <td>{{ s.started_at ? (s.started_at | date: 'short') : '—' }}</td>
               <td>{{ s.completed_at ? (s.completed_at | date: 'short') : '—' }}</td>
+              <td>
+                @let u = usage(s);
+                @if (u) {
+                  <code
+                    class="usage"
+                    [class]="'usage ' + costSkew(u)"
+                    [title]="usageTooltip(u)"
+                  >{{ formatUsage(u) }}</code>
+                } @else {
+                  <span class="muted">—</span>
+                }
+              </td>
               <td>
                 @let mh = memoryHash(s);
                 @if (mh) {
@@ -280,6 +300,16 @@ import { AuditEntry, InstanceDetail, StepExecution, WorkflowInstance } from '../
         font-size: 12px;
         color: var(--muted);
       }
+      code.usage {
+        font-family: ui-monospace, monospace;
+        font-size: 12px;
+        color: var(--muted);
+        white-space: nowrap;
+      }
+      code.usage.output-heavy {
+        color: var(--warn);
+        font-weight: 500;
+      }
     `,
   ],
 })
@@ -341,6 +371,14 @@ export class InstanceDetailComponent implements OnInit, OnDestroy {
     const stripped = hash.startsWith('sha256:') ? hash.slice(7) : hash;
     return stripped.slice(0, 8);
   }
+
+  usage(s: StepExecution): TokenUsage | null {
+    return extractUsage(s);
+  }
+
+  readonly formatUsage = formatUsage;
+  readonly usageTooltip = usageTooltip;
+  readonly costSkew = costSkew;
 
   action(name: 'pause' | 'resume' | 'retry' | 'kill'): void {
     const op =
