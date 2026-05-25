@@ -425,11 +425,14 @@ directly.
 7. **Live integration test** behind `GMAIL_LIVE=1`. Send-to-self loop
    against the project account: compose → send → poll-and-receive →
    assert match. *Half day.*
-8. **CI cadence for live tests.** Add a scheduled GitHub Actions job
-   running the `GMAIL_LIVE=1` and `BEDROCK_LIVE=1` suites nightly (or
-   weekly) against a dedicated branch. Catches provider API drift early
-   per Risk #5; backfills the same coverage for the existing Bedrock
-   live tests. *Half day.*
+8. **CI cadence for live tests.** Scheduled GitHub Actions job at
+   `.github/workflows/live-tests.yml` runs `pytest -m "live or gmail_live"`
+   weekly (Mondays 09:00 UTC) and on `workflow_dispatch`. Seeds
+   `.secrets/gmail/<account>/` from `GMAIL_CLIENT_CREDENTIALS_JSON` +
+   `GMAIL_REFRESH_TOKEN` repo secrets; AWS credentials from
+   `AWS_ACCESS_KEY_ID` + `AWS_SECRET_ACCESS_KEY`. Catches provider API
+   drift early per Risk #5; backfills the same scheduled coverage for
+   the existing Bedrock live tests. *Done.*
 
 Total: ~5.5 days focused. The OAuth flow is the only piece with real
 unknown unknowns; everything else is well-traveled territory.
