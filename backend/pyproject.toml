@@ -53,6 +53,7 @@ pythonpath = ["src"]
 markers = [
     "integration: requires external services (Postgres). Set TEST_DATABASE_URL to run.",
     "live: hits real AWS Bedrock — costs a few cents per run. Set BEDROCK_LIVE=1 to run.",
+    "gmail_live: hits the real Gmail account. Free; requires Gate 4 complete. Set GMAIL_LIVE=1 to run.",
 ]
 
 [tool.ruff]
