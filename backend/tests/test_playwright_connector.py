@@ -158,7 +158,107 @@ async def test_screenshot_full_page_flag_round_trips(tmp_path: Path) -> None:
     assert shot_call["full_page"] is True
 
 
-# --- D3/D4 stubs: confirm they raise so the punch list is explicit ---
+# --- read_text ---
+
+
+async def test_read_text_returns_text_at_selector(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.text_at["#title"] = "Hello World"
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        text = await conn.read_text("#title")
+    assert text == "Hello World"
+    inner_text_call = next(kw for (m, kw) in fake.calls if m == "locator.inner_text")
+    assert inner_text_call["selector"] == "#title"
+
+
+async def test_read_text_returns_empty_for_unstaged_selector(tmp_path: Path) -> None:
+    """The fake returns empty string for unstaged selectors. Real Playwright
+    would raise on a missing selector after timeout — that path is exercised
+    via raise_on_text below."""
+    fake = FakePlaywrightPage()
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        text = await conn.read_text("#missing")
+    assert text == ""
+
+
+async def test_read_text_propagates_locator_errors(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.raise_on_text["#timeout"] = TimeoutError("locator timeout")
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        with pytest.raises(TimeoutError, match="locator timeout"):
+            await conn.read_text("#timeout")
+
+
+# --- read_table ---
+
+
+async def test_read_table_against_thead_tbody_template(tmp_path: Path) -> None:
+    """The canonical case: DataTables-style table with <thead><tr><th>
+    headers + <tbody><tr><td> rows."""
+    fake = FakePlaywrightPage()
+    fake.html_at["#tableSandbox"] = """
+        <thead>
+            <tr><th>ID</th><th>Due Date</th><th>Invoice</th></tr>
+        </thead>
+        <tbody>
+            <tr><td>001</td><td>2024-01-15</td><td>inv-001.jpg</td></tr>
+            <tr><td>002</td><td>2024-02-20</td><td>inv-002.jpg</td></tr>
+        </tbody>
+    """
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        rows = await conn.read_table("#tableSandbox")
+    assert rows == [
+        {"ID": "001", "Due Date": "2024-01-15", "Invoice": "inv-001.jpg"},
+        {"ID": "002", "Due Date": "2024-02-20", "Invoice": "inv-002.jpg"},
+    ]
+
+
+async def test_read_table_empty(tmp_path: Path) -> None:
+    """An empty <tbody> returns an empty list, not an error."""
+    fake = FakePlaywrightPage()
+    fake.html_at["table"] = "<thead><tr><th>X</th></tr></thead><tbody></tbody>"
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        rows = await conn.read_table("table")
+    assert rows == []
+
+
+# --- wait_for ---
+
+
+async def test_wait_for_default_state_visible_default_timeout(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        await conn.wait_for("#tableSandbox tbody tr")
+    wait_call = next(kw for (m, kw) in fake.calls if m == "locator.wait_for")
+    assert wait_call == {"selector": "#tableSandbox tbody tr", "state": "visible", "timeout": 5000}
+
+
+async def test_wait_for_honors_explicit_state_and_timeout(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        await conn.wait_for("#spinner", state="hidden", timeout_ms=15000)
+    wait_call = next(kw for (m, kw) in fake.calls if m == "locator.wait_for")
+    assert wait_call["state"] == "hidden"
+    assert wait_call["timeout"] == 15000
+
+
+async def test_wait_for_propagates_timeout_errors(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.raise_on_wait["#never"] = TimeoutError("not visible within 5s")
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        with pytest.raises(TimeoutError):
+            await conn.wait_for("#never")
+
+
+# --- D4 stubs: confirm they still raise so the punch list is explicit ---
 
 
 @pytest.mark.parametrize(
@@ -166,19 +266,16 @@ async def test_screenshot_full_page_flag_round_trips(tmp_path: Path) -> None:
     [
         ("click", ("#submit",), {}),
         ("fill", ("#input", "value"), {}),
-        ("read_text", ("p",), {}),
-        ("read_table", ("table",), {}),
         ("upload_file", ("#file", "/tmp/x"), {}),
         ("download_via_click", ("a",), {}),
-        ("wait_for", ("p",), {}),
     ],
 )
 async def test_unimplemented_methods_raise(
     tmp_path: Path, method_name: str, args: tuple[object, ...], kwargs: dict[str, object]
 ) -> None:
-    """Pins the D3/D4 punch list. When each of these is implemented, the
-    corresponding parametrize row should be deleted and a real test added
-    in test_browser_tools.py or similar."""
+    """Pins the D4 punch list. When each of these is implemented, the
+    corresponding parametrize row should be deleted and a real test
+    added in test_browser_tools.py or here."""
     conn = _make_connector(tmp_path)
     async with conn:
         method = getattr(conn, method_name)

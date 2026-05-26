@@ -15,21 +15,54 @@ from pathlib import Path
 from typing import Any
 
 
+class FakeLocator:
+    """Stand-in for `playwright.async_api.Locator`. Per-selector state
+    lives on the parent FakePlaywrightPage so multiple locator() calls
+    against the same selector return the same staged values."""
+
+    def __init__(self, page: FakePlaywrightPage, selector: str) -> None:
+        self._page = page
+        self._selector = selector
+
+    async def inner_text(self) -> str:
+        self._page.calls.append(("locator.inner_text", {"selector": self._selector}))
+        if self._selector in self._page.raise_on_text:
+            raise self._page.raise_on_text[self._selector]
+        return self._page.text_at.get(self._selector, "")
+
+    async def inner_html(self) -> str:
+        self._page.calls.append(("locator.inner_html", {"selector": self._selector}))
+        if self._selector in self._page.raise_on_html:
+            raise self._page.raise_on_html[self._selector]
+        return self._page.html_at.get(self._selector, "")
+
+    async def wait_for(self, *, state: str = "visible", timeout: int = 5000) -> None:
+        self._page.calls.append(
+            ("locator.wait_for", {"selector": self._selector, "state": state, "timeout": timeout})
+        )
+        if self._selector in self._page.raise_on_wait:
+            raise self._page.raise_on_wait[self._selector]
+
+
 class FakePlaywrightPage:
     """Stand-in for `playwright.async_api.Page` with the surface we use.
 
-    Tests construct it, optionally pre-stage `url` and `text_at` / `inner_text`
-    behavior, then pass it to `PlaywrightConnector(page=<fake>)`. Calls
-    are recorded in `self.calls` as `(method, kwargs)` tuples.
+    Tests construct it, optionally pre-stage `url` / `text_at` / `html_at`
+    / `raise_on_*` behavior, then pass it to
+    `PlaywrightConnector(page=<fake>)`. Calls are recorded in `self.calls`
+    as `(method, kwargs)` tuples.
     """
 
     def __init__(self, *, url: str = "about:blank") -> None:
         self._url = url
         self.calls: list[tuple[str, dict[str, Any]]] = []
-        # Per-selector responses for read_text and similar (filled in D3+).
+        # Per-selector staged values.
         self.text_at: dict[str, str] = {}
-        # Per-selector behavior overrides (e.g. raise on click).
-        self.raise_on: dict[str, Exception] = {}
+        self.html_at: dict[str, str] = {}
+        # Per-selector exceptions to raise instead of returning a value.
+        self.raise_on_text: dict[str, Exception] = {}
+        self.raise_on_html: dict[str, Exception] = {}
+        self.raise_on_wait: dict[str, Exception] = {}
 
     @property
     def url(self) -> str:
@@ -45,6 +78,9 @@ class FakePlaywrightPage:
         # (Not a valid PNG, but enough to be a non-empty file on disk.)
         Path(path).write_bytes(b"\x89PNG\r\n\x1a\n" + b"fake-screenshot")
         return b""
+
+    def locator(self, selector: str) -> FakeLocator:
+        return FakeLocator(self, selector)
 
     async def close(self) -> None:
         self.calls.append(("close", {}))

@@ -26,6 +26,7 @@ dependencies = [
     "google-auth>=2.35",
     "google-auth-oauthlib>=1.2",
     "playwright>=1.40",
+    "beautifulsoup4>=4.12",
 ]
 
 [dependency-groups]
@@ -119,5 +120,7 @@ module = [
     "google_auth_oauthlib.*",
     "playwright",
     "playwright.*",
+    "bs4",
+    "bs4.*",
 ]
 ignore_missing_imports = true

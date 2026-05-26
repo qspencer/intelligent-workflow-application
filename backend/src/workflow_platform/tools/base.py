@@ -10,8 +10,9 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from typing import Any, ClassVar
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field
 
+from workflow_platform.connectors.base import Connector
 from workflow_platform.security import ResolvedCapabilities
 from workflow_platform.world import World
 
@@ -22,6 +23,12 @@ class ToolContext(BaseModel):
     `world` is the I/O surface (real for production, mock for tests).
     `agent_id` lets tools attribute their work in audit logs (Phase 1).
     `workflow_instance_id` ties a tool call to the workflow that triggered it.
+    `connectors` are per-workflow-run connector instances that tools look
+    up by canonical name (e.g. `"browser"`). Engine populates this
+    lazily when the workflow definition references a tool that needs
+    a per-run connector (see `docs/BROWSER_CONNECTOR_PLAN.md`); for
+    tools whose connector is process-wide (e.g. email), the connector
+    binds at tool construction instead.
     """
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
@@ -30,6 +37,7 @@ class ToolContext(BaseModel):
     agent_id: str | None = None
     workflow_instance_id: str | None = None
     capabilities: ResolvedCapabilities | None = None
+    connectors: dict[str, Connector] = Field(default_factory=dict)
 
 
 class ToolResult(BaseModel):

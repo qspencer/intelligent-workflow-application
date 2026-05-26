@@ -18,6 +18,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
+from bs4 import BeautifulSoup, Tag
+
 from workflow_platform.connectors.browser.base import BrowserConnector
 from workflow_platform.connectors.browser.models import (
     BrowserDownload,
@@ -26,6 +28,86 @@ from workflow_platform.connectors.browser.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+def parse_html_table(html: str) -> list[dict[str, str]]:
+    """Parse an HTML `<table>` into a list of dicts. Pure function — no
+    Playwright involved — so it's unit-testable without a browser.
+
+    Header source, in priority order:
+      1. `<thead>` with `<th>` children (preferred)
+      2. First `<tr>`'s `<th>` children (if no thead)
+      3. First `<tr>`'s `<td>` children as `col_0`, `col_1`, ... (fallback
+         for headerless tables)
+
+    Body rows come from `<tbody>` if present, else all rows after the
+    header row. Cell text is stripped of surrounding whitespace; HTML
+    tags inside cells are flattened to text.
+
+    Empty result is the right answer for empty tables — don't raise.
+    """
+    soup = BeautifulSoup(html, "html.parser")
+    table = soup.find("table")
+    if not isinstance(table, Tag):
+        return []
+
+    all_rows = [r for r in table.find_all("tr") if isinstance(r, Tag)]
+    if not all_rows:
+        return []
+
+    headers: list[str] = []
+    body_rows: list[Tag] = []
+
+    thead = table.find("thead")
+    if isinstance(thead, Tag):
+        header_row = thead.find("tr")
+        if isinstance(header_row, Tag):
+            headers = [_cell_text(th) for th in header_row.find_all("th") if isinstance(th, Tag)]
+        tbody = table.find("tbody")
+        if isinstance(tbody, Tag):
+            body_rows = [r for r in tbody.find_all("tr") if isinstance(r, Tag)]
+        else:
+            # thead but no tbody — body rows are everything outside the thead.
+            thead_rows = {r for r in thead.find_all("tr") if isinstance(r, Tag)}
+            body_rows = [r for r in all_rows if r not in thead_rows]
+    else:
+        # No thead — derive headers from first row.
+        first_row = all_rows[0]
+        ths = [th for th in first_row.find_all("th") if isinstance(th, Tag)]
+        if ths:
+            headers = [_cell_text(th) for th in ths]
+            body_rows = all_rows[1:]
+        else:
+            tds = [td for td in first_row.find_all("td") if isinstance(td, Tag)]
+            if tds:
+                # Headerless — synthesize col_N names + include first row as data.
+                headers = [f"col_{i}" for i in range(len(tds))]
+                body_rows = all_rows
+            else:
+                return []
+
+    if not headers:
+        return []
+
+    result: list[dict[str, str]] = []
+    for row in body_rows:
+        cells = [c for c in row.find_all(["td", "th"]) if isinstance(c, Tag)]
+        row_data: dict[str, str] = {}
+        for i, cell in enumerate(cells):
+            if i < len(headers):
+                row_data[headers[i]] = _cell_text(cell)
+        if row_data:
+            result.append(row_data)
+    return result
+
+
+def _cell_text(tag: Tag) -> str:
+    """Cell-text extraction: stripped + internal whitespace normalized to
+    a single space. Matches what Playwright's `inner_text` returns for
+    the same cell — newlines and indent collapse to spaces."""
+    # bs4 is typed as Any in our mypy overrides, hence the annotation.
+    text: str = tag.get_text(separator=" ", strip=True)
+    return " ".join(text.split())
 
 
 class PlaywrightConnector(BrowserConnector):
@@ -136,16 +218,22 @@ class PlaywrightConnector(BrowserConnector):
     # --- BrowserConnector implementations (D3/D4 stubs) ---
 
     async def click(self, selector: str, *, timeout_ms: int = 5000) -> None:
-        raise NotImplementedError("click lands in D3")
+        raise NotImplementedError("click lands in D4")
 
     async def fill(self, selector: str, value: str, *, clear_first: bool = True) -> None:
         raise NotImplementedError("fill lands in D4")
 
     async def read_text(self, selector: str) -> str:
-        raise NotImplementedError("read_text lands in D3")
+        # `_page` is Any (Playwright not type-checked) — annotate explicitly.
+        text: str = await self._page.locator(selector).inner_text()
+        return text
 
     async def read_table(self, selector: str) -> list[dict[str, str]]:
-        raise NotImplementedError("read_table lands in D3")
+        html: str = await self._page.locator(selector).inner_html()
+        # Wrap the locator's inner_html in a <table> shell so bs4 can parse
+        # consistently — Playwright's inner_html returns the children of the
+        # selected element (not the element itself).
+        return parse_html_table(f"<table>{html}</table>")
 
     async def upload_file(self, selector: str, file_path: str) -> None:
         raise NotImplementedError("upload_file lands in D4")
@@ -158,7 +246,7 @@ class PlaywrightConnector(BrowserConnector):
     async def wait_for(
         self, selector: str, *, state: WaitState = "visible", timeout_ms: int = 5000
     ) -> None:
-        raise NotImplementedError("wait_for lands in D3")
+        await self._page.locator(selector).wait_for(state=state, timeout=timeout_ms)
 
     async def authenticate(self) -> None:
         # Browsers don't have a generic auth step — sites that need login
