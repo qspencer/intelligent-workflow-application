@@ -30,6 +30,7 @@ All design docs live under `docs/`. The `README.md` at the root has the quick-st
 | `docs/AGENT_MEMORY_RESEARCH_NOTES.md` | Reading notes on 10 recent (May-2026 arXiv) papers on agent memory + context, with explicit links back to platform design choices and three concrete recommendations |
 | `docs/COALA_NOTES.md` | Framework-level lens for agent memory: CoALA (Princeton 2024) + Roynard's Knowledge/Memory/Wisdom/Intelligence critique (2026). Maps our existing primitives to both frameworks and lists three cheap recommendations + three speculative + one principled non-do. Companion to `AGENT_MEMORY_RESEARCH_NOTES.md` — vocabulary lens, not techniques. |
 | `docs/EMAIL_CONNECTOR_PLAN.md` | Design + build plan for the email connector. Gmail is the initial target; abstraction (EmailConnector ABC + common types) is shaped so Outlook + IMAP/SMTP slot in without workflow changes. Deferred until a workload pulls. |
+| `docs/BROWSER_CONNECTOR_PLAN.md` | Design + build plan for the browser connector. Playwright is the initial backend; abstraction shaped so Selenium + CDP-direct slot in without workflow changes. RPA Challenge OCR is the first validation workload. Per-workflow-run lifecycle (unlike email's per-process). Deferred until built. |
 
 Lessons learned across sessions live in the auto-memory system. Update it as you discover things worth remembering. Memory takes precedence over assumptions; verify before acting on it.
 
