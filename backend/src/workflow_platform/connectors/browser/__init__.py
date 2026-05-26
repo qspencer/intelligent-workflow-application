@@ -17,12 +17,16 @@ from workflow_platform.connectors.browser.models import (
     SelectorType,
     WaitState,
 )
+from workflow_platform.connectors.browser.playwright_connector import (
+    PlaywrightConnector,
+)
 
 __all__ = [
     "BrowserConnector",
     "BrowserDownload",
     "BrowserScreenshot",
     "BrowserSelector",
+    "PlaywrightConnector",
     "SelectorType",
     "WaitState",
     "detect_selector_type",
