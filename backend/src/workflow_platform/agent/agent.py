@@ -66,6 +66,20 @@ class AgentResult(BaseModel):
 
 @dataclass
 class Agent:
+    """Single-step agent harness — the tool-use loop primitive.
+
+    Scope: ONE agentic step of a workflow. Context starts fresh each `run`
+    (no carry-over across calls). Cross-step orchestration is
+    `WorkflowEngine`'s job; cross-run semantic continuity is provided by
+    `MemoryManager` (the `agent_memory.md` auto-load mechanism), not by
+    state on this class.
+
+    Per `docs/ARCHITECTURE.md`'s "Agent Harness" section, this class
+    bundles the loop + tool dispatch + policy enforcement. Capability
+    gating runs at dispatch time via `ToolContext.capabilities`; audit +
+    cost attribution land at the engine layer above.
+    """
+
     system_prompt: str
     tools: list[Tool] | ToolRegistry
     model_id: str

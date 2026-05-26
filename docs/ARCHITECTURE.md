@@ -106,6 +106,80 @@ This evolves from the PDF Action Automator prototype (see `/home/ubuntu/Dev/pdf-
 - Executes until goal is met or budget exhausted
 - Returns structured results to the workflow agent
 - Cannot spawn other agents or affect other workflows
+- The Step Agent's runtime implementation is described under
+  [Agent Harness](#agent-harness) below — what bundles the LLM call,
+  tool-use loop, capability checks, and audit into a single per-step unit.
+
+---
+
+## Agent Harness
+
+A **harness** (in the [Anthropic-current sense][harness-ref]) is the
+scaffolding layer that wraps an LLM and turns it into a goal-directed,
+tool-using, self-correcting agent. The Step Agent above is what the
+operator interacts with; the *harness* is the set of components that
+make it work.
+
+This platform runs a **per-step short-running harness**: each agentic
+step is a fresh context window with full audit, capability gating, and
+structured tool dispatch. We deliberately do NOT implement a
+long-running multi-session harness (Claude Code / Devin / Cursor
+style). Our cross-session structure is the workflow YAML — the
+operator pre-commits to a deterministic plan; the agent's autonomy is
+bounded inside individual steps. See [D11](#d11-testing--replay-mode--mocked-execution)
++ [D5](#d5-agent-memory) for the design choices behind this bet.
+
+### Harness components (module map)
+
+| Concern | Module / primitive |
+|---|---|
+| **Tool-use loop** | `workflow_platform.agent.Agent` — converse → tool_use → dispatch → result → repeat, with `policy.max_iterations` + `max_total_tokens` caps |
+| **Tool definition + dispatch** | `workflow_platform.tools.Tool` ABC + `ToolCatalog` + JSON-schema → Bedrock `toolConfig` rendering |
+| **Capability gating** | `ResolvedCapabilities.tool_allowed(name)` at dispatch time + per-tool resource checks (file ACLs, capability allowlist intersection — D4) |
+| **Memory (cross-run semantic)** | `MemoryManager` auto-load (`agent_memory.md` per workflow) + `memory_hash` audit field. **No in-step compaction yet** — the user message is a full JSON dump of `{trigger, prior_steps}`. |
+| **Per-step retries + timeouts** | `WorkflowEngine` retry loop honoring `step.runtime.retries` + `step.runtime.timeout_seconds`; `step_retry` audit entries |
+| **Audit / observability** | `audit_log` + `step_executions` + Bedrock record/replay + Prometheus metrics + `/ws/events` WebSocket stream |
+| **Cost attribution** | `AgentUsage` → `step_executions.output.cost_usd` + `WorkflowContext.total_*` accumulation + `/api/cost/by-*` endpoints |
+| **Replay / reproducibility** | `BedrockClient` record/replay modes + `tools/replay.py` |
+| **Forking / branching** | `engine.fork(instance_id, from_step_id)` + `POST /api/workflow-instances/{id}/fork` — the harness equivalent of "rollback to a checkpoint and try a different path" |
+| **Cross-step orchestration** | `WorkflowEngine` (DAG executor) — NOT inside the harness; the harness runs ONE step at a time, the engine wires steps together |
+
+### What the per-step harness deliberately excludes
+
+- **In-step context compaction.** The agent receives the full prior-step
+  context as a JSON dump. When a workload produces large step outputs
+  (e.g. multi-page document text), this hits the context limit. The
+  compactor pattern from Anthropic's long-running-harness writing is
+  the reference if/when a workload pulls.
+- **Cross-session agent state.** The agent does not carry working
+  memory across `run()` calls. State that needs to survive is the
+  engine's responsibility (audit log + `step_executions`), the
+  `MemoryManager`'s (semantic rubric file), or the operator's
+  (workflow YAML).
+- **Agent-writable memory.** The agent cannot mutate `agent_memory.md`.
+  Per `docs/COALA_NOTES.md` recommendation N1, this is a deliberate
+  non-do: memory-injection becomes a real attack class the moment
+  agent-side learning is enabled. The fork-from-step affordance gives
+  the ergonomic equivalent without the security cost.
+- **Long-running autonomous planning.** The workflow YAML is the plan.
+  If a future workload needs Claude Code-style autonomous planning,
+  the right move is to call the Claude Agent SDK *as a tool* from
+  inside a workflow step, not to absorb that harness into the engine.
+
+### When this design might need to change
+
+| Trigger | Likely harness change |
+|---|---|
+| Workload produces step outputs > ~50K tokens | Add an in-step compactor between engine context-build and `Agent.run` |
+| Multi-tenant deployment with per-team agent learning | Per-tenant `MemoryManager` directories + write-isolation; possibly the CoALA "Learning" internal-action category |
+| Workload needs sub-task spawning *within* a step | `SubagentTool` that wraps `WorkflowEngine.run(...)` for a child workflow |
+| Workload needs free-form planning across context windows | Don't reimplement — call Claude Agent SDK as a tool |
+
+None of these is on the near horizon; all are listed in
+`docs/COALA_NOTES.md` and `docs/NEXT_STEPS.md` as "pull-driven, not
+push-driven."
+
+[harness-ref]: https://www.anthropic.com/engineering/effective-harnesses-for-long-running-agents
 
 ---
 
