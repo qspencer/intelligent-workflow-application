@@ -59,24 +59,74 @@ exactly these field names:
 
 ## Discount
 
-Some invoices in this dataset include a `Discount (X%):` line between
-Subtotal and Shipping — for example:
+Some invoices include a `Discount (X%):` line between Subtotal and
+Shipping. When present, extract the dollar amount (not the percentage)
+into the `discount` field. When absent, emit `"discount": 0.0`.
+
+## The 3-or-4-value totals block (read this carefully)
+
+**Most extraction errors come from misreading this block.** PyMuPDF's
+text extraction lays out the totals area as:
+
+When a discount line is present (about 45% of invoices), you'll see
+**four dollar values immediately followed by four labels**:
 
 ```
-Subtotal:        $437.72
-Discount (17%):  $74.41
-Shipping:        $85.40
-Total:           $448.71
+$<subtotal>            ← position 1 of 4 → subtotal
+$<discount>            ← position 2 of 4 → discount
+$<shipping>            ← position 3 of 4 → shipping
+$<total>               ← position 4 of 4 → total
+Subtotal:
+Discount (X%):
+Shipping:
+Total:
 ```
 
-When the Discount line is present, extract the dollar amount (not the
-percentage) into the `discount` field. The percentage in parentheses
-is informational only — don't try to recover it as a separate field.
+When no discount line is present, you'll see **three dollar values
+followed by three labels**:
 
-When the Discount line is **absent** (most invoices don't have one),
-emit `"discount": 0.0`. Do not omit the field. The downstream invariant
-check is `total = subtotal - discount + shipping`; an absent discount
-treated as 0.0 makes that math correct for both cases.
+```
+$<subtotal>            ← position 1 of 3 → subtotal
+$<shipping>            ← position 2 of 3 → shipping
+$<total>               ← position 3 of 3 → total
+Subtotal:
+Shipping:
+Total:
+```
+
+### Critical extraction rule
+
+To find the right block of values, locate the sequence of labels
+(`Subtotal:` / `Discount (X%):` / `Shipping:` / `Total:`) and count
+backwards from there. The values appearing IMMEDIATELY before that
+label sequence are the order-level totals — not the per-item rates,
+which appear earlier in the text with their own `Item / Quantity /
+Rate / Amount` header.
+
+Map by **position relative to the label sequence**, not by absolute
+dollar magnitude. Many invoices in this dataset have a per-line-item
+rate that happens to equal one of the order-level values (e.g. an
+order with a single line item where the line-item rate = subtotal).
+Don't get confused by repeated values — count positions from the
+labels.
+
+### How to count: walk backwards
+
+1. Find the `Total:` label.
+2. The dollar value immediately above the `Subtotal:` label section is
+   the **first** value in the totals block (always the subtotal).
+3. Count the label lines: 4 labels (`Subtotal`, `Discount`, `Shipping`,
+   `Total`) → expect 4 values. 3 labels → expect 3 values.
+4. Map by position: value N maps to label N.
+
+### If you're unsure
+
+If the dollar values don't cleanly partition into 3 or 4 in the
+position immediately before the label block, emit your best guess for
+each field and set `discount: 0.0`. The downstream `total_balanced`
+invariant check (`total == subtotal - discount + shipping`) will catch
+the mismatch and route the invoice for review without breaking the
+pipeline.
 
 ## Date parsing
 
