@@ -30,6 +30,14 @@ async def pdf_extract(
 
     Reads the file path from `config["filepath"]` if present, else from the
     dotted context path in `config["filepath_from"]` (e.g. "trigger.file_path").
+
+    Optional `config["min_chars"]` (int) raises `StepFailure` if the
+    extracted text is shorter than that, *before* any downstream agent
+    burns inference on an empty / blank-template PDF. Catches the
+    dataset-quality case where blank invoice templates (~93 chars of
+    boilerplate, no real content) trigger an agent call that produces
+    an empty-fallback JSON, polluting the queryable dataset. Default:
+    no minimum check.
     """
     filepath = config.get("filepath") or _resolve_path(context, config.get("filepath_from"))
     if not filepath:
@@ -43,7 +51,19 @@ async def pdf_extract(
     result = await PdfExtractTool().execute({"filepath": filepath}, context=tool_ctx)
     if not result.ok:
         raise StepFailure(result.error or "pdf_extract failed")
-    return dict(result.content) if isinstance(result.content, dict) else {"value": result.content}
+    output = dict(result.content) if isinstance(result.content, dict) else {"value": result.content}
+
+    min_chars = config.get("min_chars")
+    if isinstance(min_chars, int) and min_chars > 0:
+        char_count = output.get("char_count")
+        if isinstance(char_count, int) and char_count < min_chars:
+            raise StepFailure(
+                f"pdf_extract: source PDF {filepath!r} extracted to "
+                f"{char_count} chars, below configured min_chars={min_chars}. "
+                f"Likely a blank-template / placeholder document."
+            )
+
+    return output
 
 
 async def route_by_classification(

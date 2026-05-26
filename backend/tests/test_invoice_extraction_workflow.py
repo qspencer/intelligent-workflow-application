@@ -187,10 +187,74 @@ def test_workflow_yaml_loads_and_has_expected_shape() -> None:
 
 
 def test_committed_fixtures_are_present() -> None:
-    pdfs = sorted(FIXTURES_DIR.glob("*.pdf"))
-    assert len(pdfs) == 5
-    for path in pdfs:
+    """5 real invoices + 1 blank-template (for the min_chars guard test)."""
+    real_invoices = sorted(p for p in FIXTURES_DIR.glob("invoice_*.pdf"))
+    assert len(real_invoices) == 5
+    for path in real_invoices:
         assert path.stat().st_size > 5000, f"{path.name} suspiciously small"
+    assert (FIXTURES_DIR / "blank_template.pdf").exists()
+
+
+# --- pdf_extract min_chars guard ---
+
+
+async def test_pdf_extract_min_chars_rejects_blank_template() -> None:
+    """The blank-template PDF (~93 chars of boilerplate) should fail
+    pdf_extract early when min_chars is set, so the downstream agent
+    doesn't burn inference returning empty-fallback JSON."""
+    from workflow_platform.engine.context import WorkflowContext
+    from workflow_platform.engine.functions import pdf_extract
+    from workflow_platform.engine.registry import StepFailure
+
+    blank_path = FIXTURES_DIR / "blank_template.pdf"
+    ctx = WorkflowContext(
+        workflow_id="x", instance_id="x", trigger={"file_path": str(blank_path)}
+    )
+    with pytest.raises(StepFailure, match="min_chars"):
+        await pdf_extract(
+            {"filepath": str(blank_path), "min_chars": 150},
+            ctx,
+            mock_world(),
+        )
+
+
+async def test_pdf_extract_min_chars_zero_or_unset_skips_check() -> None:
+    """Without min_chars, the blank PDF extracts to empty fields without
+    raising — the prior behavior is preserved when the guard isn't
+    configured. Confirms we didn't make blank PDFs a hard failure
+    everywhere."""
+    from workflow_platform.engine.context import WorkflowContext
+    from workflow_platform.engine.functions import pdf_extract
+
+    blank_path = FIXTURES_DIR / "blank_template.pdf"
+    ctx = WorkflowContext(
+        workflow_id="x", instance_id="x", trigger={"file_path": str(blank_path)}
+    )
+    # No min_chars — should succeed and return whatever was extracted.
+    out = await pdf_extract({"filepath": str(blank_path)}, ctx, mock_world())
+    assert "text" in out
+    # Blank template extracts to <150 chars; confirm we're under the threshold
+    # that the configured workflow uses (so the test fixture is meaningful).
+    assert out["char_count"] < 150
+
+
+async def test_pdf_extract_min_chars_allows_real_invoice() -> None:
+    """Real invoices have ~300+ chars of text; min_chars=150 lets them
+    through unchanged."""
+    from workflow_platform.engine.context import WorkflowContext
+    from workflow_platform.engine.functions import pdf_extract
+
+    real_path = FIXTURES_DIR / "invoice_Liz Thompson_19562.pdf"
+    ctx = WorkflowContext(
+        workflow_id="x", instance_id="x", trigger={"file_path": str(real_path)}
+    )
+    out = await pdf_extract(
+        {"filepath": str(real_path), "min_chars": 150},
+        ctx,
+        mock_world(),
+    )
+    assert out["char_count"] >= 150
+    assert "Liz Thompson" in out["text"]
 
 
 # --- end-to-end happy path ---

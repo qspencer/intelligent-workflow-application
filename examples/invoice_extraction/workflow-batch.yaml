@@ -19,6 +19,9 @@ steps:
     function: pdf_extract
     config:
       filepath_from: trigger.file_path
+      # Blank-template invoices in the Tableau Superstore set extract to
+      # ~93 chars. Reject under 150 to skip the agent call entirely.
+      min_chars: 150
 
   - id: extract
     type: agentic

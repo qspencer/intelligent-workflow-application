@@ -29,6 +29,11 @@ steps:
     function: pdf_extract
     config:
       filepath_from: trigger.file_path
+      # Tableau Superstore blank-template PDFs extract to ~93 chars of
+      # boilerplate. Real invoices land at 300+ chars. Reject anything
+      # below 150 as likely-blank so the downstream agent doesn't burn
+      # inference returning the empty-fallback JSON.
+      min_chars: 150
 
   - id: notify_extracted
     type: agentic
