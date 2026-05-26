@@ -1,0 +1,175 @@
+id: invoice-extraction
+name: Invoice Extraction
+description: |
+  Drop a single-page invoice PDF (Tableau Superstore template) into an
+  inbox folder. Workflow extracts structured fields, runs invariant
+  checks, routes the PDF into a per-country folder, and emails the
+  operator after each substantive stage.
+
+  Notification pattern: three tiny agentic "notify_*" steps wedged between
+  the substantive stages, each whose only tool is `email_send`. Cheap on
+  Haiku 4.5 (~$0.001 per notification) and uses zero new engine
+  infrastructure — just the existing agent + email_send tool that the
+  email connector wired up.
+
+  Recipient is `qrsconsulting@quentinspencer.com` (the Workspace primary).
+  Bot account `intelligent.workflow.engine@quentinspencer.com` does the
+  sending; Gmail rewrites the From to the primary unless the alias is
+  registered as a Send-As entry.
+
+trigger:
+  type: filesystem
+  config:
+    path: /tmp/invoice-inbox
+    pattern: '*.pdf'
+
+steps:
+  - id: pdf_extract
+    type: deterministic
+    function: pdf_extract
+    config:
+      filepath_from: trigger.file_path
+
+  - id: notify_extracted
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: [email_send]
+    capabilities:
+      tools: [email_send]
+    goal: |
+      The PDF text was just extracted by the prior step. Send ONE short
+      email via the email_send tool to:
+        to: [{"address": "qrsconsulting@quentinspencer.com"}]
+        subject: "Invoice intake: PDF extracted"
+        body_text: |
+          Workflow `invoice-extraction` parsed a new invoice PDF.
+
+          File: <trigger.file_path>
+          Pages: <steps.pdf_extract.page_count>
+          Text length: <steps.pdf_extract.character_count> chars
+
+          Field extraction is running next.
+
+          — Workflow Engine
+
+      Replace the <...> placeholders with the actual values from the
+      context payload. After the send succeeds, respond with just the
+      returned message_id (no JSON, no prose).
+    policy:
+      max_iterations: 3
+      max_total_tokens: 2000
+
+  - id: extract
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: |
+      Extract the structured fields from the invoice PDF text in
+      `steps.pdf_extract.text`. Apply the rubric in your memory.
+
+      Your response MUST start with `{` and end with `}`. No fences,
+      no backticks, no preamble, no postamble. The entire response
+      must parse with json.loads() directly. See the "Output
+      discipline" section of your memory for the exact format.
+    policy:
+      max_iterations: 2
+      max_total_tokens: 4000
+
+  - id: record
+    type: deterministic
+    function: record_invoice_extraction
+    config:
+      extraction_from: steps.extract.output_text
+
+  - id: notify_validated
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: [email_send]
+    capabilities:
+      tools: [email_send]
+    goal: |
+      The record step has parsed the extracted fields and computed
+      invariant checks. Send ONE short email via email_send to:
+        to: [{"address": "qrsconsulting@quentinspencer.com"}]
+        subject: "Invoice extracted: <steps.record.invoice_number> — $<steps.record.total>"
+        body_text: |
+          Invoice <invoice_number> for <customer_name>:
+            Date:      <invoice_date>
+            Ship to:   <ship_to_city>, <ship_to_country>
+            Subtotal:  $<subtotal>
+            Discount:  $<discount>
+            Shipping:  $<shipping>
+            Total:     $<total>
+            Items:     <line_item_count>
+
+          Invariant checks:
+            total = subtotal - discount + shipping: <total_balanced>
+            line_items_sum == subtotal:             <line_items_sum_matches_subtotal>
+            invoice_date_iso:                       <invoice_date_iso>
+
+          Routing by ship_to_country next.
+
+          — Workflow Engine
+
+      Replace each <...> placeholder with the matching value from
+      `steps.record.*`. If a field is missing (parse_ok was False),
+      substitute "n/a". After the send succeeds, respond with just the
+      message_id.
+    policy:
+      max_iterations: 3
+      max_total_tokens: 2500
+
+  - id: route
+    type: deterministic
+    function: route_by_value
+    config:
+      source_from: trigger.file_path
+      value_from: steps.record.ship_to_country
+      output_root: /tmp/invoice-processed
+      fallback: unknown_country
+
+  - id: notify_filed
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: [email_send]
+    capabilities:
+      tools: [email_send]
+    goal: |
+      The PDF has been routed into a per-country subfolder. Send ONE
+      short email via email_send to:
+        to: [{"address": "qrsconsulting@quentinspencer.com"}]
+        subject: "Invoice filed: <steps.record.invoice_number>"
+        body_text: |
+          Invoice <steps.record.invoice_number> filed.
+
+          From:  <steps.route.source>
+          To:    <steps.route.destination>
+          Bucket: <steps.route.safe_value>
+
+          Pipeline complete.
+
+          — Workflow Engine
+
+      Replace placeholders with values from the context. Respond with
+      just the message_id after sending.
+    policy:
+      max_iterations: 3
+      max_total_tokens: 2000
+
+edges:
+  - from: pdf_extract
+    to: notify_extracted
+  - from: notify_extracted
+    to: extract
+  - from: extract
+    to: record
+  - from: record
+    to: notify_validated
+  - from: notify_validated
+    to: route
+  - from: route
+    to: notify_filed
+
+policies:
+  max_total_tokens: 30000
+  budget_action: pause

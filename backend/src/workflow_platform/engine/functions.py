@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -330,6 +331,194 @@ async def record_email_triage(
     return {"parse_ok": True, **triage}
 
 
+def _extract_invoice_fields(raw: str) -> dict[str, Any] | None:
+    """Pull invoice-extraction fields from an agent's text response.
+
+    Expected JSON shape (every field independently optional — copy through
+    whatever is well-typed):
+        {"invoice_number": <str>, "customer_name": <str>,
+         "invoice_date": <ISO str>, "ship_mode": <str>,
+         "ship_to_city": <str>, "ship_to_country": <str>,
+         "order_id": <str>,
+         "subtotal": <float>, "shipping": <float>, "total": <float>,
+         "line_items": [{"item": <str>, "category": <str>,
+                         "quantity": <int>, "rate": <float>, "amount": <float>}]}
+
+    Returns None when no JSON object is found at all."""
+    match = _JSON_OBJECT_RE.search(raw)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    out: dict[str, Any] = {}
+    for key in (
+        "invoice_number",
+        "customer_name",
+        "invoice_date",
+        "ship_mode",
+        "ship_to_city",
+        "ship_to_country",
+        "order_id",
+    ):
+        if isinstance(parsed.get(key), str):
+            out[key] = parsed[key]
+    for key in ("subtotal", "discount", "shipping", "total"):
+        value = parsed.get(key)
+        if isinstance(value, int | float) and not isinstance(value, bool):
+            out[key] = float(value)
+    items_raw = parsed.get("line_items")
+    if isinstance(items_raw, list):
+        items: list[dict[str, Any]] = []
+        for item in items_raw:
+            if not isinstance(item, dict):
+                continue
+            clean: dict[str, Any] = {}
+            for k in ("item", "category"):
+                if isinstance(item.get(k), str):
+                    clean[k] = item[k]
+            if isinstance(item.get("quantity"), int | float) and not isinstance(
+                item.get("quantity"), bool
+            ):
+                clean["quantity"] = float(item["quantity"])
+            for k in ("rate", "amount"):
+                v = item.get(k)
+                if isinstance(v, int | float) and not isinstance(v, bool):
+                    clean[k] = float(v)
+            if clean:
+                items.append(clean)
+        out["line_items"] = items
+        out["line_item_count"] = len(items)
+    return out or None
+
+
+async def record_invoice_extraction(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Parse an invoice-extraction agent's JSON output into structured fields
+    + invariant checks.
+
+    Mirrors the other `record_*` functions: reads the agent's `output_text`
+    (default `"steps.extract.output_text"`), lifts the documented fields,
+    and computes three invariant checks the SuperStore-template invoices
+    should always satisfy:
+
+      - `total_balanced` — `subtotal - discount + shipping == total`
+        (within 0.01 to absorb float rounding). Discount defaults to 0.0
+        when absent — most invoices don't have a Discount line.
+      - `line_items_sum_matches_subtotal` — `sum(line_item.amount) == subtotal`
+        within 0.01. Line-item amounts are pre-discount.
+      - `invoice_date_iso` — `True` if `invoice_date` parses as ISO date.
+
+    `parse_ok=False` + `raw` on parse failure. Invariant checks are best-
+    effort: missing fields → the corresponding `*_balanced`/`*_matches_*`
+    is `null`, not an error.
+    """
+    source = config.get("extraction_from", "steps.extract.output_text")
+    raw = _resolve_path(context, source)
+    if not raw:
+        raise StepFailure(f"record_invoice_extraction could not resolve {source!r}")
+    fields = _extract_invoice_fields(raw)
+    if fields is None:
+        return {"parse_ok": False, "raw": raw}
+
+    # Invariant checks (best-effort; missing fields → null).
+    invariants: dict[str, Any] = {}
+    subtotal = fields.get("subtotal")
+    shipping = fields.get("shipping")
+    total = fields.get("total")
+    # Discount is optional: agents emit 0.0 when no Discount line is present.
+    # If the field is missing entirely, treat as 0.0 for the invariant.
+    discount = fields.get("discount", 0.0)
+    if all(isinstance(x, float) for x in (subtotal, shipping, total)):
+        computed_total = (
+            float(subtotal) - float(discount) + float(shipping)  # type: ignore[arg-type]
+        )
+        invariants["computed_total"] = computed_total
+        invariants["total_balanced"] = (
+            abs(computed_total - float(total)) < 0.01  # type: ignore[arg-type]
+        )
+    else:
+        invariants["total_balanced"] = None
+
+    items = fields.get("line_items") or []
+    if items and isinstance(subtotal, float):
+        items_sum = sum(item.get("amount", 0.0) for item in items if isinstance(item, dict))
+        invariants["line_items_sum"] = items_sum
+        invariants["line_items_sum_matches_subtotal"] = abs(items_sum - subtotal) < 0.01
+    else:
+        invariants["line_items_sum_matches_subtotal"] = None
+
+    invoice_date = fields.get("invoice_date")
+    if isinstance(invoice_date, str):
+        try:
+            datetime.fromisoformat(invoice_date)
+            invariants["invoice_date_iso"] = True
+        except (ValueError, TypeError):
+            invariants["invoice_date_iso"] = False
+    else:
+        invariants["invoice_date_iso"] = None
+
+    return {"parse_ok": True, **fields, **invariants}
+
+
+async def route_by_value(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Copy a file into a subfolder named by a structured value pulled from context.
+
+    Distinct from `route_by_classification`: the value here comes from a
+    *structured* prior step output (e.g. `record_invoice_extraction`'s
+    `ship_to_country`), not from text+JSON parsing.
+
+    Config:
+      source_from   — dotted context path to the source file (default `"trigger.file_path"`).
+      value_from    — dotted context path to the routing value (required, must be a string).
+      output_root   — destination root directory (required).
+      valid_values  — optional allow-list; values outside fall through to `fallback`.
+      fallback      — used when value is missing or not in `valid_values` (default `"unknown"`).
+
+    The value is filesystem-sanitized (lowercased, non-alphanumerics → `_`)
+    before being used as a directory name.
+    """
+    source = _resolve_path(context, config.get("source_from", "trigger.file_path"))
+    if not source:
+        raise StepFailure("route_by_value could not resolve source file path")
+
+    value_path = config.get("value_from")
+    if not isinstance(value_path, str) or not value_path:
+        raise StepFailure("route_by_value requires `value_from` in config")
+    value = _resolve_path(context, value_path)
+
+    fallback = str(config.get("fallback", "unknown"))
+    valid_values = config.get("valid_values")
+    if not value or (isinstance(valid_values, list) and value not in valid_values):
+        value = fallback
+
+    safe_value = re.sub(r"[^a-zA-Z0-9_-]+", "_", value.lower()).strip("_") or fallback
+
+    output_root = config.get("output_root")
+    if not isinstance(output_root, str) or not output_root:
+        raise StepFailure("route_by_value requires `output_root` in config")
+
+    filename = PurePosixPath(source).name
+    destination = str(PurePosixPath(output_root) / safe_value / filename)
+
+    payload = await world.fs.read_bytes(source)
+    await world.fs.write_bytes(destination, payload)
+
+    return {
+        "source": source,
+        "destination": destination,
+        "value": value,
+        "safe_value": safe_value,
+        "bytes_copied": len(payload),
+    }
+
+
 async def record_pr_triage(
     config: dict[str, Any], context: WorkflowContext, world: World
 ) -> dict[str, Any]:
@@ -407,6 +596,8 @@ def default_function_registry() -> FunctionRegistry:
             "record_pr_triage": record_pr_triage,
             "record_paper_triage": record_paper_triage,
             "record_email_triage": record_email_triage,
+            "record_invoice_extraction": record_invoice_extraction,
+            "route_by_value": route_by_value,
             "append_file": append_file,
         }
     )

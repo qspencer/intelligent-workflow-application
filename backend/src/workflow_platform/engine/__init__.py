@@ -7,9 +7,11 @@ from workflow_platform.engine.functions import (
     pdf_extract,
     record_email_triage,
     record_evaluation,
+    record_invoice_extraction,
     record_paper_triage,
     record_pr_triage,
     route_by_classification,
+    route_by_value,
 )
 from workflow_platform.engine.registry import FunctionRegistry, StepFailure, StepFunction
 
@@ -26,7 +28,9 @@ __all__ = [
     "pdf_extract",
     "record_email_triage",
     "record_evaluation",
+    "record_invoice_extraction",
     "record_paper_triage",
     "record_pr_triage",
     "route_by_classification",
+    "route_by_value",
 ]
