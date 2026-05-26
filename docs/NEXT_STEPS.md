@@ -198,6 +198,18 @@ the commit history for the full context.
   (see G1).
 - **P2.4** — `LOG_FORMAT` env var on the backend; `text` for dev,
   `json` (default) for production.
+- **Email connector — Phase 1** — six days landed across 7 commits.
+  `EmailConnector` ABC + `GmailConnector` + `GmailOAuthProvider` +
+  `GmailPollTrigger` + `EmailSendTool` / `EmailLabelApplyTool` (capability-
+  gated) + bootstrap helper that auto-wires the email tools into
+  `main.py` / `tools/fire.py` when `WORKFLOW_PLATFORM_GMAIL_ACCOUNT` is
+  set. `examples/email_triage/` workflow + rubric + 5 fixtures.
+  `.github/workflows/live-tests.yml` runs `BEDROCK_LIVE=1 GMAIL_LIVE=1`
+  weekly; `backend/tools/smoke_gmail.py` is the operator-facing
+  five-step diagnostic harness. Live-validated against
+  `intelligent.workflow.engine@quentinspencer.com` — full
+  send→poll→receive roundtrip green. See
+  `docs/EMAIL_CONNECTOR_PLAN.md` for the design + plan.
 
 ---
 

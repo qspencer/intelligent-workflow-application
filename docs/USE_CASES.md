@@ -29,8 +29,9 @@ seconds.
   where the eval loop earns its keep.
 - **Visible outputs you'll iterate on.** If you don't read the result,
   you won't notice when the agent drifts.
-- **Fits current capabilities.** No OAuth, no streaming, no email — see
-  "What to skip" below.
+- **Fits current capabilities.** No streaming, no image/video — see
+  "What to skip" below. (OAuth + Gmail land in Phase 1 of the email
+  connector; Outlook / IMAP / Slack still deferred.)
 - **Has near-ground-truth for eval scoring.** Either a "you know the
   right answer when you see it" check (invoice total matches receipt) or
   a faithfulness rubric (summary supported by source text).
@@ -47,7 +48,9 @@ not listed here either doesn't exist yet or is on the deferred list.
 | Filesystem trigger | `FilesystemTrigger` (watchdog) |
 | Webhook trigger (inbound) | `WebhookTrigger` + `POST /api/triggers/webhook/<id>` |
 | Schedule trigger | `ScheduleTrigger` (cron + interval) |
+| Gmail poll trigger | `GmailPollTrigger` + `GmailOAuthProvider` (refresh-token caching) |
 | Webhook send (outbound) | `WebhookConnector` via `ConnectorSendTool` |
+| Gmail send + label apply | `EmailSendTool` + `EmailLabelApplyTool` (capability-gated, wired via `WORKFLOW_PLATFORM_GMAIL_ACCOUNT`) |
 | S3 read | `S3Connector` via `ConnectorQueryTool` |
 | PDF extraction | `pdf_extract` stock function + tool |
 | File read/write | `FileReadTool`, `FileWriteTool`, `append_file` |
@@ -117,6 +120,25 @@ Tests: schedule trigger over real wall-clock time, agent memory
 accumulating across runs (the digest could itself become memory the
 next week's run reads), the platform on a long-running deployment.
 
+### Email-driven
+
+**7. Email triage — built.** Lives at `examples/email_triage/`.
+`gmail_poll` trigger fires on new inbox messages → agent applies a
+five-bucket rubric (urgent / fyi / spam / personal / awaiting-reply)
+from `agent_memory.md` → optionally drafts a reply via `email_send`
++ applies a triage label via `email_label_apply` → deterministic
+`record_email_triage` parses the JSON output into structured fields
+(`category`, `confidence`, `reply_drafted`, `labels_applied`,
+`summary`). 11 replay-mode tests at
+`backend/tests/test_email_triage_workflow.py` + 3 live tests behind
+`GMAIL_LIVE=1`. Connector live-validated end-to-end through
+`tools/smoke_gmail.py` + the GitHub Actions weekly cadence. The
+rubric-iteration loop (same as PR + paper triage) hasn't been run
+yet — that's the natural next-session move. Prereqs: pre-create the
+five `triaged/*` Gmail labels, decide on the "Send mail as" alias
+question (Workspace primary rewrites outgoing From unless the alias
+is verified — see `docs/EMAIL_CONNECTOR_PLAN.md` Gate 2 notes).
+
 ## Recommended starting workload
 
 **GitHub PR triage (#4) — built.** Lives at `examples/github_pr_triage/`
@@ -147,7 +169,7 @@ customer or workload demands it.
 
 | Tempting workload | Why deferred |
 |---|---|
-| Email triage (Gmail / Outlook) | OAuth + IMAP/Graph connector deferred |
+| Email triage (Outlook / IMAP) | Gmail is wired (see #7 above); Outlook + IMAP are deferred per `docs/EMAIL_CONNECTOR_PLAN.md` Phases 2-3 |
 | Slack message summarization | Slack connector deferred |
 | Calendar prep / meeting briefs | Calendar connector doesn't exist |
 | Real-time chat / streaming inputs | Engine is batch-shaped; streaming is a redesign |
