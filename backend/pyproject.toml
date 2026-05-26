@@ -25,6 +25,7 @@ dependencies = [
     "google-api-python-client>=2.140",
     "google-auth>=2.35",
     "google-auth-oauthlib>=1.2",
+    "playwright>=1.40",
 ]
 
 [dependency-groups]
@@ -116,5 +117,7 @@ module = [
     "google.oauth2.*",
     "google_auth_oauthlib",
     "google_auth_oauthlib.*",
+    "playwright",
+    "playwright.*",
 ]
 ignore_missing_imports = true
