@@ -1,0 +1,64 @@
+id: invoice-extraction-batch
+name: Invoice Extraction (Batch)
+description: |
+  Bulk-validation variant of `workflow.yaml` — same 4 substantive steps,
+  no notify_* email steps. Use this when firing a large set of invoices
+  (100+) where the analytical surface is the Postgres dataset rather
+  than per-invoice email notifications.
+
+  Shares the same `agent_memory.md` as the operational workflow, so the
+  extraction rubric is identical and `memory_hash` values are
+  cross-comparable across modes.
+
+trigger:
+  type: manual
+
+steps:
+  - id: pdf_extract
+    type: deterministic
+    function: pdf_extract
+    config:
+      filepath_from: trigger.file_path
+
+  - id: extract
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    goal: |
+      Extract the structured fields from the invoice PDF text in
+      `steps.pdf_extract.text`. Apply the rubric in your memory.
+
+      Your response MUST start with `{` and end with `}`. No fences,
+      no backticks, no preamble, no postamble. The entire response
+      must parse with json.loads() directly. See the "Output
+      discipline" section of your memory for the exact format.
+    policy:
+      max_iterations: 2
+      max_total_tokens: 4000
+
+  - id: record
+    type: deterministic
+    function: record_invoice_extraction
+    config:
+      extraction_from: steps.extract.output_text
+
+  - id: route
+    type: deterministic
+    function: route_by_value
+    config:
+      source_from: trigger.file_path
+      value_from: steps.record.ship_to_country
+      output_root: /tmp/invoice-processed-batch
+      fallback: unknown_country
+
+edges:
+  - from: pdf_extract
+    to: extract
+  - from: extract
+    to: record
+  - from: record
+    to: route
+
+policies:
+  max_total_tokens: 8000
+  budget_action: pause
