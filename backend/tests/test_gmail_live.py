@@ -137,7 +137,13 @@ async def test_send_to_self_and_poll_inbox_roundtrip(live_connector: GmailConnec
                 # may append signatures or normalize whitespace.
                 assert msg.subject == subject
                 assert marker in msg.body_text
-                assert msg.from_address.address.lower() == ACCOUNT.lower()
+                # From may be rewritten to the Workspace primary alias (e.g.
+                # `intelligent.workflow.engine@quentinspencer.com` -> primary
+                # `qrsconsulting@quentinspencer.com`) unless the alias is
+                # registered as a verified "Send mail as" entry in Gmail
+                # settings. Domain match is the meaningful invariant.
+                account_domain = ACCOUNT.split("@", 1)[1].lower()
+                assert msg.from_address.address.lower().endswith("@" + account_domain)
                 # to[] is parsed from headers; should include the dest address.
                 assert any(a.address.lower() == ACCOUNT.lower() for a in msg.to)
                 return
