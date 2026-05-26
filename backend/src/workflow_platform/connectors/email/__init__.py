@@ -6,6 +6,7 @@ modules. See `docs/EMAIL_CONNECTOR_PLAN.md` for the design.
 """
 
 from workflow_platform.connectors.email.base import EmailConnector
+from workflow_platform.connectors.email.bootstrap import maybe_build_gmail_connector
 from workflow_platform.connectors.email.gmail import (
     GmailAuthProvider,
     GmailConnector,
@@ -39,4 +40,5 @@ __all__ = [
     "GmailLabelNotFound",
     "GmailMessageNotFound",
     "GmailOAuthProvider",
+    "maybe_build_gmail_connector",
 ]

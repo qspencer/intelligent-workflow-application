@@ -23,6 +23,7 @@ from workflow_platform.api.workflows import build_router
 from workflow_platform.api.ws import build_ws_router
 from workflow_platform.auth import AuthMiddleware
 from workflow_platform.bedrock import BedrockClient
+from workflow_platform.connectors.email import maybe_build_gmail_connector
 from workflow_platform.engine import (
     ToolCatalog,
     WorkflowEngine,
@@ -40,7 +41,14 @@ from workflow_platform.persistence import Repositories, in_memory_repositories
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
 from workflow_platform.secrets import AwsSecretsManagerStore, EnvSecretStore, SecretStore
-from workflow_platform.tools import FileReadTool, FileWriteTool, PdfExtractTool
+from workflow_platform.tools import (
+    EmailLabelApplyTool,
+    EmailSendTool,
+    FileReadTool,
+    FileWriteTool,
+    PdfExtractTool,
+    Tool,
+)
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.world import real_world
 
@@ -67,21 +75,36 @@ def _default_engine(
     metrics: PrometheusMetrics,
     events: EventBus | None,
     memory: MemoryManager,
+    secret_store: SecretStore,
 ) -> WorkflowEngine:
     """Construct an engine wired to the same repos the API serves from.
 
     Real Bedrock / real filesystem; the BedrockClient defaults to `live` but
-    respects the `BEDROCK_MODE` env var so tests / replay still work."""
+    respects the `BEDROCK_MODE` env var so tests / replay still work. If
+    `WORKFLOW_PLATFORM_GMAIL_ACCOUNT` is set and credentials are reachable,
+    `EmailSendTool` + `EmailLabelApplyTool` join the default catalog."""
     return WorkflowEngine(
         repositories=repositories,
         functions=default_function_registry(),
-        tools=ToolCatalog([PdfExtractTool(), FileReadTool(), FileWriteTool()]),
+        tools=ToolCatalog(_build_default_tools(secret_store)),
         bedrock=BedrockClient(),
         world=real_world(),
         metrics=metrics,
         events=events,
         memory=memory,
     )
+
+
+def _build_default_tools(secret_store: SecretStore) -> list[Tool]:
+    """Always-on tools + optional Gmail tools (gated on
+    `WORKFLOW_PLATFORM_GMAIL_ACCOUNT` + reachable credentials)."""
+    tools: list[Tool] = [PdfExtractTool(), FileReadTool(), FileWriteTool()]
+    account = os.environ.get("WORKFLOW_PLATFORM_GMAIL_ACCOUNT")
+    gmail_connector = maybe_build_gmail_connector(account=account, secret_store=secret_store)
+    if gmail_connector is not None:
+        tools.extend([EmailSendTool(gmail_connector), EmailLabelApplyTool(gmail_connector)])
+        logger.info("Wired Gmail tools (email_send, email_label_apply) for account %r.", account)
+    return tools
 
 
 def _default_secret_store() -> SecretStore:
@@ -113,7 +136,8 @@ def create_app(
     events = events or EventBus()
     memory_dir = os.environ.get("WORKFLOW_PLATFORM_MEMORY_DIR", ".memory")
     memory = MemoryManager(memory_dir)
-    engine = engine or _default_engine(repositories, metrics, events, memory)
+    secret_store = secret_store or _default_secret_store()
+    engine = engine or _default_engine(repositories, metrics, events, memory, secret_store)
 
     # Default-on in production; off in tests unless a test explicitly opts in.
     if start_triggers is None:
@@ -121,8 +145,6 @@ def create_app(
     if definitions_dir is None:
         env_dir = os.environ.get("WORKFLOW_DEFINITIONS_DIR")
         definitions_dir = Path(env_dir) if env_dir else Path("examples")
-
-    secret_store = secret_store or _default_secret_store()
 
     orchestrator = TriggerOrchestrator(
         definitions_dir=definitions_dir,

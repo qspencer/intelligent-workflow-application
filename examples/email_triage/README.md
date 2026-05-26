@@ -39,7 +39,7 @@ cd backend
 ```
 
 To fire a fixture against live Bedrock + a live Gmail account, complete
-the gates in `docs/EMAIL_CONNECTOR_PLAN.md` (Gate 1–4), set
+the gates in `docs/EMAIL_CONNECTOR_PLAN.md` (Gates 1-4), set
 `WORKFLOW_PLATFORM_GMAIL_ACCOUNT`, and then:
 
 ```
@@ -48,9 +48,12 @@ WORKFLOW_PLATFORM_GMAIL_ACCOUNT=intelligent.workflow.engine@quentinspencer.com \
   examples/email_triage/fixtures/01_urgent_meeting_moved.json
 ```
 
-(Note: `tools/fire.py` does not yet wire `EmailSendTool` /
-`EmailLabelApplyTool` into its catalog — see "What's not wired yet"
-below.)
+When the env var is set, `tools/fire.py` (and `main.py` for the dashboard
+path) auto-wires `EmailSendTool` + `EmailLabelApplyTool` into the engine
+catalog. The bootstrap helper at
+`workflow_platform.connectors.email.bootstrap.maybe_build_gmail_connector`
+reads `.secrets/gmail/<account>/` from disk if `EnvSecretStore` is the
+backend — no extra steps beyond completing Gate 4.
 
 ## Output shape
 
@@ -91,14 +94,13 @@ prefix) lets you A/B rubric edits.
 
 ## What's not wired yet
 
-- `backend/tools/fire.py` doesn't include `EmailSendTool` /
-  `EmailLabelApplyTool` in its default catalog. To fire this workflow
-  via `fire.py`, that wiring (gated on
-  `WORKFLOW_PLATFORM_GMAIL_ACCOUNT`) needs to land in `fire.py` and
-  the FastAPI `main.py`'s default engine.
 - The orchestrator's `gmail_poll` branch builds its own connector
   rather than sharing one with the tools — for single-account v1
   this works but means two parallel connector instances (one for the
-  trigger polling, one for the tools' send/label_apply).
-
-Both are addressable when Day 6 (live integration test) needs them.
+  trigger polling, one for the tools' send/label_apply). Surfaces if
+  token-refresh churn becomes noisy in the audit log.
+- The example's `triaged/<category>` labels (urgent, fyi, spam,
+  personal, awaiting-reply) need to exist in Gmail before
+  `email_label_apply` calls succeed. Either pre-create them in the
+  Gmail UI, or update the connector to auto-create on first use (it
+  currently raises `GmailLabelNotFound`).

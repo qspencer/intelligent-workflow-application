@@ -33,6 +33,7 @@ from typing import Any
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from workflow_platform.bedrock import BedrockClient
+from workflow_platform.connectors.email import maybe_build_gmail_connector
 from workflow_platform.engine import (
     ToolCatalog,
     WorkflowEngine,
@@ -47,7 +48,15 @@ from workflow_platform.persistence import (
 )
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
-from workflow_platform.tools import FileReadTool, FileWriteTool, PdfExtractTool
+from workflow_platform.secrets import EnvSecretStore
+from workflow_platform.tools import (
+    EmailLabelApplyTool,
+    EmailSendTool,
+    FileReadTool,
+    FileWriteTool,
+    PdfExtractTool,
+    Tool,
+)
 from workflow_platform.workflow import load_definition_from_file
 from workflow_platform.world import real_world
 
@@ -63,6 +72,17 @@ def _build_repos() -> tuple[Repositories, Any | None]:
     db_engine = make_engine(url)
     session_factory = make_session_factory(db_engine)
     return postgres_repositories(session_factory), db_engine
+
+
+def _build_tools() -> list[Tool]:
+    """Always-on tools + optional Gmail tools when
+    `WORKFLOW_PLATFORM_GMAIL_ACCOUNT` is set and credentials are reachable."""
+    tools: list[Tool] = [PdfExtractTool(), FileReadTool(), FileWriteTool()]
+    account = os.environ.get("WORKFLOW_PLATFORM_GMAIL_ACCOUNT")
+    gmail_connector = maybe_build_gmail_connector(account=account, secret_store=EnvSecretStore())
+    if gmail_connector is not None:
+        tools.extend([EmailSendTool(gmail_connector), EmailLabelApplyTool(gmail_connector)])
+    return tools
 
 
 async def fire(args: argparse.Namespace) -> int:
@@ -82,7 +102,7 @@ async def fire(args: argparse.Namespace) -> int:
         engine = WorkflowEngine(
             repositories=repos,
             functions=default_function_registry(),
-            tools=ToolCatalog([PdfExtractTool(), FileReadTool(), FileWriteTool()]),
+            tools=ToolCatalog(_build_tools()),
             bedrock=BedrockClient(),
             world=real_world(),
             memory=memory,
