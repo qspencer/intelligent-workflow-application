@@ -1,5 +1,5 @@
 import { CommonModule, DatePipe } from '@angular/common';
-import { Component, inject, OnDestroy, OnInit, signal } from '@angular/core';
+import { Component, computed, inject, OnDestroy, OnInit, signal } from '@angular/core';
 import { ActivatedRoute, RouterLink } from '@angular/router';
 import { Subject, interval, takeUntil } from 'rxjs';
 
@@ -11,7 +11,21 @@ import { WorkflowInstance } from '../../types';
   standalone: true,
   imports: [CommonModule, DatePipe, RouterLink],
   template: `
-    <h2>Workflow Instances</h2>
+    <div class="header-row">
+      <h2>Workflow Instances</h2>
+      <button
+        class="danger"
+        [disabled]="deletingAll() || terminalCount() === 0"
+        (click)="deleteAllTerminal()"
+        title="Delete every instance currently in Completed, Failed, or Killed status. Running, Pending, and Paused instances are not affected."
+      >
+        @if (deletingAll()) {
+          Deleting…
+        } @else {
+          Delete All Terminal ({{ terminalCount() }})
+        }
+      </button>
+    </div>
     @if (loading()) {
       <p>Loading…</p>
     } @else if (error()) {
@@ -58,6 +72,15 @@ import { WorkflowInstance } from '../../types';
   `,
   styles: [
     `
+      .header-row {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .header-row h2 {
+        margin: 0;
+      }
       .error {
         color: var(--err);
       }
@@ -86,6 +109,14 @@ export class InstancesListComponent implements OnInit, OnDestroy {
   /** Instance ID currently being deleted (used to disable the row's
    *  button while the request is in flight). */
   readonly deleting = signal<string | null>(null);
+  /** True while a bulk-delete request is in flight. Disables both the
+   *  bulk button and individual row buttons to prevent overlapping
+   *  state-mutating calls. */
+  readonly deletingAll = signal(false);
+  /** Number of currently-loaded instances eligible for bulk delete. */
+  readonly terminalCount = computed(
+    () => this.instances().filter((i) => this.isTerminal(i.state)).length,
+  );
 
   ngOnInit(): void {
     this.refresh();
@@ -125,6 +156,35 @@ export class InstancesListComponent implements OnInit, OnDestroy {
         this.deleting.set(null);
       },
     });
+  }
+
+  deleteAllTerminal(): void {
+    if (this.deletingAll()) return;
+    const n = this.terminalCount();
+    if (n === 0) return;
+    if (
+      !window.confirm(
+        `Delete ${n} completed/failed/killed instance${n === 1 ? '' : 's'}? ` +
+          `This cannot be undone. Running, pending, and paused instances are NOT affected.`,
+      )
+    ) {
+      return;
+    }
+    this.deletingAll.set(true);
+    this.api
+      .deleteInstancesByStates(['completed', 'failed', 'killed'])
+      .subscribe({
+        next: () => {
+          // Optimistically prune all terminal rows; the 5s poll will
+          // reconcile any drift.
+          this.instances.update((rows) => rows.filter((r) => !this.isTerminal(r.state)));
+          this.deletingAll.set(false);
+        },
+        error: (err) => {
+          this.error.set(err.message ?? 'Failed to bulk-delete instances');
+          this.deletingAll.set(false);
+        },
+      });
   }
 
   private refresh(): void {

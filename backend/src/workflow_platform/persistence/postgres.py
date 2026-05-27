@@ -99,6 +99,21 @@ class PostgresInstanceRepo(InstanceRepo):
             await s.delete(row)
         return True
 
+    async def delete_by_states(
+        self, states: list[str], workflow_id: str | None = None
+    ) -> list[str]:
+        async with self._sf() as s, s.begin():
+            id_stmt = select(WorkflowInstanceRow.id).where(WorkflowInstanceRow.state.in_(states))
+            if workflow_id is not None:
+                id_stmt = id_stmt.where(WorkflowInstanceRow.workflow_id == workflow_id)
+            result = await s.execute(id_stmt)
+            ids = [row[0] for row in result.all()]
+            if ids:
+                await s.execute(
+                    sql_delete(WorkflowInstanceRow).where(WorkflowInstanceRow.id.in_(ids))
+                )
+        return ids
+
     async def list_by_workflow(self, workflow_id: str) -> list[WorkflowInstance]:
         async with self._sf() as s:
             result = await s.execute(
@@ -148,6 +163,18 @@ class PostgresStepExecutionRepo(StepExecutionRepo):
             )
         # `Result.rowcount` is typed loose in SQLAlchemy 2.0 stubs but is a
         # real attribute on the CursorResult returned for DML statements.
+        rowcount: int = getattr(result, "rowcount", 0) or 0
+        return rowcount
+
+    async def delete_by_instances(self, instance_ids: list[str]) -> int:
+        if not instance_ids:
+            return 0
+        async with self._sf() as s, s.begin():
+            result = await s.execute(
+                sql_delete(StepExecutionRow).where(
+                    StepExecutionRow.instance_id.in_(instance_ids)
+                )
+            )
         rowcount: int = getattr(result, "rowcount", 0) or 0
         return rowcount
 

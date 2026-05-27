@@ -49,6 +49,15 @@ class InstanceRepo(ABC):
         left intact so the historical record remains tamper-evident."""
 
     @abstractmethod
+    async def delete_by_states(
+        self, states: list[str], workflow_id: str | None = None
+    ) -> list[str]:
+        """Bulk hard-delete instances in any of the given states. Optionally
+        scope to one workflow_id. Returns the deleted instance IDs so
+        callers can cascade step_execution deletes. Audit entries left
+        intact, same as single-instance delete."""
+
+    @abstractmethod
     async def list_by_workflow(self, workflow_id: str) -> list[WorkflowInstance]: ...
 
     @abstractmethod
@@ -69,6 +78,12 @@ class StepExecutionRepo(ABC):
     async def delete_by_instance(self, instance_id: str) -> int:
         """Delete every step_execution row tied to one instance. Returns
         the number of rows deleted. Called as part of instance hard-delete."""
+
+    @abstractmethod
+    async def delete_by_instances(self, instance_ids: list[str]) -> int:
+        """Bulk version of `delete_by_instance`. Deletes every step_execution
+        whose `instance_id` is in the given list. Returns the total row
+        count deleted."""
 
     @abstractmethod
     async def list_by_instance(self, instance_id: str) -> list[StepExecution]: ...

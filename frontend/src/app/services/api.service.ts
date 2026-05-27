@@ -66,6 +66,22 @@ export class ApiService {
     return this.http.delete(`${API_BASE}/workflow-instances/${id}`);
   }
 
+  /** Bulk hard-delete every instance whose state is in `states`. Backend
+   *  rejects with 400 if any non-terminal state is included. Returns
+   *  `{deleted_instances, deleted_steps}`. */
+  deleteInstancesByStates(
+    states: Array<'completed' | 'failed' | 'killed'>,
+    workflow_id?: string,
+  ): Observable<{ deleted_instances: number; deleted_steps: number }> {
+    // Build repeated `?state=` params + optional workflow_id.
+    const params: Record<string, string | string[]> = { state: states };
+    if (workflow_id) params['workflow_id'] = workflow_id;
+    return this.http.delete<{ deleted_instances: number; deleted_steps: number }>(
+      `${API_BASE}/workflow-instances`,
+      { params },
+    );
+  }
+
   importWorkflow(body: string, contentType: 'yaml' | 'json'): Observable<WorkflowDefinition> {
     const mime =
       contentType === 'json' ? 'application/json' : 'application/x-yaml';

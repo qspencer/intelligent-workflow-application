@@ -371,3 +371,87 @@ def test_delete_requires_admin_or_operator(
     completed_id = next(i.id for i in instances if i.state == WorkflowInstanceState.COMPLETED)
     r = client.delete(f"/api/workflow-instances/{completed_id}", headers=_viewer())
     assert r.status_code == 403
+
+
+# ---------- Bulk DELETE endpoint ----------
+
+
+def test_bulk_delete_removes_all_in_requested_terminal_states(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    """One request, three states, all matching instances + their steps gone."""
+    client, repos, _ = dev_app
+    pre = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    terminal_pre = [
+        i
+        for i in pre
+        if i.state
+        in (
+            WorkflowInstanceState.COMPLETED,
+            WorkflowInstanceState.FAILED,
+        )
+    ]
+    assert len(terminal_pre) >= 2
+
+    r = client.delete(
+        "/api/workflow-instances?state=completed&state=failed&state=killed",
+        headers=_admin(),
+    )
+    assert r.status_code == 200, r.text
+    body = r.json()
+    assert body["deleted_instances"] == len(terminal_pre)
+    # `deleted_steps` may be 0 if the fixture didn't seed step rows.
+    assert body["deleted_steps"] >= 0
+
+    # Post-state: none of the deleted instances remain.
+    for inst in terminal_pre:
+        assert asyncio.run(repos.instances.get(inst.id)) is None
+
+
+def test_bulk_delete_scoped_by_workflow_id(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    """Passing workflow_id limits deletes to that workflow only."""
+    client, repos, _ = dev_app
+    pre = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    completed_count = sum(1 for i in pre if i.state == WorkflowInstanceState.COMPLETED)
+
+    r = client.delete(
+        "/api/workflow-instances?state=completed&workflow_id=wf-1",
+        headers=_admin(),
+    )
+    assert r.status_code == 200
+    assert r.json()["deleted_instances"] == completed_count
+
+
+def test_bulk_delete_rejects_non_terminal_state(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    """Including `running` in the states list is a 400 — bulk delete is
+    for cleanup, not stopping live runs."""
+    client, _, _ = dev_app
+    r = client.delete(
+        "/api/workflow-instances?state=completed&state=running",
+        headers=_admin(),
+    )
+    assert r.status_code == 400
+    assert "not terminal" in r.text.lower()
+
+
+def test_bulk_delete_requires_at_least_one_state(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    """Calling with no `?state=` is 422 (FastAPI's required-param error)."""
+    client, _, _ = dev_app
+    r = client.delete("/api/workflow-instances", headers=_admin())
+    assert r.status_code in (400, 422)
+
+
+def test_bulk_delete_requires_admin_or_operator(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, _, _ = dev_app
+    r = client.delete(
+        "/api/workflow-instances?state=completed", headers=_viewer()
+    )
+    assert r.status_code == 403

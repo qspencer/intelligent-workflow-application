@@ -129,4 +129,20 @@ describe('ApiService', () => {
     service.deleteInstance('inst-9');
     expect(http.delete).toHaveBeenCalledWith('/api/workflow-instances/inst-9');
   });
+
+  it('deleteInstancesByStates issues DELETE with repeated state params', () => {
+    const { service, http } = makeService();
+    service.deleteInstancesByStates(['completed', 'failed', 'killed']);
+    expect(http.delete).toHaveBeenCalledWith('/api/workflow-instances', {
+      params: { state: ['completed', 'failed', 'killed'] },
+    });
+  });
+
+  it('deleteInstancesByStates passes through workflow_id when provided', () => {
+    const { service, http } = makeService();
+    service.deleteInstancesByStates(['completed'], 'wf-42');
+    expect(http.delete).toHaveBeenCalledWith('/api/workflow-instances', {
+      params: { state: ['completed'], workflow_id: 'wf-42' },
+    });
+  });
 });

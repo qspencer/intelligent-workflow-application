@@ -16,7 +16,7 @@ import json
 from datetime import datetime
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException, Request, Response
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from workflow_platform.auth import Role, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
@@ -351,6 +351,51 @@ def build_router(
         await repositories.steps.delete_by_instance(instance_id)
         await repositories.instances.delete(instance_id)
         return Response(status_code=204)
+
+    @router.delete("/workflow-instances")
+    async def delete_instances_bulk(
+        state: list[str] = Query(default=...),
+        workflow_id: str | None = Query(default=None),
+        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+    ) -> dict[str, int]:
+        """Bulk hard-delete every instance whose state is in `state` (one
+        or more `?state=` query params). Cascades to step_executions.
+
+        Refuses if any `state` value is non-terminal — bulk delete is for
+        cleanup of finished runs, not stopping live ones. Optional
+        `workflow_id` scopes to a single workflow definition.
+
+        Returns counts: `{deleted_instances, deleted_steps}`. Audit
+        entries are preserved, same as the single-instance DELETE.
+        """
+        terminal = {
+            WorkflowInstanceState.COMPLETED.value,
+            WorkflowInstanceState.FAILED.value,
+            WorkflowInstanceState.KILLED.value,
+        }
+        requested = set(state)
+        non_terminal = requested - terminal
+        if non_terminal:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Refusing bulk delete: states {sorted(non_terminal)!r} are not "
+                    f"terminal. Allowed: {sorted(terminal)!r}."
+                ),
+            )
+        if not requested:
+            raise HTTPException(
+                status_code=400, detail="At least one ?state= parameter required."
+            )
+
+        deleted_ids = await repositories.instances.delete_by_states(
+            list(requested), workflow_id=workflow_id
+        )
+        deleted_steps = await repositories.steps.delete_by_instances(deleted_ids)
+        return {
+            "deleted_instances": len(deleted_ids),
+            "deleted_steps": deleted_steps,
+        }
 
     @router.get(
         "/workflow-instances/{instance_id}/audit",

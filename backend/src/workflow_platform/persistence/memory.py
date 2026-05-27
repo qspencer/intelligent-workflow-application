@@ -62,6 +62,20 @@ class InMemoryInstanceRepo(InstanceRepo):
     async def delete(self, instance_id: str) -> bool:
         return self._items.pop(instance_id, None) is not None
 
+    async def delete_by_states(
+        self, states: list[str], workflow_id: str | None = None
+    ) -> list[str]:
+        state_set = set(states)
+        to_delete = [
+            i.id
+            for i in self._items.values()
+            if i.state.value in state_set
+            and (workflow_id is None or i.workflow_id == workflow_id)
+        ]
+        for iid in to_delete:
+            del self._items[iid]
+        return to_delete
+
     async def list_by_workflow(self, workflow_id: str) -> list[WorkflowInstance]:
         return [
             i.model_copy(deep=True) for i in self._items.values() if i.workflow_id == workflow_id
@@ -95,6 +109,15 @@ class InMemoryStepExecutionRepo(StepExecutionRepo):
 
     async def delete_by_instance(self, instance_id: str) -> int:
         to_remove = [eid for eid, e in self._items.items() if e.instance_id == instance_id]
+        for eid in to_remove:
+            del self._items[eid]
+        return len(to_remove)
+
+    async def delete_by_instances(self, instance_ids: list[str]) -> int:
+        target = set(instance_ids)
+        if not target:
+            return 0
+        to_remove = [eid for eid, e in self._items.items() if e.instance_id in target]
         for eid in to_remove:
             del self._items[eid]
         return len(to_remove)
