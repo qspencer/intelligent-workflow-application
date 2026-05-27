@@ -377,3 +377,60 @@ def test_extract_email_triage_drops_wrong_types() -> None:
     out = _extract_email_triage(raw)
     # Only the well-typed `summary` survives.
     assert out == {"summary": "ok"}
+
+
+# --- Tolerant-parse rescue (json-repair fallback) ---
+
+
+def test_extract_email_triage_rescues_unescaped_inner_quotes() -> None:
+    """The actual failure case from the 1000-message validation run:
+    agent emits valid-looking JSON but with unescaped double quotes
+    inside the `summary` value. Strict json.loads fails; json-repair
+    recovers it."""
+    from workflow_platform.engine.functions import _extract_email_triage
+
+    raw = (
+        '{"category":"spam","confidence":0.92,"reply_drafted":false,'
+        '"labels_applied":["triaged/spam"],"summary":"Unsolicited '
+        'marketing email using urgency ("final notice") to pressure '
+        "warranty plan purchase.\"}"
+    )
+    out = _extract_email_triage(raw)
+    assert out is not None
+    assert out["category"] == "spam"
+    assert out["confidence"] == 0.92
+    assert out["reply_drafted"] is False
+    assert out["labels_applied"] == ["triaged/spam"]
+    assert "final notice" in out["summary"]
+
+
+def test_extract_email_triage_rescues_trailing_comma() -> None:
+    """LLMs occasionally trail a comma after the last field."""
+    from workflow_platform.engine.functions import _extract_email_triage
+
+    raw = '{"category":"fyi","confidence":0.95,"reply_drafted":false,"summary":"x",}'
+    out = _extract_email_triage(raw)
+    assert out is not None
+    assert out["category"] == "fyi"
+
+
+def test_extract_email_triage_rescues_single_quoted_strings() -> None:
+    """Some agents (esp. after few-shot prompting with Python-style
+    examples) emit single-quoted strings. json-repair handles."""
+    from workflow_platform.engine.functions import _extract_email_triage
+
+    raw = "{'category':'personal','confidence':0.9,'reply_drafted':false,'summary':'note'}"
+    out = _extract_email_triage(raw)
+    assert out is not None
+    assert out["category"] == "personal"
+    assert out["summary"] == "note"
+
+
+def test_extract_email_triage_returns_none_on_truly_unparseable() -> None:
+    """Tolerance has limits — completely shapeless text returns None,
+    not garbage. Pin this so a future json-repair upgrade can't silently
+    start "recovering" things that should fail."""
+    from workflow_platform.engine.functions import _extract_email_triage
+
+    # No braces, no structure, just prose.
+    assert _extract_email_triage("I think this email is fyi.") is None

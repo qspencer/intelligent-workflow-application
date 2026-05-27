@@ -9,6 +9,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import logging
 import re
 from datetime import date, datetime
 from pathlib import PurePosixPath
@@ -154,20 +155,67 @@ async def append_file(
 
 _JSON_OBJECT_RE = re.compile(r"\{.*\}", re.DOTALL)
 
+logger = logging.getLogger(__name__)
+
+
+def _loads_tolerant(text: str) -> Any | None:
+    """Parse a JSON snippet, repairing common LLM output quirks.
+
+    Tries strict `json.loads` first. On `JSONDecodeError`, falls back to
+    `json_repair.loads`, which handles the failure modes Haiku 4.5 most
+    commonly produces:
+
+    - Unescaped double quotes inside a string value
+      (e.g. `"summary":"using urgency ("final notice") to ..."`).
+    - Trailing commas, single-quoted strings, unquoted keys.
+
+    Returns the parsed value (any JSON type) or None if both parsers
+    fail. Emits a debug-level log line on every repair so operators can
+    grep for "json_repair" to estimate how often the rubric is leaking
+    invalid JSON without breaking the parse.
+    """
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError:
+        pass
+    try:
+        from json_repair import loads as repair_loads
+
+        repaired = repair_loads(text)
+    except Exception:
+        return None
+    # `json-repair` returns "" for unrecoverable inputs rather than raising.
+    if repaired == "" and text.strip() != '""':
+        return None
+    logger.debug("json_repair recovered a malformed JSON snippet (len=%d)", len(text))
+    return repaired
+
+
+def _find_json_object(raw: str) -> dict[str, Any] | None:
+    """Locate and tolerantly parse the first `{...}` JSON object in `raw`.
+
+    Common scaffold shared by every `_extract_*_triage` / `_extract_*`
+    helper: grep out a brace-delimited substring, parse it (with
+    `_loads_tolerant`), return the dict or None.
+    """
+    match = _JSON_OBJECT_RE.search(raw)
+    if not match:
+        return None
+    parsed = _loads_tolerant(match.group(0))
+    return parsed if isinstance(parsed, dict) else None
+
 
 def _extract_document_type(raw: str) -> str | None:
     """Pull `document_type` out of an agent's text response.
 
-    Tolerant of: bare JSON, JSON wrapped in ``` fences, surrounding prose. Returns None
-    if no JSON object with a string `document_type` field is parseable."""
-    match = _JSON_OBJECT_RE.search(raw)
-    if not match:
+    Tolerant of: bare JSON, JSON wrapped in ``` fences, surrounding prose,
+    unescaped quotes inside string values (via `_loads_tolerant`).
+    Returns None if no JSON object with a string `document_type` field
+    is parseable."""
+    parsed = _find_json_object(raw)
+    if parsed is None:
         return None
-    try:
-        parsed = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return None
-    value = parsed.get("document_type") if isinstance(parsed, dict) else None
+    value = parsed.get("document_type")
     return value if isinstance(value, str) else None
 
 
@@ -182,14 +230,8 @@ def _extract_eval_scores(raw: str) -> dict[str, Any] | None:
     light validation. Returns None if no parseable JSON object is found.
     Unknown keys are dropped — the schema is what `record_evaluation` queries
     against."""
-    match = _JSON_OBJECT_RE.search(raw)
-    if not match:
-        return None
-    try:
-        parsed = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(parsed, dict):
+    parsed = _find_json_object(raw)
+    if parsed is None:
         return None
     out: dict[str, Any] = {}
     for key in ("faithfulness_score", "category_score"):
@@ -215,14 +257,8 @@ def _extract_pr_triage(raw: str) -> dict[str, Any] | None:
     Each field is independently optional; the function copies through
     whatever is parseable and well-typed. Returns None when no JSON object
     is found at all."""
-    match = _JSON_OBJECT_RE.search(raw)
-    if not match:
-        return None
-    try:
-        parsed = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(parsed, dict):
+    parsed = _find_json_object(raw)
+    if parsed is None:
         return None
     out: dict[str, Any] = {}
     for key in ("category", "complexity", "summary"):
@@ -251,14 +287,8 @@ def _extract_paper_triage(raw: str) -> dict[str, Any] | None:
     Each field is independently optional; the function copies through
     whatever is parseable and well-typed. Returns None when no JSON object
     is found."""
-    match = _JSON_OBJECT_RE.search(raw)
-    if not match:
-        return None
-    try:
-        parsed = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(parsed, dict):
+    parsed = _find_json_object(raw)
+    if parsed is None:
         return None
     out: dict[str, Any] = {}
     score = parsed.get("relevance_score")
@@ -307,14 +337,8 @@ def _extract_email_triage(raw: str) -> dict[str, Any] | None:
     `confidence` is coerced to float; `labels_applied` is normalized to a
     list of strings with `label_count` computed. Returns None if no parseable
     JSON object is found. Unknown keys are dropped."""
-    match = _JSON_OBJECT_RE.search(raw)
-    if not match:
-        return None
-    try:
-        parsed = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(parsed, dict):
+    parsed = _find_json_object(raw)
+    if parsed is None:
         return None
     out: dict[str, Any] = {}
     for key in ("category", "summary"):
@@ -367,14 +391,8 @@ def _extract_invoice_fields(raw: str) -> dict[str, Any] | None:
                          "quantity": <int>, "rate": <float>, "amount": <float>}]}
 
     Returns None when no JSON object is found at all."""
-    match = _JSON_OBJECT_RE.search(raw)
-    if not match:
-        return None
-    try:
-        parsed = json.loads(match.group(0))
-    except json.JSONDecodeError:
-        return None
-    if not isinstance(parsed, dict):
+    parsed = _find_json_object(raw)
+    if parsed is None:
         return None
     out: dict[str, Any] = {}
     for key in (
@@ -610,33 +628,33 @@ def _extract_json_list(raw: str) -> list[Any] | None:
     if not body:
         return None
 
-    # Case 1: whole thing is JSON.
+    # Case 1: whole thing is strict JSON. Stay strict here on purpose —
+    # `json_repair` is too greedy at this scope: against text like
+    # "I considered [a, b] then settled on [{...}]", it will happily
+    # return `[['a','b'], [{...}]]` (a list containing both arrays).
+    # We want the cleaner downstream cases to win in that scenario.
     try:
         parsed = json.loads(body)
-    except json.JSONDecodeError:
-        pass
-    else:
         if isinstance(parsed, list):
             return parsed
+    except json.JSONDecodeError:
+        pass
 
-    # Case 2: ```json ... ``` fence somewhere in the text.
+    # Case 2: ```json ... ``` fence somewhere in the text. Tolerant
+    # parsing here is fine — fence contents are scoped + unambiguous.
     for match in _JSON_FENCE_RE.finditer(body):
         inner = match.group(1).strip()
-        try:
-            parsed = json.loads(inner)
-        except json.JSONDecodeError:
-            continue
+        parsed = _loads_tolerant(inner)
         if isinstance(parsed, list):
             return parsed
 
     # Case 3: any `[...]` substring. Try each match longest-first so a
     # well-formed `[{...}, {...}]` wins over a shorter inner array.
+    # Tolerant on each candidate since the bracket scan extracts
+    # scoped substrings.
     candidates = sorted(_JSON_ARRAY_RE.findall(body), key=len, reverse=True)
     for cand in candidates:
-        try:
-            parsed = json.loads(cand)
-        except json.JSONDecodeError:
-            continue
+        parsed = _loads_tolerant(cand)
         if isinstance(parsed, list):
             return parsed
 
