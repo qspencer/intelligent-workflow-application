@@ -1,17 +1,20 @@
 """Agent-callable browser-automation tools.
 
-D3 surface: read-side tools that observe the current page without
-mutating it. Each tool looks up the per-workflow-run `BrowserConnector`
-from `ToolContext.connectors["browser"]`. The engine (D5 work) is
+Four categories of behavior, each with its own capability gate:
+  - `browser_navigate`: load URLs. Solely `browser_navigate` tool.
+  - `browser_read`: observe the page without mutating it — read_text,
+    read_table, wait_for, screenshot.
+  - `browser_write`: mutate the page — click, fill, upload_file.
+  - `browser_download`: click-and-capture-file. Separated from
+    `browser_write` because it produces a file artifact; a workflow
+    can be permitted to download without being permitted to fill forms.
+
+Each tool looks up the per-workflow-run `BrowserConnector` from
+`ToolContext.connectors["browser"]`. The engine (D5 work) is
 responsible for lazy-building the connector and populating that dict
 when a workflow definition references any `browser_*` tool.
 
 Capability gating runs at the `Agent` layer via `tool_allowed(name)`.
-All D3 tools fall under the `browser_read` capability category (one of
-the four coarse categories from `docs/BROWSER_CONNECTOR_PLAN.md`).
-
-D4 adds the `browser_write` (click / fill / upload) and
-`browser_download` tools alongside.
 """
 
 from __future__ import annotations
@@ -41,6 +44,47 @@ def _selector_param(params: dict[str, Any]) -> str | ToolResult:
     if not isinstance(selector, str) or not selector:
         return ToolResult(error="`selector` is required (non-empty string)")
     return selector
+
+
+class BrowserNavigateTool(Tool):
+    name: ClassVar[str] = "browser_navigate"
+    description: ClassVar[str] = (
+        "Load a URL in the current browser session. `wait_until` controls "
+        "when navigation is considered complete: 'load' (default — fires "
+        "after DOMContentLoaded + resources) / 'domcontentloaded' (DOM "
+        "ready but resources may still load) / 'networkidle' (no network "
+        "for 500ms — slow but reliable for SPAs) / 'commit' (URL committed; "
+        "fastest but no content guaranteed)."
+    )
+    parameters_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "url": {"type": "string"},
+            "wait_until": {
+                "type": "string",
+                "enum": ["load", "domcontentloaded", "networkidle", "commit"],
+            },
+        },
+        "required": ["url"],
+    }
+
+    async def execute(
+        self, params: dict[str, Any], context: ToolContext | None = None
+    ) -> ToolResult:
+        url = params.get("url")
+        if not isinstance(url, str) or not url:
+            return ToolResult(error="`url` is required (non-empty string)")
+        connector = _get_connector(context)
+        if connector is None:
+            return ToolResult(error="No browser connector wired into this run")
+        wait_until = params.get("wait_until", "load")
+        if wait_until not in ("load", "domcontentloaded", "networkidle", "commit"):
+            return ToolResult(error=f"Invalid wait_until {wait_until!r}")
+        try:
+            await connector.navigate(url, wait_until=wait_until)
+        except Exception as exc:
+            return ToolResult(error=f"browser_navigate failed: {exc}")
+        return ToolResult(content={"url": url, "wait_until": wait_until})
 
 
 class BrowserReadTextTool(Tool):
@@ -185,5 +229,166 @@ class BrowserScreenshotTool(Tool):
                 "local_path": shot.local_path,
                 "bytes": shot.bytes,
                 "full_page": shot.full_page,
+            }
+        )
+
+
+class BrowserClickTool(Tool):
+    name: ClassVar[str] = "browser_click"
+    description: ClassVar[str] = (
+        "Click the first DOM element matching `selector`. Selector can be "
+        "CSS (default) or XPath (leading `/` or `//`). Returns the selector "
+        "that was clicked on success; raises a clear error if the element "
+        "isn't visible within the timeout."
+    )
+    parameters_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "selector": {"type": "string"},
+            "timeout_ms": {"type": "integer", "minimum": 100},
+        },
+        "required": ["selector"],
+    }
+
+    async def execute(
+        self, params: dict[str, Any], context: ToolContext | None = None
+    ) -> ToolResult:
+        sel = _selector_param(params)
+        if isinstance(sel, ToolResult):
+            return sel
+        connector = _get_connector(context)
+        if connector is None:
+            return ToolResult(error="No browser connector wired into this run")
+        timeout_ms = params.get("timeout_ms", 5000)
+        if not isinstance(timeout_ms, int) or timeout_ms < 100:
+            return ToolResult(error="timeout_ms must be an integer >= 100")
+        try:
+            await connector.click(sel, timeout_ms=timeout_ms)
+        except Exception as exc:
+            return ToolResult(error=f"browser_click failed: {exc}")
+        return ToolResult(content={"selector": sel, "clicked": True})
+
+
+class BrowserFillTool(Tool):
+    name: ClassVar[str] = "browser_fill"
+    description: ClassVar[str] = (
+        "Fill an `<input>` / `<textarea>` matching `selector` with `value`. "
+        "By default the field is cleared first (typical use). Pass "
+        "`clear_first=false` to append to the existing value."
+    )
+    parameters_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "selector": {"type": "string"},
+            "value": {"type": "string"},
+            "clear_first": {"type": "boolean"},
+        },
+        "required": ["selector", "value"],
+    }
+
+    async def execute(
+        self, params: dict[str, Any], context: ToolContext | None = None
+    ) -> ToolResult:
+        sel = _selector_param(params)
+        if isinstance(sel, ToolResult):
+            return sel
+        connector = _get_connector(context)
+        if connector is None:
+            return ToolResult(error="No browser connector wired into this run")
+        value = params.get("value")
+        if not isinstance(value, str):
+            return ToolResult(error="`value` is required (string)")
+        clear_first = params.get("clear_first", True)
+        if not isinstance(clear_first, bool):
+            return ToolResult(error="clear_first must be a boolean")
+        try:
+            await connector.fill(sel, value, clear_first=clear_first)
+        except Exception as exc:
+            return ToolResult(error=f"browser_fill failed: {exc}")
+        return ToolResult(
+            content={"selector": sel, "value_len": len(value), "cleared": clear_first}
+        )
+
+
+class BrowserUploadFileTool(Tool):
+    name: ClassVar[str] = "browser_upload_file"
+    description: ClassVar[str] = (
+        'Set the value of an `<input type="file">` matching `selector` to '
+        "the local file at `file_path`. Does NOT click submit — that's a "
+        "separate `browser_click` call so the workflow controls ordering."
+    )
+    parameters_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "selector": {"type": "string"},
+            "file_path": {"type": "string"},
+        },
+        "required": ["selector", "file_path"],
+    }
+
+    async def execute(
+        self, params: dict[str, Any], context: ToolContext | None = None
+    ) -> ToolResult:
+        sel = _selector_param(params)
+        if isinstance(sel, ToolResult):
+            return sel
+        connector = _get_connector(context)
+        if connector is None:
+            return ToolResult(error="No browser connector wired into this run")
+        file_path = params.get("file_path")
+        if not isinstance(file_path, str) or not file_path:
+            return ToolResult(error="`file_path` is required (non-empty string)")
+        try:
+            await connector.upload_file(sel, file_path)
+        except Exception as exc:
+            return ToolResult(error=f"browser_upload_file failed: {exc}")
+        return ToolResult(content={"selector": sel, "file_path": file_path})
+
+
+class BrowserDownloadTool(Tool):
+    name: ClassVar[str] = "browser_download"
+    description: ClassVar[str] = (
+        "Click an element matching `selector` and capture the resulting "
+        "browser download. Returns the local file path the download was "
+        "saved to (under the workflow's per-run downloads directory), the "
+        "source URL, and the suggested filename. Use this for download "
+        "links / buttons; for non-download clicks use `browser_click`."
+    )
+    parameters_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "selector": {"type": "string"},
+            "timeout_ms": {
+                "type": "integer",
+                "minimum": 100,
+                "description": "Max wait for the download to start AND the click. Default 30000.",
+            },
+        },
+        "required": ["selector"],
+    }
+
+    async def execute(
+        self, params: dict[str, Any], context: ToolContext | None = None
+    ) -> ToolResult:
+        sel = _selector_param(params)
+        if isinstance(sel, ToolResult):
+            return sel
+        connector = _get_connector(context)
+        if connector is None:
+            return ToolResult(error="No browser connector wired into this run")
+        timeout_ms = params.get("timeout_ms", 30000)
+        if not isinstance(timeout_ms, int) or timeout_ms < 100:
+            return ToolResult(error="timeout_ms must be an integer >= 100")
+        try:
+            download = await connector.download_via_click(sel, timeout_ms=timeout_ms)
+        except Exception as exc:
+            return ToolResult(error=f"browser_download failed: {exc}")
+        return ToolResult(
+            content={
+                "selector": sel,
+                "local_path": download.local_path,
+                "source_url": download.source_url,
+                "suggested_filename": download.suggested_filename,
+                "bytes": download.bytes,
             }
         )

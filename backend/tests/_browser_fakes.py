@@ -43,6 +43,79 @@ class FakeLocator:
         if self._selector in self._page.raise_on_wait:
             raise self._page.raise_on_wait[self._selector]
 
+    async def click(self, *, timeout: int = 5000) -> None:
+        self._page.calls.append(("locator.click", {"selector": self._selector, "timeout": timeout}))
+        if self._selector in self._page.raise_on_click:
+            raise self._page.raise_on_click[self._selector]
+
+    async def fill(self, value: str) -> None:
+        self._page.calls.append(("locator.fill", {"selector": self._selector, "value": value}))
+        if self._selector in self._page.raise_on_fill:
+            raise self._page.raise_on_fill[self._selector]
+
+    async def press_sequentially(self, value: str) -> None:
+        self._page.calls.append(
+            ("locator.press_sequentially", {"selector": self._selector, "value": value})
+        )
+
+    async def set_input_files(self, files: str) -> None:
+        self._page.calls.append(
+            ("locator.set_input_files", {"selector": self._selector, "files": files})
+        )
+        if self._selector in self._page.raise_on_set_files:
+            raise self._page.raise_on_set_files[self._selector]
+
+
+class FakeDownload:
+    """Stand-in for `playwright.async_api.Download`. `save_as` writes
+    the staged `content` bytes to the requested path so subsequent
+    `Path(path).stat()` calls in the connector return real byte counts."""
+
+    def __init__(
+        self,
+        *,
+        url: str = "https://example.com/file.pdf",
+        suggested_filename: str = "file.pdf",
+        content: bytes = b"fake download content",
+    ) -> None:
+        self.url = url
+        self.suggested_filename = suggested_filename
+        self._content = content
+
+    async def save_as(self, path: str) -> None:
+        Path(path).parent.mkdir(parents=True, exist_ok=True)
+        Path(path).write_bytes(self._content)
+
+
+class FakeEventInfo:
+    """Stand-in for Playwright's `EventInfo`. `.value` returns an awaitable
+    that resolves to the wrapped object — matches Playwright's
+    `async with page.expect_download() as info: dl = await info.value`."""
+
+    def __init__(self, value: Any) -> None:
+        self._value = value
+
+    @property
+    def value(self) -> Any:
+        async def _resolve() -> Any:
+            return self._value
+
+        return _resolve()
+
+
+class FakeExpectDownload:
+    """Async context manager returned by `FakePlaywrightPage.expect_download`."""
+
+    def __init__(self, download: FakeDownload, timeout: int) -> None:
+        self._info = FakeEventInfo(download)
+        self.timeout = timeout
+
+    async def __aenter__(self) -> FakeEventInfo:
+        return self._info
+
+    async def __aexit__(self, *args: Any) -> None:
+        pass
+
 
 class FakePlaywrightPage:
     """Stand-in for `playwright.async_api.Page` with the surface we use.
@@ -63,6 +136,12 @@ class FakePlaywrightPage:
         self.raise_on_text: dict[str, Exception] = {}
         self.raise_on_html: dict[str, Exception] = {}
         self.raise_on_wait: dict[str, Exception] = {}
+        self.raise_on_click: dict[str, Exception] = {}
+        self.raise_on_fill: dict[str, Exception] = {}
+        self.raise_on_set_files: dict[str, Exception] = {}
+        # The FakeDownload that expect_download() should yield. Tests
+        # stage this before the connector's download_via_click runs.
+        self.expect_download_value: FakeDownload | None = None
 
     @property
     def url(self) -> str:
@@ -81,6 +160,15 @@ class FakePlaywrightPage:
 
     def locator(self, selector: str) -> FakeLocator:
         return FakeLocator(self, selector)
+
+    def expect_download(self, *, timeout: int = 30000) -> FakeExpectDownload:
+        self.calls.append(("expect_download", {"timeout": timeout}))
+        if self.expect_download_value is None:
+            raise RuntimeError(
+                "FakePlaywrightPage.expect_download_value not staged — tests "
+                "must set this before triggering download_via_click()"
+            )
+        return FakeExpectDownload(self.expect_download_value, timeout)
 
     async def close(self) -> None:
         self.calls.append(("close", {}))

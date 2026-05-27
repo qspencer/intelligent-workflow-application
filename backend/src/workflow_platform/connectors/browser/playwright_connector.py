@@ -218,10 +218,17 @@ class PlaywrightConnector(BrowserConnector):
     # --- BrowserConnector implementations (D3/D4 stubs) ---
 
     async def click(self, selector: str, *, timeout_ms: int = 5000) -> None:
-        raise NotImplementedError("click lands in D4")
+        await self._page.locator(selector).click(timeout=timeout_ms)
 
     async def fill(self, selector: str, value: str, *, clear_first: bool = True) -> None:
-        raise NotImplementedError("fill lands in D4")
+        locator = self._page.locator(selector)
+        if clear_first:
+            # Playwright's `fill` blanks the field before typing.
+            await locator.fill(value)
+        else:
+            # Append-mode: type the value at the current cursor position
+            # without clearing what's already there.
+            await locator.press_sequentially(value)
 
     async def read_text(self, selector: str) -> str:
         # `_page` is Any (Playwright not type-checked) — annotate explicitly.
@@ -236,12 +243,32 @@ class PlaywrightConnector(BrowserConnector):
         return parse_html_table(f"<table>{html}</table>")
 
     async def upload_file(self, selector: str, file_path: str) -> None:
-        raise NotImplementedError("upload_file lands in D4")
+        await self._page.locator(selector).set_input_files(file_path)
 
     async def download_via_click(
         self, selector: str, *, timeout_ms: int = 30000
     ) -> BrowserDownload:
-        raise NotImplementedError("download_via_click lands in D4")
+        """Click an element and capture the resulting download.
+
+        Playwright's API: enter `expect_download` *before* the click that
+        triggers the download, then await `info.value` after the click to
+        get the Download object. We save it under the per-run downloads
+        directory using the browser-suggested filename.
+        """
+        async with self._page.expect_download(timeout=timeout_ms) as info:
+            await self._page.locator(selector).click(timeout=timeout_ms)
+        download = await info.value
+        suggested: str = download.suggested_filename
+        target = self.downloads_dir / suggested
+        await download.save_as(str(target))
+        size = target.stat().st_size if target.exists() else 0
+        source_url: str = download.url
+        return BrowserDownload(
+            source_url=source_url,
+            local_path=str(target),
+            suggested_filename=suggested,
+            bytes=size,
+        )
 
     async def wait_for(
         self, selector: str, *, state: WaitState = "visible", timeout_ms: int = 5000

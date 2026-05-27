@@ -207,9 +207,7 @@ async def test_pdf_extract_min_chars_rejects_blank_template() -> None:
     from workflow_platform.engine.registry import StepFailure
 
     blank_path = FIXTURES_DIR / "blank_template.pdf"
-    ctx = WorkflowContext(
-        workflow_id="x", instance_id="x", trigger={"file_path": str(blank_path)}
-    )
+    ctx = WorkflowContext(workflow_id="x", instance_id="x", trigger={"file_path": str(blank_path)})
     with pytest.raises(StepFailure, match="min_chars"):
         await pdf_extract(
             {"filepath": str(blank_path), "min_chars": 150},
@@ -227,9 +225,7 @@ async def test_pdf_extract_min_chars_zero_or_unset_skips_check() -> None:
     from workflow_platform.engine.functions import pdf_extract
 
     blank_path = FIXTURES_DIR / "blank_template.pdf"
-    ctx = WorkflowContext(
-        workflow_id="x", instance_id="x", trigger={"file_path": str(blank_path)}
-    )
+    ctx = WorkflowContext(workflow_id="x", instance_id="x", trigger={"file_path": str(blank_path)})
     # No min_chars — should succeed and return whatever was extracted.
     out = await pdf_extract({"filepath": str(blank_path)}, ctx, mock_world())
     assert "text" in out
@@ -245,9 +241,7 @@ async def test_pdf_extract_min_chars_allows_real_invoice() -> None:
     from workflow_platform.engine.functions import pdf_extract
 
     real_path = FIXTURES_DIR / "invoice_Liz Thompson_19562.pdf"
-    ctx = WorkflowContext(
-        workflow_id="x", instance_id="x", trigger={"file_path": str(real_path)}
-    )
+    ctx = WorkflowContext(workflow_id="x", instance_id="x", trigger={"file_path": str(real_path)})
     out = await pdf_extract(
         {"filepath": str(real_path), "min_chars": 150},
         ctx,

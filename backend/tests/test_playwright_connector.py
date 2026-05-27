@@ -13,8 +13,9 @@ from pathlib import Path
 
 import pytest
 
-from tests._browser_fakes import FakePlaywrightPage
+from tests._browser_fakes import FakeDownload, FakePlaywrightPage
 from workflow_platform.connectors.browser import (
+    BrowserDownload,
     BrowserScreenshot,
     PlaywrightConnector,
 )
@@ -258,29 +259,152 @@ async def test_wait_for_propagates_timeout_errors(tmp_path: Path) -> None:
             await conn.wait_for("#never")
 
 
-# --- D4 stubs: confirm they still raise so the punch list is explicit ---
+# --- click ---
 
 
-@pytest.mark.parametrize(
-    "method_name,args,kwargs",
-    [
-        ("click", ("#submit",), {}),
-        ("fill", ("#input", "value"), {}),
-        ("upload_file", ("#file", "/tmp/x"), {}),
-        ("download_via_click", ("a",), {}),
-    ],
-)
-async def test_unimplemented_methods_raise(
-    tmp_path: Path, method_name: str, args: tuple[object, ...], kwargs: dict[str, object]
-) -> None:
-    """Pins the D4 punch list. When each of these is implemented, the
-    corresponding parametrize row should be deleted and a real test
-    added in test_browser_tools.py or here."""
-    conn = _make_connector(tmp_path)
+async def test_click_forwards_selector_and_default_timeout(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    conn = _make_connector(tmp_path, page=fake)
     async with conn:
-        method = getattr(conn, method_name)
-        with pytest.raises(NotImplementedError):
-            await method(*args, **kwargs)
+        await conn.click("#submit")
+    click_call = next(kw for (m, kw) in fake.calls if m == "locator.click")
+    assert click_call == {"selector": "#submit", "timeout": 5000}
+
+
+async def test_click_honors_explicit_timeout(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        await conn.click("button.slow", timeout_ms=20000)
+    click_call = next(kw for (m, kw) in fake.calls if m == "locator.click")
+    assert click_call["timeout"] == 20000
+
+
+async def test_click_propagates_locator_errors(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.raise_on_click["#missing"] = TimeoutError("not visible within 5s")
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        with pytest.raises(TimeoutError, match="not visible"):
+            await conn.click("#missing")
+
+
+# --- fill ---
+
+
+async def test_fill_default_clear_first_uses_locator_fill(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        await conn.fill("#search", "hello")
+    fill_call = next(kw for (m, kw) in fake.calls if m == "locator.fill")
+    assert fill_call == {"selector": "#search", "value": "hello"}
+    # press_sequentially should NOT have been called.
+    assert not any(m == "locator.press_sequentially" for (m, _) in fake.calls)
+
+
+async def test_fill_no_clear_uses_press_sequentially(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        await conn.fill("#field", "appended", clear_first=False)
+    ps_call = next(kw for (m, kw) in fake.calls if m == "locator.press_sequentially")
+    assert ps_call == {"selector": "#field", "value": "appended"}
+    # locator.fill should NOT have been called.
+    assert not any(m == "locator.fill" for (m, _) in fake.calls)
+
+
+async def test_fill_propagates_errors(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.raise_on_fill["#readonly"] = ValueError("field is read-only")
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        with pytest.raises(ValueError, match="read-only"):
+            await conn.fill("#readonly", "x")
+
+
+# --- upload_file ---
+
+
+async def test_upload_file_forwards_path_to_set_input_files(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    conn = _make_connector(tmp_path, page=fake)
+    target_path = "/tmp/some-upload.csv"
+    async with conn:
+        await conn.upload_file("input[type='file']", target_path)
+    upload_call = next(kw for (m, kw) in fake.calls if m == "locator.set_input_files")
+    assert upload_call == {"selector": "input[type='file']", "files": target_path}
+
+
+async def test_upload_file_propagates_errors(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.raise_on_set_files["#file"] = FileNotFoundError("no such file")
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        with pytest.raises(FileNotFoundError):
+            await conn.upload_file("#file", "/missing")
+
+
+# --- download_via_click ---
+
+
+async def test_download_via_click_saves_under_per_run_dir(tmp_path: Path) -> None:
+    """The canonical case: click a download link, capture the file under
+    the connector's downloads_dir, return a BrowserDownload with the
+    right source_url + suggested_filename + bytes."""
+    fake = FakePlaywrightPage()
+    fake.expect_download_value = FakeDownload(
+        url="https://example.com/invoices/inv-001.pdf",
+        suggested_filename="inv-001.pdf",
+        content=b"%PDF-1.4 fake invoice bytes\n",
+    )
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        result = await conn.download_via_click("a.download-link")
+
+    assert isinstance(result, BrowserDownload)
+    assert result.source_url == "https://example.com/invoices/inv-001.pdf"
+    assert result.suggested_filename == "inv-001.pdf"
+    assert result.local_path.endswith("/inv-001.pdf")
+    assert result.local_path.startswith(str(tmp_path / "downloads"))
+    assert result.bytes == len(b"%PDF-1.4 fake invoice bytes\n")
+
+    # File actually on disk where claimed.
+    saved = Path(result.local_path)
+    assert saved.exists()
+    assert saved.read_bytes() == b"%PDF-1.4 fake invoice bytes\n"
+
+    # Order matters: expect_download must enter BEFORE the click; otherwise
+    # we'd miss the download event. Verify the call sequence.
+    methods_in_order = [m for (m, _) in fake.calls]
+    expect_idx = methods_in_order.index("expect_download")
+    click_idx = methods_in_order.index("locator.click")
+    assert expect_idx < click_idx
+
+
+async def test_download_via_click_honors_explicit_timeout(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.expect_download_value = FakeDownload()
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        await conn.download_via_click("a", timeout_ms=60000)
+    expect_call = next(kw for (m, kw) in fake.calls if m == "expect_download")
+    assert expect_call["timeout"] == 60000
+    # The click within the expect block also honors the same timeout.
+    click_call = next(kw for (m, kw) in fake.calls if m == "locator.click")
+    assert click_call["timeout"] == 60000
+
+
+async def test_download_via_click_propagates_click_errors(tmp_path: Path) -> None:
+    """If the click itself fails (e.g. element not found), the expect_download
+    context unwinds cleanly and we see the original error."""
+    fake = FakePlaywrightPage()
+    fake.expect_download_value = FakeDownload()
+    fake.raise_on_click["#missing"] = TimeoutError("not visible")
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        with pytest.raises(TimeoutError):
+            await conn.download_via_click("#missing")
 
 
 async def test_authenticate_is_noop(tmp_path: Path) -> None:
