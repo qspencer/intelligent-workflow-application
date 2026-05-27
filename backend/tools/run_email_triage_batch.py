@@ -40,7 +40,7 @@ EXAMPLE_DIR = REPO_ROOT / "examples" / "email_triage"
 DATA_DIR = REPO_ROOT / "data" / "email_triage"
 
 
-async def run_batch(account: str, limit: int | None) -> int:
+async def run_batch(account: str, limit: int | None, workflow_file: str) -> int:
     # Wire the email-tool catalog by setting the env var before main builds.
     os.environ["WORKFLOW_PLATFORM_GMAIL_ACCOUNT"] = account
 
@@ -51,7 +51,7 @@ async def run_batch(account: str, limit: int | None) -> int:
     from workflow_platform.memory import MemoryManager
     from workflow_platform.persistence import in_memory_repositories
     from workflow_platform.secrets import EnvSecretStore
-    from workflow_platform.tools import EmailLabelApplyTool, EmailSendTool
+    from workflow_platform.tools import EmailLabelApplyTool, EmailSendTool, Tool
     from workflow_platform.workflow import load_definition_from_yaml
     from workflow_platform.world import real_world
 
@@ -68,17 +68,33 @@ async def run_batch(account: str, limit: int | None) -> int:
     memory = MemoryManager(REPO_ROOT / ".memory")
     memory_text = (EXAMPLE_DIR / "agent_memory.md").read_text()
 
-    definition = load_definition_from_yaml((EXAMPLE_DIR / "workflow.yaml").read_text())
+    wf_path = EXAMPLE_DIR / workflow_file
+    if not wf_path.exists():
+        print(f"Workflow file not found: {wf_path}")
+        return 1
+    definition = load_definition_from_yaml(wf_path.read_text())
+    print(f"Workflow: {definition.id}  ({wf_path.name})")
     for step in definition.steps:
         if step.type == "agentic":
             await memory.write_raw(f"steps/{definition.id}/{step.id}", memory_text)
 
-    # Build the connector + tools.
+    # Build the connector + tools. Only wire the tools the workflow actually
+    # references, so a label-only workflow doesn't carry a usable
+    # `email_send` in the catalog even by accident.
     connector = maybe_build_gmail_connector(account=account, secret_store=EnvSecretStore())
     if connector is None:
         print(f"Failed to build Gmail connector for {account}.")
         return 1
-    tool_catalog = ToolCatalog([EmailSendTool(connector), EmailLabelApplyTool(connector)])
+    referenced_tool_names: set[str] = set()
+    for step in definition.steps:
+        if step.type == "agentic":
+            referenced_tool_names.update(step.tools)
+    available: list[Tool] = []
+    if "email_send" in referenced_tool_names:
+        available.append(EmailSendTool(connector))
+    if "email_label_apply" in referenced_tool_names:
+        available.append(EmailLabelApplyTool(connector))
+    tool_catalog = ToolCatalog(available)
 
     bedrock = BedrockClient(mode=BedrockMode.LIVE, region=os.environ.get("AWS_REGION", "us-east-1"))
 
@@ -180,8 +196,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--account", required=True)
     parser.add_argument("--limit", type=int, help="Process at most N files (default all)")
+    parser.add_argument(
+        "--workflow",
+        default="workflow.yaml",
+        help=(
+            "Workflow YAML filename within examples/email_triage/ "
+            "(default workflow.yaml; use workflow_label_only.yaml to skip the "
+            "email_send tool when validating against a personal inbox)."
+        ),
+    )
     args = parser.parse_args()
-    return asyncio.run(run_batch(args.account, args.limit))
+    return asyncio.run(run_batch(args.account, args.limit, args.workflow))
 
 
 if __name__ == "__main__":
