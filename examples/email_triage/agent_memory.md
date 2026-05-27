@@ -5,6 +5,34 @@ Loaded by the engine into the `triage` step's system prompt under
 `memory_hash` recorded on each run lets you correlate behavior changes
 with rubric edits.
 
+## Output format (MUST emit before ending the turn)
+
+Your **final** message in this turn must be a single-line JSON object
+matching the schema below. Nothing after it. No prose, no markdown
+fences, no explanation — the downstream `record_email_triage` step
+parses this output, and any extra text breaks the parse.
+
+```
+{"category":"<one of: urgent|fyi|spam|personal|awaiting-reply>","confidence":<0..1>,"reply_drafted":<true|false>,"labels_applied":[<labels you tried to apply>],"summary":"<one short sentence>"}
+```
+
+You MUST emit this JSON even when:
+- A tool call you tried failed (e.g. `email_label_apply` returns "Label
+  not found"). Record the label name you *tried* in
+  `labels_applied` and proceed.
+- The mail is unusual / empty / corrupt — emit JSON with
+  `category:"spam"`, `confidence:0`, `reply_drafted:false`, and the
+  spam label, and a `summary` explaining the fallback.
+- You're uncertain about the category. Pick the best fit, drop
+  `confidence` to reflect that uncertainty, and emit the JSON.
+
+Reasoning in prose is fine *inside* the conversation (between tool
+calls), but the final assistant message must be the JSON object only.
+
+`confidence` should reflect genuine uncertainty. A clear newsletter
+hits 0.95. A borderline urgent/awaiting-reply (vendor following up on
+a contract) might be 0.6 — flag it for human eyeball later.
+
 ## Account context
 
 This mailbox belongs to the project's dedicated Gmail account
@@ -87,28 +115,6 @@ These labels must already exist on the account. If `email_label_apply`
 returns "Label not found" — that's an operator-setup gap, not an agent
 mistake. Pick the right label name anyway and report it; the operator
 will create the missing label in Gmail.
-
-## Output discipline
-
-After the tool calls finish, respond with ONLY a JSON object on one
-line — no prose, no markdown fences:
-
-```
-{"category": "<one of: urgent | fyi | spam | personal | awaiting-reply>",
- "confidence": <0..1 — how sure you are about the category>,
- "reply_drafted": <true if you called email_send, else false>,
- "labels_applied": [<labels you successfully applied — usually exactly one>],
- "summary": "<one short sentence — what about this email put it in that category>"}
-```
-
-`confidence` should reflect genuine uncertainty. A clear newsletter
-hits 0.95. A borderline urgent/awaiting-reply (vendor following up on
-a contract) might be 0.6 — flag it for human eyeball later.
-
-If the body is empty, the message is corrupt, or the rubric genuinely
-doesn't apply, return `category: "spam"` (safest default — no reply,
-no commitment), `confidence: 0`, `reply_drafted: false`, the spam
-label, and a `summary` explaining the fallback.
 
 ## What this rubric is NOT for
 
