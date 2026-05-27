@@ -40,7 +40,9 @@ EXAMPLE_DIR = REPO_ROOT / "examples" / "email_triage"
 DATA_DIR = REPO_ROOT / "data" / "email_triage"
 
 
-async def run_batch(account: str, limit: int | None, workflow_file: str) -> int:
+async def run_batch(
+    account: str, limit: int | None, workflow_file: str, concurrency: int
+) -> int:
     # Wire the email-tool catalog by setting the env var before main builds.
     os.environ["WORKFLOW_PLATFORM_GMAIL_ACCOUNT"] = account
 
@@ -98,38 +100,43 @@ async def run_batch(account: str, limit: int | None, workflow_file: str) -> int:
 
     bedrock = BedrockClient(mode=BedrockMode.LIVE, region=os.environ.get("AWS_REGION", "us-east-1"))
 
-    results: list[dict[str, Any]] = []
-    total_cost = 0.0
-    total_tokens = 0
+    print(f"Dispatching {len(fixtures)} runs with concurrency={concurrency}…")
+    sem = asyncio.Semaphore(concurrency)
+    done_count = 0
+    done_lock = asyncio.Lock()
 
-    for fixture_path in fixtures:
-        repos = in_memory_repositories()
-        engine = WorkflowEngine(
-            repositories=repos,
-            functions=default_function_registry(),
-            tools=tool_catalog,
-            bedrock=bedrock,
-            world=real_world(),
-            memory=memory,
-        )
-        trigger = json.loads(fixture_path.read_text())
-        try:
-            instance = await engine.run(definition, trigger_payload=trigger)
-        except Exception as exc:
-            print(f"  [{fixture_path.name}] EXCEPTION: {exc}")
-            results.append({"file": fixture_path.name, "error": str(exc)})
-            continue
+    async def _run_one(fixture_path: Path) -> dict[str, Any]:
+        nonlocal done_count
+        async with sem:
+            # Each run gets its own fresh in-memory repo + WorkflowEngine
+            # instance — engines aren't designed to be reused concurrently
+            # (single audit-log channel, single context). Shared across
+            # tasks: bedrock client, gmail connector, memory manager,
+            # tool catalog — all read-only or call-scoped.
+            repos = in_memory_repositories()
+            engine = WorkflowEngine(
+                repositories=repos,
+                functions=default_function_registry(),
+                tools=tool_catalog,
+                bedrock=bedrock,
+                world=real_world(),
+                memory=memory,
+            )
+            trigger = json.loads(fixture_path.read_text())
+            try:
+                instance = await engine.run(definition, trigger_payload=trigger)
+            except Exception as exc:
+                async with done_lock:
+                    done_count += 1
+                    print(f"  [{done_count}/{len(fixtures)}] EXCEPTION {fixture_path.name}: {exc}")
+                return {"file": fixture_path.name, "error": str(exc)}
 
-        ctx = instance.context
-        record_out = ctx.get("steps", {}).get("record", {})
-        triage_out = ctx.get("steps", {}).get("triage", {})
-        cost = ctx.get("total_cost_usd", 0.0)
-        tokens = ctx.get("total_tokens", 0)
-        total_cost += cost
-        total_tokens += tokens
-
-        results.append(
-            {
+            ctx = instance.context
+            record_out = ctx.get("steps", {}).get("record", {})
+            triage_out = ctx.get("steps", {}).get("triage", {})
+            cost = ctx.get("total_cost_usd", 0.0)
+            tokens = ctx.get("total_tokens", 0)
+            row = {
                 "file": fixture_path.name,
                 "subject": trigger.get("subject", "")[:60],
                 "from": trigger.get("from_address", {}).get("address", ""),
@@ -145,7 +152,22 @@ async def run_batch(account: str, limit: int | None, workflow_file: str) -> int:
                 "tokens": tokens,
                 "cost_usd": cost,
             }
-        )
+            async with done_lock:
+                done_count += 1
+                cat = row.get("category") or ("<unparsed>" if row["parse_ok"] is False else "?")
+                print(
+                    f"  [{done_count}/{len(fixtures)}] {cat:<16} ${cost:.4f} "
+                    f"{row['subject'][:50]!r}"
+                )
+            return row
+
+    # Run all fixtures concurrently, capped by Semaphore.
+    run_results = await asyncio.gather(
+        *(_run_one(fp) for fp in fixtures), return_exceptions=False
+    )
+    results: list[dict[str, Any]] = list(run_results)
+    total_cost = sum(float(r.get("cost_usd", 0.0)) for r in results)
+    total_tokens = sum(int(r.get("tokens", 0)) for r in results)
 
     # ----- print per-message table -----
     print()
@@ -205,8 +227,22 @@ def main() -> int:
             "email_send tool when validating against a personal inbox)."
         ),
     )
+    parser.add_argument(
+        "--concurrency",
+        type=int,
+        default=1,
+        help=(
+            "Number of agent runs to dispatch concurrently (default 1 = "
+            "sequential). 8-10 is a sensible upper bound; Bedrock TPS "
+            "limits are well above that and Gmail label-apply quotas are "
+            "negligible at this rate. Higher values won't speed up much "
+            "if your per-run latency is bounded by Bedrock response time."
+        ),
+    )
     args = parser.parse_args()
-    return asyncio.run(run_batch(args.account, args.limit, args.workflow))
+    return asyncio.run(
+        run_batch(args.account, args.limit, args.workflow, args.concurrency)
+    )
 
 
 if __name__ == "__main__":
