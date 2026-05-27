@@ -64,28 +64,62 @@ import { WorkflowDefinition } from '../../types';
         <div class="dialog large" (click)="$event.stopPropagation()">
           <h3>Run <code>{{ wf.id }}</code></h3>
           <p class="muted">
-            JSON object passed verbatim as the trigger payload.
+            @if (runBatchMode) {
+              JSON <strong>array</strong> — fires one workflow instance per array element.
+            } @else {
+              JSON object passed verbatim as the trigger payload.
+            }
             @if (!hasRole(['admins', 'operators'])) {
               <span> Operator or Admin role required.</span>
             }
           </p>
+          <label class="mode-toggle">
+            <input
+              type="checkbox"
+              [(ngModel)]="runBatchMode"
+              (ngModelChange)="onBatchModeChange($event, wf)"
+              [disabled]="runSubmitting()"
+            />
+            Batch mode (paste a JSON array; one instance per element)
+          </label>
           <textarea
             rows="20"
-            placeholder='{"file_path": "/abs/path/to/some.pdf"}'
+            [placeholder]="runBatchMode ? '[{...}, {...}]' : '{\&quot;file_path\&quot;: \&quot;/abs/path/to/some.pdf\&quot;}'"
             [(ngModel)]="runPayloadText"
             [disabled]="runSubmitting()"
           ></textarea>
+          @if (runProgress(); as p) {
+            <p class="muted">
+              @if (p.done < p.total) {
+                Firing {{ p.done + 1 }} of {{ p.total }}…
+                @if (p.errors > 0) {
+                  <span class="error">({{ p.errors }} error{{ p.errors === 1 ? '' : 's' }} so far)</span>
+                }
+              } @else {
+                Fired {{ p.done - p.errors }} of {{ p.total }}.
+                @if (p.errors > 0) {
+                  <span class="error">{{ p.errors }} failed.</span>
+                }
+              }
+            </p>
+          }
           @if (runError()) {
             <p class="error">{{ runError() }}</p>
           }
           <div class="dialog-actions">
-            <button (click)="closeRun()" [disabled]="runSubmitting()">Cancel</button>
+            <button (click)="closeRun()" [disabled]="runSubmitting()">
+              {{ runProgress() && runProgress()!.done === runProgress()!.total ? 'Close' : 'Cancel' }}
+            </button>
             <button
               class="primary"
               (click)="submitRun(wf)"
-              [disabled]="runSubmitting()"
+              [disabled]="runSubmitting() || (runProgress() !== null && runProgress()!.done === runProgress()!.total)"
             >
-              {{ runSubmitting() ? 'Running…' : 'Run' }}
+              @if (runSubmitting()) {
+                {{ runBatchMode ? 'Firing…' : 'Running…' }}
+              } @else {
+                {{ runBatchMode ? 'Fire batch' : 'Run' }}
+              }
             </button>
           </div>
         </div>
@@ -192,12 +226,16 @@ import { WorkflowDefinition } from '../../types';
         border-radius: 4px;
         resize: vertical;
       }
-      .format {
+      .format,
+      .mode-toggle {
         display: flex;
         align-items: center;
         gap: 8px;
         font-size: 13px;
         color: var(--muted);
+      }
+      .mode-toggle input[type='checkbox'] {
+        margin: 0;
       }
       .format select {
         padding: 2px 6px;
@@ -264,6 +302,17 @@ export class WorkflowsListComponent implements OnInit {
   readonly runError = signal<string | null>(null);
   readonly runSubmitting = signal(false);
   runPayloadText = '{}';
+  /** ngModel target for the "Batch mode" toggle. Plain field — checkbox
+   *  binding doesn't need a signal. */
+  runBatchMode = false;
+  /** Tracks progress during a batch fire: `{done, errors, total}`. Null
+   *  when no batch is in flight or completed. Rendered as
+   *  "Firing 3 of 50…" / "Fired 47 of 50. 3 failed." */
+  readonly runProgress = signal<{
+    done: number;
+    errors: number;
+    total: number;
+  } | null>(null);
 
   ngOnInit(): void {
     this.refresh();
@@ -359,30 +408,72 @@ export class WorkflowsListComponent implements OnInit {
       example && Object.keys(example).length > 0
         ? JSON.stringify(example, null, 2)
         : '{}';
+    this.runBatchMode = false;
     this.runError.set(null);
+    this.runProgress.set(null);
     this.runOpen.set(wf);
   }
 
   closeRun(): void {
     if (this.runSubmitting()) return;
     this.runOpen.set(null);
+    this.runProgress.set(null);
+  }
+
+  /** When the user toggles batch mode, re-shape the textarea: turning
+   *  it ON wraps the current single-object payload in `[ ... ]` so the
+   *  user has a starting point; turning it OFF unwraps the first
+   *  element if the textarea currently holds an array. Either way the
+   *  user can edit freely. */
+  onBatchModeChange(batch: boolean, wf: WorkflowDefinition): void {
+    const trimmed = this.runPayloadText.trim();
+    try {
+      const parsed = trimmed ? JSON.parse(trimmed) : null;
+      if (batch && parsed && !Array.isArray(parsed) && typeof parsed === 'object') {
+        // single object → wrap as a one-element array
+        this.runPayloadText = JSON.stringify([parsed], null, 2);
+      } else if (!batch && Array.isArray(parsed) && parsed.length > 0) {
+        // array → unwrap first element
+        this.runPayloadText = JSON.stringify(parsed[0], null, 2);
+      } else if (batch && !parsed) {
+        // empty → seed with [example_payload] if available
+        const example = wf.trigger?.example_payload;
+        this.runPayloadText =
+          example && Object.keys(example).length > 0
+            ? JSON.stringify([example], null, 2)
+            : '[]';
+      }
+    } catch {
+      // If the current text doesn't parse, leave it alone — the user
+      // is mid-edit and we'd be hostile to clobber.
+    }
+    this.runError.set(null);
+    this.runProgress.set(null);
   }
 
   submitRun(wf: WorkflowDefinition): void {
-    const text = this.runPayloadText.trim() || '{}';
-    let payload: Record<string, unknown>;
+    const text = this.runPayloadText.trim() || (this.runBatchMode ? '[]' : '{}');
+    let parsed: unknown;
     try {
-      const parsed = JSON.parse(text);
-      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
-        this.runError.set('Trigger payload must be a JSON object.');
-        return;
-      }
-      payload = parsed as Record<string, unknown>;
+      parsed = JSON.parse(text);
     } catch (e) {
       this.runError.set(`Invalid JSON: ${(e as Error).message}`);
       return;
     }
 
+    if (this.runBatchMode) {
+      this.fireBatch(wf, parsed);
+    } else {
+      this.fireSingle(wf, parsed);
+    }
+  }
+
+  private fireSingle(wf: WorkflowDefinition, parsed: unknown): void {
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) {
+      this.runError.set('Trigger payload must be a JSON object.');
+      return;
+    }
+    const payload = parsed as Record<string, unknown>;
     this.runSubmitting.set(true);
     this.runError.set(null);
     this.api.runWorkflow(wf.id, payload).subscribe({
@@ -397,5 +488,68 @@ export class WorkflowsListComponent implements OnInit {
         this.runError.set(typeof detail === 'string' ? detail : JSON.stringify(detail));
       },
     });
+  }
+
+  /** Fire one workflow instance per element of `parsed`, sequentially.
+   *  Sequential because:
+   *    - The frontend can't easily throttle on the user's side; the
+   *      backend's gmail/httplib2 thread safety was an issue we
+   *      already had to lock around — keep dispatch simple here.
+   *    - Per-instance latency is dominated by Bedrock anyway (3-8s
+   *      per agent call). At 50 papers, ~3 min total. Acceptable.
+   *  Continues on errors; the progress signal tracks done + errors so
+   *  the dialog shows a running count instead of blanking on first
+   *  failure. */
+  private async fireBatch(wf: WorkflowDefinition, parsed: unknown): Promise<void> {
+    if (!Array.isArray(parsed)) {
+      this.runError.set('Batch mode requires a JSON array.');
+      return;
+    }
+    if (parsed.length === 0) {
+      this.runError.set('Batch array is empty.');
+      return;
+    }
+    const bad = parsed.findIndex((p) => !p || typeof p !== 'object' || Array.isArray(p));
+    if (bad >= 0) {
+      this.runError.set(`Element ${bad} is not a JSON object.`);
+      return;
+    }
+
+    const total = parsed.length;
+    this.runSubmitting.set(true);
+    this.runError.set(null);
+    this.runProgress.set({ done: 0, errors: 0, total });
+
+    let done = 0;
+    let errors = 0;
+    for (const payload of parsed as Record<string, unknown>[]) {
+      try {
+        await new Promise<void>((resolve, reject) => {
+          this.api.runWorkflow(wf.id, payload).subscribe({
+            next: () => resolve(),
+            error: (err) => reject(err),
+          });
+        });
+      } catch {
+        errors += 1;
+      }
+      done += 1;
+      this.runProgress.set({ done, errors, total });
+    }
+    this.runSubmitting.set(false);
+    // Don't auto-close: the user wants to see the final tally. They
+    // can click Close (which now reads "Close" rather than "Cancel"
+    // once done === total) to dismiss. Optimistically navigate them
+    // toward the instances list if there were no errors.
+    if (errors === 0) {
+      // Wait a beat so the user can see "Fired 50 of 50" before nav.
+      setTimeout(() => {
+        if (this.runOpen()) {
+          this.runOpen.set(null);
+          this.runProgress.set(null);
+          this.router.navigate(['/instances'], { queryParams: { workflow_id: wf.id } });
+        }
+      }, 800);
+    }
   }
 }
