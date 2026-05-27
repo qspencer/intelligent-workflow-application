@@ -40,8 +40,41 @@ EXAMPLE_DIR = REPO_ROOT / "examples" / "email_triage"
 DATA_DIR = REPO_ROOT / "data" / "email_triage"
 
 
+def _trim_trigger(
+    trigger: dict[str, Any],
+    *,
+    max_body_chars: int,
+    strip_html: bool,
+) -> dict[str, Any]:
+    """Reduce an EmailMessage trigger payload to its classification-relevant
+    fields.
+
+    Real Gmail messages can carry 100KB+ of `body_html` (the same content
+    as `body_text` plus markup, base64 inline images, marketing template
+    layouts). The agent doesn't need it — `body_text` is the
+    classification signal. Stripping `body_html` typically saves
+    50-90% of input tokens per turn.
+
+    Also truncates `body_text` to `max_body_chars` — long reply chains
+    and marketing fluff add bulk without category signal. The first
+    ~5000 chars almost always carry the relevant content.
+    """
+    trimmed = dict(trigger)
+    if strip_html and "body_html" in trimmed:
+        trimmed["body_html"] = None
+    body_text = trimmed.get("body_text") or ""
+    if isinstance(body_text, str) and len(body_text) > max_body_chars:
+        trimmed["body_text"] = body_text[:max_body_chars] + "\n[truncated]"
+    return trimmed
+
+
 async def run_batch(
-    account: str, limit: int | None, workflow_file: str, concurrency: int
+    account: str,
+    limit: int | None,
+    workflow_file: str,
+    concurrency: int,
+    max_body_chars: int,
+    strip_html: bool,
 ) -> int:
     # Wire the email-tool catalog by setting the env var before main builds.
     os.environ["WORKFLOW_PLATFORM_GMAIL_ACCOUNT"] = account
@@ -123,6 +156,9 @@ async def run_batch(
                 memory=memory,
             )
             trigger = json.loads(fixture_path.read_text())
+            trigger = _trim_trigger(
+                trigger, max_body_chars=max_body_chars, strip_html=strip_html
+            )
             try:
                 instance = await engine.run(definition, trigger_payload=trigger)
             except Exception as exc:
@@ -141,6 +177,7 @@ async def run_batch(
                 "subject": trigger.get("subject", "")[:60],
                 "from": trigger.get("from_address", {}).get("address", ""),
                 "state": instance.state.value,
+                "instance_error": instance.error,
                 "parse_ok": record_out.get("parse_ok"),
                 "category": record_out.get("category"),
                 "confidence": record_out.get("confidence"),
@@ -239,9 +276,39 @@ def main() -> int:
             "if your per-run latency is bounded by Bedrock response time."
         ),
     )
+    parser.add_argument(
+        "--max-body-chars",
+        type=int,
+        default=5000,
+        help=(
+            "Truncate each message's body_text to this many chars before "
+            "passing to the workflow (default 5000). Real classification "
+            "signal is in the first paragraph; long bodies are reply "
+            "chains and marketing fluff that bloat token use without "
+            "improving accuracy."
+        ),
+    )
+    parser.add_argument(
+        "--keep-html",
+        action="store_true",
+        help=(
+            "By default, body_html is stripped from the trigger payload "
+            "before invoking the workflow (body_text is the same content "
+            "minus markup, and HTML carries 5-10x more tokens). Pass "
+            "--keep-html to ship the HTML version too — almost never "
+            "what you want for classification."
+        ),
+    )
     args = parser.parse_args()
     return asyncio.run(
-        run_batch(args.account, args.limit, args.workflow, args.concurrency)
+        run_batch(
+            args.account,
+            args.limit,
+            args.workflow,
+            args.concurrency,
+            args.max_body_chars,
+            strip_html=not args.keep_html,
+        )
     )
 
 

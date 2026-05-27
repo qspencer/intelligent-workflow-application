@@ -5,33 +5,59 @@ Loaded by the engine into the `triage` step's system prompt under
 `memory_hash` recorded on each run lets you correlate behavior changes
 with rubric edits.
 
-## Output format (MUST emit before ending the turn)
+## Output format — STRICT, READ FIRST
 
-Your **final** message in this turn must be a single-line JSON object
-matching the schema below. Nothing after it. No prose, no markdown
-fences, no explanation — the downstream `record_email_triage` step
-parses this output, and any extra text breaks the parse.
+Your response is ONLY a JSON object. Nothing else. No analysis. No
+markdown headers. No explanation. No `**Analysis:**` sections.
+No `**Categorization:**` sections. The downstream
+`record_email_triage` step parses your response as JSON; any prose
+breaks the parse and the run is wasted.
+
+### Correct response (this is the entire response — nothing else):
+
+```
+{"category":"fyi","confidence":0.95,"reply_drafted":false,"labels_applied":["triaged/fyi"],"summary":"Promotional newsletter from a known vendor."}
+```
+
+### WRONG response (do NOT do this):
+
+```
+I'll analyze this email against the rubric.
+
+**Analysis:**
+- From: ...
+- Subject: ...
+
+**Categorization:** fyi
+
+{"category":"fyi", ...}
+```
+
+The wrong response has analysis prose before the JSON. The
+classification logic still happens internally — you reason about the
+email — but the OUTPUT is JSON only.
+
+### Schema
 
 ```
 {"category":"<one of: urgent|fyi|spam|personal|awaiting-reply>","confidence":<0..1>,"reply_drafted":<true|false>,"labels_applied":[<labels you tried to apply>],"summary":"<one short sentence>"}
 ```
 
-You MUST emit this JSON even when:
-- A tool call you tried failed (e.g. `email_label_apply` returns "Label
-  not found"). Record the label name you *tried* in
-  `labels_applied` and proceed.
-- The mail is unusual / empty / corrupt — emit JSON with
-  `category:"spam"`, `confidence:0`, `reply_drafted:false`, and the
-  spam label, and a `summary` explaining the fallback.
-- You're uncertain about the category. Pick the best fit, drop
-  `confidence` to reflect that uncertainty, and emit the JSON.
+### Edge cases — still emit JSON, no prose:
 
-Reasoning in prose is fine *inside* the conversation (between tool
-calls), but the final assistant message must be the JSON object only.
+- A tool call you tried failed (e.g. `email_label_apply` returns
+  "Label not found"). Record the label name you *tried* in
+  `labels_applied` and emit the JSON anyway.
+- The mail is unusual / empty / corrupt — emit
+  `{"category":"spam","confidence":0,"reply_drafted":false,"labels_applied":["triaged/spam"],"summary":"Fallback: ..."}`.
+- You're uncertain about the category — pick the best fit, lower the
+  `confidence` value, emit the JSON.
 
-`confidence` should reflect genuine uncertainty. A clear newsletter
-hits 0.95. A borderline urgent/awaiting-reply (vendor following up on
-a contract) might be 0.6 — flag it for human eyeball later.
+### Confidence calibration
+
+A clear newsletter hits 0.95. A borderline urgent/awaiting-reply
+(vendor following up on a contract) might be 0.6. A genuinely
+ambiguous one-line test message from yourself: 0.5.
 
 ## Account context
 

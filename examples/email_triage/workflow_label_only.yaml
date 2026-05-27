@@ -43,7 +43,12 @@ steps:
          "summary": "<one short sentence — why this category>"}
     policy:
       max_iterations: 5
-      max_total_tokens: 6000
+      # Each agent iteration on real personal mail uses 5-8k tokens (the
+      # rubric is ~3k, the JSON-dumped trigger payload with truncated
+      # body_text is ~1-2k, the response is ~1-2k). The agent typically
+      # needs 2 iterations: one tool_use(email_label_apply) + one final
+      # JSON response. 20000 gives margin for 3 iterations on edge cases.
+      max_total_tokens: 20000
 
   - id: record
     type: deterministic
@@ -56,5 +61,9 @@ edges:
     to: record
 
 policies:
-  max_total_tokens: 10000
+  # Real personal email is noisier than synthetic fixtures. Raised from
+  # 10k to 30k so the workflow doesn't pause between triage and record
+  # steps; per-message run still typically lands at 5-10k tokens after
+  # the batch driver strips body_html and truncates body_text.
+  max_total_tokens: 30000
   budget_action: pause
