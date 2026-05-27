@@ -12,6 +12,8 @@ trigger:
   config:
     path: ./examples/pdf_classifier/sample_inbox
     pattern: "*.pdf"
+  example_payload:
+    file_path: "/abs/path/to/sample.pdf"
 
 steps:
   - id: extract

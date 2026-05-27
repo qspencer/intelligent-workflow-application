@@ -12,6 +12,19 @@ trigger:
   type: webhook
   config:
     trigger_id: research-paper-triage
+  # Shown verbatim in the dashboard's Run dialog. Matches what
+  # `scripts/fetch_papers.sh` emits per paper.
+  example_payload:
+    id: "2310.08560v2"
+    title: "MemGPT: Towards LLMs as Operating Systems"
+    abstract: "Large language models (LLMs) have revolutionized AI, but are constrained by limited context windows..."
+    authors:
+      - "Charles Packer"
+      - "Sarah Wooders"
+    primary_category: "cs.AI"
+    categories: ["cs.AI", "cs.CL"]
+    published: "2023-10-12T18:00:21Z"
+    comment: "Project website: https://memgpt.ai"
 
 steps:
   - id: triage

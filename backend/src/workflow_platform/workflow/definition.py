@@ -22,6 +22,11 @@ class TriggerSpec(BaseModel):
 
     type: str
     config: dict[str, Any] = Field(default_factory=dict)
+    # Optional example payload shown verbatim in the dashboard's "Run"
+    # dialog as the pre-filled trigger payload. Lets each workflow YAML
+    # carry its own shape-hint so operators don't need to guess what the
+    # agent expects. Never read by the engine — purely operator UX.
+    example_payload: dict[str, Any] | None = None
 
 
 class StepRuntimePolicy(BaseModel):

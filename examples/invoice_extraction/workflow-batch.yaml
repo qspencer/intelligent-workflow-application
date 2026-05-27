@@ -12,6 +12,8 @@ description: |
 
 trigger:
   type: manual
+  example_payload:
+    file_path: "/abs/path/to/invoice.pdf"
 
 steps:
   - id: pdf_extract

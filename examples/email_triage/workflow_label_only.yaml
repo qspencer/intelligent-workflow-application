@@ -12,6 +12,24 @@ description: |
 
 trigger:
   type: manual
+  example_payload:
+    provider: "gmail"
+    message_id: "fixture-02"
+    thread_id: "thread-fixture-02"
+    from_address:
+      address: "newsletter@databricks-weekly.com"
+      name: "Databricks Weekly"
+    to:
+      - address: "qspencer@gmail.com"
+    cc: []
+    bcc: []
+    subject: "This week in data"
+    body_text: "Here's what's new this week..."
+    body_html: null
+    received_at: "2026-05-25T09:15:00+00:00"
+    labels: ["INBOX"]
+    in_reply_to: null
+    headers: {}
 
 steps:
   - id: triage

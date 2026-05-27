@@ -12,6 +12,24 @@ trigger:
   type: webhook
   config:
     trigger_id: github-pr-triage
+  # Slim GitHub PR shape — same fields `scripts/fetch_prs.sh` emits.
+  example_payload:
+    number: 4271
+    title: "fix(billing): retry stripe webhooks on transient 503"
+    body: "## What\nStripe's webhook delivery occasionally returns 503...\n\n## Testing\nNew unit tests in tests/billing/test_stripe_retry.py."
+    user:
+      login: "maria-r"
+    state: "open"
+    draft: false
+    additions: 64
+    deletions: 7
+    changed_files: 3
+    base:
+      ref: "main"
+      repo:
+        full_name: "acme/billing"
+    head:
+      ref: "maria/stripe-retry"
 
 steps:
   - id: triage

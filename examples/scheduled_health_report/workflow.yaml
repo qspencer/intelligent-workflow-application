@@ -11,6 +11,9 @@ trigger:
   config:
     # Every 60s. Change to `cron: "*/5 * * * *"` for cron-style.
     interval_seconds: 60
+  # Schedule triggers don't carry a real payload; the empty object
+  # lets a manual Run via the dashboard mimic a scheduled fire.
+  example_payload: {}
 
 steps:
   - id: status

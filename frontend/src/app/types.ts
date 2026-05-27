@@ -1,9 +1,19 @@
 // Mirror the backend Pydantic models — only the fields the UI consumes.
 
+export interface TriggerSpec {
+  type: string;
+  config: Record<string, unknown>;
+  /** Optional shape-hint for the dashboard's Run dialog. Workflow YAML
+   *  authors declare a realistic payload here; the dialog pre-fills
+   *  it as JSON so operators don't have to guess the schema. */
+  example_payload?: Record<string, unknown> | null;
+}
+
 export interface WorkflowDefinition {
   id: string;
   name: string;
   description: string;
+  trigger?: TriggerSpec;
 }
 
 export type WorkflowState =

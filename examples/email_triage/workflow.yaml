@@ -17,6 +17,25 @@ trigger:
     account: intelligent.workflow.engine@quentinspencer.com
     poll_interval_seconds: 60
     label: INBOX
+  # EmailMessage shape — what `GmailPollTrigger` emits per message.
+  example_payload:
+    provider: "gmail"
+    message_id: "fixture-02"
+    thread_id: "thread-fixture-02"
+    from_address:
+      address: "newsletter@databricks-weekly.com"
+      name: "Databricks Weekly"
+    to:
+      - address: "intelligent.workflow.engine@quentinspencer.com"
+    cc: []
+    bcc: []
+    subject: "This week in data: 14 new MLflow integrations, Unity Catalog updates"
+    body_text: "Here's what's new in the Databricks ecosystem this week..."
+    body_html: null
+    received_at: "2026-05-25T09:15:00+00:00"
+    labels: ["INBOX", "CATEGORY_PROMOTIONS"]
+    in_reply_to: null
+    headers: {}
 
 steps:
   - id: triage

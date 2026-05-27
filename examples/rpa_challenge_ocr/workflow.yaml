@@ -10,6 +10,8 @@ description: |
 
 trigger:
   type: manual
+  # No payload needed — the agent drives the browser from a fixed URL.
+  example_payload: {}
 
 steps:
   - id: open_challenge

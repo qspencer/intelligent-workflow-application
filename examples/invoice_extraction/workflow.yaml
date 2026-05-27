@@ -22,6 +22,8 @@ trigger:
   config:
     path: /tmp/invoice-inbox
     pattern: '*.pdf'
+  example_payload:
+    file_path: "/abs/path/to/invoice.pdf"
 
 steps:
   - id: pdf_extract

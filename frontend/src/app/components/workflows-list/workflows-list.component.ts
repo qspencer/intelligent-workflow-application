@@ -321,7 +321,14 @@ export class WorkflowsListComponent implements OnInit {
   }
 
   openRun(wf: WorkflowDefinition): void {
-    this.runPayloadText = '{}';
+    // Pre-fill with the workflow's declared example_payload if present;
+    // otherwise leave the box at "{}". JSON.stringify with 2-space indent
+    // gives operators something readable that they can edit in place.
+    const example = wf.trigger?.example_payload;
+    this.runPayloadText =
+      example && Object.keys(example).length > 0
+        ? JSON.stringify(example, null, 2)
+        : '{}';
     this.runError.set(null);
     this.runOpen.set(wf);
   }
