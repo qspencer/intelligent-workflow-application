@@ -1,0 +1,104 @@
+id: rpa-challenge-ocr
+name: RPA Challenge OCR
+description: |
+  End-to-end browser-automation validation workload against
+  https://rpachallengeocr.azurewebsites.net/. Six steps: open + start the
+  challenge, read the invoice table, filter to overdue invoices, OCR each
+  invoice image to extract structured fields, build a CSV from the
+  extracted rows, upload + submit. Exercises every browser_* tool category
+  plus the new image_ocr / filter_rows_by_date / write_csv stock pieces.
+
+trigger:
+  type: manual
+
+steps:
+  - id: open_challenge
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: [browser_navigate, browser_click, browser_wait_for]
+    goal: |
+      You are operating a browser. Do exactly this:
+        1. browser_navigate to https://rpachallengeocr.azurewebsites.net/
+        2. browser_click selector `#buttonStart`
+        3. browser_wait_for selector `#tableSandbox tr` state `visible` (waits
+           until the JS-rendered table has at least one row)
+      Then respond with just the word "ready".
+    policy:
+      max_iterations: 8
+      max_total_tokens: 2000
+
+  - id: read_table
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: [browser_read_table]
+    goal: |
+      Call browser_read_table on selector `#tableSandbox`. The page exposes
+      these columns: ID, Due Date, Invoice (a link). For each row, output an
+      object with keys exactly: `id`, `due_date`, `invoice_url`.
+      Respond with a single JSON array — no prose, no markdown fences.
+    policy:
+      max_iterations: 3
+      max_total_tokens: 4000
+
+  - id: filter_overdue
+    type: deterministic
+    function: filter_rows_by_date
+    config:
+      rows_from: steps.read_table.output_text
+      date_field: due_date
+      cutoff: today
+      comparison: on_or_before
+
+  - id: extract_invoices
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: [browser_download, image_ocr]
+    goal: |
+      For each row in prior_steps.filter_overdue.kept_rows:
+        1. browser_download via a click on the invoice link — the page
+           selector for row N is `#tableSandbox tr:nth-child(N+1) a`.
+           Alternatively if `invoice_url` is a direct URL, browser_navigate
+           there and use browser_download on the displayed image.
+        2. image_ocr the downloaded JPG file.
+        3. Parse the OCR text. The invoice template includes (case-varied):
+           Invoice Number, Invoice Date, Company, Total Due.
+      Respond with a single JSON array — one object per row, keys exactly:
+      `id`, `due_date`, `invoice_number`, `invoice_date`, `company_name`,
+      `total_due`. Order matches kept_rows. No prose, no markdown fences.
+    policy:
+      max_iterations: 60
+      max_total_tokens: 50000
+
+  - id: build_csv
+    type: deterministic
+    function: write_csv
+    config:
+      rows_from: steps.extract_invoices.output_text
+      path: /tmp/rpa-challenge-output.csv
+      columns: [id, due_date, invoice_number, invoice_date, company_name, total_due]
+
+  - id: submit
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: [browser_upload_file, browser_click, browser_screenshot]
+    goal: |
+      Submit the results:
+        1. browser_upload_file at selector `#csv` with file_path
+           `/tmp/rpa-challenge-output.csv`
+        2. browser_click on `#submit`
+        3. browser_screenshot the result page (full_page true)
+      Respond with the path of the screenshot you captured.
+    policy:
+      max_iterations: 8
+      max_total_tokens: 3000
+
+edges:
+  - {from: open_challenge,   to: read_table}
+  - {from: read_table,       to: filter_overdue}
+  - {from: filter_overdue,   to: extract_invoices}
+  - {from: extract_invoices, to: build_csv}
+  - {from: build_csv,        to: submit}
+
+policies:
+  max_total_tokens: 80000
+  budget_action: pause

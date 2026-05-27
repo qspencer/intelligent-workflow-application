@@ -14,6 +14,7 @@ from workflow_platform.tools.connectors import ConnectorQueryTool, ConnectorSend
 from workflow_platform.tools.email import EmailLabelApplyTool, EmailSendTool
 from workflow_platform.tools.escalation import RequestHumanReviewTool
 from workflow_platform.tools.filesystem import FileReadTool, FileWriteTool
+from workflow_platform.tools.image_ocr import ImageOcrTool
 from workflow_platform.tools.pdf_extract import PdfExtractTool
 
 __all__ = [
@@ -32,6 +33,7 @@ __all__ = [
     "EmailSendTool",
     "FileReadTool",
     "FileWriteTool",
+    "ImageOcrTool",
     "PdfExtractTool",
     "RequestHumanReviewTool",
     "Tool",

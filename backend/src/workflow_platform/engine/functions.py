@@ -6,9 +6,11 @@ through `FunctionRegistry`.
 
 from __future__ import annotations
 
+import csv
+import io
 import json
 import re
-from datetime import datetime
+from datetime import date, datetime
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -585,6 +587,193 @@ async def record_evaluation(
     return {"parse_ok": True, **scores}
 
 
+_DATE_FORMATS: tuple[str, ...] = (
+    "%Y-%m-%d",
+    "%Y/%m/%d",
+    "%d-%m-%Y",
+    "%d/%m/%Y",
+    "%d %b %Y",
+    "%d %B %Y",
+    "%b %d, %Y",
+    "%B %d, %Y",
+)
+
+
+def _parse_date(raw: Any) -> date | None:
+    """Tolerant date parser. Returns None if the value can't be coerced."""
+    if isinstance(raw, date) and not isinstance(raw, datetime):
+        return raw
+    if isinstance(raw, datetime):
+        return raw.date()
+    if not isinstance(raw, str):
+        return None
+    txt = raw.strip()
+    if not txt:
+        return None
+    for fmt in _DATE_FORMATS:
+        try:
+            return datetime.strptime(txt, fmt).date()
+        except ValueError:
+            continue
+    return None
+
+
+def _resolve_rows(context: WorkflowContext, source: Any) -> list[dict[str, Any]]:
+    """Resolve a `rows_from` value to a list of dicts.
+
+    Accepts: an already-resolved list[dict] inline in config; a dotted
+    context path pointing at a JSON-stringified list (e.g. an agent's
+    `output_text`); a dotted context path pointing at an actual list
+    (e.g. a prior deterministic step's `kept_rows`).
+    """
+    if isinstance(source, list):
+        return [r for r in source if isinstance(r, dict)]
+    if not isinstance(source, str) or not source:
+        raise StepFailure("rows_from must be a dotted context path or a list literal")
+
+    # First try as a JSON literal (rare but allowed).
+    if source.lstrip().startswith("[") and source.lstrip().endswith("]"):
+        try:
+            parsed = json.loads(source)
+        except json.JSONDecodeError:
+            parsed = None
+        if isinstance(parsed, list):
+            return [r for r in parsed if isinstance(r, dict)]
+
+    # Otherwise treat as a dotted path: trigger.X / steps.X.Y...
+    parts = source.split(".")
+    head = parts[0]
+    rest = parts[1:]
+    cursor: Any
+    if head == "trigger":
+        cursor = context.trigger
+    elif head == "steps":
+        cursor = context.steps
+    else:
+        raise StepFailure(f"rows_from path {source!r} must start with 'trigger' or 'steps'")
+    for part in rest:
+        if not isinstance(cursor, dict) or part not in cursor:
+            raise StepFailure(f"rows_from path {source!r} not present in context")
+        cursor = cursor[part]
+
+    if isinstance(cursor, list):
+        return [r for r in cursor if isinstance(r, dict)]
+    if isinstance(cursor, str):
+        # Strip optional ```json fences, then parse.
+        body = cursor.strip()
+        if body.startswith("```"):
+            body = re.sub(r"^```[a-zA-Z]*\n?|\n?```$", "", body).strip()
+        try:
+            parsed = json.loads(body)
+        except json.JSONDecodeError as exc:
+            raise StepFailure(f"rows_from {source!r} not valid JSON: {exc}") from exc
+        if not isinstance(parsed, list):
+            raise StepFailure(f"rows_from {source!r} parsed to {type(parsed).__name__}, want list")
+        return [r for r in parsed if isinstance(r, dict)]
+    raise StepFailure(f"rows_from {source!r} resolved to {type(cursor).__name__}, want list or str")
+
+
+async def filter_rows_by_date(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Filter a list of row-dicts by a date field.
+
+    Config:
+      rows_from   — dotted path or list literal (see `_resolve_rows`).
+      date_field  — the dict key holding a date string (required).
+      cutoff      — 'today', 'yyyy-mm-dd', or an ISO datetime. (required).
+      comparison  — 'on_or_before' (default) | 'before' | 'on_or_after' | 'after'.
+
+    Returns `{kept_rows, dropped_rows, kept_count, dropped_count,
+    unparseable_count}`. Rows whose date can't be parsed are dropped
+    and counted separately so the workflow author can spot data-quality
+    issues without the step failing.
+    """
+    date_field = config.get("date_field")
+    if not isinstance(date_field, str) or not date_field:
+        raise StepFailure("filter_rows_by_date requires `date_field`")
+    cutoff_raw = config.get("cutoff")
+    if not isinstance(cutoff_raw, str) or not cutoff_raw:
+        raise StepFailure("filter_rows_by_date requires `cutoff`")
+    if cutoff_raw == "today":
+        cutoff = date.today()
+    else:
+        parsed_cutoff = _parse_date(cutoff_raw)
+        if parsed_cutoff is None:
+            raise StepFailure(f"filter_rows_by_date cannot parse cutoff {cutoff_raw!r}")
+        cutoff = parsed_cutoff
+
+    comparison = config.get("comparison", "on_or_before")
+    if comparison not in ("on_or_before", "before", "on_or_after", "after"):
+        raise StepFailure(f"filter_rows_by_date: invalid comparison {comparison!r}")
+
+    rows = _resolve_rows(context, config.get("rows_from"))
+    kept: list[dict[str, Any]] = []
+    dropped: list[dict[str, Any]] = []
+    unparseable = 0
+    for row in rows:
+        row_date = _parse_date(row.get(date_field))
+        if row_date is None:
+            unparseable += 1
+            continue
+        keep = (
+            (comparison == "on_or_before" and row_date <= cutoff)
+            or (comparison == "before" and row_date < cutoff)
+            or (comparison == "on_or_after" and row_date >= cutoff)
+            or (comparison == "after" and row_date > cutoff)
+        )
+        if keep:
+            kept.append(row)
+        else:
+            dropped.append(row)
+    return {
+        "kept_rows": kept,
+        "dropped_rows": dropped,
+        "kept_count": len(kept),
+        "dropped_count": len(dropped),
+        "unparseable_count": unparseable,
+    }
+
+
+async def write_csv(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Write a list of row-dicts to a CSV file via `World.fs`.
+
+    Config:
+      rows_from — dotted path or list literal (see `_resolve_rows`).
+      path      — output file path (required).
+      columns   — ordered list of column names (required). Missing keys
+                  are written as empty strings; extra keys in a row are
+                  dropped silently.
+
+    Returns `{path, row_count, column_count}`. The file is written via
+    `World.fs.write_bytes` so mock-world tests get the same byte-level
+    surface as production.
+    """
+    path = config.get("path")
+    if not isinstance(path, str) or not path:
+        raise StepFailure("write_csv requires `path`")
+    columns = config.get("columns")
+    if not isinstance(columns, list) or not all(isinstance(c, str) for c in columns):
+        raise StepFailure("write_csv requires `columns` as list[str]")
+    rows = _resolve_rows(context, config.get("rows_from"))
+
+    buf = io.StringIO()
+    writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    for row in rows:
+        normalized = {c: ("" if row.get(c) is None else str(row[c])) for c in columns}
+        writer.writerow(normalized)
+
+    await world.fs.write_bytes(path, buf.getvalue().encode())
+    return {
+        "path": path,
+        "row_count": len(rows),
+        "column_count": len(columns),
+    }
+
+
 def _resolve_path(context: WorkflowContext, dotted: str | None) -> str | None:
     if not dotted:
         return None
@@ -619,5 +808,7 @@ def default_function_registry() -> FunctionRegistry:
             "record_invoice_extraction": record_invoice_extraction,
             "route_by_value": route_by_value,
             "append_file": append_file,
+            "filter_rows_by_date": filter_rows_by_date,
+            "write_csv": write_csv,
         }
     )
