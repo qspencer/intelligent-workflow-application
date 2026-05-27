@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
-from typing import Any, ClassVar
+from typing import Any, ClassVar, Self
 
 ConnectorEventCallback = Callable[[dict[str, Any]], Awaitable[None]]
 
@@ -53,3 +53,26 @@ class Connector(ABC):
     async def query(self, params: dict[str, Any]) -> Any:
         """Read from the target system. Shape of the response is connector-specific."""
         raise NotImplementedError(f"{self.type!r} is not a query-capable connector")
+
+    # --- lifecycle (default: no-op so any connector composes as an async ctx mgr) ---
+    #
+    # Some connectors need per-run setup/teardown — the browser connector
+    # launches Chromium in `__aenter__` and closes it in `__aexit__`. Most
+    # connectors don't; they're process-scoped and authenticate once. The
+    # defaults below let the engine treat every connector uniformly as
+    # `async with` without each subclass having to implement no-ops.
+
+    async def __aenter__(self) -> Self:
+        return self
+
+    async def __aexit__(
+        self,
+        exc_type: Any,
+        exc_val: Any,
+        exc_tb: Any,
+    ) -> None:
+        # `type[BaseException]` would be the proper annotation but `type` is
+        # shadowed by this class's `type: ClassVar[str]` field, so mypy
+        # can't resolve it here. `Any` is fine — context-manager dunders
+        # have a fixed shape that callers never inspect.
+        return None

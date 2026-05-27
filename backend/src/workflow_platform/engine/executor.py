@@ -19,8 +19,9 @@ import hashlib
 import json
 import logging
 from collections import defaultdict
-from collections.abc import Coroutine
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 import simpleeval
@@ -28,6 +29,7 @@ import simpleeval
 from workflow_platform.agent import Agent, AgentPolicy
 from workflow_platform.agent.registry import ToolRegistry as AgentToolRegistry
 from workflow_platform.bedrock import BedrockClient
+from workflow_platform.connectors.browser import BrowserConnector, PlaywrightConnector
 from workflow_platform.cost import cost_for_usage
 from workflow_platform.engine.context import WorkflowContext
 from workflow_platform.engine.registry import FunctionRegistry, StepFailure
@@ -104,6 +106,23 @@ class _DagState:
     edges_by_source: dict[str, list[Edge]] = field(default_factory=lambda: defaultdict(list))
 
 
+_BROWSER_TOOL_PREFIX = "browser_"
+
+
+def _workflow_uses_browser(definition: WorkflowDefinition) -> bool:
+    """True iff any agentic step's `tools` list references a `browser_*` tool.
+
+    Determines whether `_drive` should lazy-build a `BrowserConnector` for
+    this run. Workflows that don't touch the browser pay zero cost.
+    """
+    for step in definition.steps:
+        if isinstance(step, AgenticStep):
+            for tool_name in step.tools:
+                if tool_name.startswith(_BROWSER_TOOL_PREFIX):
+                    return True
+    return False
+
+
 @dataclass
 class WorkflowEngine:
     repositories: Repositories
@@ -116,6 +135,14 @@ class WorkflowEngine:
     events: EventBus | None = None
     metrics: Metrics = field(default_factory=NoopMetrics)
     pause_check_interval: float = 0.0  # seconds; 0 disables polling-based pause checks
+    # Browser-connector run-scope config. `browser_downloads_dir` is where
+    # `download_via_click` and `screenshot` files land; defaults to a
+    # process-local `./downloads/` folder. `browser_connector_factory` is
+    # the injection seam for tests: when None, `_build_run_connectors`
+    # constructs a default `PlaywrightConnector`; tests pass a factory
+    # that returns a fake instead so no real Chromium is launched.
+    browser_downloads_dir: Path = field(default_factory=lambda: Path("./downloads"))
+    browser_connector_factory: Callable[[], BrowserConnector] | None = None
 
     # --- public API ---
 
@@ -294,10 +321,30 @@ class WorkflowEngine:
         *,
         already_done: set[str],
     ) -> WorkflowInstance:
+        """Run the dispatch loop within a connector lifecycle scope.
+
+        Tears down any per-run connectors in `finally` — regardless of
+        success / pause / kill / failure path inside `_drive_inner`.
+        Connector build itself happens inside `_drive_inner` so a build
+        failure routes through the existing `except StepFailure` branch.
+        """
+        try:
+            return await self._drive_inner(definition, instance, context, already_done)
+        finally:
+            await self._teardown_run_connectors(context, instance.id)
+
+    async def _drive_inner(
+        self,
+        definition: WorkflowDefinition,
+        instance: WorkflowInstance,
+        context: WorkflowContext,
+        already_done: set[str],
+    ) -> WorkflowInstance:
         steps_by_id = {s.id: s for s in definition.steps}
         state = self._build_dag_state(definition, already_done)
 
         try:
+            await self._build_run_connectors(definition, context, instance.id)
             timeout = definition.policies.timeout_seconds
             if timeout:
                 await asyncio.wait_for(
@@ -368,6 +415,76 @@ class WorkflowEngine:
             detail={"steps": list(context.steps)},
         )
         return instance
+
+    async def _build_run_connectors(
+        self,
+        definition: WorkflowDefinition,
+        context: WorkflowContext,
+        instance_id: str,
+    ) -> None:
+        """Lazy-build per-run connectors required by this workflow.
+
+        Mutates `context.connectors` in place. Audit-logs build failures
+        and re-raises as `StepFailure` so the workflow fails cleanly
+        instead of crashing inside `_drive`.
+        """
+        if not _workflow_uses_browser(definition):
+            return
+        try:
+            factory = self.browser_connector_factory or (
+                lambda: PlaywrightConnector(downloads_dir=self.browser_downloads_dir)
+            )
+            connector = factory()
+            await connector.__aenter__()
+        except Exception as exc:
+            await self._audit(
+                "connector_build_failed",
+                actor_type="engine",
+                actor_id="workflow_engine",
+                instance_id=instance_id,
+                detail={"connector": "browser", "error": str(exc)},
+            )
+            raise StepFailure(f"browser connector build failed: {exc}") from exc
+        context.connectors["browser"] = connector
+        await self._audit(
+            "connector_opened",
+            actor_type="engine",
+            actor_id="workflow_engine",
+            instance_id=instance_id,
+            detail={"connector": "browser"},
+        )
+
+    async def _teardown_run_connectors(
+        self,
+        context: WorkflowContext,
+        instance_id: str,
+    ) -> None:
+        """Best-effort teardown for every per-run connector.
+
+        Exceptions during teardown are swallowed + audited; the engine
+        must not raise during cleanup or it'll mask the original error.
+        """
+        for name, connector in list(context.connectors.items()):
+            try:
+                await connector.__aexit__(None, None, None)
+            except Exception as exc:
+                logger.exception("Connector %r teardown failed", name)
+                await self._audit(
+                    "connector_teardown_failed",
+                    actor_type="engine",
+                    actor_id="workflow_engine",
+                    instance_id=instance_id,
+                    detail={"connector": name, "error": str(exc)},
+                )
+            else:
+                await self._audit(
+                    "connector_closed",
+                    actor_type="engine",
+                    actor_id="workflow_engine",
+                    instance_id=instance_id,
+                    detail={"connector": name},
+                )
+        context.connectors.clear()
 
     def _build_dag_state(self, definition: WorkflowDefinition, already_done: set[str]) -> _DagState:
         state = _DagState()
@@ -786,6 +903,7 @@ class WorkflowEngine:
             agent_id=agent_id,
             workflow_instance_id=instance_id,
             capabilities=capabilities,
+            connectors=dict(context.connectors),
         )
         result = await agent.run(user_message, context=tool_ctx)
 

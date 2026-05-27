@@ -17,6 +17,7 @@ from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from workflow_platform.connectors.base import Connector
 from workflow_platform.security import ResolvedCapabilities
 
 
@@ -30,6 +31,12 @@ class WorkflowContext(BaseModel):
     capabilities: ResolvedCapabilities | None = None
     total_tokens: int = 0
     total_cost_usd: float = 0.0
+    # Per-run connectors that need lifecycle tied to the workflow run (e.g.
+    # `PlaywrightConnector`). Engine lazy-builds these in `_drive`'s
+    # try/finally; tools look up via `ToolContext.connectors`. Excluded
+    # from `model_dump()` so connector instances don't leak into the
+    # JSON-serialized `instance.context`.
+    connectors: dict[str, Connector] = Field(default_factory=dict, exclude=True)
 
     def step_output(self, step_id: str) -> dict[str, Any] | None:
         return self.steps.get(step_id)
