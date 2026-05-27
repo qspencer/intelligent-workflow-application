@@ -42,6 +42,13 @@ class InstanceRepo(ABC):
     async def update(self, instance: WorkflowInstance) -> WorkflowInstance: ...
 
     @abstractmethod
+    async def delete(self, instance_id: str) -> bool:
+        """Hard-delete an instance row. Returns True if a row was deleted,
+        False if no instance existed. Callers are responsible for also
+        deleting related step_executions; audit entries are intentionally
+        left intact so the historical record remains tamper-evident."""
+
+    @abstractmethod
     async def list_by_workflow(self, workflow_id: str) -> list[WorkflowInstance]: ...
 
     @abstractmethod
@@ -57,6 +64,11 @@ class StepExecutionRepo(ABC):
 
     @abstractmethod
     async def update(self, execution: StepExecution) -> StepExecution: ...
+
+    @abstractmethod
+    async def delete_by_instance(self, instance_id: str) -> int:
+        """Delete every step_execution row tied to one instance. Returns
+        the number of rows deleted. Called as part of instance hard-delete."""
 
     @abstractmethod
     async def list_by_instance(self, instance_id: str) -> list[StepExecution]: ...

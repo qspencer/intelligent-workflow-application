@@ -5,6 +5,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
+from sqlalchemy import delete as sql_delete
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -90,6 +91,14 @@ class PostgresInstanceRepo(InstanceRepo):
             row.completed_at = instance.completed_at
         return instance
 
+    async def delete(self, instance_id: str) -> bool:
+        async with self._sf() as s, s.begin():
+            row = await s.get(WorkflowInstanceRow, instance_id)
+            if row is None:
+                return False
+            await s.delete(row)
+        return True
+
     async def list_by_workflow(self, workflow_id: str) -> list[WorkflowInstance]:
         async with self._sf() as s:
             result = await s.execute(
@@ -131,6 +140,16 @@ class PostgresStepExecutionRepo(StepExecutionRepo):
             row.started_at = execution.started_at
             row.completed_at = execution.completed_at
         return execution
+
+    async def delete_by_instance(self, instance_id: str) -> int:
+        async with self._sf() as s, s.begin():
+            result = await s.execute(
+                sql_delete(StepExecutionRow).where(StepExecutionRow.instance_id == instance_id)
+            )
+        # `Result.rowcount` is typed loose in SQLAlchemy 2.0 stubs but is a
+        # real attribute on the CursorResult returned for DML statements.
+        rowcount: int = getattr(result, "rowcount", 0) or 0
+        return rowcount
 
     async def list_by_instance(self, instance_id: str) -> list[StepExecution]:
         async with self._sf() as s:

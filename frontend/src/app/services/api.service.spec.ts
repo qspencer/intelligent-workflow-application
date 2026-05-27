@@ -6,12 +6,14 @@ import { ApiService } from './api.service';
 type HttpStub = {
   get: ReturnType<typeof vi.fn>;
   post: ReturnType<typeof vi.fn>;
+  delete: ReturnType<typeof vi.fn>;
 };
 
 function makeService(): { service: ApiService; http: HttpStub } {
   const http: HttpStub = {
     get: vi.fn().mockReturnValue(of([])),
     post: vi.fn().mockReturnValue(of(null)),
+    delete: vi.fn().mockReturnValue(of(null)),
   };
   // Bypass DI: inject() runs at construction, so we skip the constructor and
   // patch the private property directly. ApiService has no other state.
@@ -120,5 +122,11 @@ describe('ApiService', () => {
     expect(http.get).toHaveBeenCalledWith('/api/cost/by-workflow', {
       params: { since: '2026-05-01T00:00:00Z' },
     });
+  });
+
+  it('deleteInstance issues DELETE to /workflow-instances/{id}', () => {
+    const { service, http } = makeService();
+    service.deleteInstance('inst-9');
+    expect(http.delete).toHaveBeenCalledWith('/api/workflow-instances/inst-9');
   });
 });

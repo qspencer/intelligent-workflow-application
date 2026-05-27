@@ -58,6 +58,14 @@ export class ApiService {
     return this.http.post(`${API_BASE}/workflow-instances/${id}/kill`, {});
   }
 
+  /** Hard-delete a terminal (completed / failed / killed) instance.
+   *  Backend rejects with 400 if the instance is still running / pending /
+   *  paused; callers should hide the button in those states. Audit entries
+   *  are not deleted (append-only). */
+  deleteInstance(id: string): Observable<unknown> {
+    return this.http.delete(`${API_BASE}/workflow-instances/${id}`);
+  }
+
   importWorkflow(body: string, contentType: 'yaml' | 'json'): Observable<WorkflowDefinition> {
     const mime =
       contentType === 'json' ? 'application/json' : 'application/x-yaml';

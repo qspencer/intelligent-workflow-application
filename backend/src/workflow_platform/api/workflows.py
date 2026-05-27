@@ -318,6 +318,40 @@ def build_router(
         await repositories.instances.update(instance)
         return {"status": "kill_requested", "instance_id": instance_id}
 
+    @router.delete("/workflow-instances/{instance_id}", status_code=204)
+    async def delete_instance(
+        instance_id: str,
+        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+    ) -> Response:
+        """Hard-delete a terminal instance + its step_executions.
+
+        Audit entries referencing the instance are intentionally left in
+        place: the audit log is append-only by design, so the history
+        of what happened survives the cleanup of what currently exists.
+
+        Refuses on non-terminal states (running / pending / paused) — kill
+        first if the operator wants to stop a live run.
+        """
+        instance = await repositories.instances.get(instance_id)
+        if instance is None:
+            raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
+        terminal = {
+            WorkflowInstanceState.COMPLETED,
+            WorkflowInstanceState.FAILED,
+            WorkflowInstanceState.KILLED,
+        }
+        if instance.state not in terminal:
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Cannot delete: instance is {instance.state.value}. "
+                    f"Kill it first, then delete."
+                ),
+            )
+        await repositories.steps.delete_by_instance(instance_id)
+        await repositories.instances.delete(instance_id)
+        return Response(status_code=204)
+
     @router.get(
         "/workflow-instances/{instance_id}/audit",
         response_model=list[AuditEntry],

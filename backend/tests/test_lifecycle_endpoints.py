@@ -282,3 +282,92 @@ def test_fork_creates_new_instance(
     audit = asyncio.run(repos.audit.list_by_instance(body["instance_id"]))
     actions = [e.action for e in audit]
     assert "workflow_forked" in actions
+
+
+# ---------- DELETE endpoint ----------
+
+
+def test_delete_terminal_instance_removes_it_and_steps(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    """A terminal (completed) instance + its step_executions are gone after
+    DELETE. Audit entries stay — append-only log."""
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    completed_id = next(i.id for i in instances if i.state == WorkflowInstanceState.COMPLETED)
+    # Seed at least one step_execution + audit entry so we can verify
+    # the cascade. The dev_app fixture seeds instances but not
+    # step_executions, so we add one directly here.
+    from datetime import UTC, datetime
+
+    from workflow_platform.persistence import StepExecution, StepExecutionState
+
+    asyncio.run(
+        repos.steps.create(
+            StepExecution(
+                instance_id=completed_id,
+                step_id="seeded-step",
+                state=StepExecutionState.COMPLETED,
+                started_at=datetime.now(UTC),
+                completed_at=datetime.now(UTC),
+            )
+        )
+    )
+    pre_audit = asyncio.run(repos.audit.list_by_instance(completed_id))
+
+    r = client.delete(f"/api/workflow-instances/{completed_id}", headers=_admin())
+    assert r.status_code == 204
+    assert r.content == b""
+
+    # Instance + steps gone.
+    assert asyncio.run(repos.instances.get(completed_id)) is None
+    assert asyncio.run(repos.steps.list_by_instance(completed_id)) == []
+    # Audit log entries for the deleted instance are intentionally preserved.
+    post_audit = asyncio.run(repos.audit.list_by_instance(completed_id))
+    assert len(post_audit) == len(pre_audit)
+
+
+def test_delete_failed_and_killed_instances_also_work(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    """All three terminal states are deletable."""
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    failed_id = next(i.id for i in instances if i.state == WorkflowInstanceState.FAILED)
+    r = client.delete(f"/api/workflow-instances/{failed_id}", headers=_admin())
+    assert r.status_code == 204
+    # Also kill+delete a running one to cover KILLED.
+    running_id = next(i.id for i in instances if i.state == WorkflowInstanceState.RUNNING)
+    client.post(f"/api/workflow-instances/{running_id}/kill", headers=_admin())
+    r = client.delete(f"/api/workflow-instances/{running_id}", headers=_admin())
+    assert r.status_code == 204
+
+
+def test_delete_nonterminal_instance_rejected(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    """RUNNING (not yet killed) can't be deleted — kill first."""
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    running_id = next(i.id for i in instances if i.state == WorkflowInstanceState.RUNNING)
+    r = client.delete(f"/api/workflow-instances/{running_id}", headers=_admin())
+    assert r.status_code == 400
+    assert "running" in r.text.lower()
+
+
+def test_delete_nonexistent_instance_returns_404(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, _, _ = dev_app
+    r = client.delete("/api/workflow-instances/no-such-id", headers=_admin())
+    assert r.status_code == 404
+
+
+def test_delete_requires_admin_or_operator(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    completed_id = next(i.id for i in instances if i.state == WorkflowInstanceState.COMPLETED)
+    r = client.delete(f"/api/workflow-instances/{completed_id}", headers=_viewer())
+    assert r.status_code == 403

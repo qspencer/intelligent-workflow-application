@@ -59,6 +59,9 @@ class InMemoryInstanceRepo(InstanceRepo):
         self._items[instance.id] = instance.model_copy(deep=True)
         return self._items[instance.id]
 
+    async def delete(self, instance_id: str) -> bool:
+        return self._items.pop(instance_id, None) is not None
+
     async def list_by_workflow(self, workflow_id: str) -> list[WorkflowInstance]:
         return [
             i.model_copy(deep=True) for i in self._items.values() if i.workflow_id == workflow_id
@@ -89,6 +92,12 @@ class InMemoryStepExecutionRepo(StepExecutionRepo):
             raise ValueError(f"StepExecution {execution.id} not found")
         self._items[execution.id] = execution.model_copy(deep=True)
         return self._items[execution.id]
+
+    async def delete_by_instance(self, instance_id: str) -> int:
+        to_remove = [eid for eid, e in self._items.items() if e.instance_id == instance_id]
+        for eid in to_remove:
+            del self._items[eid]
+        return len(to_remove)
 
     async def list_by_instance(self, instance_id: str) -> list[StepExecution]:
         return [
