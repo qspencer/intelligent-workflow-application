@@ -61,13 +61,16 @@ import { WorkflowDefinition } from '../../types';
 
     @if (runOpen(); as wf) {
       <div class="dialog-overlay" (click)="closeRun()">
-        <div class="dialog" (click)="$event.stopPropagation()">
+        <div class="dialog large" (click)="$event.stopPropagation()">
           <h3>Run <code>{{ wf.id }}</code></h3>
           <p class="muted">
-            JSON object passed verbatim as the trigger payload. Operator or Admin role required.
+            JSON object passed verbatim as the trigger payload.
+            @if (!hasRole(['admins', 'operators'])) {
+              <span> Operator or Admin role required.</span>
+            }
           </p>
           <textarea
-            rows="8"
+            rows="20"
             placeholder='{"file_path": "/abs/path/to/some.pdf"}'
             [(ngModel)]="runPayloadText"
             [disabled]="runSubmitting()"
@@ -91,13 +94,16 @@ import { WorkflowDefinition } from '../../types';
 
     @if (importOpen()) {
       <div class="dialog-overlay" (click)="closeImport()">
-        <div class="dialog" (click)="$event.stopPropagation()">
+        <div class="dialog large" (click)="$event.stopPropagation()">
           <h3>Import workflow</h3>
           <p class="muted">
-            Paste a YAML or JSON workflow definition. Designer or Admin role required.
+            Paste a YAML or JSON workflow definition.
+            @if (!hasRole(['admins', 'designers'])) {
+              <span> Designer or Admin role required.</span>
+            }
           </p>
           <textarea
-            rows="14"
+            rows="20"
             placeholder="id: my-workflow&#10;name: ..."
             [(ngModel)]="importText"
             [disabled]="submitting()"
@@ -164,6 +170,16 @@ import { WorkflowDefinition } from '../../types';
         display: flex;
         flex-direction: column;
         gap: 12px;
+      }
+      /* The Run + Import dialogs hold JSON/YAML payloads up to ~50
+         lines (e.g. a real GitHub PR body or an EmailMessage). The
+         default 600px doesn't fit; large-variant takes the page width
+         up to 1000px and pushes the textarea to fill. */
+      .dialog.large {
+        width: 1000px;
+      }
+      .dialog.large textarea {
+        min-height: 400px;
       }
       .dialog h3 {
         margin: 0;
@@ -251,6 +267,20 @@ export class WorkflowsListComponent implements OnInit {
 
   ngOnInit(): void {
     this.refresh();
+  }
+
+  /** Whether the current dev-mode identity has any of the given group
+   *  values. Mirrors what the auth interceptor sends in `X-Dev-Groups`
+   *  (which defaults to 'admins' when localStorage is unset). Used to
+   *  suppress redundant "Role required" hints in dialogs the user can
+   *  already submit. In production OIDC mode there's no localStorage
+   *  to read; this returns false there, so the hint stays visible. */
+  hasRole(allowed: string[]): boolean {
+    const stored = localStorage.getItem('wp.groups');
+    // Match the interceptor's default: an unset localStorage acts as
+    // 'admins' in dev mode.
+    const effective = stored ?? 'admins';
+    return allowed.includes(effective);
   }
 
   /** Strip the markdown noise (code-fences, asterisk emphasis, headers,
