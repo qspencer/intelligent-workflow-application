@@ -43,6 +43,13 @@ class FakeLocator:
         if self._selector in self._page.raise_on_wait:
             raise self._page.raise_on_wait[self._selector]
 
+    @property
+    def first(self) -> FakeLocator:
+        """Stand-in for Playwright's `Locator.first` property — the
+        connector uses this on `wait_for` to defuse strict-mode multi-match
+        errors. Tests don't need to differentiate; return self."""
+        return self
+
     async def click(self, *, timeout: int = 5000) -> None:
         self._page.calls.append(("locator.click", {"selector": self._selector, "timeout": timeout}))
         if self._selector in self._page.raise_on_click:

@@ -273,7 +273,14 @@ class PlaywrightConnector(BrowserConnector):
     async def wait_for(
         self, selector: str, *, state: WaitState = "visible", timeout_ms: int = 5000
     ) -> None:
-        await self._page.locator(selector).wait_for(state=state, timeout=timeout_ms)
+        # `.first` defuses Playwright's strict-mode multi-match error: a
+        # selector that matches many elements (e.g. `#table tr`) would
+        # otherwise raise as soon as the locator hits ≥2 hits. For
+        # `wait_for`, the natural semantic is "wait until ANY match
+        # reaches `state`", so always operate on the first match. (Click
+        # / fill / read_text stay strict — they're acting on a specific
+        # element, so multiple matches there is a real ambiguity.)
+        await self._page.locator(selector).first.wait_for(state=state, timeout=timeout_ms)
 
     async def authenticate(self) -> None:
         # Browsers don't have a generic auth step — sites that need login

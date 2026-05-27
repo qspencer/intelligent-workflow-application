@@ -19,7 +19,7 @@ steps:
     goal: |
       You are operating a browser. Do exactly this:
         1. browser_navigate to https://rpachallengeocr.azurewebsites.net/
-        2. browser_click selector `#buttonStart`
+        2. browser_click selector `#start`
         3. browser_wait_for selector `#tableSandbox tr` state `visible` (waits
            until the JS-rendered table has at least one row)
       Then respond with just the word "ready".
@@ -83,9 +83,11 @@ steps:
     tools: [browser_upload_file, browser_click, browser_screenshot]
     goal: |
       Submit the results:
-        1. browser_upload_file at selector `#csv` with file_path
+        1. browser_upload_file at selector `input[name="csv"]` with file_path
            `/tmp/rpa-challenge-output.csv`
-        2. browser_click on `#submit`
+        2. browser_click on the submit button (it lives inside `#submit` —
+           try `#submit button` or `#submit input[type="submit"]`; if neither
+           works fall back to clicking text "SUBMIT")
         3. browser_screenshot the result page (full_page true)
       Respond with the path of the screenshot you captured.
     policy:

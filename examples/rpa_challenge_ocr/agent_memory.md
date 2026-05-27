@@ -9,9 +9,14 @@ correlate behavior changes with edits.
 The target site (https://rpachallengeocr.azurewebsites.net/) is a small
 SPA. The invoice table is rendered client-side (jQuery DataTables) into
 `<table id="tableSandbox">` — the `<tbody>` is empty in the initial
-HTML and only populates after the user clicks `#buttonStart` and the JS
-finishes its async fetch. **Always wait for `#tableSandbox tr` to be
-visible before reading the table.**
+HTML and only populates after the user clicks `#start` (note: the
+button's id is `start`, not `buttonStart`) and the JS finishes its
+async fetch. **Always wait for `#tableSandbox tr` to be visible
+before reading the table.**
+
+The submit form lives inside `<div id="submit">` and contains a
+`<input type="file" name="csv">` (file upload) plus a submit-style
+button.
 
 Each row in the populated table has three columns: an ID, a due date,
 and a link to a JPG image of the invoice. The link text says
