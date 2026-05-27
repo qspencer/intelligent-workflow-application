@@ -58,3 +58,27 @@ export interface AuditEntry {
   step_id: string | null;
   detail: Record<string, unknown>;
 }
+
+/** Backend cost-report row. Each endpoint returns the same shape with
+ *  a different key field name (workflow_id / model / date). The frontend
+ *  carries them as an indexed-access union for ergonomics. */
+export interface CostRowByWorkflow {
+  workflow_id: string;
+  total_cost_usd: number;
+  total_tokens: number;
+  step_count: number;
+}
+
+export interface CostRowByModel {
+  model: string;
+  total_cost_usd: number;
+  total_tokens: number;
+  step_count: number;
+}
+
+export interface CostRowByDay {
+  date: string;
+  total_cost_usd: number;
+  total_tokens: number;
+  step_count: number;
+}

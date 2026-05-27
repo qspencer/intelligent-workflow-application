@@ -23,4 +23,11 @@ export const routes: Routes = [
         (m) => m.InstanceDetailComponent,
       ),
   },
+  {
+    path: 'cost',
+    loadComponent: () =>
+      import('./components/cost-dashboard/cost-dashboard.component').then(
+        (m) => m.CostDashboardComponent,
+      ),
+  },
 ];

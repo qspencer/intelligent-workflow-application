@@ -3,9 +3,9 @@ import { describe, expect, it } from 'vitest';
 import { routes } from './app.routes';
 
 describe('app.routes', () => {
-  it('declares the three known paths plus a default redirect', () => {
+  it('declares the four known paths plus a default redirect', () => {
     const paths = routes.map((r) => r.path);
-    expect(paths).toEqual(['', 'workflows', 'instances', 'instances/:id']);
+    expect(paths).toEqual(['', 'workflows', 'instances', 'instances/:id', 'cost']);
     expect(routes[0].redirectTo).toBe('instances');
     expect(routes[0].pathMatch).toBe('full');
   });

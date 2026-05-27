@@ -13,6 +13,7 @@ import { RoleSwitcherComponent } from './components/role-switcher/role-switcher.
       <nav>
         <a routerLink="/instances" routerLinkActive="active">Instances</a>
         <a routerLink="/workflows" routerLinkActive="active">Workflows</a>
+        <a routerLink="/cost" routerLinkActive="active">Cost</a>
       </nav>
       <wp-role-switcher />
     </header>

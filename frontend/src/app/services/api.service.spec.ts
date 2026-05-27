@@ -103,4 +103,22 @@ describe('ApiService', () => {
       { from_step_id: 'classify' },
     );
   });
+
+  it.each([
+    ['costByWorkflow', '/api/cost/by-workflow'],
+    ['costByModel', '/api/cost/by-model'],
+    ['costByDay', '/api/cost/by-day'],
+  ] as const)('%s hits %s with empty params by default', (method, expectedUrl) => {
+    const { service, http } = makeService();
+    (service[method] as (since?: string) => unknown)();
+    expect(http.get).toHaveBeenCalledWith(expectedUrl, { params: {} });
+  });
+
+  it('costByWorkflow passes through the since param when provided', () => {
+    const { service, http } = makeService();
+    service.costByWorkflow('2026-05-01T00:00:00Z');
+    expect(http.get).toHaveBeenCalledWith('/api/cost/by-workflow', {
+      params: { since: '2026-05-01T00:00:00Z' },
+    });
+  });
 });

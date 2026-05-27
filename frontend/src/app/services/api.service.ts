@@ -4,6 +4,9 @@ import { Observable } from 'rxjs';
 
 import {
   AuditEntry,
+  CostRowByDay,
+  CostRowByModel,
+  CostRowByWorkflow,
   InstanceDetail,
   WorkflowDefinition,
   WorkflowInstance,
@@ -88,6 +91,24 @@ export class ApiService {
       instance_id: string;
       state: string;
     }>(`${API_BASE}/workflow-instances/${id}/fork`, { from_step_id: fromStepId });
+  }
+
+  costByWorkflow(since?: string): Observable<CostRowByWorkflow[]> {
+    return this.http.get<CostRowByWorkflow[]>(`${API_BASE}/cost/by-workflow`, {
+      params: this.cleanParams({ since }),
+    });
+  }
+
+  costByModel(since?: string): Observable<CostRowByModel[]> {
+    return this.http.get<CostRowByModel[]>(`${API_BASE}/cost/by-model`, {
+      params: this.cleanParams({ since }),
+    });
+  }
+
+  costByDay(since?: string): Observable<CostRowByDay[]> {
+    return this.http.get<CostRowByDay[]>(`${API_BASE}/cost/by-day`, {
+      params: this.cleanParams({ since }),
+    });
   }
 
   private cleanParams(input: Record<string, unknown>): Record<string, string> {
