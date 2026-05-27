@@ -8,7 +8,8 @@ Each section says *what* you're testing, *why* it's worth doing manually, and
 to those rather than rebuild them as click-through.
 
 Time budget: a quick smoke (pre-flight + sections 1–3) is ~10 minutes.
-Everything in this doc end-to-end is ~30 minutes plus Bedrock latency.
+Everything in this doc end-to-end is ~40 minutes plus live-service
+latency (the browser end-to-end live test alone is ~5 minutes).
 
 ---
 
@@ -191,7 +192,7 @@ them, run the same command with `BEDROCK_MODE=record` env var and AWS creds.
 uv run pytest tests/test_pdf_classifier_workflow.py -v
 ```
 
-That's the canonical "does this work?" check. Eight tests pass in ~3 s using
+That's the canonical "does this work?" check. 15 tests pass in ~3 s using
 a faked Bedrock response and a real PyMuPDF extraction.
 
 **Pass when:** the pytest is green and you've eyeballed the file copying into
@@ -268,22 +269,81 @@ overnight only if you mean to spend a few cents.
 
 ---
 
-## 5. Live Bedrock smoke through pytest
+## 4d. Browser connector — replay-mode RPA Challenge OCR
 
-**What:** the three end-to-end live tests in `backend/tests/test_smoke_live.py`
-run against real Claude Haiku 4.5.
+**What:** the `rpa_challenge_ocr` example workflow under
+`examples/rpa_challenge_ocr/` — six steps that exercise every browser
+tool category (navigate / read / write / download) plus `image_ocr`
+and the `filter_rows_by_date` / `write_csv` stock functions. Replay
+test uses a fake `BrowserConnector` and canned OCR text so no real
+Chromium or tesseract is required.
 
-**Why manual:** real Bedrock can drift in ways no replay test catches —
-region access, inference profile health, quota.
-
-**Cost:** ~$0.0001 / run (a few cents per month if you run it occasionally).
+**Why manual:** the replay test pins the agentic flow end-to-end with
+realistic step outputs. Reading the assertions is faster than reading
+the unit-level browser tool tests when you want to confirm the example
+still composes.
 
 ```bash
 cd backend
-BEDROCK_LIVE=1 uv run pytest -m live -v
+uv run pytest tests/test_rpa_challenge_workflow.py -v
 ```
 
-**Expected output:**
+**Pass when:** 3 tests green. The end-to-end test drives 3 due dates →
+filters to 2 overdue → fetches+OCRs each → writes a CSV with
+`INV-001` / `INV-003` rows → uploads + submits + screenshots.
+
+**Live variant** (real Chromium against the public RPA Challenge URL,
+gated behind `BROWSER_LIVE=1`):
+
+```bash
+BROWSER_LIVE=1 uv run pytest tests/test_browser_live.py -v -k "not end_to_end"
+```
+
+3 connector smokes in ~6 s, free, no Bedrock. The end-to-end test in
+the same file is additionally gated by `BEDROCK_LIVE=1` and costs
+~$0.05–0.15 per run.
+
+For ad-hoc full-stack debugging there's a printable diagnostic:
+
+```bash
+BROWSER_LIVE=1 BEDROCK_LIVE=1 uv run python tools/probe_rpa.py
+```
+
+Dumps every step's output + the audit log to stdout. Same harness
+used during D8 capability development.
+
+---
+
+## 5. Live tests — Bedrock, Gmail, Browser
+
+**What:** four opt-in suites, each gated by its own env var. CI runs
+them together on a weekly cron (`.github/workflows/live-tests.yml`).
+
+| Marker | Env gate | Cost | What it hits |
+|---|---|---|---|
+| `live` | `BEDROCK_LIVE=1` | ~$0.0001 / run | Claude Haiku 4.5 via real Bedrock |
+| `gmail_live` | `GMAIL_LIVE=1` | free | Project Gmail account (smoke + send + label) |
+| `browser_live` | `BROWSER_LIVE=1` | free (Bedrock end-to-end variant: ~$0.05–0.15) | Real Chromium against RPA Challenge URL |
+| `integration` | `TEST_DATABASE_URL=…` | free | Postgres (covered separately in §6) |
+
+**Why manual:** real services can drift in ways no replay test catches
+— region access, inference profile health, Gmail quota, RPA Challenge
+UI changes, Postgres migrations.
+
+```bash
+cd backend
+
+# Just Bedrock:
+BEDROCK_LIVE=1 uv run pytest -m live -v
+# 3 tests in ~5s.
+
+# Bedrock + Gmail + Browser (the CI cadence):
+BEDROCK_LIVE=1 GMAIL_LIVE=1 BROWSER_LIVE=1 \
+  uv run pytest -m "live or gmail_live or browser_live" -v
+# 10 tests, ~3–5 min (browser is the long pole).
+```
+
+**Expected for Bedrock alone:**
 
 ```
 tests/test_smoke_live.py::test_bedrock_converse_direct PASSED
@@ -292,11 +352,12 @@ tests/test_smoke_live.py::test_workflow_engine_end_to_end PASSED
 3 passed in ~5s
 ```
 
-If a test fails: `backend/tools/smoke_live.py` is the diagnostic version — it
-prints cause + action lines mapped to gates in `docs/BEDROCK_SETUP.md`. Run
-that to see which gate regressed.
+If a Bedrock test fails: `backend/tools/smoke_live.py` is the
+diagnostic version — it prints cause + action lines mapped to gates
+in `docs/BEDROCK_SETUP.md`. For Gmail, `backend/tools/smoke_gmail.py`
+plays the same role.
 
-**Pass when:** all three tests green.
+**Pass when:** every suite green at the markers you enabled.
 
 ---
 
@@ -456,25 +517,35 @@ in `main.py`).
 
 ```bash
 cd frontend
-npm test         # vitest run, ~4s
+npm test         # vitest run, ~7s
 npm run build    # AOT compile, catches template errors, ~6s
 ```
 
-15 tests + a clean build. Same checks CI runs.
+57 tests across 7 files + a clean build. Same checks CI runs. Covers the
+auth interceptor, `ApiService` URL construction, route resolution,
+evaluation/usage helpers, role switcher, and the WebSocket events
+service.
 
-**Pass when:** vitest reports `Tests 15 passed (15)` and the build prints
+**Pass when:** vitest reports `Tests 57 passed (57)` and the build prints
 `Application bundle generation complete`.
 
 ---
 
-## Open gaps — things you can't yet test manually
+## Triggering workflows from the dashboard or shell
 
-These are real, and worth knowing before you go looking:
+Three equally-supported ways to start a run today; pick whichever fits
+the moment.
 
-1. **No "fire workflow" API yet** (the HTTP endpoint is on the backlog as
-   P1.1). For one-shot manual runs without going through a trigger, use
-   `backend/tools/fire.py` — respects `DATABASE_URL` (Postgres or
-   in-memory) and `BEDROCK_MODE` (live / record / replay):
+1. **Dashboard "Run" button.** Workflows page → each row has a Run
+   button that opens a JSON-payload dialog → `POST
+   /api/workflows/{id}/run` (Admin/Operator). The dashboard navigates
+   straight to the new instance's detail view on success. Same page
+   also has an "Import workflow" dialog wired to
+   `POST /api/workflows/import`.
+
+2. **`backend/tools/fire.py`.** One-shot CLI runner that respects
+   `DATABASE_URL` (Postgres or in-memory) and `BEDROCK_MODE` (live /
+   record / replay):
 
    ```bash
    cd backend
@@ -485,20 +556,14 @@ These are real, and worth knowing before you go looking:
      --trigger '{"file_path": "/abs/path/to/some.pdf"}'
    ```
 
-   Output ends with a `view: http://localhost:4200/instances/<uuid>` line
-   you can click straight through. Non-zero exit on FAILED / KILLED so
+   Output ends with a `view: http://localhost:4200/instances/<uuid>`
+   line you can click through. Non-zero exit on FAILED / KILLED so
    it's CI-able.
 
-2. **Filesystem + schedule triggers ARE now wired** into the running
-   FastAPI process (P0.2). Drop a PDF into a folder a workflow watches,
-   or wait for a schedule tick, and the engine runs against the same
-   persistent repos the API serves from.
-
-   **How:** set `WORKFLOW_DEFINITIONS_DIR` to point at a directory of
-   workflow YAMLs. On startup, the orchestrator loads each YAML, saves
-   the definition to repos, instantiates the right trigger based on
-   `definition.trigger.type`, and starts watching. Errors per
-   definition log + skip; the server stays up.
+3. **In-process triggers via `WORKFLOW_DEFINITIONS_DIR`.** Filesystem
+   / schedule / webhook / Gmail-poll triggers all auto-register on
+   startup when you point the env var at a directory of workflow
+   YAMLs:
 
    ```bash
    cd backend
@@ -507,32 +572,36 @@ These are real, and worth knowing before you go looking:
    AUTH_MODE=dev \
      uv run uvicorn workflow_platform.main:app --port 8000
 
-   # In another shell, drop a PDF that matches the inbox config in
-   # examples/pdf_classifier/workflow.yaml:
+   # In another shell:
    cp my-invoice.pdf ../examples/pdf_classifier/sample_inbox/
    ```
 
-   Watch logs for the `Started filesystem trigger` line on startup, then
-   the `workflow ... fired by trigger ... → instance ... state=completed`
-   line after the file drop. The instance also appears at
-   `GET /api/workflow-instances` and on the dashboard.
+   The orchestrator logs `Started <type> trigger for workflow <id>`
+   on startup and `workflow … fired by trigger … → instance … state=…`
+   per fire. Per-definition errors log + skip; the server stays up.
 
-   Caveat: the example workflow's `trigger.config.path` is relative
-   (`./examples/pdf_classifier/sample_inbox`). Start the server from a
-   working directory where that path resolves, or override the YAML's
-   path field, or point at a different definitions directory with
-   absolute paths.
+   Caveat: example workflows ship with relative
+   `trigger.config.path` values. Start the server from the repo root
+   so the relative path resolves — or edit the YAML to use an
+   absolute path.
 
-3. **No frontend WebSocket subscription yet.** The dashboard polls every
-   3–5 s; the `/ws/events` endpoint is implemented but unused. So you won't
-   see real-time updates — you'll see fresh data on the next poll tick.
+---
 
-4. **The deployed Terraform stack** is unverified end-to-end. The IaC under
-   `infra/` is `terraform validate`-clean, but no one's run `terraform apply`
-   yet. The whole "does the deployed system work?" question is open.
+## Open gaps — things you can't yet test manually
 
-Each is a clearly-scoped follow-up, not a deep design issue. See
-`docs/NEXT_STEPS.md` for the prioritized backlog.
+1. **The deployed Terraform stack** is unverified end-to-end. The IaC
+   under `infra/` is `terraform validate`-clean, but no one's run
+   `terraform apply` yet. The whole "does the deployed system work?"
+   question is open (P2.3 in `docs/NEXT_STEPS.md`).
+
+2. **The RPA Challenge OCR live workflow** completes every step and
+   submits the form successfully, but the challenge's server returns
+   only `{"success":false}` with no diagnostic detail. We can't
+   iterate against opaque pass/fail signals cost-effectively. Same
+   class of problem as any third-party system that gates on undisclosed
+   validation — flagging it so no one chases it without a plan.
+
+See `docs/NEXT_STEPS.md` for the prioritized backlog.
 
 ---
 
@@ -542,7 +611,9 @@ Update it when any of the following changes:
 
 - A new endpoint is added to `backend/src/workflow_platform/api/`
 - A new test marker is registered in `pyproject.toml`
+- A new example workflow lands under `examples/` (add a 4x section)
 - A new lazy-loaded route lands in `frontend/src/app/app.routes.ts`
-- One of the "open gaps" above gets closed (delete that bullet, add a new
-  numbered section)
+- One of the "open gaps" above gets closed (delete that bullet)
 - Auth or role mapping changes in `backend/src/workflow_platform/auth/`
+- Frontend or backend test counts drift far enough from what's quoted
+  here that they stop being a useful sanity-check (rule of thumb: ±10%)

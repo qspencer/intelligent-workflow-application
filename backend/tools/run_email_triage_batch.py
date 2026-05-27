@@ -198,11 +198,26 @@ async def run_batch(
                 )
             return row
 
-    # Run all fixtures concurrently, capped by Semaphore.
-    run_results = await asyncio.gather(
-        *(_run_one(fp) for fp in fixtures), return_exceptions=False
-    )
-    results: list[dict[str, Any]] = list(run_results)
+    # Run fixtures in chunks. Two reasons NOT to gather all at once:
+    #   1. Pre-creating 1000 Task objects + 1000 pending Semaphore.acquire()
+    #      waits inflates the event loop state.
+    #   2. If a single task raises with return_exceptions=False, gather
+    #      cancels every pending task — cancelling 1000 in-flight
+    #      to_thread() boto3/google-api calls has segfaulted on this box.
+    #   chunk_size 50 keeps in-flight tasks small enough to avoid both,
+    #   without sacrificing the concurrency win.
+    chunk_size = 50
+    results: list[dict[str, Any]] = []
+    for chunk_start in range(0, len(fixtures), chunk_size):
+        chunk = fixtures[chunk_start : chunk_start + chunk_size]
+        chunk_results = await asyncio.gather(
+            *(_run_one(fp) for fp in chunk), return_exceptions=True
+        )
+        for fp, result in zip(chunk, chunk_results, strict=True):
+            if isinstance(result, BaseException):
+                results.append({"file": fp.name, "error": f"{type(result).__name__}: {result}"})
+            else:
+                results.append(result)
     total_cost = sum(float(r.get("cost_usd", 0.0)) for r in results)
     total_tokens = sum(int(r.get("tokens", 0)) for r in results)
 
