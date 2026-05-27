@@ -58,6 +58,18 @@ class GmailConnector(EmailConnector):
         self.auth_provider = auth_provider
         self._service: Any = service
         self._label_id_cache: dict[str, str] = {}
+        # `googleapiclient.discovery.build()` returns a service whose
+        # internal `httplib2.Http()` is documented NOT thread-safe.
+        # Multiple `to_thread(request.execute)` calls against one shared
+        # service have segfaulted with glibc heap corruption on this
+        # host. Serializing all Gmail API calls through one asyncio
+        # lock costs ~nothing (per-call latency is ~200ms vs Bedrock's
+        # multi-second turns, which dominate per-message work) and
+        # eliminates the crash class entirely. If a future workload
+        # needs true Gmail concurrency, the real fix is per-call
+        # `request.execute(http=httplib2.Http())` — see
+        # https://github.com/googleapis/google-api-python-client/blob/main/docs/thread_safety.md.
+        self._call_lock = asyncio.Lock()
 
     # --- service plumbing ---
 
@@ -76,15 +88,20 @@ class GmailConnector(EmailConnector):
         return self._service
 
     async def _execute(self, request: Any) -> Any:
-        """Run a googleapiclient Request via to_thread, mapping known errors."""
+        """Run a googleapiclient Request via to_thread, mapping known errors.
+
+        Held under `self._call_lock` because the shared service object's
+        internal `httplib2.Http()` isn't thread-safe (see `__init__`).
+        """
         from googleapiclient.errors import HttpError
 
-        try:
-            return await asyncio.to_thread(request.execute)
-        except HttpError as exc:
-            if exc.resp.status == 404:
-                raise GmailMessageNotFound(str(exc)) from exc
-            raise
+        async with self._call_lock:
+            try:
+                return await asyncio.to_thread(request.execute)
+            except HttpError as exc:
+                if exc.resp.status == 404:
+                    raise GmailMessageNotFound(str(exc)) from exc
+                raise
 
     # --- EmailConnector abstract methods ---
 
