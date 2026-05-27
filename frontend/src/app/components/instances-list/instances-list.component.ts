@@ -33,41 +33,43 @@ import { WorkflowInstance } from '../../types';
     } @else if (instances().length === 0) {
       <p>No instances yet.</p>
     } @else {
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Workflow</th>
-            <th>State</th>
-            <th>Started</th>
-            <th>Finished</th>
-            <th class="actions-col"></th>
-          </tr>
-        </thead>
-        <tbody>
-          @for (inst of instances(); track inst.id) {
+      <div class="table-scroll">
+        <table>
+          <thead>
             <tr>
-              <td>
-                <a [routerLink]="['/instances', inst.id]"><code>{{ short(inst.id) }}</code></a>
-              </td>
-              <td>{{ inst.workflow_id }}</td>
-              <td><span class="badge" [class]="'badge ' + inst.state">{{ inst.state }}</span></td>
-              <td>{{ inst.started_at ? (inst.started_at | date: 'short') : '—' }}</td>
-              <td>{{ inst.completed_at ? (inst.completed_at | date: 'short') : '—' }}</td>
-              <td class="actions-col">
-                @if (isTerminal(inst.state)) {
-                  <button
-                    class="danger small"
-                    [disabled]="deleting() === inst.id"
-                    (click)="deleteInstance(inst.id)"
-                    title="Delete this {{ inst.state }} instance"
-                  >Delete</button>
-                }
-              </td>
+              <th>ID</th>
+              <th>Workflow</th>
+              <th>State</th>
+              <th>Started</th>
+              <th>Finished</th>
+              <th class="actions-col"></th>
             </tr>
-          }
-        </tbody>
-      </table>
+          </thead>
+          <tbody>
+            @for (inst of instances(); track inst.id) {
+              <tr>
+                <td>
+                  <a [routerLink]="['/instances', inst.id]"><code>{{ short(inst.id) }}</code></a>
+                </td>
+                <td>{{ inst.workflow_id }}</td>
+                <td><span class="badge" [class]="'badge ' + inst.state">{{ inst.state }}</span></td>
+                <td>{{ inst.started_at ? (inst.started_at | date: 'short') : '—' }}</td>
+                <td>{{ inst.completed_at ? (inst.completed_at | date: 'short') : '—' }}</td>
+                <td class="actions-col">
+                  @if (isTerminal(inst.state)) {
+                    <button
+                      class="danger small"
+                      [disabled]="deleting() === inst.id"
+                      (click)="deleteInstance(inst.id)"
+                      title="Delete this {{ inst.state }} instance"
+                    >Delete</button>
+                  }
+                </td>
+              </tr>
+            }
+          </tbody>
+        </table>
+      </div>
     }
   `,
   styles: [
@@ -94,6 +96,31 @@ import { WorkflowInstance } from '../../types';
       button.small {
         padding: 2px 8px;
         font-size: 12px;
+      }
+      /* Internal scroll for the instances table: long lists scroll
+         inside the wrapper while the header bar + page title + Delete
+         Finished button stay pinned. The 200px subtract covers the
+         page header, h2, action row, and main-padding; tweak if the
+         shell changes height. */
+      .table-scroll {
+        max-height: calc(100vh - 200px);
+        overflow-y: auto;
+        border: 1px solid var(--border);
+        border-radius: 4px;
+        background: var(--panel);
+      }
+      /* Sticky column headers stay visible while the body scrolls.
+         Need to drop the table's outer border since the scroll wrapper
+         already provides one — double-border would look broken. */
+      .table-scroll table {
+        border: none;
+      }
+      .table-scroll thead th {
+        position: sticky;
+        top: 0;
+        z-index: 1;
+        /* Re-assert the background so rows don't show through. */
+        background: #fafafa;
       }
     `,
   ],
