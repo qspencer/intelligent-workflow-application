@@ -114,7 +114,7 @@ async def _persist_refresh_token(account: str, refresh_token: str) -> None:
     print(f"  - refresh_token seeded into {type(store).__name__} at key {key!r}")
 
 
-def _run_consent_flow(client_config: dict[str, Any]) -> Any:
+def _run_consent_flow(client_config: dict[str, Any], account: str) -> Any:
     try:
         from google_auth_oauthlib.flow import InstalledAppFlow
     except ImportError as exc:
@@ -124,7 +124,15 @@ def _run_consent_flow(client_config: dict[str, Any]) -> Any:
 
     flow = InstalledAppFlow.from_client_config(client_config, SCOPES)
     # `port=0` picks a free localhost port. The browser opens automatically.
-    return flow.run_local_server(port=0)
+    # `prompt='select_account'` forces Google to show the account picker — without
+    # it, an already-signed-in browser session is auto-used and consent silently
+    # binds to the wrong account. `login_hint` pre-suggests the right one in the
+    # picker so the user just clicks "Continue."
+    return flow.run_local_server(
+        port=0,
+        prompt="select_account",
+        login_hint=account,
+    )
 
 
 def main() -> None:
@@ -147,7 +155,7 @@ def main() -> None:
     client_config = _load_client_config(account)
 
     print("Opening browser for consent. Sign in as the project account and accept the scopes.")
-    credentials = _run_consent_flow(client_config)
+    credentials = _run_consent_flow(client_config, account)
     refresh_token = credentials.refresh_token
 
     if not refresh_token:
