@@ -22,7 +22,7 @@ import { WorkflowInstance } from '../../types';
         @if (deletingAll()) {
           Deleting…
         } @else {
-          Delete All Terminal ({{ terminalCount() }})
+          Delete Finished ({{ terminalCount() }})
         }
       </button>
     </div>
