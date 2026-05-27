@@ -32,7 +32,7 @@ uv run mypy src
 
 # Boot the backend locally
 uv run uvicorn workflow_platform.main:app --reload
-# → GET http://localhost:8000/api/health
+# → GET http://localhost:8001/api/health
 ```
 
 For Postgres + backend together:

@@ -51,31 +51,31 @@ JSON log records actually look like — useful for tuning your tail.
 cd backend
 DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
 AUTH_MODE=dev \
-uv run uvicorn workflow_platform.main:app --reload --port 8000
+uv run uvicorn workflow_platform.main:app --reload --port 8001
 ```
 
 You should see one or two JSON log lines on startup, ending with
-`Uvicorn running on http://0.0.0.0:8000`. Each line is one JSON object —
+`Uvicorn running on http://0.0.0.0:8001`. Each line is one JSON object —
 that's the `JsonFormatter` doing its job.
 
 **Smoke** — terminal B:
 
 ```bash
 # Health (no auth needed)
-curl -s http://localhost:8000/api/health
+curl -s http://localhost:8001/api/health
 # → {"status":"ok","version":"0.0.1"}
 
 # Metrics (no auth needed; Prometheus text exposition format)
-curl -s http://localhost:8000/metrics | head -20
+curl -s http://localhost:8001/metrics | head -20
 # → comments + metric family declarations: workflow_runs_total, etc.
 
 # An auth-gated endpoint (dev mode reads the X-Dev-User header)
 curl -s -H 'X-Dev-User: alice' -H 'X-Dev-Groups: admins' \
-  http://localhost:8000/api/workflows
+  http://localhost:8001/api/workflows
 # → []  (empty, no workflows imported yet)
 
 # Same call without the header should fail
-curl -i -s http://localhost:8000/api/workflows | head -3
+curl -i -s http://localhost:8001/api/workflows | head -3
 # → HTTP/1.1 401 Unauthorized
 ```
 
@@ -137,11 +137,11 @@ curl -s -X POST \
   -H 'X-Dev-Groups: admins' \
   -H 'Content-Type: application/x-yaml' \
   --data-binary @examples/pdf_classifier/workflow.yaml \
-  http://localhost:8000/api/workflows/import
+  http://localhost:8001/api/workflows/import
 
 # Confirm it shows up
 curl -s -H 'X-Dev-User: alice' -H 'X-Dev-Groups: admins' \
-  http://localhost:8000/api/workflows | jq '.[].id'
+  http://localhost:8001/api/workflows | jq '.[].id'
 # → "pdf-classifier"
 ```
 
@@ -217,7 +217,7 @@ cd backend
 DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
 WORKFLOW_DEFINITIONS_DIR=../examples \
 AUTH_MODE=dev \
-  uv run uvicorn workflow_platform.main:app --port 8000
+  uv run uvicorn workflow_platform.main:app --port 8001
 ```
 
 Look for `Started webhook trigger for workflow webhook-echo` in the log.
@@ -226,11 +226,11 @@ Then in another shell:
 ```bash
 curl -s -X POST -H 'Content-Type: application/json' \
   -d '{"event":"build_completed","project":"alpha","duration_s":12.7}' \
-  http://localhost:8000/api/triggers/webhook/echo
+  http://localhost:8001/api/triggers/webhook/echo
 
 # Show the run that just fired:
 curl -s -H 'X-Dev-User: alice' -H 'X-Dev-Groups: admins' \
-  'http://localhost:8000/api/workflow-instances?workflow_id=webhook-echo' | jq '.[0]'
+  'http://localhost:8001/api/workflow-instances?workflow_id=webhook-echo' | jq '.[0]'
 ```
 
 **Pass when:** the instance is `completed` and
@@ -257,7 +257,7 @@ tail -f /tmp/scheduled-health-report.log
 
 # Instances per fire:
 curl -s -H 'X-Dev-User: alice' -H 'X-Dev-Groups: admins' \
-  'http://localhost:8000/api/workflow-instances?workflow_id=scheduled-health-report&limit=5' \
+  'http://localhost:8001/api/workflow-instances?workflow_id=scheduled-health-report&limit=5' \
   | jq '.[] | {id, state, started_at}'
 ```
 
@@ -402,13 +402,13 @@ H='X-Dev-User: alice'
 G='X-Dev-Groups: admins'
 
 # Empty until something has run
-curl -s -H "$H" -H "$G" http://localhost:8000/api/cost/by-workflow | jq
-curl -s -H "$H" -H "$G" http://localhost:8000/api/cost/by-model | jq
-curl -s -H "$H" -H "$G" http://localhost:8000/api/cost/by-day | jq
+curl -s -H "$H" -H "$G" http://localhost:8001/api/cost/by-workflow | jq
+curl -s -H "$H" -H "$G" http://localhost:8001/api/cost/by-model | jq
+curl -s -H "$H" -H "$G" http://localhost:8001/api/cost/by-day | jq
 
 # Optional: filter by time
 curl -s -H "$H" -H "$G" \
-  "http://localhost:8000/api/cost/by-day?since=2026-05-01T00:00:00Z" | jq
+  "http://localhost:8001/api/cost/by-day?since=2026-05-01T00:00:00Z" | jq
 ```
 
 To get non-zero data, run one of the live-Bedrock paths against the same
@@ -432,24 +432,24 @@ entry; manual is for "did I configure the right roles for what I'm doing?"
 ```bash
 # Viewer can read but not retry
 curl -i -s -X POST -H 'X-Dev-User: bob' -H 'X-Dev-Groups: viewers' \
-  http://localhost:8000/api/workflow-instances/no-such-id/retry | head -3
+  http://localhost:8001/api/workflow-instances/no-such-id/retry | head -3
 # → HTTP/1.1 403 Forbidden  (or 404 if you flip the header to admins, since
 #    the instance id doesn't exist)
 
 # Admin can hit it (404 instead of 403 means the role check passed)
 curl -i -s -X POST -H 'X-Dev-User: alice' -H 'X-Dev-Groups: admins' \
-  http://localhost:8000/api/workflow-instances/no-such-id/retry | head -3
+  http://localhost:8001/api/workflow-instances/no-such-id/retry | head -3
 # → HTTP/1.1 404 Not Found
 
 # Auditor can read /api/audit, viewer cannot
 curl -s -o /dev/null -w '%{http_code}\n' \
   -H 'X-Dev-User: a' -H 'X-Dev-Groups: auditors' \
-  http://localhost:8000/api/audit
+  http://localhost:8001/api/audit
 # → 200
 
 curl -s -o /dev/null -w '%{http_code}\n' \
   -H 'X-Dev-User: b' -H 'X-Dev-Groups: viewers' \
-  http://localhost:8000/api/audit
+  http://localhost:8001/api/audit
 # → 403
 ```
 
@@ -470,9 +470,9 @@ the wire-up actually fires.
 
 ```bash
 # Snapshot before and after a run
-curl -s http://localhost:8000/metrics > /tmp/before.txt
+curl -s http://localhost:8001/metrics > /tmp/before.txt
 BEDROCK_LIVE=1 uv run pytest tests/test_smoke_live.py::test_workflow_engine_end_to_end -q
-curl -s http://localhost:8000/metrics > /tmp/after.txt
+curl -s http://localhost:8001/metrics > /tmp/after.txt
 
 # Show new / changed metric lines
 diff /tmp/before.txt /tmp/after.txt | head -40
@@ -570,7 +570,7 @@ the moment.
    DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
    WORKFLOW_DEFINITIONS_DIR=../examples \
    AUTH_MODE=dev \
-     uv run uvicorn workflow_platform.main:app --port 8000
+     uv run uvicorn workflow_platform.main:app --port 8001
 
    # In another shell:
    cp my-invoice.pdf ../examples/pdf_classifier/sample_inbox/

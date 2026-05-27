@@ -7,7 +7,7 @@ Static Angular 18 dashboard. Per `docs/BUILD_PLAN.md` Week 6: workflow + instanc
 ```bash
 cd frontend
 npm install                 # downloads Angular + tooling
-npm start                   # ng serve on :4200, proxies /api and /ws to :8000
+npm start                   # ng serve on :4200, proxies /api and /ws to :8001
 ```
 
 In another terminal, start the backend:
@@ -16,7 +16,7 @@ In another terminal, start the backend:
 cd backend
 DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
   AUTH_MODE=dev \
-  uv run uvicorn workflow_platform.main:app --reload --port 8000
+  uv run uvicorn workflow_platform.main:app --reload --port 8001
 ```
 
 The dashboard expects `AUTH_MODE=dev`; identity is taken from `localStorage`:

@@ -30,7 +30,7 @@ resource "aws_ecs_task_definition" "backend" {
       image     = var.container_image
       essential = true
       portMappings = [
-        { containerPort = 8000, protocol = "tcp" }
+        { containerPort = 8001, protocol = "tcp" }
       ]
       environment = [
         { name = "AUTH_MODE", value = var.auth_mode },
@@ -51,7 +51,7 @@ resource "aws_ecs_task_definition" "backend" {
         }
       }
       healthCheck = {
-        command     = ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0) if urllib.request.urlopen(\"http://localhost:8000/api/health\").status==200 else sys.exit(1)' || exit 1"]
+        command     = ["CMD-SHELL", "python -c 'import urllib.request,sys; sys.exit(0) if urllib.request.urlopen(\"http://localhost:8001/api/health\").status==200 else sys.exit(1)' || exit 1"]
         interval    = 30
         timeout     = 5
         retries     = 3
@@ -73,7 +73,7 @@ resource "aws_lb" "this" {
 
 resource "aws_lb_target_group" "backend" {
   name        = "${var.project_name}-${var.environment}-backend"
-  port        = 8000
+  port        = 8001
   protocol    = "HTTP"
   vpc_id      = aws_vpc.this.id
   target_type = "ip"
@@ -118,7 +118,7 @@ resource "aws_ecs_service" "backend" {
   load_balancer {
     target_group_arn = aws_lb_target_group.backend.arn
     container_name   = "backend"
-    container_port   = 8000
+    container_port   = 8001
   }
 
   deployment_minimum_healthy_percent = 50

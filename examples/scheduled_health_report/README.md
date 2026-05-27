@@ -16,7 +16,7 @@ cd backend
 DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
 WORKFLOW_DEFINITIONS_DIR=../examples \
 AUTH_MODE=dev \
-  uv run uvicorn workflow_platform.main:app --port 8000
+  uv run uvicorn workflow_platform.main:app --port 8001
 
 # In another terminal — wait a minute for the first fire, then:
 tail -f /tmp/scheduled-health-report.log

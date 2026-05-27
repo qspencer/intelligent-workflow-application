@@ -36,7 +36,7 @@ If the backend is running with the orchestrator loading this directory:
 # Fire the webhook (no auth needed — webhook endpoints are exempt).
 curl -X POST -H 'Content-Type: application/json' \
   -d '{"event": "build_completed", "project": "alpha", "duration_s": 12.7}' \
-  http://localhost:8000/api/triggers/webhook/echo
+  http://localhost:8001/api/triggers/webhook/echo
 
 # Dashboard:
 open http://localhost:4200/instances
@@ -49,7 +49,7 @@ cd backend
 DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
 WORKFLOW_DEFINITIONS_DIR=../examples \
 AUTH_MODE=dev \
-  uv run uvicorn workflow_platform.main:app --port 8000
+  uv run uvicorn workflow_platform.main:app --port 8001
 ```
 
 ## Run it (one-shot via `tools/fire.py`, no server needed)
