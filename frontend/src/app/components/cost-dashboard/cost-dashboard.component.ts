@@ -27,7 +27,7 @@ import {
   standalone: true,
   imports: [CommonModule, FormsModule],
   template: `
-    <h2>Cost dashboard</h2>
+    <h2>Cost Dashboard</h2>
 
     <div class="filter">
       <label for="since">Time range:</label>

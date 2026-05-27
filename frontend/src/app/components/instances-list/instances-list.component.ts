@@ -11,7 +11,7 @@ import { WorkflowInstance } from '../../types';
   standalone: true,
   imports: [CommonModule, DatePipe, RouterLink],
   template: `
-    <h2>Workflow instances</h2>
+    <h2>Workflow Instances</h2>
     @if (loading()) {
       <p>Loading…</p>
     } @else if (error()) {

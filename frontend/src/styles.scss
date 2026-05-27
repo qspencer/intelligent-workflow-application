@@ -25,6 +25,15 @@ body {
   background: var(--bg);
 }
 
+/* Always show the vertical scrollbar gutter so long lists don't appear
+   "clipped" on macOS / iOS where scrollbars auto-hide and the user sees
+   no affordance to scroll. `overflow-y: scroll` on body reserves the
+   gutter even when content fits. */
+body {
+  overflow-y: scroll;
+  min-height: 100vh;
+}
+
 a {
   color: var(--accent);
   text-decoration: none;
