@@ -228,6 +228,25 @@ async def test_read_table_empty(tmp_path: Path) -> None:
     assert rows == []
 
 
+async def test_read_table_resolves_relative_hrefs_against_page_url(tmp_path: Path) -> None:
+    """D8a: cells containing `<a href="/relative">` come back with an
+    absolute `*_href` field resolved against the page's current URL."""
+    fake = FakePlaywrightPage(url="https://example.com/dashboard")
+    fake.html_at["#t"] = """
+        <thead><tr><th>ID</th><th>Invoice</th></tr></thead>
+        <tbody>
+            <tr><td>001</td><td><a href="/invoices/1.jpg"><span class="ico"></span></a></td></tr>
+        </tbody>
+    """
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        rows = await conn.read_table("#t")
+    assert rows[0]["ID"] == "001"
+    # The icon-anchor has no inner text — the URL is the only useful signal.
+    assert rows[0]["Invoice"] == ""
+    assert rows[0]["Invoice_href"] == "https://example.com/invoices/1.jpg"
+
+
 # --- wait_for ---
 
 
@@ -407,6 +426,28 @@ async def test_download_via_click_propagates_click_errors(tmp_path: Path) -> Non
             await conn.download_via_click("#missing")
 
 
+async def test_submit_form_calls_locator_evaluate(tmp_path: Path) -> None:
+    """D8b: submit a form via Locator.evaluate('el => el.submit()') so
+    we can complete UIs where the visible submit button is hidden /
+    JS-gated."""
+    fake = FakePlaywrightPage()
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        await conn.submit_form("#myform")
+    eval_call = next(kw for (m, kw) in fake.calls if m == "locator.evaluate")
+    assert eval_call["selector"] == "#myform"
+    assert "submit" in eval_call["script"]
+
+
+async def test_submit_form_propagates_errors(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.raise_on_evaluate["#bad"] = RuntimeError("form not found")
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        with pytest.raises(RuntimeError, match="form not found"):
+            await conn.submit_form("#bad")
+
+
 async def test_authenticate_is_noop(tmp_path: Path) -> None:
     """Browsers don't have a generic auth step. Sites that need login
     do it via the workflow's navigate + fill + click sequence."""
@@ -415,3 +456,71 @@ async def test_authenticate_is_noop(tmp_path: Path) -> None:
         # No exception is the assertion — authenticate() returns None by
         # design for browsers (Phase 3 work makes it a real op).
         await conn.authenticate()
+
+
+# --- D8a: fetch_url ---
+
+
+async def test_fetch_url_writes_body_to_downloads_dir(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.context.request.body_at["https://example.com/invoices/5.jpg"] = b"\xff\xd8fake-jpg"
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        download = await conn.fetch_url("https://example.com/invoices/5.jpg")
+    assert download.source_url == "https://example.com/invoices/5.jpg"
+    assert download.suggested_filename == "5.jpg"
+    assert download.bytes == len(b"\xff\xd8fake-jpg")
+    saved = Path(download.local_path)
+    assert saved.read_bytes() == b"\xff\xd8fake-jpg"
+    assert saved.parent == (tmp_path / "downloads")
+    assert fake.context.request.gets == ["https://example.com/invoices/5.jpg"]
+
+
+async def test_fetch_url_honors_explicit_dest_filename(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.context.request.body_at["https://example.com/file"] = b"hello"
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        download = await conn.fetch_url("https://example.com/file", dest_filename="renamed.bin")
+    assert download.suggested_filename == "renamed.bin"
+    assert Path(download.local_path).name == "renamed.bin"
+
+
+async def test_fetch_url_falls_back_to_default_name_for_bare_paths(tmp_path: Path) -> None:
+    """A URL ending with `/` (no filename segment) — we default to `download`."""
+    fake = FakePlaywrightPage()
+    fake.context.request.body_at["https://example.com/"] = b"x"
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        download = await conn.fetch_url("https://example.com/")
+    assert download.suggested_filename == "download"
+
+
+async def test_fetch_url_strips_query_string_from_default_name(tmp_path: Path) -> None:
+    """`...image.jpg?token=abc` should save as `image.jpg`, not `image.jpg?token=abc`."""
+    fake = FakePlaywrightPage()
+    fake.context.request.body_at["https://example.com/i/x.jpg?token=abc"] = b"x"
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        download = await conn.fetch_url("https://example.com/i/x.jpg?token=abc")
+    assert download.suggested_filename == "x.jpg"
+
+
+async def test_fetch_url_propagates_request_errors(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.context.request.raise_on_get["https://example.com/dead"] = RuntimeError("502")
+    conn = _make_connector(tmp_path, page=fake)
+    async with conn:
+        with pytest.raises(RuntimeError, match="502"):
+            await conn.fetch_url("https://example.com/dead")
+
+
+async def test_fetch_url_creates_nested_subdir_if_needed(tmp_path: Path) -> None:
+    """downloads_dir might not exist yet inside __aenter__ (it's mkdir-d
+    in lifecycle). Re-asserting here that the parent dir is created."""
+    fake = FakePlaywrightPage()
+    fake.context.request.body_at["https://example.com/file.bin"] = b"data"
+    conn = PlaywrightConnector(downloads_dir=tmp_path / "nested" / "dir", page=fake)
+    async with conn:
+        download = await conn.fetch_url("https://example.com/file.bin")
+    assert Path(download.local_path).exists()

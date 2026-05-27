@@ -72,6 +72,17 @@ class FakeLocator:
         if self._selector in self._page.raise_on_set_files:
             raise self._page.raise_on_set_files[self._selector]
 
+    async def evaluate(self, script: str) -> Any:
+        """Stand-in for Playwright's `Locator.evaluate(script)` — runs JS
+        with the matched element as the first argument. Tests can pre-stage
+        `raise_on_evaluate[selector]` to simulate failures."""
+        self._page.calls.append(
+            ("locator.evaluate", {"selector": self._selector, "script": script})
+        )
+        if self._selector in self._page.raise_on_evaluate:
+            raise self._page.raise_on_evaluate[self._selector]
+        return None
+
 
 class FakeDownload:
     """Stand-in for `playwright.async_api.Download`. `save_as` writes
@@ -124,6 +135,41 @@ class FakeExpectDownload:
         pass
 
 
+class FakeAPIResponse:
+    """Stand-in for Playwright's `APIResponse`. `body()` returns staged bytes."""
+
+    def __init__(self, body: bytes, status: int = 200) -> None:
+        self._body = body
+        self.status = status
+
+    async def body(self) -> bytes:
+        return self._body
+
+
+class FakeRequest:
+    """Stand-in for `BrowserContext.request` (`APIRequestContext`).
+    Records every `get` and returns staged bytes per URL."""
+
+    def __init__(self) -> None:
+        self.gets: list[str] = []
+        self.body_at: dict[str, bytes] = {}
+        self.raise_on_get: dict[str, Exception] = {}
+
+    async def get(self, url: str) -> FakeAPIResponse:
+        self.gets.append(url)
+        if url in self.raise_on_get:
+            raise self.raise_on_get[url]
+        return FakeAPIResponse(self.body_at.get(url, b""))
+
+
+class FakeBrowserContext:
+    """Stand-in for `BrowserContext`. The connector accesses
+    `page.context.request.get(url)` for `fetch_url`."""
+
+    def __init__(self) -> None:
+        self.request = FakeRequest()
+
+
 class FakePlaywrightPage:
     """Stand-in for `playwright.async_api.Page` with the surface we use.
 
@@ -146,9 +192,13 @@ class FakePlaywrightPage:
         self.raise_on_click: dict[str, Exception] = {}
         self.raise_on_fill: dict[str, Exception] = {}
         self.raise_on_set_files: dict[str, Exception] = {}
+        self.raise_on_evaluate: dict[str, Exception] = {}
         # The FakeDownload that expect_download() should yield. Tests
         # stage this before the connector's download_via_click runs.
         self.expect_download_value: FakeDownload | None = None
+        # Browser context for fetch_url. Exposes a FakeRequest at
+        # `.context.request` matching Playwright's API surface.
+        self.context = FakeBrowserContext()
 
     @property
     def url(self) -> str:

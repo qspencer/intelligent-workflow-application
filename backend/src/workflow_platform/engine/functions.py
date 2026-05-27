@@ -587,6 +587,62 @@ async def record_evaluation(
     return {"parse_ok": True, **scores}
 
 
+_JSON_ARRAY_RE = re.compile(r"\[.*?\]", re.DOTALL)
+_JSON_FENCE_RE = re.compile(r"```(?:json)?\s*(.*?)```", re.DOTALL | re.IGNORECASE)
+
+
+def _extract_json_list(raw: str) -> list[Any] | None:
+    """Tolerant extraction of a JSON array from an agent's text output.
+
+    Agents *should* return raw JSON per the rubric, but in practice they
+    sometimes prepend reasoning prose or wrap the array in a ```json
+    code fence. This helper handles three cases in priority order:
+
+      1. The entire trimmed text parses as a JSON list.
+      2. A ```json (or unlabelled ```)...``` fenced block contains a list.
+      3. The first `[...]` substring in the text is a JSON list.
+
+    Returns the parsed list, or None if nothing parseable was found.
+    Conservative on the bracket-scan: matches up to the first closing
+    `]`, so deeply-nested arrays may need case (1) or (2) to work.
+    """
+    body = raw.strip()
+    if not body:
+        return None
+
+    # Case 1: whole thing is JSON.
+    try:
+        parsed = json.loads(body)
+    except json.JSONDecodeError:
+        pass
+    else:
+        if isinstance(parsed, list):
+            return parsed
+
+    # Case 2: ```json ... ``` fence somewhere in the text.
+    for match in _JSON_FENCE_RE.finditer(body):
+        inner = match.group(1).strip()
+        try:
+            parsed = json.loads(inner)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, list):
+            return parsed
+
+    # Case 3: any `[...]` substring. Try each match longest-first so a
+    # well-formed `[{...}, {...}]` wins over a shorter inner array.
+    candidates = sorted(_JSON_ARRAY_RE.findall(body), key=len, reverse=True)
+    for cand in candidates:
+        try:
+            parsed = json.loads(cand)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(parsed, list):
+            return parsed
+
+    return None
+
+
 _DATE_FORMATS: tuple[str, ...] = (
     "%Y-%m-%d",
     "%Y/%m/%d",
@@ -659,16 +715,12 @@ def _resolve_rows(context: WorkflowContext, source: Any) -> list[dict[str, Any]]
     if isinstance(cursor, list):
         return [r for r in cursor if isinstance(r, dict)]
     if isinstance(cursor, str):
-        # Strip optional ```json fences, then parse.
-        body = cursor.strip()
-        if body.startswith("```"):
-            body = re.sub(r"^```[a-zA-Z]*\n?|\n?```$", "", body).strip()
-        try:
-            parsed = json.loads(body)
-        except json.JSONDecodeError as exc:
-            raise StepFailure(f"rows_from {source!r} not valid JSON: {exc}") from exc
-        if not isinstance(parsed, list):
-            raise StepFailure(f"rows_from {source!r} parsed to {type(parsed).__name__}, want list")
+        parsed = _extract_json_list(cursor)
+        if parsed is None:
+            raise StepFailure(
+                f"rows_from {source!r} contains no parseable JSON array (got "
+                f"{len(cursor)} chars of text)"
+            )
         return [r for r in parsed if isinstance(r, dict)]
     raise StepFailure(f"rows_from {source!r} resolved to {type(cursor).__name__}, want list or str")
 

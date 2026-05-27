@@ -96,6 +96,9 @@ class _RecordingBrowserConnector(BrowserConnector):
     async def upload_file(self, selector: str, file_path: str) -> None:
         return None
 
+    async def submit_form(self, selector: str) -> None:
+        return None
+
     async def screenshot(self, *, path: str | None = None, full_page: bool = False) -> Any:
         from workflow_platform.connectors.browser import BrowserScreenshot
 
@@ -108,6 +111,17 @@ class _RecordingBrowserConnector(BrowserConnector):
             source_url="https://example.com/x",
             local_path="/tmp/x",
             suggested_filename="x",
+            bytes=0,
+        )
+
+    async def fetch_url(self, url: str, *, dest_filename: str | None = None) -> Any:
+        from workflow_platform.connectors.browser import BrowserDownload
+
+        name = dest_filename or url.rsplit("/", 1)[-1] or "download"
+        return BrowserDownload(
+            source_url=url,
+            local_path=f"/tmp/{name}",
+            suggested_filename=name,
             bytes=0,
         )
 

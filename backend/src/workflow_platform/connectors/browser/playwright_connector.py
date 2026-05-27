@@ -17,6 +17,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
+from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Tag
 
@@ -30,7 +31,7 @@ from workflow_platform.connectors.browser.models import (
 logger = logging.getLogger(__name__)
 
 
-def parse_html_table(html: str) -> list[dict[str, str]]:
+def parse_html_table(html: str, *, base_url: str | None = None) -> list[dict[str, str]]:
     """Parse an HTML `<table>` into a list of dicts. Pure function — no
     Playwright involved — so it's unit-testable without a browser.
 
@@ -43,6 +44,14 @@ def parse_html_table(html: str) -> list[dict[str, str]]:
     Body rows come from `<tbody>` if present, else all rows after the
     header row. Cell text is stripped of surrounding whitespace; HTML
     tags inside cells are flattened to text.
+
+    **Link capture.** If a cell contains exactly one `<a href="...">`,
+    the parser adds a sibling key `<col>_href` with the URL. If
+    `base_url` is provided, relative URLs are resolved against it
+    (typically the page's current URL); otherwise the href is kept
+    verbatim. Cells with zero or multiple anchors get no `_href` key
+    — disambiguation is ambiguous and the agent can `read_html` the
+    cell if needed.
 
     Empty result is the right answer for empty tables — don't raise.
     """
@@ -95,7 +104,11 @@ def parse_html_table(html: str) -> list[dict[str, str]]:
         row_data: dict[str, str] = {}
         for i, cell in enumerate(cells):
             if i < len(headers):
-                row_data[headers[i]] = _cell_text(cell)
+                col = headers[i]
+                row_data[col] = _cell_text(cell)
+                href = _single_anchor_href(cell, base_url)
+                if href is not None:
+                    row_data[f"{col}_href"] = href
         if row_data:
             result.append(row_data)
     return result
@@ -108,6 +121,24 @@ def _cell_text(tag: Tag) -> str:
     # bs4 is typed as Any in our mypy overrides, hence the annotation.
     text: str = tag.get_text(separator=" ", strip=True)
     return " ".join(text.split())
+
+
+def _single_anchor_href(cell: Tag, base_url: str | None) -> str | None:
+    """If `cell` contains exactly one `<a>` with an `href`, return the
+    URL (resolved against `base_url` if provided). Otherwise None.
+
+    Conservative: zero anchors → no href info. Two or more → ambiguous,
+    we don't guess; the agent can `read_html` the cell to disambiguate.
+    """
+    anchors = [a for a in cell.find_all("a") if isinstance(a, Tag) and a.get("href")]
+    if len(anchors) != 1:
+        return None
+    href = anchors[0].get("href")
+    if not isinstance(href, str) or not href:
+        return None
+    if base_url:
+        return urljoin(base_url, href)
+    return href
 
 
 class PlaywrightConnector(BrowserConnector):
@@ -239,11 +270,53 @@ class PlaywrightConnector(BrowserConnector):
         html: str = await self._page.locator(selector).inner_html()
         # Wrap the locator's inner_html in a <table> shell so bs4 can parse
         # consistently — Playwright's inner_html returns the children of the
-        # selected element (not the element itself).
-        return parse_html_table(f"<table>{html}</table>")
+        # selected element (not the element itself). Pass the page's
+        # current URL so relative hrefs in cells (e.g. `/invoices/5.jpg`)
+        # come back absolute.
+        base_url: str | None = None
+        try:
+            base_url = self._page.url
+        except Exception:
+            base_url = None
+        return parse_html_table(f"<table>{html}</table>", base_url=base_url)
+
+    async def fetch_url(self, url: str, *, dest_filename: str | None = None) -> BrowserDownload:
+        """Fetch a URL via the browser session and save to the per-run
+        downloads dir.
+
+        Distinct from `download_via_click`: that wraps a click in
+        `expect_download` and only fires for browser-initiated downloads.
+        `fetch_url` issues a direct GET via Playwright's
+        `BrowserContext.request` — which uses the same cookies + auth
+        state as the live Page, but does NOT load the response into the
+        page. Right for `<a href="...">` links that display inline
+        (image JPGs, `target="_blank"` files) or that just won't fire a
+        download event.
+        """
+        response = await self._page.context.request.get(url)
+        body: bytes = await response.body()
+        if not dest_filename:
+            tail = url.rsplit("/", 1)[-1].split("?", 1)[0]
+            dest_filename = tail or "download"
+        target = self.downloads_dir / dest_filename
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(body)
+        return BrowserDownload(
+            source_url=url,
+            local_path=str(target),
+            suggested_filename=dest_filename,
+            bytes=len(body),
+        )
 
     async def upload_file(self, selector: str, file_path: str) -> None:
         await self._page.locator(selector).set_input_files(file_path)
+
+    async def submit_form(self, selector: str) -> None:
+        # `evaluate_handle` would let us inspect the result; we just need
+        # the form to POST. Element-handle evaluate runs the function with
+        # the matched element as `el`, so no XSS-like arbitrary JS surface
+        # is exposed via the tool — only `.submit()` on the resolved form.
+        await self._page.locator(selector).first.evaluate("el => el.submit()")
 
     async def download_via_click(
         self, selector: str, *, timeout_ms: int = 30000

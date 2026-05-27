@@ -350,8 +350,8 @@ async def test_filter_rows_by_date_fails_clearly_on_missing_path() -> None:
 
 
 async def test_filter_rows_by_date_fails_clearly_on_unparseable_string() -> None:
-    """A context value that's a string but not valid JSON surfaces clearly."""
-    with pytest.raises(StepFailure, match="not valid JSON"):
+    """A context value that's a string with no JSON array anywhere in it."""
+    with pytest.raises(StepFailure, match="no parseable JSON array"):
         await filter_rows_by_date(
             {
                 "rows_from": "trigger.x",
@@ -364,8 +364,8 @@ async def test_filter_rows_by_date_fails_clearly_on_unparseable_string() -> None
 
 
 async def test_filter_rows_by_date_fails_on_non_list_json() -> None:
-    """JSON string that parses but isn't a list (e.g. a dict)."""
-    with pytest.raises(StepFailure, match="want list"):
+    """JSON string that parses but isn't a list — and contains no `[...]` either."""
+    with pytest.raises(StepFailure, match="no parseable JSON array"):
         await filter_rows_by_date(
             {
                 "rows_from": "trigger.x",
@@ -377,3 +377,85 @@ async def test_filter_rows_by_date_fails_on_non_list_json() -> None:
         )
 
 
+# ---------- D8b: tolerant JSON-array extraction in _resolve_rows ----------
+
+
+async def test_resolve_rows_tolerates_prose_before_json_array() -> None:
+    """Agent emits reasoning text then a JSON array (despite the rubric).
+    `_resolve_rows` should extract the array anyway — this is the real
+    failure mode the live RPA Challenge run hit before D8b's fix."""
+    ctx = _ctx(
+        {
+            "extract": {
+                "output_text": (
+                    "Based on the OCR output:\n\n**Invoice 1**\n...\n\n"
+                    '[{"id":"a","d":"2024-01-01"},{"id":"b","d":"2024-12-31"}]'
+                )
+            }
+        }
+    )
+    out = await filter_rows_by_date(
+        {
+            "rows_from": "steps.extract.output_text",
+            "date_field": "d",
+            "cutoff": "2030-01-01",
+            "comparison": "on_or_before",
+        },
+        ctx,
+        mock_world(),
+    )
+    assert out["kept_count"] == 2
+
+
+async def test_resolve_rows_extracts_array_from_fenced_block() -> None:
+    """Agent wraps the array in a ```json ... ``` block somewhere mid-text."""
+    ctx = _ctx(
+        {
+            "extract": {
+                "output_text": (
+                    "Here's the result:\n\n"
+                    '```json\n[{"id":"a","d":"2024-01-01"}]\n```\n\n'
+                    "Let me know if you need anything else."
+                )
+            }
+        }
+    )
+    out = await filter_rows_by_date(
+        {
+            "rows_from": "steps.extract.output_text",
+            "date_field": "d",
+            "cutoff": "2030-01-01",
+            "comparison": "on_or_before",
+        },
+        ctx,
+        mock_world(),
+    )
+    assert out["kept_count"] == 1
+
+
+async def test_resolve_rows_prefers_longest_bracket_match() -> None:
+    """If the prose contains a shorter inner array first, the helper
+    should still pick the longest one — that's the real result. Inner
+    arrays like `[1, 2]` inside prose shouldn't shadow the actual data."""
+    ctx = _ctx(
+        {
+            "extract": {
+                "output_text": (
+                    "I considered options [a, b] then settled on this:\n"
+                    '[{"id":"x","d":"2024-01-01"},{"id":"y","d":"2024-06-15"}]'
+                )
+            }
+        }
+    )
+    out = await filter_rows_by_date(
+        {
+            "rows_from": "steps.extract.output_text",
+            "date_field": "d",
+            "cutoff": "2030-01-01",
+            "comparison": "on_or_before",
+        },
+        ctx,
+        mock_world(),
+    )
+    assert out["kept_count"] == 2
+    assert [r["id"] for r in out["kept_rows"]] == ["x", "y"]

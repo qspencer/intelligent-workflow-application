@@ -132,11 +132,13 @@ async def test_rpa_challenge_workflow_end_to_end_live(tmp_path: Path) -> None:
     from workflow_platform.tools import (
         BrowserClickTool,
         BrowserDownloadTool,
+        BrowserFetchUrlTool,
         BrowserFillTool,
         BrowserNavigateTool,
         BrowserReadTableTool,
         BrowserReadTextTool,
         BrowserScreenshotTool,
+        BrowserSubmitFormTool,
         BrowserUploadFileTool,
         BrowserWaitForTool,
         ImageOcrTool,
@@ -172,7 +174,9 @@ async def test_rpa_challenge_workflow_end_to_end_live(tmp_path: Path) -> None:
                 BrowserReadTextTool(),
                 BrowserReadTableTool(),
                 BrowserDownloadTool(),
+                BrowserFetchUrlTool(),
                 BrowserUploadFileTool(),
+                BrowserSubmitFormTool(),
                 BrowserScreenshotTool(),
                 ImageOcrTool(),
             ]

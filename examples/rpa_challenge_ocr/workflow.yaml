@@ -30,15 +30,40 @@ steps:
   - id: read_table
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
-    tools: [browser_read_table]
+    tools: [browser_read_table, browser_read_text, browser_click]
     goal: |
-      Call browser_read_table on selector `#tableSandbox`. The page exposes
-      these columns: ID, Due Date, Invoice (a link). For each row, output an
-      object with keys exactly: `id`, `due_date`, `invoice_url`.
-      Respond with a single JSON array — no prose, no markdown fences.
+      The invoice table at `#tableSandbox` is paginated via DataTables.
+      You MUST walk every page and collect EVERY row, or the final
+      submission will be incomplete and rejected.
+
+      Procedure:
+        1. browser_read_text on `#tableSandbox_paginate`. The result is
+           a string like "Previous 1 2 3 Next". The largest integer in
+           that string is the total page count N.
+        2. browser_read_table on `#tableSandbox` — these are page-1 rows.
+           Save them.
+        3. For each page p from 2 to N (inclusive):
+             a. browser_click on `#tableSandbox_paginate a:has-text("${p}")`
+                — clicks the page-number button. DataTables redraws the
+                tbody synchronously.
+             b. browser_read_table on `#tableSandbox`. Append the new
+                rows to your accumulated list.
+        4. If N == 1, you only need step 2.
+
+      Each row from browser_read_table has keys including `ID`,
+      `Due Date`, and `Invoice_href` (the absolute URL of the JPG —
+      the parser adds `_href` for cells containing a single link).
+
+      Output a SINGLE JSON array combining ALL pages. Each entry:
+        - `id`         — copy `ID`
+        - `due_date`   — copy `Due Date`
+        - `invoice_url`— copy `Invoice_href`
+      Respond with the JSON array only — no prose, no markdown fences.
     policy:
-      max_iterations: 3
-      max_total_tokens: 4000
+      # ~5 tool calls per page (read_text once + 1 click + 1 read_table
+      # per page). Allow up to ~10 pages.
+      max_iterations: 30
+      max_total_tokens: 30000
 
   - id: filter_overdue
     type: deterministic
@@ -52,19 +77,28 @@ steps:
   - id: extract_invoices
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
-    tools: [browser_download, image_ocr]
+    tools: [browser_fetch_url, image_ocr]
     goal: |
       For each row in prior_steps.filter_overdue.kept_rows:
-        1. browser_download via a click on the invoice link — the page
-           selector for row N is `#tableSandbox tr:nth-child(N+1) a`.
-           Alternatively if `invoice_url` is a direct URL, browser_navigate
-           there and use browser_download on the displayed image.
-        2. image_ocr the downloaded JPG file.
+        1. browser_fetch_url with `url = row.invoice_url`. This saves the
+           invoice JPG to the workflow's downloads dir and returns the
+           local_path.
+        2. image_ocr on that local_path. The OCR result has a `text` field.
         3. Parse the OCR text. The invoice template includes (case-varied):
            Invoice Number, Invoice Date, Company, Total Due.
-      Respond with a single JSON array — one object per row, keys exactly:
-      `id`, `due_date`, `invoice_number`, `invoice_date`, `company_name`,
-      `total_due`. Order matches kept_rows. No prose, no markdown fences.
+
+      Respond with a single JSON array — one object per row, keys exactly
+      matching the challenge's expected CSV column names:
+        - `ID`          — copy `row.id`
+        - `DueDate`     — copy `row.due_date` (already DD-MM-YYYY)
+        - `InvoiceNo`   — the invoice number from the OCR text
+        - `InvoiceDate` — the invoice date from the OCR text, **formatted
+                          as DD-MM-YYYY** (re-format if OCR gives ISO or
+                          a written month)
+        - `CompanyName` — the issuing company name (e.g. "Aenean LLC")
+        - `TotalDue`    — the total amount as a plain number string like
+                          "1234.40" (no currency symbol, no thousands sep)
+      Order matches kept_rows. No prose, no markdown fences.
     policy:
       max_iterations: 60
       max_total_tokens: 50000
@@ -75,24 +109,29 @@ steps:
     config:
       rows_from: steps.extract_invoices.output_text
       path: /tmp/rpa-challenge-output.csv
-      columns: [id, due_date, invoice_number, invoice_date, company_name, total_due]
+      # Column names + order MUST match the challenge's example CSV exactly
+      # (see https://rpachallengeocr.azurewebsites.net/invoices/example.csv).
+      columns: [ID, DueDate, InvoiceNo, InvoiceDate, CompanyName, TotalDue]
 
   - id: submit
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
-    tools: [browser_upload_file, browser_click, browser_screenshot]
+    tools: [browser_upload_file, browser_submit_form, browser_read_text, browser_screenshot]
     goal: |
       Submit the results:
         1. browser_upload_file at selector `input[name="csv"]` with file_path
            `/tmp/rpa-challenge-output.csv`
-        2. browser_click on the submit button (it lives inside `#submit` —
-           try `#submit button` or `#submit input[type="submit"]`; if neither
-           works fall back to clicking text "SUBMIT")
-        3. browser_screenshot the result page (full_page true)
-      Respond with the path of the screenshot you captured.
+        2. browser_submit_form on selector `#submit form` — the visible submit
+           "button" is a `<div>` with display:none that the page never reveals,
+           so we POST the form directly via JS. The form's action is `/upload`
+           and the page navigates to that endpoint as a result.
+        3. browser_read_text selector `body` — capture the server response.
+           Expected to be JSON like `{"success": true}` or `{"success": false}`.
+        4. browser_screenshot the result (full_page true).
+      Respond with the exact body text you read AND the screenshot path.
     policy:
       max_iterations: 8
-      max_total_tokens: 3000
+      max_total_tokens: 15000
 
 edges:
   - {from: open_challenge,   to: read_table}
@@ -102,5 +141,8 @@ edges:
   - {from: build_csv,        to: submit}
 
 policies:
-  max_total_tokens: 80000
+  # Empirically: pagination walk + per-invoice OCR-and-extract pushes a
+  # 3-page table to ~90k tokens. Set to 150k so a typical run completes
+  # comfortably (about $0.15 at Haiku 4.5 pricing).
+  max_total_tokens: 150000
   budget_action: pause

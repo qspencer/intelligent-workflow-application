@@ -2,11 +2,13 @@ from workflow_platform.tools.base import Tool, ToolContext, ToolResult
 from workflow_platform.tools.browser import (
     BrowserClickTool,
     BrowserDownloadTool,
+    BrowserFetchUrlTool,
     BrowserFillTool,
     BrowserNavigateTool,
     BrowserReadTableTool,
     BrowserReadTextTool,
     BrowserScreenshotTool,
+    BrowserSubmitFormTool,
     BrowserUploadFileTool,
     BrowserWaitForTool,
 )
@@ -20,11 +22,13 @@ from workflow_platform.tools.pdf_extract import PdfExtractTool
 __all__ = [
     "BrowserClickTool",
     "BrowserDownloadTool",
+    "BrowserFetchUrlTool",
     "BrowserFillTool",
     "BrowserNavigateTool",
     "BrowserReadTableTool",
     "BrowserReadTextTool",
     "BrowserScreenshotTool",
+    "BrowserSubmitFormTool",
     "BrowserUploadFileTool",
     "BrowserWaitForTool",
     "ConnectorQueryTool",

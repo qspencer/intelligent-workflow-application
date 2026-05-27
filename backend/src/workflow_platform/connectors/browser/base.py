@@ -73,6 +73,16 @@ class BrowserConnector(Connector):
         selector that includes the header row)."""
 
     @abstractmethod
+    async def submit_form(self, selector: str) -> None:
+        """Submit the `<form>` matching `selector` via JS `form.submit()`.
+
+        Use when the page has no visible submit button (or the button is
+        gated behind UI state that's hard to drive). The browser issues
+        the form's `action`/`method` POST directly. The page may
+        navigate as a result; subsequent steps should re-read state.
+        """
+
+    @abstractmethod
     async def upload_file(self, selector: str, file_path: str) -> None:
         """Set the value of an `<input type="file">` matching `selector`
         to the local `file_path`. Does not click submit — that's a
@@ -85,6 +95,14 @@ class BrowserConnector(Connector):
         """Click the element matching `selector` and capture the download
         Playwright surfaces. Saves to the per-run downloads dir; returns
         a `BrowserDownload` whose `local_path` subsequent steps can read."""
+
+    @abstractmethod
+    async def fetch_url(self, url: str, *, dest_filename: str | None = None) -> BrowserDownload:
+        """Fetch a URL via the browser's session and save to the per-run
+        downloads dir. Use this for `<a href="...">` links that don't
+        trigger a browser-level download event (e.g. inline images,
+        `target="_blank"` JPGs). `dest_filename` defaults to the URL's
+        last path segment."""
 
     @abstractmethod
     async def screenshot(

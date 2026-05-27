@@ -18,11 +18,13 @@ from workflow_platform.connectors.browser import PlaywrightConnector
 from workflow_platform.tools import (
     BrowserClickTool,
     BrowserDownloadTool,
+    BrowserFetchUrlTool,
     BrowserFillTool,
     BrowserNavigateTool,
     BrowserReadTableTool,
     BrowserReadTextTool,
     BrowserScreenshotTool,
+    BrowserSubmitFormTool,
     BrowserUploadFileTool,
     BrowserWaitForTool,
     ToolContext,
@@ -284,6 +286,8 @@ async def test_screenshot_tool_rejects_non_bool_full_page(tmp_path: Path) -> Non
         (BrowserFillTool, "browser_fill"),
         (BrowserUploadFileTool, "browser_upload_file"),
         (BrowserDownloadTool, "browser_download"),
+        (BrowserFetchUrlTool, "browser_fetch_url"),
+        (BrowserSubmitFormTool, "browser_submit_form"),
     ],
 )
 def test_browser_tool_names_match_plan(tool_cls: type[Any], expected_name: str) -> None:
@@ -305,6 +309,8 @@ def test_browser_tools_have_required_schema_fields() -> None:
         BrowserFillTool,
         BrowserUploadFileTool,
         BrowserDownloadTool,
+        BrowserFetchUrlTool,
+        BrowserSubmitFormTool,
     ):
         schema: dict[str, Any] = tool_cls.parameters_schema
         assert schema["type"] == "object"
@@ -494,6 +500,7 @@ def test_browser_tools_exported_from_package_init() -> None:
     """Importing from workflow_platform.tools at the top level works
     (canonical import path)."""
     from workflow_platform.tools import (
+        BrowserFetchUrlTool,
         BrowserReadTableTool,
         BrowserReadTextTool,
         BrowserScreenshotTool,
@@ -504,3 +511,131 @@ def test_browser_tools_exported_from_package_init() -> None:
     assert BrowserReadTableTool.name == "browser_read_table"
     assert BrowserWaitForTool.name == "browser_wait_for"
     assert BrowserScreenshotTool.name == "browser_screenshot"
+    assert BrowserFetchUrlTool.name == "browser_fetch_url"
+
+
+# ---------- BrowserFetchUrlTool ----------
+
+
+async def test_fetch_url_tool_returns_local_path(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.context.request.body_at["https://example.com/x.jpg"] = b"\xff\xd8body"
+    ctx, conn = await _ctx_with_browser(tmp_path, fake)
+    try:
+        result = await BrowserFetchUrlTool().execute(
+            {"url": "https://example.com/x.jpg"}, context=ctx
+        )
+    finally:
+        await conn.__aexit__(None, None, None)
+    assert result.ok, result.error
+    assert result.content["url"] == "https://example.com/x.jpg"
+    assert result.content["suggested_filename"] == "x.jpg"
+    assert result.content["bytes"] == len(b"\xff\xd8body")
+    assert Path(result.content["local_path"]).is_file()
+
+
+async def test_fetch_url_tool_honors_dest_filename(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.context.request.body_at["https://example.com/file"] = b"x"
+    ctx, conn = await _ctx_with_browser(tmp_path, fake)
+    try:
+        result = await BrowserFetchUrlTool().execute(
+            {"url": "https://example.com/file", "dest_filename": "renamed.bin"},
+            context=ctx,
+        )
+    finally:
+        await conn.__aexit__(None, None, None)
+    assert result.ok
+    assert Path(result.content["local_path"]).name == "renamed.bin"
+
+
+async def test_fetch_url_tool_requires_url() -> None:
+    result = await BrowserFetchUrlTool().execute({}, context=ToolContext())
+    assert not result.ok
+    assert "url" in (result.error or "").lower()
+
+
+async def test_fetch_url_tool_rejects_empty_dest_filename(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    ctx, conn = await _ctx_with_browser(tmp_path, fake)
+    try:
+        result = await BrowserFetchUrlTool().execute(
+            {"url": "https://example.com/x", "dest_filename": ""}, context=ctx
+        )
+    finally:
+        await conn.__aexit__(None, None, None)
+    assert not result.ok
+    assert "dest_filename" in (result.error or "").lower()
+
+
+async def test_fetch_url_tool_errors_without_connector() -> None:
+    result = await BrowserFetchUrlTool().execute(
+        {"url": "https://example.com/x"}, context=ToolContext()
+    )
+    assert not result.ok
+    assert "browser connector" in (result.error or "").lower()
+
+
+async def test_fetch_url_tool_surfaces_request_errors(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.context.request.raise_on_get["https://example.com/dead"] = RuntimeError(
+        "connection refused"
+    )
+    ctx, conn = await _ctx_with_browser(tmp_path, fake)
+    try:
+        result = await BrowserFetchUrlTool().execute(
+            {"url": "https://example.com/dead"}, context=ctx
+        )
+    finally:
+        await conn.__aexit__(None, None, None)
+    assert not result.ok
+    assert "connection refused" in (result.error or "")
+
+
+# ---------- BrowserSubmitFormTool ----------
+
+
+async def test_submit_form_tool_calls_connector(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    ctx, conn = await _ctx_with_browser(tmp_path, fake)
+    try:
+        result = await BrowserSubmitFormTool().execute(
+            {"selector": "#myform"}, context=ctx
+        )
+    finally:
+        await conn.__aexit__(None, None, None)
+    assert result.ok
+    assert result.content == {"selector": "#myform"}
+    # Connector forwarded the call to locator.evaluate.
+    assert any(
+        m == "locator.evaluate" and kw["selector"] == "#myform"
+        for (m, kw) in fake.calls
+    )
+
+
+async def test_submit_form_tool_requires_selector() -> None:
+    result = await BrowserSubmitFormTool().execute({}, context=ToolContext())
+    assert not result.ok
+    assert "selector" in (result.error or "").lower()
+
+
+async def test_submit_form_tool_errors_without_connector() -> None:
+    result = await BrowserSubmitFormTool().execute(
+        {"selector": "#x"}, context=ToolContext()
+    )
+    assert not result.ok
+    assert "browser connector" in (result.error or "").lower()
+
+
+async def test_submit_form_tool_surfaces_errors(tmp_path: Path) -> None:
+    fake = FakePlaywrightPage()
+    fake.raise_on_evaluate["#missing"] = RuntimeError("no such form")
+    ctx, conn = await _ctx_with_browser(tmp_path, fake)
+    try:
+        result = await BrowserSubmitFormTool().execute(
+            {"selector": "#missing"}, context=ctx
+        )
+    finally:
+        await conn.__aexit__(None, None, None)
+    assert not result.ok
+    assert "no such form" in (result.error or "")

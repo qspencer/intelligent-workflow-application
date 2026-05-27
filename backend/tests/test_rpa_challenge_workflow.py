@@ -37,10 +37,12 @@ from workflow_platform.engine.functions import default_function_registry
 from workflow_platform.persistence import WorkflowInstanceState, in_memory_repositories
 from workflow_platform.tools import (
     BrowserClickTool,
-    BrowserDownloadTool,
+    BrowserFetchUrlTool,
     BrowserNavigateTool,
     BrowserReadTableTool,
+    BrowserReadTextTool,
     BrowserScreenshotTool,
+    BrowserSubmitFormTool,
     BrowserUploadFileTool,
     BrowserWaitForTool,
     ImageOcrTool,
@@ -90,8 +92,30 @@ class _RpaFakeBrowser(_RecordingBrowserConnector):
             bytes=len(content),
         )
 
+    async def fetch_url(
+        self, url: str, *, dest_filename: str | None = None
+    ) -> BrowserDownload:
+        """Match the URL against the staged downloads queue. Each
+        fetched URL pops one entry — same ordering contract as
+        download_via_click."""
+        _staged_url, content = self._next_download()
+        name = dest_filename or Path(url).name or "download"
+        target = self.download_dir / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(content)
+        return BrowserDownload(
+            source_url=url,
+            local_path=str(target),
+            suggested_filename=name,
+            bytes=len(content),
+        )
+
     async def upload_file(self, selector: str, file_path: str) -> None:
         self.uploaded_files.append((selector, file_path))
+
+    async def submit_form(self, selector: str) -> None:
+        self.submitted_forms: list[str] = getattr(self, "submitted_forms", [])
+        self.submitted_forms.append(selector)
 
     async def screenshot(
         self, *, path: str | None = None, full_page: bool = False
@@ -172,7 +196,7 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
     # open_challenge: 3 tool-use calls + final text
     open_calls = [
         ("c1", "browser_navigate", {"url": "https://rpachallengeocr.azurewebsites.net/"}),
-        ("c2", "browser_click", {"selector": "#buttonStart"}),
+        ("c2", "browser_click", {"selector": "#start"}),
         ("c3", "browser_wait_for", {"selector": "#tableSandbox tr", "state": "visible"}),
     ]
     bedrock_script = [
@@ -180,8 +204,16 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
         tool_use_response(tool_uses=[open_calls[1]]),
         tool_use_response(tool_uses=[open_calls[2]]),
         text_response("ready"),
-        # read_table: one tool call, final JSON in plain text
-        tool_use_response(tool_uses=[("r1", "browser_read_table", {"selector": "#tableSandbox"})]),
+        # read_table: agent walks pagination. First reads the paginate
+        # strip to learn page count (1), then reads the single page of rows.
+        tool_use_response(
+            tool_uses=[
+                ("rp", "browser_read_text", {"selector": "#tableSandbox_paginate"}),
+            ]
+        ),
+        tool_use_response(
+            tool_uses=[("r1", "browser_read_table", {"selector": "#tableSandbox"})]
+        ),
         text_response(
             json.dumps(
                 [
@@ -192,9 +224,9 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
             )
         ),
         # extract_invoices: per kept row (1 + 3 — row 2 is dropped by filter),
-        # do download then ocr, then emit final JSON.
+        # fetch the JPG URL then ocr, then emit final JSON.
         tool_use_response(
-            tool_uses=[("d1", "browser_download", {"selector": "#tableSandbox tr:nth-child(2) a"})]
+            tool_uses=[("d1", "browser_fetch_url", {"url": "https://rpa/1.jpg"})]
         ),
         tool_use_response(
             tool_uses=[
@@ -202,7 +234,7 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
             ]
         ),
         tool_use_response(
-            tool_uses=[("d3", "browser_download", {"selector": "#tableSandbox tr:nth-child(4) a"})]
+            tool_uses=[("d3", "browser_fetch_url", {"url": "https://rpa/3.jpg"})]
         ),
         tool_use_response(
             tool_uses=[
@@ -213,20 +245,20 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
             json.dumps(
                 [
                     {
-                        "id": "1",
-                        "due_date": "2024-05-20",
-                        "invoice_number": "INV-001",
-                        "invoice_date": "2024-05-15",
-                        "company_name": "Acme Corp",
-                        "total_due": "123.45",
+                        "ID": "1",
+                        "DueDate": "20-05-2024",
+                        "InvoiceNo": "INV-001",
+                        "InvoiceDate": "15-05-2024",
+                        "CompanyName": "Acme Corp",
+                        "TotalDue": "123.45",
                     },
                     {
-                        "id": "3",
-                        "due_date": "2024-08-01",
-                        "invoice_number": "INV-003",
-                        "invoice_date": "2024-07-28",
-                        "company_name": "Globex LLC",
-                        "total_due": "4567.89",
+                        "ID": "3",
+                        "DueDate": "01-08-2024",
+                        "InvoiceNo": "INV-003",
+                        "InvoiceDate": "28-07-2024",
+                        "CompanyName": "Globex LLC",
+                        "TotalDue": "4567.89",
                     },
                 ]
             )
@@ -241,7 +273,9 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
                 )
             ]
         ),
-        tool_use_response(tool_uses=[("c4", "browser_click", {"selector": "#submit"})]),
+        tool_use_response(
+            tool_uses=[("c4", "browser_submit_form", {"selector": "#submit form"})]
+        ),
         tool_use_response(
             tool_uses=[
                 (
@@ -265,8 +299,10 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
                 BrowserClickTool(),
                 BrowserWaitForTool(),
                 BrowserReadTableTool(),
-                BrowserDownloadTool(),
+                BrowserReadTextTool(),
+                BrowserFetchUrlTool(),
                 BrowserUploadFileTool(),
+                BrowserSubmitFormTool(),
                 BrowserScreenshotTool(),
                 ocr,
             ]
@@ -304,7 +340,7 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
     assert csv_out["column_count"] == 6
     csv_text = Path("/tmp/rpa-challenge-output.csv").read_text()
     assert csv_text.splitlines()[0] == (
-        "id,due_date,invoice_number,invoice_date,company_name,total_due"
+        "ID,DueDate,InvoiceNo,InvoiceDate,CompanyName,TotalDue"
     )
     assert "INV-001" in csv_text
     assert "INV-003" in csv_text

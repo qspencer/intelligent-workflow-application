@@ -392,3 +392,94 @@ class BrowserDownloadTool(Tool):
                 "bytes": download.bytes,
             }
         )
+
+
+class BrowserSubmitFormTool(Tool):
+    name: ClassVar[str] = "browser_submit_form"
+    description: ClassVar[str] = (
+        "Submit the `<form>` matching `selector` via JavaScript `form.submit()`. "
+        "Use when the page has no visible submit button — e.g. a hidden submit "
+        "div, or a form gated behind UI state. The browser POSTs to the form's "
+        "`action` URL with its `method`. If a visible submit button exists, "
+        "prefer `browser_click` so the page's JS handlers can run first."
+    )
+    parameters_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {"selector": {"type": "string"}},
+        "required": ["selector"],
+    }
+
+    async def execute(
+        self, params: dict[str, Any], context: ToolContext | None = None
+    ) -> ToolResult:
+        sel = _selector_param(params)
+        if isinstance(sel, ToolResult):
+            return sel
+        connector = _get_connector(context)
+        if connector is None:
+            return ToolResult(error="No browser connector wired into this run")
+        try:
+            await connector.submit_form(sel)
+        except Exception as exc:
+            return ToolResult(error=f"browser_submit_form failed: {exc}")
+        return ToolResult(content={"selector": sel})
+
+
+class BrowserFetchUrlTool(Tool):
+    name: ClassVar[str] = "browser_fetch_url"
+    description: ClassVar[str] = (
+        "Fetch a URL (image, PDF, JSON, etc.) via the browser session and "
+        "save the body to the workflow's per-run downloads directory. Use "
+        'this for `<a href="...">` links that don\'t trigger a browser-level '
+        "download event when clicked — e.g. inline-displayed images, "
+        '`target="_blank"` JPGs from a `read_table` result\'s `*_href` '
+        "field. For click-and-capture downloads (the browser's own download "
+        "popup), use `browser_download` instead."
+    )
+    parameters_schema: ClassVar[dict[str, Any]] = {
+        "type": "object",
+        "properties": {
+            "url": {
+                "type": "string",
+                "description": (
+                    "Absolute URL to fetch. `read_table` returns absolute "
+                    "URLs in `*_href` keys so you can pass them directly."
+                ),
+            },
+            "dest_filename": {
+                "type": "string",
+                "description": (
+                    "Optional filename for the saved file. Defaults to the "
+                    "URL's last path segment (e.g. `5.jpg` for "
+                    "`/invoices/5.jpg`)."
+                ),
+            },
+        },
+        "required": ["url"],
+    }
+
+    async def execute(
+        self, params: dict[str, Any], context: ToolContext | None = None
+    ) -> ToolResult:
+        url = params.get("url")
+        if not isinstance(url, str) or not url:
+            return ToolResult(error="`url` is required (non-empty string)")
+        dest_filename = params.get("dest_filename")
+        if dest_filename is not None and (not isinstance(dest_filename, str) or not dest_filename):
+            return ToolResult(error="`dest_filename` must be a non-empty string if provided")
+        connector = _get_connector(context)
+        if connector is None:
+            return ToolResult(error="No browser connector wired into this run")
+        try:
+            download = await connector.fetch_url(url, dest_filename=dest_filename)
+        except Exception as exc:
+            return ToolResult(error=f"browser_fetch_url failed: {exc}")
+        return ToolResult(
+            content={
+                "url": url,
+                "local_path": download.local_path,
+                "source_url": download.source_url,
+                "suggested_filename": download.suggested_filename,
+                "bytes": download.bytes,
+            }
+        )

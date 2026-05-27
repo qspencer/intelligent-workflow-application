@@ -108,6 +108,9 @@ def test_cell_text_is_stripped_and_whitespace_normalized() -> None:
 
 
 def test_cell_with_nested_tags_flattens_to_text() -> None:
+    """Nested tags flatten to text. A single `<a href>` also produces an
+    `_href` sibling key (D8a) — keep both assertions to pin the
+    interaction."""
     html = """
     <table>
         <thead><tr><th>Item</th></tr></thead>
@@ -117,7 +120,7 @@ def test_cell_with_nested_tags_flattens_to_text() -> None:
     </table>
     """
     rows = parse_html_table(html)
-    assert rows == [{"Item": "Click me"}]
+    assert rows == [{"Item": "Click me", "Item_href": "#"}]
 
 
 def test_row_with_fewer_cells_than_headers_keeps_only_present() -> None:
@@ -178,3 +181,100 @@ def test_real_world_rpa_challenge_shape() -> None:
     assert rows[0]["ID"] == "2233"
     assert rows[0]["Due Date"] == "21-08-2024"
     assert rows[0]["Invoice"] == "Download"
+    # D8a: the single anchor in the Invoice cell shows up as `Invoice_href`.
+    assert rows[0]["Invoice_href"] == "/invoices/2233.jpg"
+
+
+# ---------- D8a: href capture ----------
+
+
+def test_cell_with_single_anchor_captures_href() -> None:
+    html = """
+    <table>
+        <thead><tr><th>Link</th></tr></thead>
+        <tbody><tr><td><a href="/invoices/5.jpg">Download</a></td></tr></tbody>
+    </table>
+    """
+    rows = parse_html_table(html)
+    assert rows == [{"Link": "Download", "Link_href": "/invoices/5.jpg"}]
+
+
+def test_cell_with_icon_only_anchor_still_captures_href() -> None:
+    """The actual RPA challenge case: anchor wraps a glyphicon span, no
+    visible text. read_table without href capture loses the URL
+    completely — the bug D8a fixes."""
+    html = """
+    <table>
+        <thead><tr><th>Invoice</th></tr></thead>
+        <tbody>
+            <tr><td><a href="/invoices/5.jpg" target="_blank">
+                <span class="glyphicon glyphicon-download-alt"></span>
+            </a></td></tr>
+        </tbody>
+    </table>
+    """
+    rows = parse_html_table(html)
+    assert rows[0]["Invoice"] == ""
+    assert rows[0]["Invoice_href"] == "/invoices/5.jpg"
+
+
+def test_relative_href_resolves_against_base_url() -> None:
+    html = """
+    <table>
+        <thead><tr><th>Link</th></tr></thead>
+        <tbody><tr><td><a href="/invoices/5.jpg">D</a></td></tr></tbody>
+    </table>
+    """
+    rows = parse_html_table(html, base_url="https://example.com/page")
+    assert rows[0]["Link_href"] == "https://example.com/invoices/5.jpg"
+
+
+def test_absolute_href_passes_through() -> None:
+    html = """
+    <table>
+        <thead><tr><th>Link</th></tr></thead>
+        <tbody><tr><td><a href="https://other.example.com/x.jpg">D</a></td></tr></tbody>
+    </table>
+    """
+    rows = parse_html_table(html, base_url="https://example.com/page")
+    assert rows[0]["Link_href"] == "https://other.example.com/x.jpg"
+
+
+def test_cell_with_no_anchor_omits_href_key() -> None:
+    html = """
+    <table>
+        <thead><tr><th>Name</th></tr></thead>
+        <tbody><tr><td>Alice</td></tr></tbody>
+    </table>
+    """
+    rows = parse_html_table(html)
+    assert rows == [{"Name": "Alice"}]
+    assert "Name_href" not in rows[0]
+
+
+def test_cell_with_multiple_anchors_omits_href_key() -> None:
+    """Disambiguation is ambiguous; don't guess. Agent can read_html
+    the cell if they really need both URLs."""
+    html = """
+    <table>
+        <thead><tr><th>Links</th></tr></thead>
+        <tbody>
+            <tr><td><a href="/a">A</a> | <a href="/b">B</a></td></tr>
+        </tbody>
+    </table>
+    """
+    rows = parse_html_table(html)
+    assert rows[0]["Links"] == "A | B"
+    assert "Links_href" not in rows[0]
+
+
+def test_anchor_without_href_is_ignored() -> None:
+    """`<a>` without `href` (e.g. JS handlers) doesn't contribute a URL."""
+    html = """
+    <table>
+        <thead><tr><th>Link</th></tr></thead>
+        <tbody><tr><td><a>Click</a></td></tr></tbody>
+    </table>
+    """
+    rows = parse_html_table(html)
+    assert rows == [{"Link": "Click"}]
