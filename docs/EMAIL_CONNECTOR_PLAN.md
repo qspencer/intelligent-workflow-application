@@ -549,6 +549,51 @@ revision sees the decision, not the question):
    step 8). The Bedrock live tests get the same scheduled run as a
    side-effect.
 
+## Operational notes (learned from running)
+
+### Gmail API thread safety
+
+`googleapiclient.discovery.build()` returns a service object whose
+internal `httplib2.Http()` instance is **not thread-safe**
+([Google docs](https://github.com/googleapis/google-api-python-client/blob/main/docs/thread_safety.md)).
+The connector caches one service instance and reuses it. Multiple
+concurrent `asyncio.to_thread(request.execute)` calls against that
+shared service race on httplib2's C-level state → glibc heap
+corruption (`free(): corrupted unsorted chunks`) → segfault.
+
+Surfaced during the email_triage 1000-message validation run when the
+batch driver was configured at `--concurrency 5` and crashed mid-run
+after ~50 messages. Boto3 (same `asyncio.to_thread` pattern) was
+exonerated by a side-by-side test: 100 concurrent Bedrock-only
+converse calls completed cleanly.
+
+**Fix in place** (commit `c336be2`): `asyncio.Lock` around
+`_execute()` in `GmailConnector`. Gmail calls serialize through one
+mutex; Bedrock continues to parallelize freely. Per-message latency
+in real workloads is dominated by Bedrock turns (multi-second) vs.
+Gmail label-apply (~200ms), so the serialization cost is
+negligible. Measured: 100 messages with concurrency=10 finished in
+71 seconds end-to-end after the fix (previously segfaulted at
+concurrency=3+ before producing any output).
+
+**If a future workload genuinely needs concurrent Gmail calls**
+(e.g. many connectors against many accounts, or a single workload
+batch-applying labels at rates where 200ms serial latency matters),
+the canonical fix is per-call `request.execute(http=Http())` —
+each thread gets a fresh `httplib2.Http()` instance. Requires
+plumbing credentials through `_execute()`. Not done yet because the
+Lock approach is simpler and the cost difference is invisible at
+current workload shapes.
+
+### Rate limits in practice
+
+A 1000-message validation run against the qspencer@gmail.com personal
+inbox at concurrency=10 made ~1000 Gmail label_apply calls + ~2000-3000
+Bedrock converse calls over ~12 minutes (estimated post-fix). No
+rate-limit errors observed from either provider. Gmail's quota for
+label_apply is documented as ~250 units/sec per user with each apply
+costing 5 units — comfortably above the rates we ever hit.
+
 ## When this graduates
 
 The trigger that opens this plan back up: **a concrete email workflow

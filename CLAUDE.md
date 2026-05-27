@@ -168,7 +168,7 @@ These are project rules. Apply them by default; only override with explicit reas
 
 ## Coding rules
 
-- Python 3.12, async-throughout. Wrap sync boto3 / blocking I/O via `asyncio.to_thread`.
+- Python 3.12, async-throughout. Wrap sync boto3 / blocking I/O via `asyncio.to_thread`. **Verify the underlying sync client is thread-safe before sharing one instance across concurrent `to_thread` calls.** `boto3` clients are documented thread-safe; `httplib2` (used by `googleapiclient`) and `requests` Sessions are not. Sharing a non-thread-safe client across threads has produced glibc heap corruption / segfaults in practice — see `docs/EMAIL_CONNECTOR_PLAN.md` "Gmail API thread safety". When in doubt: per-call instance, or an `asyncio.Lock` around the dispatch site.
 - Strict typing: mypy strict in CI on `src` and `tests`. Pydantic v2 for data models.
 - Lint + format with ruff. No black, no isort, no flake8.
 - One file per concept. No premature abstractions — three similar lines is better than a wrong abstraction.
