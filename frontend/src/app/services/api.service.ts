@@ -22,6 +22,12 @@ export class ApiService {
     return this.http.get<WorkflowDefinition[]>(`${API_BASE}/workflows`);
   }
 
+  /** Map of `workflow_id → instance count`. Aggregated server-side via
+   *  `SELECT workflow_id, COUNT(*) GROUP BY workflow_id`. Cheap. */
+  workflowInstanceCounts(): Observable<Record<string, number>> {
+    return this.http.get<Record<string, number>>(`${API_BASE}/workflows/instance-counts`);
+  }
+
   listInstances(params: {
     workflow_id?: string;
     state?: string;

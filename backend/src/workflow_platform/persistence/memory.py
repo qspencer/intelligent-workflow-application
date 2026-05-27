@@ -90,6 +90,12 @@ class InMemoryInstanceRepo(InstanceRepo):
         items.sort(key=lambda i: i.created_at, reverse=True)
         return [i.model_copy(deep=True) for i in items[: max(0, limit)]]
 
+    async def count_by_workflow(self) -> dict[str, int]:
+        out: dict[str, int] = {}
+        for inst in self._items.values():
+            out[inst.workflow_id] = out.get(inst.workflow_id, 0) + 1
+        return out
+
 
 class InMemoryStepExecutionRepo(StepExecutionRepo):
     def __init__(self) -> None:

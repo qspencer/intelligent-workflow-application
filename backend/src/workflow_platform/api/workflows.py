@@ -55,6 +55,16 @@ def build_router(
     async def list_workflows(_: UserIdentity = Depends(current_user)) -> list[WorkflowDefinition]:
         return await repositories.definitions.list_all()
 
+    @router.get("/workflows/instance-counts")
+    async def workflows_instance_counts(
+        _: UserIdentity = Depends(current_user),
+    ) -> dict[str, int]:
+        """Map of `workflow_id → instance count` across all instances ever
+        recorded. Used by the workflows list page to show a count per row.
+        Separate from `/api/workflows` so the (heavier) count query only
+        runs when the count is actually wanted."""
+        return await repositories.instances.count_by_workflow()
+
     @router.get("/workflows/{workflow_id}", response_model=WorkflowDefinition)
     async def get_workflow(
         workflow_id: str, _: UserIdentity = Depends(current_user)

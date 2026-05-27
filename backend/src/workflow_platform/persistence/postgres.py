@@ -6,7 +6,7 @@ from datetime import datetime
 from typing import Any
 
 from sqlalchemy import delete as sql_delete
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from workflow_platform.persistence.models import (
@@ -133,6 +133,14 @@ class PostgresInstanceRepo(InstanceRepo):
             result = await s.execute(stmt)
             rows = result.scalars().all()
         return [_from_instance_row(r) for r in rows]
+
+    async def count_by_workflow(self) -> dict[str, int]:
+        async with self._sf() as s:
+            stmt = select(
+                WorkflowInstanceRow.workflow_id, func.count(WorkflowInstanceRow.id)
+            ).group_by(WorkflowInstanceRow.workflow_id)
+            result = await s.execute(stmt)
+            return {row[0]: int(row[1]) for row in result.all()}
 
 
 class PostgresStepExecutionRepo(StepExecutionRepo):

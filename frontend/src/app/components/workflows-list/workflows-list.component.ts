@@ -26,23 +26,32 @@ import { WorkflowDefinition } from '../../types';
       <table>
         <thead>
           <tr>
-            <th>ID</th>
             <th>Name</th>
             <th>Description</th>
-            <th>Instances</th>
+            <th class="num-col">Instances</th>
+            <th class="actions-col">Actions</th>
           </tr>
         </thead>
         <tbody>
           @for (wf of definitions(); track wf.id) {
             <tr>
-              <td><code>{{ wf.id }}</code></td>
-              <td>{{ wf.name }}</td>
-              <td>{{ wf.description || '—' }}</td>
               <td>
-                <button class="link" (click)="openRun(wf)">Run</button>
-                <a [routerLink]="['/instances']" [queryParams]="{ workflow_id: wf.id }">
-                  View
+                <div class="name-cell">{{ wf.name }}</div>
+                <code class="muted">{{ wf.id }}</code>
+              </td>
+              <td>
+                <span [title]="wf.description || ''">
+                  {{ describe(wf.description) }}
+                </span>
+              </td>
+              <td class="num-col">
+                <a [routerLink]="['/instances']" [queryParams]="{ workflow_id: wf.id }"
+                   title="View {{ instanceCounts()[wf.id] || 0 }} instance(s) of this workflow">
+                  {{ instanceCounts()[wf.id] || 0 }}
                 </a>
+              </td>
+              <td class="actions-col">
+                <button (click)="openRun(wf)">Run</button>
               </td>
             </tr>
           }
@@ -202,6 +211,21 @@ import { WorkflowDefinition } from '../../types';
       button.link:hover {
         text-decoration: underline;
       }
+      /* Stack workflow name + ID in one cell so the ID isn't burning a
+         whole column for an identifier the operator rarely needs. */
+      .name-cell {
+        font-weight: 500;
+      }
+      /* Right-align numeric and action columns; matches admin-table
+         conventions. */
+      .num-col {
+        text-align: right;
+        width: 90px;
+        font-variant-numeric: tabular-nums;
+      }
+      .actions-col {
+        width: 100px;
+      }
     `,
   ],
 })
@@ -210,6 +234,7 @@ export class WorkflowsListComponent implements OnInit {
   private readonly router = inject(Router);
 
   readonly definitions = signal<WorkflowDefinition[]>([]);
+  readonly instanceCounts = signal<Record<string, number>>({});
   readonly loading = signal(true);
   readonly error = signal<string | null>(null);
 
@@ -228,6 +253,22 @@ export class WorkflowsListComponent implements OnInit {
     this.refresh();
   }
 
+  /** Strip the markdown noise (code-fences, asterisk emphasis, headers,
+   *  newlines) from a workflow description so it reads cleanly in a
+   *  table cell. The full original text is shown on hover via title=
+   *  on the surrounding span. */
+  describe(raw: string | undefined): string {
+    if (!raw) return '—';
+    const cleaned = raw
+      .replace(/`([^`]+)`/g, '$1') // `code` → code
+      .replace(/\*\*([^*]+)\*\*/g, '$1') // **bold** → bold
+      .replace(/\*([^*]+)\*/g, '$1') // *em* → em
+      .replace(/^#+\s*/gm, '') // strip heading markers
+      .replace(/\s+/g, ' ') // collapse whitespace + newlines
+      .trim();
+    return cleaned.length > 120 ? cleaned.slice(0, 117) + '…' : cleaned;
+  }
+
   refresh(): void {
     this.loading.set(true);
     this.api.listWorkflows().subscribe({
@@ -239,6 +280,12 @@ export class WorkflowsListComponent implements OnInit {
         this.error.set(err.message ?? 'Failed to load workflows');
         this.loading.set(false);
       },
+    });
+    // Fire in parallel with the definitions fetch — failure here only
+    // means counts show as 0, which is fine.
+    this.api.workflowInstanceCounts().subscribe({
+      next: (counts) => this.instanceCounts.set(counts),
+      error: () => this.instanceCounts.set({}),
     });
   }
 

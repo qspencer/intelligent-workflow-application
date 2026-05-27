@@ -66,6 +66,12 @@ class InstanceRepo(ABC):
     ) -> list[WorkflowInstance]:
         """System-wide list of instances ordered by created_at DESC."""
 
+    @abstractmethod
+    async def count_by_workflow(self) -> dict[str, int]:
+        """Return a `{workflow_id: instance_count}` map across all instances.
+        Used by the workflows list page to show how many runs each
+        definition has accumulated."""
+
 
 class StepExecutionRepo(ABC):
     @abstractmethod
