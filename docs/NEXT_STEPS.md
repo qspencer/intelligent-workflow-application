@@ -81,20 +81,17 @@ Acceptance:
 
 Effort: **S**. Blocks any real-world webhook integration.
 
-### G3 — Cost dashboard view
+### G3 — Cost dashboard view — **Done**
 
-`/api/cost/by-{workflow,model,day}` exists and is queryable via curl,
-but nothing in the UI surfaces it. A small "Cost" route alongside
-Instances + Workflows showing the three breakdowns as tables would
-close the gap. The endpoints, role-gating, and `CostReportService` are
-all in.
+Landed: new lazy-loaded route at `/cost` (`frontend/src/app/components/cost-dashboard/`). Header nav gains a "Cost" link next to Instances + Workflows. Three side-by-side tables — by workflow / by model / by day — backed by `ApiService.costByWorkflow / costByModel / costByDay`. Each fetches in parallel and settles independently, so a single backend error doesn't blank out the other two. An aggregate totals row sums cost + tokens + step count across the selected window.
 
-Acceptance:
-- New lazy-loaded route at `/cost`.
-- Three small tables, each polling at the existing 5s cadence.
-- Optional `?since=` controls.
+Filter is a single ngModel-bound dropdown: "All time" (no `since` param) / Last 24 hours / Last 7 days / Last 30 days (each translates to an ISO `since`).
 
-Effort: **S+**. Pure frontend; no new backend work.
+No charts — tables match the existing UI's visual language. The by-day table is the obvious chart target if trend visualization becomes useful later.
+
+Tests: +11 frontend tests (4 ApiService URL-construction tests covering the three endpoints + the `since` pass-through, 7 CostDashboardComponent tests covering totals computation, window→since translation across all 4 windows, partial-error isolation, ngOnInit dispatch). 68 frontend tests total (was 57). AOT build clean: 6.11 kB lazy chunk. Commit `e748b81`.
+
+Aside: writing the component spec surfaced that the existing `Object.create(prototype)` test pattern doesn't work for components with class-field `signal()` initializers — those skip. The spec's `makeComponent` helper documents the workaround (manually re-wire the signal + computed fields) so future component specs have a template.
 
 ### G4 — Live events on the instances *list* page
 
