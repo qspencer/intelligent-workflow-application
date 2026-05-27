@@ -67,11 +67,19 @@ The system has depth for power users but doesn't expose it by default:
 |-----------|--------------|
 | "Automate my invoices" | Conversational setup, workflow runs in background |
 | "I want to see what it's doing" | Visual workflow graph, step-by-step progress |
+| "I want to operate it without learning JSON" | **Fixed friendly GUI** — form-driven trigger setup, run-from-form (not paste-JSON), plain-language status, rendered output cards (not raw JSON dumps). Same affordances a Zapier or Power Automate user expects. |
 | "I want to tweak the logic" | Click into steps, edit goals/conditions/tools |
 | "I want full control" | JSON/YAML definitions, API access, custom tools |
 | "I want to extend the platform" | Connector SDK, tool SDK, plugin architecture |
 
 No user is forced up this ladder. A non-technical user can operate the system entirely through conversation and never see a configuration screen. A developer can bypass the conversation entirely and work with definitions and APIs.
+
+**Two paths to non-technical access**, both valid:
+
+1. **Conversational** — the long-term default. "Triage every paper in my arXiv feed from this week" → the system understands intent, builds + runs the workflow. Depends on LLM-driven workflow synthesis (research-heavy; gated on knowledge ingestion + several open questions per `LEARNING_IMPLEMENTATION.md`).
+2. **Fixed friendly GUI** — the shorter-term milestone. A polished, traditional point-and-click UI: form-driven trigger configuration, batch run from an uploaded CSV/JSON, output rendered as cards with plain-language summaries (not raw JSON), no UUIDs / SHAs / role names in the user's face. No LLM dependency in the UI itself; just careful design.
+
+Both deliver the same outcome — a non-developer can use the platform — but along parallel paths up the same ladder. The fixed GUI is closer to "ship-able now" than the conversational layer. The current dashboard is **not** that GUI — it's the lower "I want full control" rung exposed for developer / operator validation use during the platform's build-out. See `docs/BUILD_PLAN.md` for the proposed sequencing.
 
 ### 5. The System Gets Smarter Over Time
 

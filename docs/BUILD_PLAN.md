@@ -150,6 +150,59 @@ Where this plan diverges from `IMPLEMENTATION_PLAN.md`, the divergence is called
 
 ---
 
+## Phase 3 candidate — Fixed friendly GUI for non-technical users
+
+Added after the post-Phase-2 re-evaluation surfaced a real gap: the
+current dashboard is a developer / operator console (JSON paste, YAML
+import, UUIDs as labels, `memory_hash` columns, role-name jargon),
+not a product surface a non-technical user can demo or operate.
+
+`docs/VISION.md` Goal 4 names this rung explicitly: a fixed,
+form-driven GUI distinct from the conversational layer (which
+remains research-gated). It's the missing middle between the
+existing dev console and the eventual conversational interface.
+
+Scope when this phase starts (not committed; pulled in by demo /
+customer-pilot need, per the re-evaluation principle):
+
+- **Workflow creation by form, not YAML import.** Trigger picker
+  (filesystem folder browser, schedule wizard, webhook URL
+  generator, email-account selector). Step list with friendly editors
+  for goal / model / capabilities.
+- **Run by clicking a button on a form built from
+  `trigger.example_payload`'s shape**, not pasting JSON. Each field
+  rendered as the appropriate input control.
+- **Batch run by uploading a CSV / JSON file**, not pasting an
+  array. Backend bulk-fire endpoint instead of frontend loops.
+- **Status pages with plain-language rendering.** No UUIDs as the
+  primary label; surface a workflow-and-time slug instead.
+  No `memory_hash` SHA columns. No `step_id` internals. State
+  badges read "Completed" / "Failed", not engine internals.
+- **Output cards, not JSON dumps.** Per-workflow renderers (the
+  triage workflows have well-defined output shapes — render score
+  badges, summary text, key concepts as chips). Fall back to a
+  collapsible raw-JSON view for power users.
+- **Friendly errors.** Surface `Cannot delete: instance is running`
+  in human English; map `StepFailure` causes to plain-language
+  suggested actions.
+- **Two-surface strategy**, not a replacement: keep the existing
+  `/instances` / `/workflows` / `/cost` routes as the developer
+  console for validation work. Add a parallel surface
+  (e.g. `/inbox`, `/automations`) for non-technical users. Both
+  point at the same backend. Phase 3 builds the parallel surface;
+  the dev console keeps earning its keep during platform iteration.
+
+Effort estimate: **multiple weeks**. Pure frontend + a small
+amount of backend (bulk-fire endpoint, maybe a per-workflow
+`output_schema` to drive the renderer). No research dependencies.
+
+Trigger to start: **a demo or pilot scheduled with a non-technical
+audience**, or the operator explicitly saying "I can't show this
+to anyone." Until then, the dev console is sufficient for
+internal validation work.
+
+---
+
 ## Aggressively deferred (with rationale)
 
 | Item | Source | Why defer |
