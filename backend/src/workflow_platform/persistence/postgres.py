@@ -179,9 +179,7 @@ class PostgresStepExecutionRepo(StepExecutionRepo):
             return 0
         async with self._sf() as s, s.begin():
             result = await s.execute(
-                sql_delete(StepExecutionRow).where(
-                    StepExecutionRow.instance_id.in_(instance_ids)
-                )
+                sql_delete(StepExecutionRow).where(StepExecutionRow.instance_id.in_(instance_ids))
             )
         rowcount: int = getattr(result, "rowcount", 0) or 0
         return rowcount

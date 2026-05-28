@@ -156,9 +156,7 @@ async def run_batch(
                 memory=memory,
             )
             trigger = json.loads(fixture_path.read_text())
-            trigger = _trim_trigger(
-                trigger, max_body_chars=max_body_chars, strip_html=strip_html
-            )
+            trigger = _trim_trigger(trigger, max_body_chars=max_body_chars, strip_html=strip_html)
             try:
                 instance = await engine.run(definition, trigger_payload=trigger)
             except Exception as exc:
@@ -232,9 +230,7 @@ async def run_batch(
         cat = r.get("category") or ("<unparsed>" if r["parse_ok"] is False else "?")
         conf = f"{r['confidence']:.2f}" if isinstance(r.get("confidence"), int | float) else "-"
         reply = "YES" if r.get("reply_drafted") else "no"
-        print(
-            f"{i:>3}  {cat:<16} {conf:>5} {reply:>5} {r['state']:<10} {r['subject']:<60}"
-        )
+        print(f"{i:>3}  {cat:<16} {conf:>5} {reply:>5} {r['state']:<10} {r['subject']:<60}")
 
     # ----- category histogram -----
     print()

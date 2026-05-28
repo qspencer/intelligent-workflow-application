@@ -393,7 +393,7 @@ def test_extract_email_triage_rescues_unescaped_inner_quotes() -> None:
         '{"category":"spam","confidence":0.92,"reply_drafted":false,'
         '"labels_applied":["triaged/spam"],"summary":"Unsolicited '
         'marketing email using urgency ("final notice") to pressure '
-        "warranty plan purchase.\"}"
+        'warranty plan purchase."}'
     )
     out = _extract_email_triage(raw)
     assert out is not None

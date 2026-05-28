@@ -599,18 +599,13 @@ async def test_submit_form_tool_calls_connector(tmp_path: Path) -> None:
     fake = FakePlaywrightPage()
     ctx, conn = await _ctx_with_browser(tmp_path, fake)
     try:
-        result = await BrowserSubmitFormTool().execute(
-            {"selector": "#myform"}, context=ctx
-        )
+        result = await BrowserSubmitFormTool().execute({"selector": "#myform"}, context=ctx)
     finally:
         await conn.__aexit__(None, None, None)
     assert result.ok
     assert result.content == {"selector": "#myform"}
     # Connector forwarded the call to locator.evaluate.
-    assert any(
-        m == "locator.evaluate" and kw["selector"] == "#myform"
-        for (m, kw) in fake.calls
-    )
+    assert any(m == "locator.evaluate" and kw["selector"] == "#myform" for (m, kw) in fake.calls)
 
 
 async def test_submit_form_tool_requires_selector() -> None:
@@ -620,9 +615,7 @@ async def test_submit_form_tool_requires_selector() -> None:
 
 
 async def test_submit_form_tool_errors_without_connector() -> None:
-    result = await BrowserSubmitFormTool().execute(
-        {"selector": "#x"}, context=ToolContext()
-    )
+    result = await BrowserSubmitFormTool().execute({"selector": "#x"}, context=ToolContext())
     assert not result.ok
     assert "browser connector" in (result.error or "").lower()
 
@@ -632,9 +625,7 @@ async def test_submit_form_tool_surfaces_errors(tmp_path: Path) -> None:
     fake.raise_on_evaluate["#missing"] = RuntimeError("no such form")
     ctx, conn = await _ctx_with_browser(tmp_path, fake)
     try:
-        result = await BrowserSubmitFormTool().execute(
-            {"selector": "#missing"}, context=ctx
-        )
+        result = await BrowserSubmitFormTool().execute({"selector": "#missing"}, context=ctx)
     finally:
         await conn.__aexit__(None, None, None)
     assert not result.ok

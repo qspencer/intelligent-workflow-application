@@ -394,9 +394,7 @@ def build_router(
                 ),
             )
         if not requested:
-            raise HTTPException(
-                status_code=400, detail="At least one ?state= parameter required."
-            )
+            raise HTTPException(status_code=400, detail="At least one ?state= parameter required.")
 
         deleted_ids = await repositories.instances.delete_by_states(
             list(requested), workflow_id=workflow_id

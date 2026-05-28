@@ -38,9 +38,7 @@ async def fetch(account: str, count: int, label: str | None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Output dir: %s", out_dir)
 
-    connector = maybe_build_gmail_connector(
-        account=account, secret_store=EnvSecretStore()
-    )
+    connector = maybe_build_gmail_connector(account=account, secret_store=EnvSecretStore())
     if connector is None:
         logger.error(
             "Failed to build Gmail connector. Check .secrets/gmail/%s/ has "
@@ -75,9 +73,7 @@ async def fetch(account: str, count: int, label: str | None) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--account", required=True, help="Gmail address")
-    parser.add_argument(
-        "--count", type=int, default=20, help="Max messages to fetch (default 20)"
-    )
+    parser.add_argument("--count", type=int, default=20, help="Max messages to fetch (default 20)")
     parser.add_argument(
         "--label",
         default="INBOX",

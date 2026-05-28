@@ -451,7 +451,5 @@ def test_bulk_delete_requires_admin_or_operator(
     dev_app: tuple[TestClient, Any, WorkflowEngine],
 ) -> None:
     client, _, _ = dev_app
-    r = client.delete(
-        "/api/workflow-instances?state=completed", headers=_viewer()
-    )
+    r = client.delete("/api/workflow-instances?state=completed", headers=_viewer())
     assert r.status_code == 403

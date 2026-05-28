@@ -69,8 +69,7 @@ class InMemoryInstanceRepo(InstanceRepo):
         to_delete = [
             i.id
             for i in self._items.values()
-            if i.state.value in state_set
-            and (workflow_id is None or i.workflow_id == workflow_id)
+            if i.state.value in state_set and (workflow_id is None or i.workflow_id == workflow_id)
         ]
         for iid in to_delete:
             del self._items[iid]

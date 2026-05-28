@@ -92,9 +92,7 @@ class _RpaFakeBrowser(_RecordingBrowserConnector):
             bytes=len(content),
         )
 
-    async def fetch_url(
-        self, url: str, *, dest_filename: str | None = None
-    ) -> BrowserDownload:
+    async def fetch_url(self, url: str, *, dest_filename: str | None = None) -> BrowserDownload:
         """Match the URL against the staged downloads queue. Each
         fetched URL pops one entry — same ordering contract as
         download_via_click."""
@@ -211,9 +209,7 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
                 ("rp", "browser_read_text", {"selector": "#tableSandbox_paginate"}),
             ]
         ),
-        tool_use_response(
-            tool_uses=[("r1", "browser_read_table", {"selector": "#tableSandbox"})]
-        ),
+        tool_use_response(tool_uses=[("r1", "browser_read_table", {"selector": "#tableSandbox"})]),
         text_response(
             json.dumps(
                 [
@@ -225,17 +221,13 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
         ),
         # extract_invoices: per kept row (1 + 3 — row 2 is dropped by filter),
         # fetch the JPG URL then ocr, then emit final JSON.
-        tool_use_response(
-            tool_uses=[("d1", "browser_fetch_url", {"url": "https://rpa/1.jpg"})]
-        ),
+        tool_use_response(tool_uses=[("d1", "browser_fetch_url", {"url": "https://rpa/1.jpg"})]),
         tool_use_response(
             tool_uses=[
                 ("o1", "image_ocr", {"filepath": str(browser.download_dir / "1.jpg")}),
             ]
         ),
-        tool_use_response(
-            tool_uses=[("d3", "browser_fetch_url", {"url": "https://rpa/3.jpg"})]
-        ),
+        tool_use_response(tool_uses=[("d3", "browser_fetch_url", {"url": "https://rpa/3.jpg"})]),
         tool_use_response(
             tool_uses=[
                 ("o3", "image_ocr", {"filepath": str(browser.download_dir / "3.jpg")}),
@@ -273,9 +265,7 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
                 )
             ]
         ),
-        tool_use_response(
-            tool_uses=[("c4", "browser_submit_form", {"selector": "#submit form"})]
-        ),
+        tool_use_response(tool_uses=[("c4", "browser_submit_form", {"selector": "#submit form"})]),
         tool_use_response(
             tool_uses=[
                 (
@@ -339,9 +329,7 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
     assert csv_out["row_count"] == 2
     assert csv_out["column_count"] == 6
     csv_text = Path("/tmp/rpa-challenge-output.csv").read_text()
-    assert csv_text.splitlines()[0] == (
-        "ID,DueDate,InvoiceNo,InvoiceDate,CompanyName,TotalDue"
-    )
+    assert csv_text.splitlines()[0] == ("ID,DueDate,InvoiceNo,InvoiceDate,CompanyName,TotalDue")
     assert "INV-001" in csv_text
     assert "INV-003" in csv_text
 
