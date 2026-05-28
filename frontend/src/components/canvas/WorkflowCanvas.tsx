@@ -23,6 +23,7 @@ import type {
 } from '../../types';
 import { CanvasFooter } from './CanvasFooter';
 import { Inspector } from './Inspector';
+import { RunDialog } from './RunDialog';
 import { nodeTypes, type FlowNode } from './CanvasNodes';
 
 export function WorkflowCanvas() {
@@ -38,6 +39,7 @@ export function WorkflowCanvas() {
 
   const [instance, setInstance] = useState<WorkflowInstance | null>(null);
   const [steps, setSteps] = useState<StepExecution[]>([]);
+  const [runOpen, setRunOpen] = useState(false);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -143,8 +145,17 @@ export function WorkflowCanvas() {
           </Link>
           <h2>{def?.name ?? id}</h2>
         </div>
-        <span className="mode-pill">{following ? 'Live run' : 'View only'}</span>
+        <div className="canvas-header-actions">
+          {!following && def && (
+            <button className="primary" onClick={() => setRunOpen(true)}>
+              Run
+            </button>
+          )}
+          <span className="mode-pill">{following ? 'Live run' : 'View only'}</span>
+        </div>
       </div>
+
+      {runOpen && def && <RunDialog def={def} onClose={() => setRunOpen(false)} />}
 
       {loading ? (
         <p>Loading…</p>
