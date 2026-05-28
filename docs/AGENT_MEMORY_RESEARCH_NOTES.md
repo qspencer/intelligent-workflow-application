@@ -383,6 +383,67 @@ specific spots:
 pulls for it — they're captured here so we don't have to re-discover
 them.
 
+## Industry note — "Agent Control and Governance" (non-academic source, May 2026)
+
+A think-piece (Technology-Radar-flavored) read *outside* the paper-triage
+corpus, so it lives here as a clearly-marked addendum rather than an 11th
+paper — it wasn't selected by the reproducible workflow above, and several
+of its claims don't survive scrutiny. Two ideas are worth keeping; the
+rest either duplicates entries above or fails verification.
+
+**Keep 1 — "intent debt" / silent staleness as a named failure mode.**
+The article's strongest contribution: agent failures often aren't wrong
+outputs, they're *stale judgment* — its example is an ops agent routing
+procurement to two directors who had left the company, because its encoded
+hierarchy was months out of date. No visible error, just silent
+degradation. Our analog: `agent_memory.md` rubrics and `WorkflowDefinition`s
+drift out of date while the workflow keeps "succeeding." We have the
+forensic primitive (`memory_hash` correlates behavior to memory edits — see
+Memory-R2 #3 / Theme B) but **no staleness detection**: `MonitoringService`
+watches stuck workflows / error-rate / queue depth / token-burn, none of
+which catch "the encoding is no longer valid."
+*Where it would land:* a candidate gap in `docs/NEXT_STEPS.md` —
+"staleness / intent-debt signals for agent memory + definitions" — and a
+Phase-B input (a curated knowledge index needs a freshness + ownership
+story, not just retrieval quality). Out of scope until a long-running
+workload makes drift real; captured so it isn't re-discovered the hard way.
+
+**Keep 2 — structural constraints, not prompt constraints (validates our
+design).** The article's sharpest technical point, via the Cursor
+"deleted the production database and its backup in one session" case:
+guardrails *loaded into the prompt* aren't structurally distinguished from
+the operational content they govern, so they get dropped under context
+pressure and end up bounding nothing. We already do this the safe way —
+capability enforcement happens at **tool dispatch** (capability
+intersection, most-restrictive-wins), not as prompt instructions, so a
+polluted or truncated context cannot widen the agent's authority. This is
+outside-the-academy validation of the capability-spine choice
+(`docs/ARCHITECTURE.md` security section) and VISION anti-goal #4 ("It
+broke everything it touched"). *Where it would land:* a one-line cite in
+the ARCHITECTURE security section; no code change. The standing corollary,
+relevant as the canvas/edit-mode work grows: **never migrate guardrails
+into the prompt.**
+
+**Skeptical caveats — do not let these drive design.** The piece asserts
+as fact several claims that are unverifiable and that misrepresent how
+these systems work: a "512K-line Claude Code source leak," a "KAIROS
+Dream-Mode daemon," a productized "Dreaming" platform, and "emotion
+vectors" causally driving a 22% blackmail rate. Treat as rhetoric, not
+reporting. The one durable governance principle underneath — *an agent
+that rewrites its own memory is no longer fully described by its initial
+configuration* — actually **endorses what we already deferred**:
+human-curated structured-Markdown memory, hashed in audit, with no
+autonomous consolidation (confirmed — no `consolidat*` / `dream*` paths in
+the backend). If we ever add background consolidation, it's Auto-Dreamer
+(#6) + MemAudit (#9) territory and needs its own governance design first.
+
+**Already covered above (no new action):** context-bloat / pointer-and-
+retrieval → PEEK (#8) + Theme C; offline consolidation / "Dreaming" →
+Auto-Dreamer (#6); poisoned/injected memory → MemAudit (#9). The MCP
+STDIO-transport RCE item is N/A — the platform uses custom `Tool` /
+`Connector` ABCs, not MCP; revisit only if an MCP connector is ever added
+(`docs/INTEGRATIONS.md`).
+
 ## How this doc goes stale
 
 - A new paper supersedes one of the entries above → add it; keep the
