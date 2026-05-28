@@ -149,6 +149,9 @@ export function InstanceDetail() {
           </div>
 
           <div className="actions">
+            <Link className="canvas-link" to={`/canvas/${instance.workflow_id}?instance=${instance.id}`}>
+              View on canvas
+            </Link>
             {instance.state === 'running' && (
               <>
                 <button onClick={() => void action('pause')}>Pause</button>

@@ -6,10 +6,11 @@ import {
   firstSentence,
   humanize,
   modelDisplayName,
+  statusMeta,
   triggerSubtitle,
   triggerTitle,
 } from './canvas';
-import type { WorkflowDefinition } from '../types';
+import type { StepState, WorkflowDefinition } from '../types';
 
 describe('label helpers', () => {
   it('humanizes snake/kebab case', () => {
@@ -104,5 +105,23 @@ describe('buildGraph', () => {
     };
     const { edges } = buildGraph(conditional);
     expect(edges.find((e) => e.source === 'extract')?.label).toBe('score > 0.8');
+  });
+});
+
+describe('statusMeta', () => {
+  it('maps each step state to a plain-language label + css class', () => {
+    const cases: Array<[StepState, string, string]> = [
+      ['running', 'Running…', 'running'],
+      ['completed', 'Done', 'completed'],
+      ['failed', 'Failed', 'failed'],
+      ['skipped', 'Skipped', 'skipped'],
+      ['pending', 'Waiting', 'pending'],
+    ];
+    for (const [state, label, cssClass] of cases) {
+      const meta = statusMeta(state);
+      expect(meta.label).toBe(label);
+      expect(meta.cssClass).toBe(cssClass);
+      expect(meta.icon).toBeTruthy();
+    }
   });
 });

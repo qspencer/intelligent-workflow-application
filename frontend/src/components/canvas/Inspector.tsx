@@ -1,4 +1,6 @@
 import { isAgentic, modelDisplayName, type CanvasNodeData } from '../../lib/canvas';
+import type { StepExecution } from '../../types';
+import { OutputCard } from './OutputCard';
 
 function ConfigList({ config }: { config: Record<string, unknown> }) {
   const entries = Object.entries(config);
@@ -15,11 +17,21 @@ function ConfigList({ config }: { config: Record<string, unknown> }) {
   );
 }
 
-export function Inspector({ data }: { data: CanvasNodeData | null }) {
+export function Inspector({
+  data,
+  execution,
+}: {
+  data: CanvasNodeData | null;
+  execution?: StepExecution | null;
+}) {
   if (!data) {
     return (
       <aside className="canvas-inspector">
-        <p className="muted">Select a step to see what it does.</p>
+        <p className="muted">
+          {execution === undefined
+            ? 'Select a step to see what it does.'
+            : 'Select a step to see its result.'}
+        </p>
       </aside>
     );
   }
@@ -29,6 +41,13 @@ export function Inspector({ data }: { data: CanvasNodeData | null }) {
       <h3>
         <span aria-hidden="true">{data.icon}</span> {data.title}
       </h3>
+
+      {execution && (
+        <div className="field">
+          <span className="field-label">This run</span>
+          <OutputCard step={execution} />
+        </div>
+      )}
 
       {data.kind === 'trigger' && data.trigger && (
         <>

@@ -3,6 +3,7 @@ import dagre from 'dagre';
 import type {
   AgenticStep,
   DeterministicStep,
+  StepState,
   WorkflowDefinition,
   WorkflowEdge,
   WorkflowStep,
@@ -21,7 +22,32 @@ export interface CanvasNodeData {
   icon: string;
   step?: WorkflowStep;
   trigger?: WorkflowDefinition['trigger'];
+  /** Live step state when the canvas is following an instance (C2). */
+  status?: StepState;
   [key: string]: unknown;
+}
+
+/** Plain-language presentation for a step's live state — drives node coloring. */
+export interface StatusMeta {
+  label: string;
+  cssClass: string;
+  icon: string;
+}
+
+export function statusMeta(state: StepState): StatusMeta {
+  switch (state) {
+    case 'running':
+      return { label: 'Running…', cssClass: 'running', icon: '⟳' };
+    case 'completed':
+      return { label: 'Done', cssClass: 'completed', icon: '✓' };
+    case 'failed':
+      return { label: 'Failed', cssClass: 'failed', icon: '✗' };
+    case 'skipped':
+      return { label: 'Skipped', cssClass: 'skipped', icon: '–' };
+    case 'pending':
+    default:
+      return { label: 'Waiting', cssClass: 'pending', icon: '…' };
+  }
 }
 
 export interface CanvasNode {

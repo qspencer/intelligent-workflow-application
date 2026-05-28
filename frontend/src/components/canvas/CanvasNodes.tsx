@@ -1,12 +1,16 @@
 import { Handle, Position, type Node, type NodeProps, type NodeTypes } from '@xyflow/react';
 
-import type { CanvasNodeData } from '../../lib/canvas';
+import { statusMeta, type CanvasNodeData } from '../../lib/canvas';
 
 export type FlowNode = Node<CanvasNodeData, 'trigger' | 'deterministic' | 'agentic'>;
 
 function Card({ data, kind }: { data: CanvasNodeData; kind: string }) {
+  // When following an instance, the live status drives the left-border color
+  // (overriding the node-type color) and adds a status pill.
+  const status = data.status ? statusMeta(data.status) : null;
+  const className = `canvas-node ${kind}${status ? ` status-${status.cssClass}` : ''}`;
   return (
-    <div className={`canvas-node ${kind}`}>
+    <div className={className}>
       <span className="node-icon" aria-hidden="true">
         {data.icon}
       </span>
@@ -18,6 +22,11 @@ function Card({ data, kind }: { data: CanvasNodeData; kind: string }) {
           {data.subtitle}
         </div>
       </div>
+      {status && (
+        <span className={`node-status ${status.cssClass}`}>
+          <span aria-hidden="true">{status.icon}</span> {status.label}
+        </span>
+      )}
     </div>
   );
 }

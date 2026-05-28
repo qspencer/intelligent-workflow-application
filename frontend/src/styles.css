@@ -636,3 +636,137 @@ main {
   padding-left: 18px;
   font-size: 13px;
 }
+
+/* ---- C2: live status overlay ---- */
+/* Node left-border color follows live step state, overriding the type color. */
+.canvas-node.status-running { border-left-color: var(--accent); }
+.canvas-node.status-completed { border-left-color: var(--ok); }
+.canvas-node.status-failed { border-left-color: var(--err); }
+.canvas-node.status-skipped { border-left-color: var(--skip); }
+.canvas-node.status-pending { border-left-color: var(--border); }
+
+.node-status {
+  position: absolute;
+  top: -9px;
+  right: 8px;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 10px;
+  white-space: nowrap;
+  border: 1px solid var(--border);
+  background: var(--panel);
+}
+.node-status.running { color: var(--accent); border-color: var(--accent); }
+.node-status.completed { color: var(--ok); border-color: var(--ok); }
+.node-status.failed { color: var(--err); border-color: var(--err); }
+.node-status.skipped { color: var(--skip); }
+.node-status.pending { color: var(--muted); }
+.canvas-node { position: relative; }
+
+/* Footer instance-status bar */
+.canvas-footer {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-top: 12px;
+  padding: 8px 14px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.canvas-footer .cf-id {
+  font-size: 12px;
+  color: var(--muted);
+}
+.canvas-footer .cf-progress {
+  font-variant-numeric: tabular-nums;
+}
+.canvas-footer .cf-time {
+  color: var(--muted);
+}
+.canvas-footer .cf-link {
+  margin-left: auto;
+}
+
+/* Inspector output card */
+.output-card {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 10px;
+}
+.output-card .oc-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 8px;
+}
+.output-card .oc-head .node-status {
+  position: static;
+}
+.output-card .oc-time {
+  font-size: 12px;
+  color: var(--muted);
+}
+.output-card .oc-usage {
+  font-family: ui-monospace, monospace;
+  font-size: 11px;
+  color: var(--muted);
+}
+.output-card .oc-error {
+  font-size: 13px;
+  margin-bottom: 8px;
+}
+.output-card .oc-text {
+  white-space: pre-wrap;
+  font-family: ui-monospace, monospace;
+  font-size: 12px;
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+}
+.output-card .oc-raw pre {
+  font-size: 11px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px;
+  max-height: 240px;
+  overflow: auto;
+  margin: 6px 0 0;
+}
+.output-card .scores {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+.output-card .score {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.output-card .score .label {
+  color: var(--muted);
+  font-size: 12px;
+}
+.output-card .score .value {
+  font-weight: 600;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+.output-card .score .value.good { color: var(--ok); }
+.output-card .score .value.warn { color: var(--warn); }
+.output-card .score .value.err { color: var(--err); }
+.output-card .reasoning {
+  margin-top: 6px;
+  font-size: 13px;
+}
+.output-card ul.issues {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  color: var(--err);
+  font-size: 12px;
+}
