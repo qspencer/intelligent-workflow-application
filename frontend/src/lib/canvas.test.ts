@@ -108,6 +108,21 @@ describe('buildGraph', () => {
     const { edges } = buildGraph(conditional);
     expect(edges.find((e) => e.source === 'extract')?.label).toBe('score > 0.8');
   });
+
+  it('prefers author-set label / condition_label over derived text', () => {
+    const labelled: WorkflowDefinition = {
+      ...def,
+      steps: def.steps!.map((s) =>
+        s.id === 'classify' ? { ...s, label: 'Decide the category' } : s,
+      ),
+      edges: [
+        { from: 'extract', to: 'classify', condition: 'score > 0.8', condition_label: 'High confidence' },
+      ],
+    };
+    const { nodes, edges } = buildGraph(labelled);
+    expect(nodes.find((n) => n.id === 'classify')?.data.title).toBe('Decide the category');
+    expect(edges.find((e) => e.source === 'extract')?.label).toBe('High confidence');
+  });
 });
 
 describe('uniqueStepId', () => {

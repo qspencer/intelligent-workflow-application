@@ -45,7 +45,7 @@ export function Inspector({
       {execution && (
         <div className="field">
           <span className="field-label">This run</span>
-          <OutputCard step={execution} />
+          <OutputCard step={execution} renderer={data.step?.output_renderer} />
         </div>
       )}
 

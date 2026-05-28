@@ -90,6 +90,28 @@ export function EditInspector({
         Edit <code>{step.id}</code>
       </h3>
 
+      <label className="rf-field">
+        <span className="rf-label">label (node title — optional)</span>
+        <input
+          type="text"
+          value={step.label ?? ''}
+          placeholder="(derived from goal / function)"
+          onChange={(e) => update(['label'], e.target.value || null)}
+        />
+      </label>
+      <label className="rf-field">
+        <span className="rf-label">result card</span>
+        <select
+          value={step.output_renderer ?? ''}
+          onChange={(e) => update(['output_renderer'], e.target.value || null)}
+        >
+          <option value="">Auto</option>
+          <option value="triage">Triage</option>
+          <option value="eval">Evaluation</option>
+          <option value="raw_json">Raw JSON</option>
+        </select>
+      </label>
+
       {isAgentic(step) ? (
         <>
           <label className="rf-field">

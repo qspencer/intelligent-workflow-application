@@ -59,6 +59,25 @@ def test_json_round_trip_preserves_definition() -> None:
     assert rebuilt.model_dump() == original.model_dump()
 
 
+def test_ui_only_fields_round_trip() -> None:
+    """`label` / `output_renderer` / `condition_label` survive YAML+JSON round trips."""
+    spec = _sample_definition()
+    spec["steps"][0]["label"] = "Pull out the text"
+    spec["steps"][0]["output_renderer"] = "triage"
+    spec["steps"][1]["label"] = "Decide the category"
+    spec["edges"][0]["condition_label"] = "always"
+    spec["edges"][0]["condition"] = "True"
+
+    original = load_definition(spec)
+    rebuilt = load_definition_from_yaml(dump_definition_to_yaml(original))
+    assert rebuilt.model_dump() == original.model_dump()
+
+    rebuilt_json = load_definition(json.loads(dump_definition_to_json(original)))
+    assert rebuilt_json.steps[0].label == "Pull out the text"
+    assert rebuilt_json.steps[0].output_renderer == "triage"
+    assert rebuilt_json.edges[0].condition_label == "always"
+
+
 def test_yaml_loader_rejects_non_mapping() -> None:
     from workflow_platform.workflow import WorkflowDefinitionError
 

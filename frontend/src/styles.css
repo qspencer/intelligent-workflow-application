@@ -771,6 +771,58 @@ main {
   font-size: 12px;
 }
 
+/* Triage result card */
+.oc-triage-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+}
+.oc-headline {
+  background: #e6f0fa;
+  color: var(--accent);
+  text-transform: none;
+}
+.oc-score {
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.oc-score.good { color: var(--ok); }
+.oc-score.warn { color: var(--warn); }
+.oc-score.err { color: var(--err); }
+.oc-meta {
+  font-size: 12px;
+  color: var(--muted);
+}
+.oc-chips {
+  margin-top: 6px;
+  font-size: 12px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.oc-chips-label {
+  color: var(--muted);
+}
+.chip {
+  display: inline-block;
+  padding: 1px 8px;
+  border-radius: 10px;
+  background: #ececec;
+  color: var(--text);
+  font-size: 12px;
+}
+.oc-flags {
+  margin-top: 6px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.oc-flags .chip.on { background: #e6f4ea; color: var(--ok); }
+.oc-flags .chip.off { background: #ececec; color: var(--muted); }
+
 /* ---- C3: run-from-form ---- */
 .canvas-header-actions {
   display: flex;

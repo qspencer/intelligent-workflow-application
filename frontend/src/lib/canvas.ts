@@ -135,6 +135,8 @@ export function triggerSubtitle(trigger: WorkflowDefinition['trigger']): string 
 }
 
 function stepTitle(step: WorkflowStep): string {
+  // Author-set label wins; otherwise derive from goal / function name.
+  if (step.label) return step.label;
   if (step.type === 'agentic') return firstSentence(step.goal);
   return humanize(step.function);
 }
@@ -213,13 +215,14 @@ export function buildGraph(def: WorkflowDefinition): {
     rfEdges.push({ id: `${TRIGGER_NODE_ID}->${s.id}`, source: TRIGGER_NODE_ID, target: s.id });
   }
   for (const e of edges) {
+    // Author-set `condition_label` reads in plain language; otherwise show
+    // the raw expression. No label on unconditional edges.
+    const label = e.condition_label ?? e.condition ?? undefined;
     rfEdges.push({
       id: `${e.from}->${e.to}`,
       source: e.from,
       target: e.to,
-      // Conditional edges show their (raw) expression until authors supply a
-      // friendlier `condition_label` (a later canvas cut adds that field).
-      ...(e.condition ? { label: e.condition } : {}),
+      ...(label ? { label } : {}),
     });
   }
 

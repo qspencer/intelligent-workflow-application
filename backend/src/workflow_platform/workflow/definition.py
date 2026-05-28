@@ -44,6 +44,10 @@ class DeterministicStep(BaseModel):
     outputs: list[str] = Field(default_factory=list)
     capabilities: CapabilityPolicy | None = None
     runtime: StepRuntimePolicy = Field(default_factory=StepRuntimePolicy)
+    # UI-only (canvas). Engine ignores both. `label` overrides the derived
+    # node title; `output_renderer` selects the inspector's result card.
+    label: str | None = None
+    output_renderer: str | None = None
 
 
 class AgenticStepPolicy(BaseModel):
@@ -63,6 +67,10 @@ class AgenticStep(BaseModel):
     outputs: list[str] = Field(default_factory=list)
     capabilities: CapabilityPolicy | None = None
     runtime: StepRuntimePolicy = Field(default_factory=StepRuntimePolicy)
+    # UI-only (canvas). Engine ignores both. `label` overrides the derived
+    # node title; `output_renderer` selects the inspector's result card.
+    label: str | None = None
+    output_renderer: str | None = None
 
 
 Step = Annotated[DeterministicStep | AgenticStep, Field(discriminator="type")]
@@ -83,6 +91,9 @@ class Edge(BaseModel):
     source: str = Field(alias="from")
     target: str = Field(alias="to")
     condition: str | None = None
+    # UI-only (canvas): plain-language render of `condition` on the edge.
+    # Engine ignores it. Falls back to the raw expression when unset.
+    condition_label: str | None = None
 
 
 class WorkflowPolicy(BaseModel):

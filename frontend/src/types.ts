@@ -22,6 +22,9 @@ export interface DeterministicStep {
   outputs: string[];
   capabilities: unknown | null;
   runtime: StepRuntime;
+  /** UI-only: author-set node title + result-card renderer (canvas). */
+  label?: string | null;
+  output_renderer?: string | null;
 }
 
 export interface AgenticStepPolicy {
@@ -41,6 +44,9 @@ export interface AgenticStep {
   outputs: string[];
   capabilities: unknown | null;
   runtime: StepRuntime;
+  /** UI-only: author-set node title + result-card renderer (canvas). */
+  label?: string | null;
+  output_renderer?: string | null;
 }
 
 export type WorkflowStep = DeterministicStep | AgenticStep;
@@ -50,6 +56,8 @@ export interface WorkflowEdge {
   from: string;
   to: string;
   condition: string | null;
+  /** UI-only: plain-language render of `condition` on the canvas. */
+  condition_label?: string | null;
 }
 
 export interface WorkflowDefinition {

@@ -242,6 +242,7 @@ export function WorkflowsList() {
             <tr>
               <th>Name</th>
               <th>Description</th>
+              <th className="num-col">Steps</th>
               <th className="num-col">Instances</th>
               <th className="actions-col">Actions</th>
             </tr>
@@ -258,6 +259,7 @@ export function WorkflowsList() {
                 <td>
                   <span title={wf.description || ''}>{describe(wf.description)}</span>
                 </td>
+                <td className="num-col">{wf.steps?.length ?? 0}</td>
                 <td className="num-col">
                   <Link
                     to={`/instances?workflow_id=${encodeURIComponent(wf.id)}`}
