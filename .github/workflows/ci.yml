@@ -5,6 +5,11 @@ on:
     branches: [main]
   pull_request:
 
+# Least privilege: every job here only reads the repo. No job needs to write
+# contents, packages, or issues. Overrides the repo-default token scope.
+permissions:
+  contents: read
+
 jobs:
   backend:
     runs-on: ubuntu-latest
@@ -29,18 +34,25 @@ jobs:
       TEST_DATABASE_URL: postgresql+asyncpg://workflow:workflow@localhost:5432/workflow_test
       DATABASE_URL: postgresql+asyncpg://workflow:workflow@localhost:5432/workflow_test
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       - name: Install system deps for PDF/OCR tests
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr poppler-utils
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v6
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
         with:
           version: "0.5.x"
 
       - name: Sync deps
-        run: uv sync --frozen || uv sync
+        # No `|| uv sync` fallback: a stale or tampered lock must fail loudly
+        # here rather than silently re-resolving against the live index.
+        run: uv sync --frozen
+
+      - name: Audit dependencies (pip-audit)
+        # Scans the synced environment against the OSV / PyPI advisory DBs.
+        # Fails the build on any known CVE in a locked dependency.
+        run: uv run --with pip-audit pip-audit
 
       - name: Lint
         run: uv run ruff check .
@@ -69,10 +81,10 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
 
       - name: Setup Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: "20"
           cache: "npm"
@@ -80,6 +92,11 @@ jobs:
 
       - name: Install
         run: npm ci
+
+      - name: Audit dependencies (npm audit)
+        # Gate on high/critical only — the current moderate advisories are
+        # dev-server-only (vite/esbuild/vitest) and don't ship in the build.
+        run: npm audit --audit-level=high
 
       - name: Test (Vitest)
         run: npm test

@@ -1,0 +1,35 @@
+version: 2
+
+# Automated dependency-update PRs + security alerts across all three
+# ecosystems this repo uses. Weekly cadence keeps PR noise low for a
+# solo-dev pace; security updates are opened immediately regardless.
+#
+# Note: Dependabot has no "cooldown" window (wait-N-days-after-release).
+# If that becomes desirable, switch to Renovate with `minimumReleaseAge`.
+updates:
+  # Python backend — reads pyproject.toml + uv.lock.
+  - package-ecosystem: "uv"
+    directory: "/backend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      python-dev:
+        dependency-type: "development"
+
+  # React frontend — reads package.json + package-lock.json.
+  - package-ecosystem: "npm"
+    directory: "/frontend"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+    groups:
+      frontend-dev:
+        dependency-type: "development"
+
+  # GitHub Actions — keeps the SHA-pinned actions current (Dependabot
+  # updates both the pinned commit and the `# vX` comment).
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
