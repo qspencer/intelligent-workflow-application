@@ -84,22 +84,23 @@ the unauthenticated call returns 401.
 
 ---
 
-## 2. Frontend boots and the three routes render
+## 2. Frontend boots and the routes render
 
-**What:** the Angular dashboard loads against the running backend.
+**What:** the React dashboard (Vite) loads against the running backend.
 
-**Why manual:** the route-loader test confirms components compile, but says
-nothing about whether the layout is intact, the auth interceptor reaches the
-backend, or the proxy passes traffic.
+**Why manual:** the App-routing test confirms routes mount, but says nothing
+about whether the layout is intact, the dev-auth headers reach the backend,
+or the Vite proxy passes traffic.
 
 **Run** — terminal C:
 
 ```bash
 cd frontend
-npm start
+npm start        # Vite dev server (alias: npm run dev)
 ```
 
-Wait for `Angular Live Development Server is listening on localhost:4200`.
+Wait for `VITE v5… ready` and `Local: http://localhost:4200/`. The dev
+server proxies `/api` and `/ws` to the backend on `:8001`.
 
 In a browser, go to `http://localhost:4200`. The dashboard redirects to
 `/instances` by default.
@@ -107,9 +108,11 @@ In a browser, go to `http://localhost:4200`. The dashboard redirects to
 **Click through:**
 
 1. **Instances** (default) — empty list, but the page loads, the table header
-   is present, refresh cadence indicator works.
-2. **Workflows** — empty list, "no workflows imported" message.
-3. **Set the dev identity** in the browser console:
+   is present, the list re-polls every few seconds.
+2. **Workflows** — empty list, "No workflows registered yet." message.
+3. **Cost** — three empty tables (by workflow / model / day).
+4. **Set the dev identity** — easiest via the **"Acting as"** dropdown in the
+   header (writes `wp.groups` to localStorage and reloads). Or in the console:
    ```js
    localStorage.setItem('wp.user', 'alice')
    localStorage.setItem('wp.groups', 'admins')
@@ -117,8 +120,8 @@ In a browser, go to `http://localhost:4200`. The dashboard redirects to
    Refresh. Open DevTools → Network → click an `/api/workflows` request →
    confirm the request headers include `X-Dev-User: alice`.
 
-**Pass when:** all three routes render, no console errors, `X-Dev-User` shows
-up on the API calls.
+**Pass when:** the routes render, no console errors, `X-Dev-User` shows up on
+the API calls.
 
 ---
 
@@ -149,6 +152,74 @@ Refresh the dashboard's **Workflows** tab — `pdf-classifier` should appear.
 
 **Pass when:** import returns 200 / 201; the workflow lists in both the API
 and the dashboard.
+
+---
+
+## 3b. The workflow canvas (view / run / watch / edit)
+
+**What:** the Zapier-style canvas at `/canvas/:id` — the Phase 3 surface
+(`docs/WORKFLOW_CANVAS.md`). Four behaviors layer up: read-only view (C1),
+live status when following a run (C2), run-from-form (C3), and edit mode (C4).
+
+**Why manual:** the canvas is the product's intended differentiator and is
+heavily interactive (select / drag / connect / save). Headless tests cover
+the flows, but a human should eyeball layout and feel.
+
+Prereq: at least one workflow imported (section 3). Open it by clicking the
+workflow's **name** on the Workflows page, or go straight to
+`http://localhost:4200/canvas/pdf-classifier`.
+
+**C1 — read-only view (no AWS):**
+- Renders top-down: a trigger node ("When a file arrives") plus one node per
+  step, with the `classify` → `route` / `evaluate` diamond. Agentic nodes are
+  purple (🧠), deterministic blue (⚙️).
+- Click any node → the right **Inspector** explains it in plain language
+  (model, instructions, tools, limits — no YAML). Header pill: **"View only"**.
+
+**C3 + C2 — run from a form, watch it live:** to exercise this without AWS,
+import this trivial `noop` workflow (paste into the Workflows page "Import
+workflow" dialog, YAML format) so it runs with no Bedrock:
+
+```yaml
+id: manual-noop
+name: Manual Noop
+trigger:
+  type: manual
+  example_payload:
+    note: "hello from manual testing"
+steps:
+  - { id: step-one, type: deterministic, function: noop, config: {} }
+edges: []
+policies: {}
+```
+
+Open its canvas → click **Run** (Admin/Operator) → a **form** generated from
+`example_payload` opens (a `note` field — no JSON). Click Run → the canvas
+flips to a **live view** (`?instance=…`): the node colors to "✓ Done" and a
+footer shows the instance state + "N of M steps". For a real agentic run, do
+the same on `pdf-classifier` with live Bedrock (section 5) and watch nodes go
+"Running…" → "Done". The **"View on canvas"** link on any `/instances/:id`
+page opens this same live view.
+
+**C4 — edit mode (no AWS), Admin/Designer only:**
+- Click **Edit** on a workflow's canvas — the button only appears for Admin /
+  Designer (flip "Acting as" to Operator and confirm it disappears). Header
+  pill: **"Editing"**, with Save / Discard.
+- Select the agentic step → change **model** or **max_total_tokens**. Save is
+  disabled until something changes.
+- Palette ("+ Function step" / "+ AI step") adds a node; select a node and use
+  the Inspector's **Connections** ("+ Connect to…") to wire it (or drag
+  between node handles); **Delete step** removes a node + its edges.
+- **Save** round-trips through `/api/workflows/import` then re-fetches. Confirm
+  it stuck:
+  ```bash
+  curl -s -H 'X-Dev-User: alice' -H 'X-Dev-Groups: admins' \
+    http://localhost:8001/api/workflows/<id> | jq '.steps'
+  ```
+
+**Pass when:** the graph renders correctly; the Run form generates from the
+example payload; a deterministic run shows live "Done" status; an edit saves +
+persists; and the Edit button is hidden for non-Designer roles.
 
 ---
 
@@ -518,16 +589,17 @@ in `main.py`).
 ```bash
 cd frontend
 npm test         # vitest run, ~7s
-npm run build    # AOT compile, catches template errors, ~6s
+npm run build    # tsc -b && vite build (typecheck + bundle), ~5s
 ```
 
-57 tests across 7 files + a clean build. Same checks CI runs. Covers the
-auth interceptor, `ApiService` URL construction, route resolution,
-evaluation/usage helpers, role switcher, and the WebSocket events
-service.
+80 tests across 10 files + a clean build. Same checks CI runs. Covers the
+dev-auth headers, the fetch API client (URL / method / body construction),
+App routing, evaluation/usage helpers, the role switcher, the WebSocket
+events hook, and the canvas + run-form helpers (layout, labels, status,
+immutable form updates).
 
-**Pass when:** vitest reports `Tests 57 passed (57)` and the build prints
-`Application bundle generation complete`.
+**Pass when:** vitest reports `Tests 80 passed (80)` and the build prints the
+Vite `✓ built in …` summary.
 
 ---
 
@@ -541,7 +613,10 @@ the moment.
    /api/workflows/{id}/run` (Admin/Operator). The dashboard navigates
    straight to the new instance's detail view on success. Same page
    also has an "Import workflow" dialog wired to
-   `POST /api/workflows/import`.
+   `POST /api/workflows/import`. A workflow's **canvas** (section 3b)
+   has its own Run button that builds a *form* from `example_payload`
+   instead of asking for JSON, then hands off to the live canvas view —
+   the most non-technical-friendly path.
 
 2. **`backend/tools/fire.py`.** One-shot CLI runner that respects
    `DATABASE_URL` (Postgres or in-memory) and `BEDROCK_MODE` (live /
@@ -612,7 +687,7 @@ Update it when any of the following changes:
 - A new endpoint is added to `backend/src/workflow_platform/api/`
 - A new test marker is registered in `pyproject.toml`
 - A new example workflow lands under `examples/` (add a 4x section)
-- A new lazy-loaded route lands in `frontend/src/app/app.routes.ts`
+- A new route lands in `frontend/src/components/App.tsx`
 - One of the "open gaps" above gets closed (delete that bullet)
 - Auth or role mapping changes in `backend/src/workflow_platform/auth/`
 - Frontend or backend test counts drift far enough from what's quoted
