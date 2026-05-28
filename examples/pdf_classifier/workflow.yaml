@@ -17,12 +17,14 @@ trigger:
 
 steps:
   - id: extract
+    label: "Extract the text"
     type: deterministic
     function: pdf_extract
     config:
       filepath_from: trigger.file_path
 
   - id: classify
+    label: "Classify the document"
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
     tools: []
@@ -44,6 +46,7 @@ steps:
       max_total_tokens: 4000
 
   - id: route
+    label: "File by category"
     type: deterministic
     function: route_by_classification
     config:
@@ -61,6 +64,7 @@ steps:
       fallback_category: other
 
   - id: evaluate
+    label: "Score the classification"
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
     tools: []
@@ -86,8 +90,10 @@ steps:
       max_total_tokens: 4000
 
   - id: record_eval
+    label: "Record the score"
     type: deterministic
     function: record_evaluation
+    output_renderer: eval
     config:
       evaluation_from: steps.evaluate.output_text
 

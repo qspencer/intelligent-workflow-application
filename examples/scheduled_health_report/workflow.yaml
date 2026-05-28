@@ -17,6 +17,7 @@ trigger:
 
 steps:
   - id: status
+    label: "Write a status line"
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
     tools: []
@@ -36,6 +37,7 @@ steps:
       max_total_tokens: 1500
 
   - id: append
+    label: "Append to the log"
     type: deterministic
     function: append_file
     config:

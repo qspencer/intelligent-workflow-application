@@ -39,6 +39,7 @@ trigger:
 
 steps:
   - id: triage
+    label: "Triage the email"
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
     tools: [email_send, email_label_apply]
@@ -69,8 +70,10 @@ steps:
       max_total_tokens: 6000
 
   - id: record
+    label: "Record the triage result"
     type: deterministic
     function: record_email_triage
+    output_renderer: triage
     config:
       triage_from: steps.triage.output_text
 

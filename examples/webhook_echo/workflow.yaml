@@ -17,6 +17,7 @@ trigger:
 
 steps:
   - id: summarize
+    label: "Summarize the payload"
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
     tools: []

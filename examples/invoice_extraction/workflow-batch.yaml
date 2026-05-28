@@ -17,6 +17,7 @@ trigger:
 
 steps:
   - id: pdf_extract
+    label: "Extract the text"
     type: deterministic
     function: pdf_extract
     config:
@@ -26,6 +27,7 @@ steps:
       min_chars: 150
 
   - id: extract
+    label: "Extract invoice fields"
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
     tools: []
@@ -42,12 +44,14 @@ steps:
       max_total_tokens: 4000
 
   - id: record
+    label: "Record & validate"
     type: deterministic
     function: record_invoice_extraction
     config:
       extraction_from: steps.extract.output_text
 
   - id: route
+    label: "File by country"
     type: deterministic
     function: route_by_value
     config:

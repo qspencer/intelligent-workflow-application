@@ -15,6 +15,7 @@ trigger:
 
 steps:
   - id: open_challenge
+    label: "Open the challenge"
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
     tools: [browser_navigate, browser_click, browser_wait_for]
@@ -30,6 +31,7 @@ steps:
       max_total_tokens: 2000
 
   - id: read_table
+    label: "Read the invoice table"
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
     tools: [browser_read_table, browser_read_text, browser_click]
@@ -68,6 +70,7 @@ steps:
       max_total_tokens: 30000
 
   - id: filter_overdue
+    label: "Filter to overdue"
     type: deterministic
     function: filter_rows_by_date
     config:
@@ -77,6 +80,7 @@ steps:
       comparison: on_or_before
 
   - id: extract_invoices
+    label: "OCR each invoice"
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
     tools: [browser_fetch_url, image_ocr]
@@ -106,6 +110,7 @@ steps:
       max_total_tokens: 50000
 
   - id: build_csv
+    label: "Build the CSV"
     type: deterministic
     function: write_csv
     config:
@@ -116,6 +121,7 @@ steps:
       columns: [ID, DueDate, InvoiceNo, InvoiceDate, CompanyName, TotalDue]
 
   - id: submit
+    label: "Upload & submit"
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
     tools: [browser_upload_file, browser_submit_form, browser_read_text, browser_screenshot]

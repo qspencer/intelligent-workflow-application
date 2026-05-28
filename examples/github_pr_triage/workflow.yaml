@@ -33,6 +33,7 @@ trigger:
 
 steps:
   - id: triage
+    label: "Triage the pull request"
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
     tools: []
@@ -50,8 +51,10 @@ steps:
       max_total_tokens: 4000
 
   - id: record_triage
+    label: "Record the triage result"
     type: deterministic
     function: record_pr_triage
+    output_renderer: triage
     config:
       triage_from: steps.triage.output_text
 
