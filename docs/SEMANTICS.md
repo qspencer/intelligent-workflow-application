@@ -39,7 +39,11 @@ tools each step type can use, which capabilities gate which tools, etc.
 **Why we don't have it today.** The Pydantic schemas + docstrings + the
 `agent_memory.md` rubric pattern give the model enough structure for
 the current single-workload use case. The marginal benefit of formal
-RDF over typed Python doesn't justify the maintenance burden.
+RDF over typed Python doesn't justify the maintenance burden. (Talisman's
+["Choosing the Right Graph"](https://jessicatalisman.substack.com/p/choosing-the-right-graph)
+frames the same trade: RDF/OWL earns its keep for cross-organization
+publishing and formal reasoning — neither of which "structure in the prompt
+for our own LLM" triggers. Typed Python clears the bar.)
 
 **Decision trigger to reopen.** The day generative-UI work moves out of
 `docs/GENERATIVE_UI.md`'s deferred state and into active development.
@@ -74,6 +78,35 @@ write is either (a) "instances of workflow X" — SQL — or (b)
 "distribution of <field> in step output" — SQL on JSONB. We have not
 yet hit a query that wants multi-hop traversal. And Phase B itself is
 deferred per the re-evaluation checkpoint.
+
+Performance is also less of a draw than the marketing implies. Graph-DB
+benchmarks are notoriously rigged: the famous Neo4j "1,135× faster"
+figure was measured against an *unindexed* MySQL; with proper indexing,
+Postgres/MySQL match or beat Neo4j at one- to two-hop depths, and modern
+RDF triple stores answer billion-triple queries in milliseconds on
+commodity hardware. Our hypothetical traversals are shallow, so the
+Postgres + JSONB default very likely holds without a dedicated graph DB.
+
+**If you reopen, pick the *kind* of graph first.** Per Talisman,
+["Choosing the Right Graph"](https://jessicatalisman.substack.com/p/choosing-the-right-graph)
+(May 2026), "knowledge graph" conflates two technologies with different
+economics:
+- **RDF / semantic-web** (triples, global IRIs, open-world assumption,
+  OWL/RDFS reasoning, SPARQL federation) — right when the dominant
+  problem is *meaning, cross-organization integration, formal reasoning,
+  or linked-open-data publishing*.
+- **Labeled property graph** (Neo4j / Memgraph / AGE; Cypher/GQL,
+  first-class edges with arbitrary properties, closed-world) — right when
+  the dominant problem is *operational multi-hop traversal, rich edge
+  attributes, or developer velocity*.
+
+Both of our buys (#1 cross-workflow traversal, #2 GraphRAG) are LPG-shaped
+operational needs; neither publishes a graph across org boundaries or runs
+a description-logic reasoner, so RDF/OWL would be overkill. If we reopen,
+evaluate an LPG (or just Postgres — see above), not a triplestore. Caveat:
+this article is a *classical* graph lens — it says nothing about vectors,
+RAG, or embeddings, so for #2 it answers "which graph," not "graph vs.
+pgvector." That comparison stays in `docs/RAG_PRODUCTION_NOTES.md`.
 
 **Decision trigger to reopen.** Either:
 - We accumulate three or more analytical queries that genuinely span
