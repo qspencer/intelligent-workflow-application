@@ -6,11 +6,13 @@ import {
   firstSentence,
   humanize,
   modelDisplayName,
+  newStep,
   statusMeta,
   triggerSubtitle,
   triggerTitle,
+  uniqueStepId,
 } from './canvas';
-import type { StepState, WorkflowDefinition } from '../types';
+import type { AgenticStep, StepState, WorkflowDefinition } from '../types';
 
 describe('label helpers', () => {
   it('humanizes snake/kebab case', () => {
@@ -105,6 +107,36 @@ describe('buildGraph', () => {
     };
     const { edges } = buildGraph(conditional);
     expect(edges.find((e) => e.source === 'extract')?.label).toBe('score > 0.8');
+  });
+});
+
+describe('uniqueStepId', () => {
+  it('avoids collisions with existing ids', () => {
+    expect(uniqueStepId([], 'step')).toBe('step-1');
+    expect(uniqueStepId(['a', 'b'], 'step')).toBe('step-3');
+    expect(uniqueStepId(['step-3'], 'step')).toBe('step-2');
+    expect(uniqueStepId(['step-1', 'step-2'], 'step')).toBe('step-3');
+  });
+});
+
+describe('newStep', () => {
+  it('builds a schema-valid deterministic step', () => {
+    const s = newStep('deterministic', 'step-1');
+    expect(s.type).toBe('deterministic');
+    expect(s.id).toBe('step-1');
+    if (s.type === 'deterministic') {
+      expect(s.function).toBe('noop');
+      expect(s.config).toEqual({});
+    }
+    expect(s.runtime).toEqual({ retries: 0, timeout_seconds: null });
+  });
+
+  it('builds a schema-valid agentic step', () => {
+    const s = newStep('agentic', 'ai-1') as AgenticStep;
+    expect(s.type).toBe('agentic');
+    expect(s.model).toContain('claude');
+    expect(s.tools).toEqual([]);
+    expect(s.policy.max_iterations).toBeGreaterThan(0);
   });
 });
 

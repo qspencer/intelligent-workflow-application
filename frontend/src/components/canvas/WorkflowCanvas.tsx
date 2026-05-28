@@ -7,14 +7,22 @@ import {
   ReactFlow,
   useEdgesState,
   useNodesState,
+  type Connection,
   type Edge,
+  type ReactFlowInstance,
 } from '@xyflow/react';
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 
 import { api, errorMessage } from '../../api/client';
 import { hasRole } from '../../lib/auth';
-import { buildGraph, type CanvasNodeData } from '../../lib/canvas';
+import {
+  TRIGGER_NODE_ID,
+  buildGraph,
+  newStep,
+  uniqueStepId,
+  type CanvasNodeData,
+} from '../../lib/canvas';
 import { useEvents } from '../../hooks/useEvents';
 import type {
   AuditEntry,
@@ -56,10 +64,35 @@ export function WorkflowCanvas() {
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
 
+  // While editing, the graph is built from the draft; otherwise from def.
+  const activeDef = editing ? draft : def;
+  // Only the *structure* (node ids, edges, trigger type) should trigger a
+  // re-layout — field edits must not rebuild (they'd drop selection mid-typing).
+  const structureKey = useMemo(() => {
+    if (!activeDef) return '';
+    return JSON.stringify({
+      n: (activeDef.steps ?? []).map((s) => s.id),
+      e: (activeDef.edges ?? []).map((e) => `${e.from}>${e.to}`),
+      t: activeDef.trigger?.type ?? '',
+    });
+  }, [activeDef]);
+
+  const selectedIdRef = useRef<string | null>(null);
+  selectedIdRef.current = selectedId;
+  const rfRef = useRef<ReactFlowInstance<FlowNode, Edge> | null>(null);
+
+  // Re-fit whenever the structure changes (add/delete/connect, or a save that
+  // grows the graph) so newly-added nodes are always brought into view.
+  useEffect(() => {
+    const t = setTimeout(() => rfRef.current?.fitView({ padding: 0.2, duration: 200 }), 60);
+    return () => clearTimeout(t);
+  }, [structureKey]);
+
   // ---- definition (the graph shape) ----
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setSelectedId(null);
     api
       .getWorkflow(id)
       .then((d) => {
@@ -79,13 +112,18 @@ export function WorkflowCanvas() {
     };
   }, [id]);
 
+  // Rebuild + re-layout on structural change (or def load/save / mode flip).
+  // Field edits change `draft` identity but not `structureKey`, so they don't
+  // rebuild — selection is preserved by re-marking the selected node.
   useEffect(() => {
-    if (!def) return;
-    const graph = buildGraph(def);
-    setNodes(graph.nodes as FlowNode[]);
+    const source = editing ? draft : def;
+    if (!source) return;
+    const graph = buildGraph(source);
+    const sel = selectedIdRef.current;
+    setNodes(graph.nodes.map((n) => (n.id === sel ? { ...n, selected: true } : n)) as FlowNode[]);
     setEdges(graph.edges as Edge[]);
-    setSelectedId(null);
-  }, [def, setNodes, setEdges]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [structureKey, editing, def, setNodes, setEdges]);
 
   // ---- instance (live status), only when ?instance=<id> ----
   const refreshInstance = useCallback(async () => {
@@ -162,8 +200,11 @@ export function WorkflowCanvas() {
     setSaving(true);
     setSaveError(null);
     try {
-      const saved = await api.importWorkflow(JSON.stringify(draft), 'json');
-      setDef(saved); // rebuilds the graph with updated labels
+      // import returns {status, workflow_id}, not the definition — re-fetch
+      // the canonical server state so the graph rebuilds correctly.
+      await api.importWorkflow(JSON.stringify(draft), 'json');
+      const fresh = await api.getWorkflow(id);
+      setDef(fresh);
       setDraft(null);
     } catch (err) {
       setSaveError(errorMessage(err, 'Save failed'));
@@ -171,6 +212,40 @@ export function WorkflowCanvas() {
       setSaving(false);
     }
   }
+
+  // ---- structural edits (C4 slice 2) ----
+  function addStep(type: 'deterministic' | 'agentic'): void {
+    setDraft((d) => {
+      if (!d) return d;
+      const id = uniqueStepId((d.steps ?? []).map((s) => s.id), type === 'agentic' ? 'ai' : 'step');
+      return { ...d, steps: [...(d.steps ?? []), newStep(type, id)] };
+    });
+  }
+  function deleteStep(stepId: string): void {
+    setDraft((d) => {
+      if (!d) return d;
+      return {
+        ...d,
+        steps: (d.steps ?? []).filter((s) => s.id !== stepId),
+        edges: (d.edges ?? []).filter((e) => e.from !== stepId && e.to !== stepId),
+      };
+    });
+    setSelectedId(null);
+  }
+  // Drag a connection between two step handles (bonus path; the Inspector's
+  // form is the primary, accessible way to wire edges). Synthetic trigger
+  // edges aren't real workflow edges, so connections touching it are ignored.
+  const onConnect = useCallback((c: Connection) => {
+    if (!c.source || !c.target) return;
+    if (c.source === TRIGGER_NODE_ID || c.target === TRIGGER_NODE_ID) return;
+    if (c.source === c.target) return;
+    setDraft((d) => {
+      if (!d) return d;
+      const exists = (d.edges ?? []).some((e) => e.from === c.source && e.to === c.target);
+      if (exists) return d;
+      return { ...d, edges: [...(d.edges ?? []), { from: c.source, to: c.target, condition: null }] };
+    });
+  }, []);
 
   return (
     <div className="page-canvas">
@@ -216,6 +291,16 @@ export function WorkflowCanvas() {
         <p className="error">{error}</p>
       ) : (
         <>
+          {editing && (
+            <div className="canvas-palette">
+              <span className="cp-label">Add step:</span>
+              <button onClick={() => addStep('deterministic')}>+ Function step</button>
+              <button onClick={() => addStep('agentic')}>+ AI step</button>
+              <span className="cp-hint">
+                then drag between node handles, or use the inspector to connect.
+              </span>
+            </div>
+          )}
           <div className="canvas-shell">
             <div className="canvas-flow">
               <ReactFlow
@@ -224,22 +309,34 @@ export function WorkflowCanvas() {
                 nodeTypes={nodeTypes}
                 onNodesChange={onNodesChange}
                 onEdgesChange={onEdgesChange}
+                onInit={(inst) => {
+                  rfRef.current = inst;
+                }}
                 onNodeClick={(_, node) => setSelectedId(node.id)}
                 onPaneClick={() => setSelectedId(null)}
+                onConnect={onConnect}
                 nodesDraggable={false}
-                nodesConnectable={false}
+                nodesConnectable={editing}
                 edgesFocusable={false}
+                deleteKeyCode={null}
                 fitView
                 fitViewOptions={{ padding: 0.2 }}
                 proOptions={{ hideAttribution: true }}
               >
                 <Background />
                 <Controls showInteractive={false} />
-                <MiniMap pannable zoomable />
+                {/* Only worthwhile for large graphs; on small ones it just
+                    overlaps (and intercepts clicks on) bottom-corner nodes. */}
+                {nodes.length > 12 && <MiniMap pannable zoomable />}
               </ReactFlow>
             </div>
             {editing && draft ? (
-              <EditInspector draft={draft} selectedId={selectedId} onChange={setDraft} />
+              <EditInspector
+                draft={draft}
+                selectedId={selectedId}
+                onChange={setDraft}
+                onDeleteStep={deleteStep}
+              />
             ) : (
               <Inspector
                 data={selectedData}

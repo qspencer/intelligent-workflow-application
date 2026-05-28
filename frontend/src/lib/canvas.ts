@@ -234,4 +234,33 @@ export function isDeterministic(step: WorkflowStep): step is DeterministicStep {
   return step.type === 'deterministic';
 }
 
+/** A step id unique against `existing`, based on a readable prefix. */
+export function uniqueStepId(existing: string[], base: string): string {
+  const set = new Set(existing);
+  let n = existing.length + 1;
+  let id = `${base}-${n}`;
+  while (set.has(id)) {
+    n += 1;
+    id = `${base}-${n}`;
+  }
+  return id;
+}
+
+/** A new step with schema-valid defaults — what the palette inserts (C4). */
+export function newStep(type: 'deterministic' | 'agentic', id: string): WorkflowStep {
+  const common = { id, outputs: [], capabilities: null, runtime: { retries: 0, timeout_seconds: null } };
+  if (type === 'agentic') {
+    return {
+      ...common,
+      type: 'agentic',
+      goal: 'Describe what this step should do.',
+      tools: [],
+      model: 'us.anthropic.claude-haiku-4-5-20251001-v1:0',
+      system_prompt: null,
+      policy: { max_iterations: 5, max_total_tokens: 4000, inference_config: null },
+    };
+  }
+  return { ...common, type: 'deterministic', function: 'noop', config: {} };
+}
+
 export type { WorkflowEdge };

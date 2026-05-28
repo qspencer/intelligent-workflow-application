@@ -164,7 +164,7 @@ export const api = {
   importWorkflow(
     body: string,
     contentType: 'yaml' | 'json',
-  ): Promise<WorkflowDefinition> {
+  ): Promise<{ status: string; workflow_id: string }> {
     const mime = contentType === 'json' ? 'application/json' : 'application/x-yaml';
     return request('POST', '/workflows/import', {
       body,
