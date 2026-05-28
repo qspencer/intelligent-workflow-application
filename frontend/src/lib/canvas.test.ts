@@ -1,0 +1,108 @@
+import { describe, expect, it } from 'vitest';
+
+import {
+  TRIGGER_NODE_ID,
+  buildGraph,
+  firstSentence,
+  humanize,
+  modelDisplayName,
+  triggerSubtitle,
+  triggerTitle,
+} from './canvas';
+import type { WorkflowDefinition } from '../types';
+
+describe('label helpers', () => {
+  it('humanizes snake/kebab case', () => {
+    expect(humanize('record_evaluation')).toBe('Record evaluation');
+    expect(humanize('route-by-value')).toBe('Route by value');
+    expect(humanize('')).toBe('');
+  });
+
+  it('takes the first sentence of a goal, truncating long ones', () => {
+    expect(firstSentence('You are a classifier. Decide the type.')).toBe(
+      'You are a classifier',
+    );
+    expect(firstSentence('a'.repeat(100)).endsWith('…')).toBe(true);
+  });
+
+  it('maps model ids to friendly names', () => {
+    expect(modelDisplayName('us.anthropic.claude-haiku-4-5-20251001-v1:0')).toBe(
+      'Claude Haiku 4.5',
+    );
+    expect(modelDisplayName('eu.anthropic.claude-sonnet-4-6-v1:0')).toBe(
+      'Claude Sonnet 4.6',
+    );
+    expect(modelDisplayName('something-weird')).toBe('something-weird');
+  });
+
+  it('phrases triggers in plain language', () => {
+    expect(triggerTitle('filesystem')).toBe('When a file arrives');
+    expect(triggerTitle('gmail_poll')).toBe('When an email arrives');
+    expect(triggerTitle('mystery')).toBe('Mystery');
+    expect(
+      triggerSubtitle({ type: 'filesystem', config: { path: './in', pattern: '*.pdf' } }),
+    ).toBe('./in · *.pdf');
+    expect(
+      triggerSubtitle({ type: 'schedule', config: { interval_seconds: 60 } }),
+    ).toBe('every 60s');
+  });
+});
+
+describe('buildGraph', () => {
+  const def: WorkflowDefinition = {
+    id: 'pdf-classifier',
+    name: 'PDF Classifier',
+    description: '',
+    trigger: { type: 'filesystem', config: { path: './in', pattern: '*.pdf' } },
+    steps: [
+      { id: 'extract', type: 'deterministic', function: 'pdf_extract', config: {}, outputs: [], capabilities: null, runtime: { retries: 0, timeout_seconds: null } },
+      { id: 'classify', type: 'agentic', goal: 'Classify the document. Return JSON.', tools: [], model: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', system_prompt: null, policy: { max_iterations: 2, max_total_tokens: 4000, inference_config: null }, outputs: [], capabilities: null, runtime: { retries: 0, timeout_seconds: null } },
+      { id: 'route', type: 'deterministic', function: 'route_by_classification', config: {}, outputs: [], capabilities: null, runtime: { retries: 0, timeout_seconds: null } },
+      { id: 'evaluate', type: 'agentic', goal: 'Score the classification.', tools: [], model: 'us.anthropic.claude-haiku-4-5-20251001-v1:0', system_prompt: null, policy: { max_iterations: 2, max_total_tokens: 4000, inference_config: null }, outputs: [], capabilities: null, runtime: { retries: 0, timeout_seconds: null } },
+    ],
+    edges: [
+      { from: 'extract', to: 'classify', condition: null },
+      { from: 'classify', to: 'route', condition: null },
+      { from: 'classify', to: 'evaluate', condition: null },
+    ],
+  };
+
+  it('emits a trigger node plus one node per step', () => {
+    const { nodes } = buildGraph(def);
+    expect(nodes).toHaveLength(5);
+    expect(nodes.find((n) => n.id === TRIGGER_NODE_ID)?.type).toBe('trigger');
+    expect(nodes.find((n) => n.id === 'classify')?.type).toBe('agentic');
+    expect(nodes.find((n) => n.id === 'extract')?.type).toBe('deterministic');
+  });
+
+  it('derives friendly node titles', () => {
+    const { nodes } = buildGraph(def);
+    expect(nodes.find((n) => n.id === 'route')?.data.title).toBe('Route by classification');
+    expect(nodes.find((n) => n.id === 'classify')?.data.subtitle).toBe('Claude Haiku 4.5');
+  });
+
+  it('connects the trigger to root steps and preserves declared edges', () => {
+    const { edges } = buildGraph(def);
+    // trigger→extract (root) + the 3 declared edges
+    expect(edges).toHaveLength(4);
+    expect(edges.some((e) => e.source === TRIGGER_NODE_ID && e.target === 'extract')).toBe(true);
+    expect(edges.filter((e) => e.source === 'classify')).toHaveLength(2);
+  });
+
+  it('assigns every node a computed position', () => {
+    const { nodes } = buildGraph(def);
+    for (const n of nodes) {
+      expect(Number.isFinite(n.position.x)).toBe(true);
+      expect(Number.isFinite(n.position.y)).toBe(true);
+    }
+  });
+
+  it('labels conditional edges with the expression', () => {
+    const conditional: WorkflowDefinition = {
+      ...def,
+      edges: [{ from: 'extract', to: 'classify', condition: 'score > 0.8' }],
+    };
+    const { edges } = buildGraph(conditional);
+    expect(edges.find((e) => e.source === 'extract')?.label).toBe('score > 0.8');
+  });
+});

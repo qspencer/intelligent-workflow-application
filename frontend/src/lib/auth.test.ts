@@ -1,0 +1,39 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+
+import { authHeaders, currentGroups, currentUser, hasRole } from './auth';
+
+describe('auth', () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it('authHeaders uses defaults when localStorage is empty', () => {
+    expect(authHeaders()).toEqual({
+      'X-Dev-User': 'dev-user',
+      'X-Dev-Groups': 'admins',
+    });
+  });
+
+  it('authHeaders reads user + groups from localStorage', () => {
+    localStorage.setItem('wp.user', 'alice');
+    localStorage.setItem('wp.groups', 'auditors,viewers');
+    expect(authHeaders()).toEqual({
+      'X-Dev-User': 'alice',
+      'X-Dev-Groups': 'auditors,viewers',
+    });
+  });
+
+  it('falls back to default user but keeps custom groups', () => {
+    localStorage.setItem('wp.groups', 'operators');
+    expect(currentUser()).toBe('dev-user');
+    expect(currentGroups()).toBe('operators');
+  });
+
+  it('hasRole matches the effective group (admins when unset)', () => {
+    expect(hasRole(['admins'])).toBe(true);
+    expect(hasRole(['operators'])).toBe(false);
+    localStorage.setItem('wp.groups', 'operators');
+    expect(hasRole(['admins', 'operators'])).toBe(true);
+    expect(hasRole(['designers'])).toBe(false);
+  });
+});

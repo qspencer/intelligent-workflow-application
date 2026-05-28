@@ -150,7 +150,7 @@ Where this plan diverges from `IMPLEMENTATION_PLAN.md`, the divergence is called
 
 ---
 
-## Phase 3 candidate — Fixed friendly GUI for non-technical users
+## Phase 3 — Fixed friendly GUI for non-technical users
 
 Added after the post-Phase-2 re-evaluation surfaced a real gap: the
 current dashboard is a developer / operator console (JSON paste, YAML
@@ -162,8 +162,39 @@ form-driven GUI distinct from the conversational layer (which
 remains research-gated). It's the missing middle between the
 existing dev console and the eventual conversational interface.
 
-Scope when this phase starts (not committed; pulled in by demo /
-customer-pilot need, per the re-evaluation principle):
+**Status (2026-05-27): greenlit and starting.** The graphical
+workflow view — a Zapier-style node-and-edge canvas — is the
+centerpiece and the product's intended competitive differentiator.
+Full design in **`docs/WORKFLOW_CANVAS.md`** (audience, node model,
+layout, schema additions, rollout, open questions).
+
+**Substrate decision: the frontend migrates Angular → React** to
+adopt React Flow (`@xyflow/react`). Decided after evaluating
+`@foblex/flow` (Angular-native, no migration) and finding it the
+wrong risk profile (~491 stars / thin ecosystem) for a flagship
+surface that must do nested flows, real-time collaboration, and
+sophisticated layout. The migration is cheapest now while the
+frontend is small (~2.2k LOC source). **This is step one of Phase 3
+and is in progress.**
+
+The canvas targets five differentiating capabilities, sequenced as
+frontend cuts plus backend epics (see `WORKFLOW_CANVAS.md` "Scope and
+substrate decision" for the detail):
+
+- **Frontend cuts (React Flow):** C1 read-only canvas → C2 live
+  status overlay → C3 run-from-form → C4 edit mode + conditional
+  authoring. Deterministic auto-layout ("Layout A", dagre/elk) lands
+  as early as C1. Live editing is *definition-level* (new versions;
+  in-flight instances finish on the old one) — so `ARCHITECTURE.md`
+  D8 (runtime graph mutation) stays deferred.
+- **Backend epics (each its own design pass, after the surface
+  proves out):** E1 sub-workflows (schema + engine + capability/
+  budget/audit propagation), E2 real-time multi-user (Yjs/CRDT sync
+  subsystem — the biggest single lift), E3 AI-assisted layout "B"
+  (LLM-suggested structure; research-gated, overlaps
+  `GENERATIVE_UI.md`).
+
+Scope of the broader friendly-GUI surface this phase delivers:
 
 - **Workflow creation by form, not YAML import.** Trigger picker
   (filesystem folder browser, schedule wizard, webhook URL
@@ -192,14 +223,15 @@ customer-pilot need, per the re-evaluation principle):
   point at the same backend. Phase 3 builds the parallel surface;
   the dev console keeps earning its keep during platform iteration.
 
-Effort estimate: **multiple weeks**. Pure frontend + a small
-amount of backend (bulk-fire endpoint, maybe a per-workflow
-`output_schema` to drive the renderer). No research dependencies.
+Effort estimate: **multiple weeks for the frontend cuts (C1–C4)**;
+the backend epics (E1/E2/E3) are larger and multi-quarter. The
+React migration is the up-front cost before C1.
 
-Trigger to start: **a demo or pilot scheduled with a non-technical
-audience**, or the operator explicitly saying "I can't show this
-to anyone." Until then, the dev console is sufficient for
-internal validation work.
+The two-surface strategy is **not a replacement**: the existing
+`/instances` / `/workflows` / `/cost` dev-console routes keep earning
+their keep during platform iteration. They get ported to React as
+part of the migration but stay functionally unchanged; the canvas is
+a new parallel surface alongside them.
 
 ---
 
