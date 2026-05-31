@@ -102,15 +102,26 @@ npm start        # Vite dev server (alias: npm run dev)
 Wait for `VITE v5… ready` and `Local: http://localhost:4200/`. The dev
 server proxies `/api` and `/ws` to the backend on `:8001`.
 
-In a browser, go to `http://localhost:4200`. The dashboard redirects to
-`/instances` by default.
+In a browser, go to `http://localhost:4200`. The app lands on the
+**Automations** home (the C5 friendly shell — see `docs/CANVAS_ROADMAP.md`).
+The top nav shows **Automations** and **Templates**; the developer console
+(Instances / Workflows / Cost) is hidden behind a **Developer** toggle.
 
 **Click through:**
 
-1. **Instances** (default) — empty list, but the page loads, the table header
-   is present, the list re-polls every few seconds.
-2. **Workflows** — empty list, "No workflows registered yet." message.
-3. **Cost** — three empty tables (by workflow / model / day).
+1. **Automations** (default, `/`) — heading "Your automations". Empty state
+   ("No automations yet.") on a fresh backend, or a card grid once workflows
+   exist. Not a list of instances.
+2. **Templates** — a card grid of the 10 bundled example workflows, each with a
+   step count and a friendly trigger label ("On a webhook", "On a schedule", …).
+3. **Developer toggle** (top-right, "Developer: off") — click it and the
+   **Instances / Workflows / Cost** nav links appear; the choice persists across
+   reload (localStorage). With it on:
+   - **Instances** — empty list, re-polls every few seconds.
+   - **Workflows** — the developer table; "No workflows registered yet." when empty.
+   - **Cost** — three empty tables (by workflow / model / day).
+   Deep links (`/instances`, `/workflows`, `/cost`) work even with the toggle
+   off — it governs nav visibility only.
 4. **Set the dev identity** — easiest via the **"Acting as"** dropdown in the
    header (writes `wp.groups` to localStorage and reloads). Or in the console:
    ```js
@@ -120,8 +131,12 @@ In a browser, go to `http://localhost:4200`. The dashboard redirects to
    Refresh. Open DevTools → Network → click an `/api/workflows` request →
    confirm the request headers include `X-Dev-User: alice`.
 
-**Pass when:** the routes render, no console errors, `X-Dev-User` shows up on
-the API calls.
+**Pass when:** the home renders at `/`, the Developer toggle reveals/hides the
+console and persists, no console errors, and `X-Dev-User` shows up on the API
+calls.
+
+> For an exhaustive click-through of the C5 surfaces (home / templates / create /
+> clone / RBAC gating), use the dedicated script in `docs/MANUAL_TESTING_C5.md`.
 
 ---
 
@@ -165,9 +180,10 @@ live status when following a run (C2), run-from-form (C3), and edit mode (C4).
 heavily interactive (select / drag / connect / save). Headless tests cover
 the flows, but a human should eyeball layout and feel.
 
-Prereq: at least one workflow imported (section 3). Open it by clicking the
-workflow's **name** on the Workflows page, or go straight to
-`http://localhost:4200/canvas/pdf-classifier`.
+Prereq: at least one workflow imported (section 3). Open it by clicking its
+**card** on the Automations home, or go straight to
+`http://localhost:4200/canvas/pdf-classifier`. (Creating from a template or
+"Create" on the home also lands here directly, in edit mode — `?edit=1`.)
 
 **C1 — read-only view (no AWS):**
 - Renders top-down: a trigger node ("When a file arrives") plus one node per
@@ -177,8 +193,9 @@ workflow's **name** on the Workflows page, or go straight to
   (model, instructions, tools, limits — no YAML). Header pill: **"View only"**.
 
 **C3 + C2 — run from a form, watch it live:** to exercise this without AWS,
-import this trivial `noop` workflow (paste into the Workflows page "Import
-workflow" dialog, YAML format) so it runs with no Bedrock:
+import this trivial `noop` workflow (turn the **Developer** toggle on, then
+paste into the Workflows page "Import workflow" dialog, YAML format) so it runs
+with no Bedrock:
 
 ```yaml
 id: manual-noop
