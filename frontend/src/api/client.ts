@@ -7,6 +7,7 @@ import type {
   InstanceDetail,
   WorkflowDefinition,
   WorkflowInstance,
+  WorkflowTemplate,
 } from '../types';
 
 const API_BASE = '/api';
@@ -114,6 +115,17 @@ export const api = {
   /** Map of `workflow_id → instance count`, aggregated server-side. */
   workflowInstanceCounts(): Promise<Record<string, number>> {
     return request('GET', '/workflows/instance-counts');
+  },
+
+  /** Bundled example workflows offered as starting points (canvas C5.2). */
+  listTemplates(): Promise<WorkflowTemplate[]> {
+    return request('GET', '/templates');
+  },
+
+  /** Create a new workflow — blank, or cloned from a template. Returns the
+   *  persisted definition so the caller can open it on the canvas. */
+  createWorkflow(spec: { name?: string; template_id?: string } = {}): Promise<WorkflowDefinition> {
+    return postJson('/workflows', spec);
   },
 
   listInstances(

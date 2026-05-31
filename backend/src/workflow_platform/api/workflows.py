@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import json
 from datetime import datetime
+from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
@@ -29,14 +30,17 @@ from workflow_platform.persistence import (
     WorkflowInstance,
     WorkflowInstanceState,
 )
+from workflow_platform.templates import load_templates, slugify, unique_id
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.workflow import (
+    TriggerSpec,
     WorkflowDefinition,
     WorkflowDefinitionError,
     dump_definition_to_json,
     dump_definition_to_yaml,
     load_definition,
     load_definition_from_yaml,
+    validate_and_order,
 )
 
 
@@ -45,8 +49,12 @@ def build_router(
     *,
     engine: WorkflowEngine | None = None,
     webhook_registry: WebhookRegistry | None = None,
+    templates_dir: Path | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api")
+    # Source for the templates gallery (canvas roadmap C5.2). Defaults to the
+    # same `examples` dir the trigger orchestrator loads from.
+    _templates_dir = templates_dir or Path("examples")
     # Hold strong refs to background tasks (resume) so the GC doesn't drop
     # them mid-flight. Tasks self-discard on completion.
     background_tasks: set[asyncio.Task[Any]] = set()
@@ -54,6 +62,82 @@ def build_router(
     @router.get("/workflows", response_model=list[WorkflowDefinition])
     async def list_workflows(_: UserIdentity = Depends(current_user)) -> list[WorkflowDefinition]:
         return await repositories.definitions.list_all()
+
+    @router.get("/templates")
+    async def list_templates(_: UserIdentity = Depends(current_user)) -> list[dict[str, Any]]:
+        """Bundled example workflows offered as starting points in the GUI.
+
+        Returns lightweight summaries (the gallery shows cards); cloning a
+        template into a new editable workflow goes through `POST /api/workflows`
+        with `{"template_id": ...}`."""
+        return [
+            {
+                "id": t.id,
+                "name": t.name,
+                "description": t.description,
+                "step_count": len(t.steps),
+                "trigger_type": t.trigger.type,
+            }
+            for t in load_templates(_templates_dir)
+        ]
+
+    @router.post("/workflows", response_model=WorkflowDefinition, status_code=201)
+    async def create_workflow(
+        request: Request,
+        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
+    ) -> WorkflowDefinition:
+        """Create a new workflow definition — blank, or cloned from a template.
+
+        Body (JSON object, all optional):
+        - `name`: the new workflow's name (id is slugified from it).
+        - `template_id`: clone this bundled template instead of starting blank.
+
+        Empty body creates a blank manual-trigger workflow with no steps. The
+        new id is slugified from the name and de-duplicated against existing
+        ids. Returns the persisted definition so the caller can open it on the
+        canvas (typically in edit mode)."""
+        body = await request.body()
+        text = body.decode("utf-8") if body else ""
+        try:
+            spec = json.loads(text) if text.strip() else {}
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
+        if not isinstance(spec, dict):
+            raise HTTPException(status_code=400, detail="Body must be a JSON object")
+
+        name = spec.get("name")
+        template_id = spec.get("template_id")
+        if name is not None and not isinstance(name, str):
+            raise HTTPException(status_code=400, detail="`name` must be a string")
+        if template_id is not None and not isinstance(template_id, str):
+            raise HTTPException(status_code=400, detail="`template_id` must be a string")
+
+        existing = {d.id for d in await repositories.definitions.list_all()}
+
+        if template_id:
+            sources = {t.id: t for t in load_templates(_templates_dir)}
+            source = sources.get(template_id)
+            if source is None:
+                raise HTTPException(status_code=404, detail=f"Template {template_id!r} not found")
+            new_name = name or f"{source.name} (copy)"
+            new_id = unique_id(slugify(new_name), existing)
+            definition = source.model_copy(deep=True, update={"id": new_id, "name": new_name})
+        else:
+            new_name = name or "Untitled workflow"
+            new_id = unique_id(slugify(new_name), existing)
+            definition = WorkflowDefinition(
+                id=new_id,
+                name=new_name,
+                description="",
+                trigger=TriggerSpec(type="manual", example_payload={}),
+                steps=[],
+                edges=[],
+            )
+
+        # Cheap structural check before persisting (empty graphs are valid).
+        validate_and_order(definition)
+        await repositories.definitions.save(definition)
+        return definition
 
     @router.get("/workflows/instance-counts")
     async def workflows_instance_counts(

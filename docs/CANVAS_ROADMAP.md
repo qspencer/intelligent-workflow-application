@@ -58,19 +58,26 @@ Epics, independent design passes, parallel-able once C5+C6 land:
 
 ---
 
-## C5 — Friendly shell & cold-start
+## C5 — Friendly shell & cold-start  ✅ shipped (2026-05-31)
 
 **North star for the cut:** a non-technical user lands on something they understand and can create a
 workflow without pasting YAML.
 
-| Item | Scope | Effort | Backend? |
-|---|---|---|---|
-| **C5.1 Automations home** | New default route: card grid of workflows (name, status, last-run, step count, big "Create"). Demote Instances/Workflows/Cost behind an "Advanced / Developer" toggle. Canvas becomes the primary surface, not a click-through. | M | No |
-| **C5.2 Templates gallery** | "Start from a template" — seed from the 10 example workflows we already ship (PDF classifier, PR/paper/email triage, etc.). Pick → clone into a new editable workflow on the canvas. | M | `GET /api/templates` (list bundled example defs) |
-| **C5.3 Create blank** | "Start blank" → create-empty workflow → canvas in edit mode. C4 already edits existing workflows; this originates one. | S | `POST /api/workflows` (create empty) |
+| Item | Status | Scope | Effort | Backend? |
+|---|---|---|---|---|
+| **C5.1 Automations home** | ✅ | New default route (`/`): card grid of workflows (name, latest-run status pill, step count, run count). Instances/Workflows/Cost demoted behind a "Developer" toggle (`lib/advanced.ts`, localStorage-persisted). | M | No |
+| **C5.2 Templates gallery** | ✅ | `/templates` — seeded from the 10 bundled example workflows. "Use this template" clones into a new editable workflow and opens the canvas in edit mode. | M | `GET /api/templates` (summaries) |
+| **C5.3 Create blank** | ✅ | "Create" on the home → names + creates a blank manual-trigger workflow → canvas opens in edit mode (`?edit=1`). | S | `POST /api/workflows` (blank or `{template_id}` clone) |
 
-**Exit criterion:** a non-developer opens the app, picks the email-triage template (or starts blank),
-and lands on the canvas ready to edit — no import dialog, no YAML.
+**Exit criterion (met):** a non-developer opens the app, picks the email-triage template (or starts
+blank), and lands on the canvas ready to edit — no import dialog, no YAML. Role-gated to
+Designer/Admin (viewers get the read-only home). 16 new tests (8 backend, 8 frontend).
+
+> **Implementation notes.** `POST /api/workflows` handles both blank and clone (one endpoint, the
+> roadmap's two net-new backend items collapsed into create + `GET /api/templates`). New id is
+> slugified from the name and de-duplicated. Templates are discovered by walking the definitions
+> dir for `workflow*.y*ml`; malformed files are skipped. The dev console remains fully routable —
+> the toggle only governs nav visibility, so deep links to `/workflows` etc. still work.
 
 ---
 

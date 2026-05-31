@@ -994,3 +994,167 @@ main {
 .canvas-inspector button.danger {
   margin-top: 8px;
 }
+
+/* ---- Header right cluster + Advanced toggle (C5 reframe) ---- */
+.header-right {
+  margin-left: auto;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.header-right .role-switcher {
+  margin-left: 0;
+}
+.advanced-toggle {
+  font-size: 12px;
+  color: var(--muted);
+  padding: 4px 10px;
+}
+.advanced-toggle[aria-pressed="true"] {
+  color: var(--text);
+  border-color: var(--accent);
+}
+
+/* ---- Buttons: global primary + link-as-button ---- */
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+button.primary:hover {
+  background: #0a5ab8;
+}
+button.primary:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+button.small {
+  padding: 4px 10px;
+  font-size: 13px;
+}
+a.button {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: var(--panel);
+  border-radius: 4px;
+  color: var(--text);
+}
+a.button:hover {
+  background: #f0f0f3;
+  text-decoration: none;
+}
+
+/* ---- Automations home + Templates gallery (C5) ---- */
+.page-home .header,
+.page-templates .header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+.home-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.empty-state {
+  background: var(--panel);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 40px;
+  text-align: center;
+}
+.empty-state .muted {
+  color: var(--muted);
+}
+
+.card-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+.wf-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 16px;
+  color: var(--text);
+}
+a.wf-card:hover {
+  border-color: var(--accent);
+  text-decoration: none;
+}
+.wf-card-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.wf-card-name {
+  font-weight: 600;
+}
+.wf-card-desc {
+  color: var(--muted);
+  margin: 0;
+  flex: 1;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.wf-card-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+}
+.trigger-tag {
+  font-size: 12px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 2px 8px;
+}
+
+/* Status pill on a workflow card (friendly labels, not engine enums). */
+.status-pill {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 12px;
+  white-space: nowrap;
+}
+.status-completed {
+  background: #e6f4ea;
+  color: var(--ok);
+}
+.status-running {
+  background: #e6f0fb;
+  color: var(--accent);
+}
+.status-failed {
+  background: #fdeaea;
+  color: var(--err);
+}
+.status-paused,
+.status-pending {
+  background: #fdf4e3;
+  color: var(--warn);
+}
+.status-killed {
+  background: #eee;
+  color: var(--skip);
+}
+
+.dialog input[type="text"] {
+  width: 100%;
+  padding: 8px;
+  font: inherit;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+}

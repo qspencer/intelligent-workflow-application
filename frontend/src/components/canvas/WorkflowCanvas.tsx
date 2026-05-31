@@ -191,6 +191,16 @@ export function WorkflowCanvas() {
     setDraft(structuredClone(def));
     setSaveError(null);
   }
+
+  // Arriving from "Create" / "Use this template" lands here with ?edit=1 —
+  // drop straight into edit mode so a freshly-minted workflow is editable
+  // without a second click. Only once def has loaded and the role allows it.
+  useEffect(() => {
+    if (searchParams.get('edit') === '1' && canEdit && def && draft === null) {
+      setDraft(structuredClone(def));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [def, canEdit]);
   function discardEdit(): void {
     setDraft(null);
     setSaveError(null);

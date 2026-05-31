@@ -96,6 +96,26 @@ describe('api URL + method construction', () => {
     );
   });
 
+  it('listTemplates → GET /api/templates', async () => {
+    await api.listTemplates();
+    const [url, init] = lastCall();
+    expect(url).toBe('/api/templates');
+    expect(init.method).toBe('GET');
+  });
+
+  it('createWorkflow POSTs the spec to /api/workflows', async () => {
+    await api.createWorkflow({ template_id: 'beta-flow' });
+    const [url, init] = lastCall();
+    expect(url).toBe('/api/workflows');
+    expect(init.method).toBe('POST');
+    expect(init.body).toBe(JSON.stringify({ template_id: 'beta-flow' }));
+  });
+
+  it('createWorkflow with no args POSTs an empty object', async () => {
+    await api.createWorkflow();
+    expect(lastCall()[1].body).toBe(JSON.stringify({}));
+  });
+
   it('runWorkflow POSTs the payload as JSON', async () => {
     await api.runWorkflow('wf-1', { file_path: '/abs/foo.pdf' });
     const [url, init] = lastCall();

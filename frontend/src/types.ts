@@ -70,6 +70,15 @@ export interface WorkflowDefinition {
   edges?: WorkflowEdge[];
 }
 
+/** Lightweight summary for the templates gallery (canvas C5.2). */
+export interface WorkflowTemplate {
+  id: string;
+  name: string;
+  description: string;
+  step_count: number;
+  trigger_type: string;
+}
+
 export type WorkflowState =
   | 'pending'
   | 'running'

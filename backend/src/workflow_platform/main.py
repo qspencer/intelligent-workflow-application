@@ -180,7 +180,14 @@ def create_app(
     async def metrics_endpoint() -> Response:
         return Response(content=metrics.render(), media_type=CONTENT_TYPE)
 
-    app.include_router(build_router(repositories, engine=engine, webhook_registry=webhook_registry))
+    app.include_router(
+        build_router(
+            repositories,
+            engine=engine,
+            webhook_registry=webhook_registry,
+            templates_dir=definitions_dir,
+        )
+    )
     app.include_router(build_ws_router(events))
     return app
 
