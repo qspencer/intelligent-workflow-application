@@ -47,8 +47,20 @@ export function AutomationsHome() {
 
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true);
+    // The trigger orchestrator registers the bundled examples as runnable
+    // workflows so their triggers fire — but on this friendly home they belong
+    // in Templates, not "your automations". Exclude any workflow whose id is a
+    // template id. They remain in Templates and the dev-console Workflows list.
+    // Best-effort: if templates can't load we just don't filter.
+    let templateIds = new Set<string>();
     try {
-      setDefinitions(await api.listWorkflows());
+      templateIds = new Set((await api.listTemplates()).map((t) => t.id));
+    } catch {
+      templateIds = new Set();
+    }
+    try {
+      const defs = await api.listWorkflows();
+      setDefinitions(defs.filter((d) => !templateIds.has(d.id)));
       setError(null);
     } catch (err) {
       setError(errorMessage(err, 'Failed to load automations'));

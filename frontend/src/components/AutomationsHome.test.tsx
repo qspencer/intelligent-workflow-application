@@ -19,6 +19,7 @@ describe('AutomationsHome', () => {
     localStorage.setItem('wp.groups', 'designers');
     vi.spyOn(api, 'workflowInstanceCounts').mockResolvedValue({ wf1: 3 });
     vi.spyOn(api, 'listInstances').mockResolvedValue([inst({})]);
+    vi.spyOn(api, 'listTemplates').mockResolvedValue([]);
   });
   afterEach(() => {
     cleanup();
@@ -38,6 +39,25 @@ describe('AutomationsHome', () => {
     expect(screen.getByText('2 steps')).toBeInTheDocument();
     expect(screen.getByText('3 runs')).toBeInTheDocument();
     expect(screen.getByText('Done')).toBeInTheDocument(); // friendly label for 'completed'
+  });
+
+  it('excludes bundled-example workflows (they belong in Templates)', async () => {
+    // The orchestrator registers examples as real workflows; the home must not
+    // list them, or it duplicates the Templates gallery.
+    vi.spyOn(api, 'listWorkflows').mockResolvedValue([
+      def({ id: 'email-triage', name: 'Email Triage' }), // a bundled example
+      def({ id: 'my-flow', name: 'My Flow' }), // user-created
+    ]);
+    vi.spyOn(api, 'listTemplates').mockResolvedValue([
+      { id: 'email-triage', name: 'Email Triage', description: '', step_count: 2, trigger_type: 'manual' },
+    ]);
+    render(
+      <MemoryRouter>
+        <AutomationsHome />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('My Flow')).toBeInTheDocument();
+    expect(screen.queryByText('Email Triage')).not.toBeInTheDocument();
   });
 
   it('shows an empty state when there are no workflows', async () => {
