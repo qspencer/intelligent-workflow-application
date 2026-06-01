@@ -75,19 +75,26 @@ async def test_start_button_renders_table(live_browser: PlaywrightConnector) -> 
     """Click Start, then wait for the JS-rendered table to populate.
 
     The site's `<tbody>` is empty on initial load; rows only appear
-    after the async fetch fires off `#buttonStart`. If this assertion
-    fails, our `read_table` step assumption is broken — either the
-    challenge page changed or the network is flaky.
+    after the async fetch fires off `#start`. If this assertion fails,
+    our `read_table` step assumption is broken — either the challenge
+    page changed or the network is flaky.
+
+    We must NOT wait on `#tableSandbox tr`: the `<thead>` header row
+    matches that selector and is present immediately, so `wait_for`
+    (which operates on `.first`) would resolve before any data row
+    exists and `read_table` would read an empty body. Data rows carry
+    an invoice link in the last column (an icon-only `<a>`); waiting on
+    `#tableSandbox tbody td a` gates on a real row having rendered.
     """
     await live_browser.navigate(RPA_URL, wait_until="domcontentloaded")
     await live_browser.click("#start")
-    # The first row appearing is the gating condition for read_table.
-    await live_browser.wait_for("#tableSandbox tr", state="visible", timeout_ms=15000)
+    # A populated data row is the gating condition for read_table.
+    await live_browser.wait_for("#tableSandbox tbody td a", state="attached", timeout_ms=15000)
     rows = await live_browser.read_table("#tableSandbox")
     assert len(rows) >= 1, f"Expected ≥1 invoice row after Start; got {rows!r}"
-    # Sanity on column shape — the challenge has 3 columns (ID, due
-    # date, link). read_table keys come from the first row's <th>
-    # cells; if the page reformats, this catches it.
+    # Sanity on column shape — the challenge has 4 columns (#, ID, Due
+    # Date, Invoice). read_table keys come from the <thead> <th> cells;
+    # if the page reformats, this catches it.
     first = rows[0]
     assert len(first) >= 1, f"Expected ≥1 column in {first!r}"
 
@@ -196,4 +203,7 @@ async def test_rpa_challenge_workflow_end_to_end_live(tmp_path: Path) -> None:
     assert csv_path.is_file(), f"Expected CSV at {csv_path}"
     body = csv_path.read_text().strip().splitlines()
     assert len(body) >= 2, f"Expected header + ≥1 data row in CSV; got {body!r}"
-    assert body[0] == "id,due_date,invoice_number,invoice_date,company_name,total_due"
+    # The `build_csv` step emits the challenge's exact `example.csv`
+    # header (column names + order must match for the upload to be
+    # accepted) — see the `columns:` list in workflow.yaml.
+    assert body[0] == "ID,DueDate,InvoiceNo,InvoiceDate,CompanyName,TotalDue"
