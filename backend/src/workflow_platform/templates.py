@@ -20,6 +20,26 @@ from workflow_platform.workflow.topology import WorkflowDefinitionError
 logger = logging.getLogger(__name__)
 
 
+def default_examples_dir() -> Path:
+    """The bundled ``examples/`` dir, resolved relative to the repo root.
+
+    The default must NOT be CWD-relative: uvicorn is commonly launched from
+    ``backend/``, where a bare ``Path("examples")`` resolves to the
+    non-existent ``backend/examples`` — so the templates gallery (and the
+    trigger orchestrator, which shares this dir) silently find nothing.
+    Resolving via this module's location finds the repo-root ``examples/``
+    regardless of the process CWD.
+
+    Falls back to a CWD-relative ``examples`` when the repo-root path isn't
+    present (e.g. the Docker image copies only ``src/``, not ``examples/``),
+    preserving prior behavior. ``WORKFLOW_DEFINITIONS_DIR`` overrides either way.
+    """
+    # templates.py lives at <repo>/backend/src/workflow_platform/templates.py,
+    # so parents[3] is the repo root.
+    repo_root_examples = Path(__file__).resolve().parents[3] / "examples"
+    return repo_root_examples if repo_root_examples.is_dir() else Path("examples")
+
+
 def load_templates(directory: Path) -> list[WorkflowDefinition]:
     """Load every parseable workflow definition under `directory`.
 

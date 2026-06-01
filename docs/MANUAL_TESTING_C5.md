@@ -34,8 +34,13 @@ npm run dev      # → http://localhost:4200
 Open **http://localhost:4200**.
 
 Notes:
+- **Templates load from the repo-root `examples/` by default**, resolved
+  independently of the working directory — so launching from `backend/` (above)
+  or from the repo root both work, no env var needed. Override with
+  `WORKFLOW_DEFINITIONS_DIR=/path/to/dir` to point the gallery (and the trigger
+  orchestrator) elsewhere.
 - **In-memory backend**: workflows you *create* live only until the backend
-  restarts. The 10 **templates** are always present (loaded from `examples/`).
+  restarts. The 10 **templates** are always present (loaded from the examples dir).
   Set `DATABASE_URL=...` before launching uvicorn if you want created workflows
   to persist (and to show up in the dashboard across restarts).
 - **Roles**: the header has two independent controls —

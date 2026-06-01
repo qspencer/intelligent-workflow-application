@@ -41,6 +41,7 @@ from workflow_platform.persistence import Repositories, in_memory_repositories
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
 from workflow_platform.secrets import AwsSecretsManagerStore, EnvSecretStore, SecretStore
+from workflow_platform.templates import default_examples_dir
 from workflow_platform.tools import (
     EmailLabelApplyTool,
     EmailSendTool,
@@ -144,7 +145,7 @@ def create_app(
         start_triggers = os.environ.get("WORKFLOW_PLATFORM_START_TRIGGERS", "1") != "0"
     if definitions_dir is None:
         env_dir = os.environ.get("WORKFLOW_DEFINITIONS_DIR")
-        definitions_dir = Path(env_dir) if env_dir else Path("examples")
+        definitions_dir = Path(env_dir) if env_dir else default_examples_dir()
 
     orchestrator = TriggerOrchestrator(
         definitions_dir=definitions_dir,

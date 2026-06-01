@@ -16,7 +16,12 @@ from tests._bedrock_fakes import FakeBedrock
 from workflow_platform.engine import FunctionRegistry, ToolCatalog, WorkflowEngine
 from workflow_platform.main import create_app
 from workflow_platform.persistence import in_memory_repositories
-from workflow_platform.templates import load_templates, slugify, unique_id
+from workflow_platform.templates import (
+    default_examples_dir,
+    load_templates,
+    slugify,
+    unique_id,
+)
 from workflow_platform.world import mock_world
 
 _WF_A = """
@@ -201,3 +206,21 @@ def test_create_rejects_bad_body(client: TestClient) -> None:
         headers={**_designer(), "Content-Type": "application/json"},
     )
     assert r.status_code == 400
+
+
+# --- default examples dir (CWD-independent regression) ---
+
+
+def test_default_examples_dir_resolves_repo_root_regardless_of_cwd() -> None:
+    """The bundled-examples default resolves to the repo-root `examples/` via
+    the package location, not the process CWD. Guards the regression where
+    launching uvicorn from `backend/` made the templates gallery come up empty
+    (a bare `Path("examples")` resolved to the non-existent `backend/examples`).
+    """
+    examples = default_examples_dir()
+    assert examples.is_dir()
+    assert examples.name == "examples"
+    ids = {t.id for t in load_templates(examples)}
+    # The shipped examples must load — `pdf-classifier` is one of them.
+    assert "pdf-classifier" in ids
+    assert len(ids) >= 8

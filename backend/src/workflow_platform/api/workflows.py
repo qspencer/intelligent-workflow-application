@@ -30,7 +30,7 @@ from workflow_platform.persistence import (
     WorkflowInstance,
     WorkflowInstanceState,
 )
-from workflow_platform.templates import load_templates, slugify, unique_id
+from workflow_platform.templates import default_examples_dir, load_templates, slugify, unique_id
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.workflow import (
     TriggerSpec,
@@ -53,8 +53,9 @@ def build_router(
 ) -> APIRouter:
     router = APIRouter(prefix="/api")
     # Source for the templates gallery (canvas roadmap C5.2). Defaults to the
-    # same `examples` dir the trigger orchestrator loads from.
-    _templates_dir = templates_dir or Path("examples")
+    # same repo-root `examples` dir the trigger orchestrator loads from
+    # (resolved CWD-independently — see default_examples_dir).
+    _templates_dir = templates_dir or default_examples_dir()
     # Hold strong refs to background tasks (resume) so the GC doesn't drop
     # them mid-flight. Tasks self-discard on completion.
     background_tasks: set[asyncio.Task[Any]] = set()
