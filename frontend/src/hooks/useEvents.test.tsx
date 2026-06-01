@@ -48,9 +48,15 @@ describe('useEvents', () => {
   beforeEach(() => {
     createdSockets.length = 0;
     localStorage.clear();
+    // Regular function (not an arrow) so the mock is constructable: the hook
+    // does `new WebSocket(url)`, and vitest 4 throws "is not a constructor" on
+    // `new` of an arrow-fn mock. A constructor returning an object yields that
+    // object as the instance, so `new WebSocket(url)` returns the mock socket.
     (globalThis as unknown as { WebSocket: unknown }).WebSocket = vi
       .fn()
-      .mockImplementation((url: string) => makeMockSocket(url));
+      .mockImplementation(function (url: string) {
+        return makeMockSocket(url);
+      });
     Object.assign((globalThis as { WebSocket: { CLOSED: number } }).WebSocket, {
       CLOSED: 3,
     });
