@@ -87,6 +87,10 @@ class ToolCatalog:
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)
 
+    def names(self) -> list[str]:
+        """All registered tool names, sorted. Used by the capabilities view."""
+        return sorted(self._tools)
+
 
 @dataclass
 class _DagState:

@@ -1,6 +1,12 @@
 import { isAgentic, modelDisplayName, type CanvasNodeData } from '../../lib/canvas';
-import type { StepExecution } from '../../types';
+import type { CapabilityReasonCode, CapabilityReportStep, StepExecution } from '../../types';
 import { OutputCard } from './OutputCard';
+
+const CAP_TAG: Record<CapabilityReasonCode, string> = {
+  capability_blocked: 'blocked',
+  not_enabled: 'off',
+  unknown_tool: 'missing',
+};
 
 function ConfigList({ config }: { config: Record<string, unknown> }) {
   const entries = Object.entries(config);
@@ -20,9 +26,11 @@ function ConfigList({ config }: { config: Record<string, unknown> }) {
 export function Inspector({
   data,
   execution,
+  capability,
 }: {
   data: CanvasNodeData | null;
   execution?: StepExecution | null;
+  capability?: CapabilityReportStep | null;
 }) {
   if (!data) {
     return (
@@ -101,6 +109,25 @@ export function Inspector({
               <span className="muted">None — reasoning only.</span>
             )}
           </div>
+          {capability && (
+            <div className="field">
+              <span className="field-label">Capability boundary</span>
+              <p className="cap-summary">
+                <span aria-hidden="true">🛡</span> Can use{' '}
+                <strong>{capability.allowed.length}</strong> of{' '}
+                {capability.allowed.length + capability.denied.length} tools
+              </p>
+              {capability.denied.length > 0 && (
+                <ul className="tools cap-denied">
+                  {capability.denied.map((d) => (
+                    <li key={d.tool} className={`cap-${d.reason_code}`} title={d.reason}>
+                      <code>{d.tool}</code> <span className="cap-tag">{CAP_TAG[d.reason_code]}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
           <div className="field">
             <span className="field-label">Limits</span>
             <span className="field-value">

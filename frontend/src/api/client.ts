@@ -1,6 +1,7 @@
 import { authHeaders } from '../lib/auth';
 import type {
   AuditEntry,
+  CapabilityReport,
   CostRowByDay,
   CostRowByModel,
   CostEstimate,
@@ -220,6 +221,11 @@ export const api = {
   /** Pre-run cost context for the Run dialog (C6.2). */
   getCostEstimate(id: string): Promise<CostEstimate> {
     return request('GET', `/workflows/${id}/cost-estimate`);
+  },
+
+  /** Per-agentic-step tool capability boundary (C6.3). */
+  getCapabilities(id: string): Promise<CapabilityReport> {
+    return request('GET', `/workflows/${id}/capabilities`);
   },
 
   /** Dev-only: recent backend ERROR logs (404s when not running AUTH_MODE=dev). */

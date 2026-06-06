@@ -26,6 +26,7 @@ import {
 import { useEvents } from '../../hooks/useEvents';
 import type {
   AuditEntry,
+  CapabilityReport,
   StepExecution,
   WorkflowDefinition,
   WorkflowInstance,
@@ -50,6 +51,8 @@ export function WorkflowCanvas() {
   const [instance, setInstance] = useState<WorkflowInstance | null>(null);
   const [steps, setSteps] = useState<StepExecution[]>([]);
   const [runOpen, setRunOpen] = useState(false);
+  // C6.3 capability boundary — best-effort; null if unavailable.
+  const [caps, setCaps] = useState<CapabilityReport | null>(null);
 
   // ---- edit mode (C4 slice 1: edit fields + save) ----
   const [draft, setDraft] = useState<WorkflowDefinition | null>(null);
@@ -107,6 +110,18 @@ export function WorkflowCanvas() {
       .finally(() => {
         if (!cancelled) setLoading(false);
       });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  // ---- capability boundary (C6.3), best-effort ----
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getCapabilities(id)
+      .then((c) => !cancelled && setCaps(c))
+      .catch(() => !cancelled && setCaps(null));
     return () => {
       cancelled = true;
     };
@@ -351,6 +366,7 @@ export function WorkflowCanvas() {
               <Inspector
                 data={selectedData}
                 execution={following ? selectedExecution : undefined}
+                capability={caps?.steps.find((s) => s.step_id === selectedId) ?? null}
               />
             )}
           </div>

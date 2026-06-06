@@ -30,6 +30,7 @@ from workflow_platform.persistence import (
     WorkflowInstance,
     WorkflowInstanceState,
 )
+from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.templates import default_examples_dir, load_templates, slugify, unique_id
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.workflow import (
@@ -42,6 +43,18 @@ from workflow_platform.workflow import (
     load_definition_from_yaml,
     validate_and_order,
 )
+
+
+def _denying_capability_layer(
+    tool: str, named_layers: list[tuple[str, CapabilityPolicy | None]]
+) -> str:
+    """Which named layer's tools-allowlist excludes `tool` (first match). For
+    display only — the allow/deny decision itself goes through
+    ResolvedCapabilities.tool_allowed, not this."""
+    for label, layer in named_layers:
+        if layer is not None and layer.tools is not None and tool not in layer.tools:
+            return label
+    return "capability"
 
 
 def build_router(
@@ -686,6 +699,74 @@ def build_router(
             "max_total_tokens": definition.policies.max_total_tokens,
             "budget_action": definition.policies.budget_action,
         }
+
+    @router.get("/workflows/{workflow_id}/capabilities")
+    async def workflow_capabilities(
+        workflow_id: str,
+        _: UserIdentity = Depends(current_user),
+    ) -> dict[str, Any]:
+        """Per-agentic-step tool capability boundary (C6.3): which catalog tools
+        each step can use vs is denied, and why. Uses the same layer
+        intersection the engine enforces (system -> workflow -> step)."""
+        definition = await repositories.definitions.get(workflow_id)
+        if definition is None:
+            raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
+        catalog = engine.tools.names() if engine is not None else []
+        catalog_set = set(catalog)
+        system_caps = engine.system_capabilities if engine is not None else None
+
+        steps_out: list[dict[str, Any]] = []
+        for step in definition.steps:
+            if step.type != "agentic":
+                continue
+            named_layers: list[tuple[str, CapabilityPolicy | None]] = [
+                ("system", system_caps),
+                ("workflow", definition.capabilities),
+                ("step", step.capabilities),
+            ]
+            resolved = resolve_capabilities(system_caps, definition.capabilities, step.capabilities)
+            offered = set(step.tools)
+            allowed: list[str] = []
+            denied: list[dict[str, str]] = []
+            for tool in sorted(catalog_set | offered):
+                in_catalog = tool in catalog_set
+                in_offer = tool in offered
+                if in_offer and in_catalog and resolved.tool_allowed(tool):
+                    allowed.append(tool)
+                elif in_offer and not in_catalog:
+                    denied.append(
+                        {
+                            "tool": tool,
+                            "reason": "Tool not available in this deployment",
+                            "reason_code": "unknown_tool",
+                        }
+                    )
+                elif not in_offer:
+                    denied.append(
+                        {
+                            "tool": tool,
+                            "reason": "Not enabled for this step",
+                            "reason_code": "not_enabled",
+                        }
+                    )
+                else:
+                    label = _denying_capability_layer(tool, named_layers)
+                    denied.append(
+                        {
+                            "tool": tool,
+                            "reason": f"Blocked by the {label} capability allowlist",
+                            "reason_code": "capability_blocked",
+                        }
+                    )
+            steps_out.append(
+                {
+                    "step_id": step.id,
+                    "model": step.model,
+                    "allowed": allowed,
+                    "denied": denied,
+                }
+            )
+        return {"workflow_id": workflow_id, "tool_catalog": catalog, "steps": steps_out}
 
     return router
 

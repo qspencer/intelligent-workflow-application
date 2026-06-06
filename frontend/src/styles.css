@@ -1306,3 +1306,43 @@ a.wf-card:hover {
 .cf-budget-err .cf-meter-fill {
   background: var(--err);
 }
+
+/* C6.3 — capability boundary in the inspector */
+.cap-summary {
+  margin: 2px 0 6px;
+  font-size: 13px;
+}
+.cap-denied {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.cap-denied li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  font-size: 12px;
+}
+.cap-denied li code {
+  color: var(--muted);
+  text-decoration: line-through;
+}
+.cap-denied li.cap-capability_blocked code {
+  color: var(--err);
+}
+.cap-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--muted);
+}
+.cap-denied li.cap-capability_blocked .cap-tag {
+  color: var(--err);
+}

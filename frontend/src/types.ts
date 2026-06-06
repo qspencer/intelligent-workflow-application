@@ -96,6 +96,29 @@ export interface CostEstimate {
   budget_action: 'notify' | 'pause' | 'escalate';
 }
 
+/** Per-agentic-step tool capability boundary (C6.3). Mirrors
+ *  GET /api/workflows/{id}/capabilities. */
+export type CapabilityReasonCode = 'not_enabled' | 'capability_blocked' | 'unknown_tool';
+
+export interface CapabilityDenied {
+  tool: string;
+  reason: string;
+  reason_code: CapabilityReasonCode;
+}
+
+export interface CapabilityReportStep {
+  step_id: string;
+  model: string;
+  allowed: string[];
+  denied: CapabilityDenied[];
+}
+
+export interface CapabilityReport {
+  workflow_id: string;
+  tool_catalog: string[];
+  steps: CapabilityReportStep[];
+}
+
 /** Lightweight summary for the templates gallery (canvas C5.2). */
 export interface WorkflowTemplate {
   id: string;
