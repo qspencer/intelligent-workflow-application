@@ -19,9 +19,10 @@ from fastapi import FastAPI
 from fastapi.responses import Response
 
 from workflow_platform import __version__
+from workflow_platform.api.dev import build_dev_router
 from workflow_platform.api.workflows import build_router
 from workflow_platform.api.ws import build_ws_router
-from workflow_platform.auth import AuthMiddleware
+from workflow_platform.auth import AuthMiddleware, auth_mode
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.connectors.email import maybe_build_gmail_connector
 from workflow_platform.engine import (
@@ -33,6 +34,8 @@ from workflow_platform.events import EventBus
 from workflow_platform.memory import MemoryManager
 from workflow_platform.observability import (
     CONTENT_TYPE,
+    ErrorBuffer,
+    ErrorCaptureHandler,
     PrometheusMetrics,
     configure_logging,
 )
@@ -117,6 +120,20 @@ def _default_secret_store() -> SecretStore:
     return EnvSecretStore()
 
 
+_DEV_ERROR_BUFFER: ErrorBuffer | None = None
+
+
+def _dev_error_buffer() -> ErrorBuffer:
+    """Process-wide error buffer for the dev dashboard header. Created on first
+    use, with the capturing handler attached to the root logger exactly once so
+    repeated ``create_app()`` calls (tests) don't stack handlers."""
+    global _DEV_ERROR_BUFFER
+    if _DEV_ERROR_BUFFER is None:
+        _DEV_ERROR_BUFFER = ErrorBuffer()
+        logging.getLogger().addHandler(ErrorCaptureHandler(_DEV_ERROR_BUFFER))
+    return _DEV_ERROR_BUFFER
+
+
 def create_app(
     repositories: Repositories | None = None,
     *,
@@ -190,6 +207,13 @@ def create_app(
         )
     )
     app.include_router(build_ws_router(events))
+
+    # Dev-only: capture ERROR logs into a ring buffer the dashboard header polls.
+    # Attach the handler once per process (create_app may run many times in
+    # tests); never mounted behind a real IdP.
+    if auth_mode() == "dev":
+        app.include_router(build_dev_router(_dev_error_buffer()))
+
     return app
 
 

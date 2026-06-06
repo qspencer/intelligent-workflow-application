@@ -4,6 +4,7 @@ import type {
   CostRowByDay,
   CostRowByModel,
   CostRowByWorkflow,
+  DevErrorsResponse,
   InstanceDetail,
   WorkflowDefinition,
   WorkflowInstance,
@@ -213,5 +214,15 @@ export const api = {
 
   costByDay(since?: string): Promise<CostRowByDay[]> {
     return request('GET', '/cost/by-day', { query: { since } });
+  },
+
+  /** Dev-only: recent backend ERROR logs (404s when not running AUTH_MODE=dev). */
+  getDevErrors(): Promise<DevErrorsResponse> {
+    return request('GET', '/dev/errors');
+  },
+
+  /** Dev-only: clear the captured-error buffer. */
+  clearDevErrors(): Promise<{ status: string }> {
+    return postJson('/dev/errors/clear', {});
   },
 };

@@ -154,3 +154,21 @@ export interface CostRowByDay {
   total_tokens: number;
   step_count: number;
 }
+
+/** Dev-only error capture (AUTH_MODE=dev). Mirrors api/dev.py. */
+export interface DevError {
+  fingerprint: string;
+  level: string;
+  logger: string;
+  message: string;
+  traceback: string | null;
+  count: number;
+  first_seen: string;
+  last_seen: string;
+}
+
+export interface DevErrorsResponse {
+  total: number;
+  distinct: number;
+  errors: DevError[];
+}

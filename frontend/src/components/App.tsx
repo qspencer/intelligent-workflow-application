@@ -4,6 +4,7 @@ import { NavLink, Route, Routes } from 'react-router-dom';
 import { advancedEnabled, setAdvanced } from '../lib/advanced';
 import { AutomationsHome } from './AutomationsHome';
 import { CostDashboard } from './CostDashboard';
+import { ErrorBadge } from './ErrorBadge';
 import { InstanceDetail } from './InstanceDetail';
 import { InstancesList } from './InstancesList';
 import { RoleSwitcher } from './RoleSwitcher';
@@ -50,6 +51,7 @@ export function App() {
           )}
         </nav>
         <div className="header-right">
+          <ErrorBadge />
           <button
             className="advanced-toggle"
             onClick={toggleAdvanced}

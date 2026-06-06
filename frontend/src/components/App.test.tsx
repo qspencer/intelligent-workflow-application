@@ -12,6 +12,7 @@ describe('App routing + IA', () => {
     vi.spyOn(api, 'workflowInstanceCounts').mockResolvedValue({});
     vi.spyOn(api, 'listWorkflows').mockResolvedValue([]);
     vi.spyOn(api, 'listTemplates').mockResolvedValue([]);
+    vi.spyOn(api, 'getDevErrors').mockResolvedValue({ total: 0, distinct: 0, errors: [] });
   });
 
   afterEach(() => {

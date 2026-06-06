@@ -1158,3 +1158,86 @@ a.wf-card:hover {
   border: 1px solid var(--border);
   border-radius: 4px;
 }
+
+/* Dev-only backend-error badge in the header (ErrorBadge) */
+.error-badge {
+  position: relative;
+}
+.error-badge-button {
+  background: var(--err);
+  color: #fff;
+  border: none;
+  border-radius: 999px;
+  padding: 2px 10px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+.error-badge-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+}
+.error-badge-panel {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  z-index: 41;
+  width: 460px;
+  max-width: 90vw;
+  max-height: 70vh;
+  overflow: auto;
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 10px 12px;
+}
+.error-badge-panel-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+.error-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.error-item {
+  border-top: 1px solid var(--border);
+  padding: 8px 0;
+}
+.error-item-head {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--muted);
+}
+.error-logger {
+  font-family: ui-monospace, monospace;
+}
+.error-count {
+  color: var(--err);
+  font-variant-numeric: tabular-nums;
+}
+.error-time {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+}
+.error-message {
+  margin: 2px 0;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.error-traceback {
+  margin: 4px 0 0;
+  padding: 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  font-size: 12px;
+  overflow-x: auto;
+  white-space: pre;
+}
