@@ -2,10 +2,11 @@
 
 **Extends:** `docs/WORKFLOW_CANVAS.md` cut/epic nomenclature (C1–C4 shipped; E1–E3 epics).
 **Companion to:** `docs/VISION.md` Goal 4 (progressive disclosure) and `docs/BUILD_PLAN.md` Phase 3.
-**Status of inputs:** C1 read-only → C2 live status → C3 run-from-form → C4 edit + Tier 1 polish are
-**all shipped.** This roadmap picks up at **C5** and sequences the remaining GUI gaps into shippable
-cuts. It was derived from a competitive GUI gap analysis against Airtable AI, Amazon Quick Suite,
-Union.ai, Tines, Gumloop, and Zapier.
+**Status of inputs:** C1 read-only → C2 live status → C3 run-from-form → C4 edit + Tier 1 polish →
+**C5 friendly shell** are **all shipped.** **C6 (the trust wedge) is the next build — scoped in
+detail below.** C7–C8 remain sketches until their turn; E1–E5 stay deferred. Derived from a
+competitive GUI gap analysis against Airtable AI, Amazon Quick Suite, Union.ai, Tines, Gumloop, and
+Zapier (`gui-gap-analysis.md` §6 closing sequence → these cuts).
 
 > **Naming.** Frontend cuts continue the `C#` series. Backend epics continue the `E#` series. Each
 > cut is independently shippable and demo-able. Effort is S / M / L (rough, single-dev). "Backend"
@@ -25,34 +26,31 @@ C1–C4 got us to "a developer can edit a workflow on a canvas." C5–C8 get us 
 
 ## The sequencing thesis (why this order)
 
-1. **C5 first (reframe + cold-start).** The canvas is built but the app is framed as a dev console.
-   Highest credibility-per-effort: mostly rearranging surfaces we already have + surfacing the 10
-   example workflows we already ship as templates.
-2. **C6 second (the trust wedge).** Surface the four assets *no competitor's GUI shows* —
-   replay/dry-run, per-tool-call audit, capability boundaries, cost/budget. This is where we win
-   demos. Do it **before** chasing feature parity, not after.
+1. **C5 first (reframe + cold-start).** ✅ Shipped. The canvas was built but the app was framed as a
+   dev console; C5 reframed it around the friendly surface + surfaced the 10 examples as templates.
+2. **C6 second (the trust wedge).** ▶ Next. Surface the four assets *no competitor's GUI shows* —
+   cost/budget, capability boundaries, per-tool-call audit, replay/dry-run. This is where we win
+   demos. Do it **before** chasing feature parity, not after. Build order (cheapest-first):
+   C6.2 cost → C6.3 capability → C6.4 explain → C6.1 dry-run (detailed scope below).
 3. **C7 third (authoring parity).** The universal features every competitor has and we lack — NL
    scaffolding, connector picker, build-time validation.
 4. **C8 fourth (operability + polish).** Batch, safer goal editing, a11y/responsive.
 5. **Epics (E1–E5) deferred** — each needs its own design pass; pull in when the single-user surface
    proves out or a workload demands.
 
-A cheap-and-early exception: two C6 items (cost estimate, capability viz) are small and high-impact —
-they can be **pulled forward into C5** if there's appetite, since the backend data already exists.
+Within C6, **cost estimate and capability viz come first** — small, high-impact, and the backend
+data already exists, so they convert the C5 reframe into "a governed, cost-aware tool" fastest.
 
 ---
 
 ## Dependency map
 
 ```
-C5  Friendly shell & cold-start  ──┐
-                                   ├──►  C6  Trust wedge  ──►  C7  Authoring parity  ──►  C8  Polish
- (no backend deps beyond          │      (dry-run + catalog        (scaffold + catalog       (batch +
-  create-empty + templates list)  │       endpoints)                + validate endpoints)     a11y)
-                                   │
-   pull-forward candidates: B4 cost estimate, B3 capability viz ─┘
+C5 ✅ Friendly shell  ──►  C6 ▶ Trust wedge  ──►  C7 Authoring parity  ──►  C8 Polish
+   (shipped)                cost → capability      (scaffold + catalog      (batch +
+                            → explain → dry-run     + validate endpoints)    a11y)
 
-Epics, independent design passes, parallel-able once C5+C6 land:
+Epics, independent design passes, parallel-able once C6 lands:
    E1 sub-workflows · E2 collaboration · E3 AI-layout-B · E4 delivery surfaces · E5 version history
 ```
 
@@ -81,24 +79,97 @@ Designer/Admin (viewers get the read-only home). 16 new tests (8 backend, 8 fron
 
 ---
 
-## C6 — The trust wedge (differentiators)
+## C6 — The trust wedge (differentiators) ▶ NEXT BUILD
 
 **North star for the cut:** the canvas *shows* the governance no competitor's GUI shows. Every item
 here is a demo a Zapier/Airtable/Gumloop GUI cannot reproduce.
 
-| Item | Scope | Effort | Backend? |
+| Item | One-liner | Effort | Net-new backend |
 |---|---|---|---|
-| **C6.1 Test / dry-run** | A "Test" button that runs the workflow in replay/mock-world mode (no real systems touched) and shows the result inline. Serves the VISION "sandbox-first" anti-goal. *Only we can do this — we're the only product with replay determinism.* | L | `POST /api/workflows/{id}/dry-run` (MockWorld + replay Bedrock) |
-| **C6.2 Cost estimate + live budget meter** | Pre-run estimate in the Run dialog ("~$0.003/run at Haiku 4.5"); live budget meter in the footer during a run; surface `budget_action` state. Brings the Cost route's data to where decisions happen. | M | Estimate can be client-side from the pricing table; live meter reuses existing per-step cost on step output |
-| **C6.3 Capability boundaries visible** | On an agent node, show what it *can* use and what's greyed out, with the reason ("restricted by workflow capability allowlist"). Turns an invisible safety property into a visible selling point. | M | `GET /api/workflows/{id}/capabilities` (compute the per-step intersection server-side) |
-| **C6.4 Explain-this-run** | Click a node in a finished run → forensic view: what the agent saw, which tools it called with what args, why, and the `memory_hash` in effect. Reframes our per-tool-call audit log as a trust surface (VISION Goal 6). | M | Mostly existing audit/step data; may add a per-step audit-slice endpoint |
+| **C6.2 Cost estimate + live budget meter** | Per-run cost estimate in the Run dialog + a live token/$ meter during a run, against the budget. | S–M | `GET /api/workflows/{id}/cost-estimate` (thin; data exists) |
+| **C6.3 Capability boundaries visible** | On an agent node, show the tools it *can* use vs greyed-out, with the reason. | M | `GET /api/workflows/{id}/capabilities` |
+| **C6.4 Explain-this-run** | Click a node in a finished run → forensic view of what the agent saw, called, and cost. | M | `GET /api/workflow-instances/{id}/steps/{step_id}/explain` |
+| **C6.1 Test / dry-run** | A "Test" button that runs side-effect-free (MockWorld) so no real systems are touched. | L | `POST /api/workflows/{id}/dry-run` |
 
-**Pull-forward note:** C6.2 and C6.3 are the cheapest here and the data already exists — consider
-shipping them inside C5 to make the reframe land harder.
+### Build order (cheapest-first; each independently shippable + demo-able)
 
-**Exit criterion:** in a demo, we click "Test," show a run that touched nothing real, then click a
-node and show exactly what the agent was allowed to do, did, and cost — and the audience understands
-no other tool in the eval can show them that.
+Sequenced to front-load the highest credibility-per-effort. **C6.2 → C6.3 → C6.4 → C6.1.** The
+first three are mostly *surfacing data the backend already produces*; C6.1 is the one with real new
+runtime behavior and an open design question, so it lands last.
+
+> Principle reminder: "backend mostly exists" for C6.2–C6.4 — the work is endpoints that shape
+> existing data + frontend surfacing. Keep new endpoints read-only and dev/role-gated like the rest.
+
+---
+
+#### C6.2 — Cost estimate + live budget meter  *(S–M; do first)*
+
+- **Already built:** `cost/pricing.py` (per-model $/1M rates), per-step `cost_usd` + `model` on step
+  output, `WorkflowContext.total_tokens`/`total_cost_usd`, `CostReportService.by_workflow`,
+  `WorkflowPolicy.max_total_tokens` + `budget_action`, and the live `/ws/events` stream.
+- **New backend:** `GET /api/workflows/{id}/cost-estimate` → `{ models: [{step_id, model, in_rate,
+  out_rate}], avg_cost_usd, avg_tokens, run_count, max_total_tokens, budget_action }`. `avg_*` from
+  `by_workflow` over prior runs (null when `run_count == 0` — show model rates only, no fake number).
+- **New frontend:** (a) Run dialog shows "~$X/run (avg of N runs)" or, with no history, the per-step
+  models + their rates. (b) A footer **budget meter** during a run: `tokens / max_total_tokens` bar +
+  running $, fed by the WS step events the footer already consumes; turns `--warn` past ~80% and
+  `--err` at the cap, with the `budget_action` (notify/pause/escalate) shown. Use `tabular-nums`
+  (see `docs/UI_POLISH_AND_A11Y.md`).
+- **Acceptance:** open the Run dialog on a workflow with prior runs → see an estimate; start a run →
+  the footer meter climbs live and changes colour approaching the cap; a workflow with
+  `budget_action: pause` visibly pauses at the cap.
+
+#### C6.3 — Capability boundaries visible  *(M)*
+
+- **Already built:** the capability model + intersection (system → workflow → step → runtime, most
+  restrictive wins) enforced in agent dispatch; the tool catalog.
+- **New backend:** `GET /api/workflows/{id}/capabilities` → per agentic step: `{ step_id, allowed:
+  [tool…], denied: [{tool, reason}] }` where `reason` names the narrowing layer (e.g. "not in the
+  workflow capability allowlist"). Compute via the same intersection the engine uses — do not
+  duplicate the logic; call into it.
+- **New frontend:** on an agent node (and/or its inspector), list allowed tools and render the
+  denied ones greyed with the reason on hover. A small shield/lock affordance summarising "can use N
+  of M tools."
+- **Acceptance:** a step whose `tools:` list is narrower than the catalog shows the extras greyed
+  with a correct reason; widening the allowlist and reloading moves a tool from denied → allowed.
+
+#### C6.4 — Explain-this-run  *(M)*
+
+- **Already built:** immutable per-tool-call audit log, `AgentResult` (full conversation + per-call
+  tool log), `memory_hash` on agent step output, per-step usage/cost, the EventBus.
+- **New backend:** `GET /api/workflow-instances/{id}/steps/{step_id}/explain` → `{ system_prompt_excerpt,
+  memory_hash, iterations, usage, cost_usd, tool_calls: [{name, args, result_excerpt, ts}], output }`,
+  assembled from the step execution + audit slice for that step. Excerpt/truncate large blobs.
+- **New frontend:** clicking a node in a **finished** instance opens a drawer/panel: the tool-call
+  timeline (name + args + result), tokens/cost/iterations, and the `memory_hash` in effect — framed
+  as "what this agent saw and did." Reuses the node-click selection the canvas already has.
+- **Acceptance:** after a real run, clicking an agent node shows its actual tool calls with arguments
+  and the memory hash; a deterministic step shows its function + inputs/outputs.
+
+#### C6.1 — Test / dry-run  *(L; do last)*
+
+- **Already built:** `MockWorld` (side-effect-free filesystem/messaging/db), `BedrockMode`
+  record/replay/live, the engine runs against any `World`.
+- **New backend:** `POST /api/workflows/{id}/dry-run` → runs the definition once against `MockWorld`
+  (no real file/email/http/connector side effects) and returns the instance result inline, tagged
+  `dry_run: true` so it's distinguishable in history.
+- **⚠ Open design decision (resolve before building):** what does Bedrock do during a dry-run?
+  Options — **(a)** live Bedrock (the agent reasons for real; costs a little; "sandbox the world,
+  keep the brain") — most useful default; **(b)** replay (zero cost, fully deterministic, but needs
+  a recording per request — brittle for arbitrary workflows); **(c)** a stub responder. Recommend
+  **(a)** as the default with a per-run toggle to (b) when recordings exist. This is the only C6 item
+  that needs a real decision; the other three are pure surfacing.
+- **New frontend:** a **Test** button on the canvas (next to Run) → runs dry → renders results in the
+  existing output cards with a clear "sandbox — nothing real was touched" banner.
+- **Acceptance:** clicking Test on the email-triage or PDF-classifier workflow produces a result with
+  **no** real file written / email sent / connector call made (assert against MockWorld), labelled as
+  a dry run.
+
+**Exit criterion for C6:** in a demo we open the Run dialog and show the per-run cost; start a run
+and watch the live budget meter; click an agent node to show exactly which tools it's *allowed* to
+touch and, on a finished run, exactly what it *did* and what it cost; and click **Test** to run it
+touching nothing real — and the audience understands no other tool in the eval can show them any of
+that.
 
 ---
 
@@ -148,19 +219,19 @@ Named so they're not silent gaps. Each is larger than a cut and parallel-able on
 
 ---
 
-## If we only do one thing
+## If we only do one thing (next)
 
-**C5.** The canvas is already built; the product just doesn't lead with it. Reframing the app around
-the friendly surface + surfacing the 10 templates we already ship is the single highest-leverage move
-— it converts existing, shipped work into a credible non-technical product. Everything else compounds
-on top of a correct frame.
+**C6.2 (cost estimate + live budget meter).** C5 reframed the app around the friendly surface; the
+single highest-leverage *next* move is to show cost-per-run and a live budget meter where decisions
+happen. The data already exists, the lift is S–M, and it shifts the product's read from "a workflow
+viewer" to "a governed, cost-aware automation tool" — the position no competitor's GUI occupies.
 
 ## If we only do two things
 
-**C5 + C6.2/C6.3 pulled forward.** Reframe, then show cost-per-run and per-agent capability boundaries
-on the canvas. Both are cheap (data exists), and together they make the reframe land as "a governed,
-cost-aware automation tool" rather than "a workflow viewer" — which is exactly the position no
-competitor's GUI occupies.
+**C6.2 + C6.3.** Add per-agent capability boundaries on the canvas. Together with the cost meter,
+they make the two governance assets competitors can't match — *what each agent costs* and *what each
+agent is allowed to touch* — visible on the authoring surface. Both are mostly surfacing existing
+backend data.
 
 ---
 
@@ -168,8 +239,8 @@ competitor's GUI occupies.
 
 | Cut | Theme | Items | Net-new backend |
 |---|---|---|---|
-| **C5** | Friendly shell & cold-start | Automations home, templates gallery, create-blank | `GET /api/templates`, `POST /api/workflows` |
-| **C6** | The trust wedge | Dry-run, cost/budget meter, capability viz, explain-this-run | `POST .../dry-run`, `GET .../capabilities` |
+| **C5** ✅ | Friendly shell & cold-start | Automations home, templates gallery, create-blank | `GET /api/templates`, `POST /api/workflows` |
+| **C6** ▶ next | The trust wedge | cost/budget meter, capability viz, explain-this-run, dry-run (build in that order) | `GET .../cost-estimate`, `GET .../capabilities`, `GET .../steps/{id}/explain`, `POST .../dry-run` |
 | **C7** | Authoring parity | NL scaffold, connector picker, validation, safer goals | `POST .../scaffold`, `GET /api/catalog`, `POST .../validate` |
 | **C8** | Operability & polish | Batch run, polish/a11y/responsive | `POST .../run-batch` |
 | **E1–E5** | Deferred epics | Sub-workflows, collab, AI-layout-B, delivery, version history | (per-epic design passes) |
