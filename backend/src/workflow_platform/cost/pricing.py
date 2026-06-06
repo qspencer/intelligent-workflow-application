@@ -79,6 +79,13 @@ def _strip_region_prefix(model_id: str) -> str:
     return model_id
 
 
+def price_for_model(model_id: str) -> ModelPrice | None:
+    """Per-1M-token rates for a model, or None if unpriced. Matches the literal
+    id first, then the bare id after stripping a regional inference-profile
+    prefix — same lookup as `cost_for_usage`."""
+    return MODEL_PRICING.get(model_id) or MODEL_PRICING.get(_strip_region_prefix(model_id))
+
+
 def cost_for_usage(usage: dict[str, int] | None, model_id: str) -> float:
     """Compute USD cost from an `AgentUsage`-shaped dict and a Bedrock model id.
 

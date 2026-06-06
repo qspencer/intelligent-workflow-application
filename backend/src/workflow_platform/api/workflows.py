@@ -21,7 +21,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 
 from workflow_platform.auth import Role, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
-from workflow_platform.cost import CostReportService
+from workflow_platform.cost import CostReportService, price_for_model
 from workflow_platform.engine import WorkflowEngine
 from workflow_platform.persistence import (
     AuditEntry,
@@ -652,6 +652,40 @@ def build_router(
             }
             for r in rows
         ]
+
+    @router.get("/workflows/{workflow_id}/cost-estimate")
+    async def workflow_cost_estimate(
+        workflow_id: str,
+        _: UserIdentity = Depends(current_user),
+    ) -> dict[str, Any]:
+        """Pre-run cost context for the Run dialog (C6.2): per-agentic-step model
+        rates, the budget policy, and the average cost/tokens per run from
+        history (null when the workflow hasn't run yet)."""
+        definition = await repositories.definitions.get(workflow_id)
+        if definition is None:
+            raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
+        models: list[dict[str, Any]] = []
+        for step in definition.steps:
+            if step.type == "agentic":
+                price = price_for_model(step.model)
+                models.append(
+                    {
+                        "step_id": step.id,
+                        "model": step.model,
+                        "input_per_million": price.input_per_million if price else None,
+                        "output_per_million": price.output_per_million if price else None,
+                    }
+                )
+        stats = await cost_service.run_stats_for_workflow(workflow_id)
+        return {
+            "workflow_id": workflow_id,
+            "models": models,
+            "run_count": stats.run_count,
+            "avg_cost_usd": stats.avg_cost_usd,
+            "avg_tokens": stats.avg_tokens,
+            "max_total_tokens": definition.policies.max_total_tokens,
+            "budget_action": definition.policies.budget_action,
+        }
 
     return router
 

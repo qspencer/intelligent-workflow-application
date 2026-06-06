@@ -26,6 +26,24 @@ class CostRow:
     step_count: int
 
 
+@dataclass
+class WorkflowRunStats:
+    """Aggregate cost over recent runs of one workflow, used for the C6.2
+    pre-run estimate. `avg_*` are None when there's no history to average."""
+
+    run_count: int
+    total_cost_usd: float
+    total_tokens: int
+
+    @property
+    def avg_cost_usd(self) -> float | None:
+        return round(self.total_cost_usd / self.run_count, 6) if self.run_count else None
+
+    @property
+    def avg_tokens(self) -> int | None:
+        return round(self.total_tokens / self.run_count) if self.run_count else None
+
+
 class CostReportService:
     def __init__(self, repositories: Repositories, *, sample_limit: int = 5000) -> None:
         self.repositories = repositories
@@ -56,6 +74,41 @@ class CostReportService:
 
     async def by_workflow(self, since: datetime | None = None) -> list[CostRow]:
         return _group(await self._sample(since), lambda workflow_id, _: workflow_id)
+
+    async def run_stats_for_workflow(
+        self, workflow_id: str, since: datetime | None = None
+    ) -> WorkflowRunStats:
+        """Cost/token totals + distinct-run count for one workflow over recent
+        COMPLETED agentic steps. `run_count` counts distinct instances seen in
+        the same sample, so `avg_*` is a consistent per-run figure."""
+        executions = await self.repositories.steps.list_recent(limit=self.sample_limit, since=since)
+        instance_to_workflow: dict[str, str] = {}
+        instances_seen: set[str] = set()
+        total_cost = 0.0
+        total_tokens = 0
+        for exe in executions:
+            if exe.state != StepExecutionState.COMPLETED:
+                continue
+            output = exe.output or {}
+            if "cost_usd" not in output:
+                continue
+            wf = instance_to_workflow.get(exe.instance_id)
+            if wf is None:
+                instance = await self.repositories.instances.get(exe.instance_id)
+                if instance is None:
+                    continue
+                instance_to_workflow[exe.instance_id] = instance.workflow_id
+                wf = instance.workflow_id
+            if wf != workflow_id:
+                continue
+            instances_seen.add(exe.instance_id)
+            total_cost += float(output.get("cost_usd", 0.0))
+            total_tokens += int((output.get("usage") or {}).get("total_tokens", 0))
+        return WorkflowRunStats(
+            run_count=len(instances_seen),
+            total_cost_usd=round(total_cost, 6),
+            total_tokens=total_tokens,
+        )
 
     async def by_model(self, since: datetime | None = None) -> list[CostRow]:
         return _group(

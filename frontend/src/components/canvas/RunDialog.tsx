@@ -1,11 +1,53 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { api, errorMessage } from '../../api/client';
 import { hasRole } from '../../lib/auth';
 import { removeAt, setIn } from '../../lib/run-form';
-import type { WorkflowDefinition } from '../../types';
+import type { CostEstimate, WorkflowDefinition } from '../../types';
 import { FieldEditor, type Remove, type Update } from './FieldEditor';
+
+/** Pre-run cost context (C6.2): average $/run from history, or model rates +
+ *  budget when the workflow hasn't run yet. Best-effort — hidden on error. */
+function CostEstimateLine({ est }: { est: CostEstimate }) {
+  const aiSteps = est.models.length;
+  return (
+    <div className="run-estimate">
+      {est.avg_cost_usd != null ? (
+        <span>
+          ≈ <strong>${est.avg_cost_usd.toFixed(4)}</strong>/run{' '}
+          <span className="muted">
+            (avg of {est.run_count} run{est.run_count === 1 ? '' : 's'})
+          </span>
+        </span>
+      ) : (
+        <span className="muted">
+          No cost history yet — {aiSteps} AI step{aiSteps === 1 ? '' : 's'}
+        </span>
+      )}
+      {est.max_total_tokens != null && (
+        <span className="run-est-budget">
+          budget {est.max_total_tokens.toLocaleString()} tok · {est.budget_action} at cap
+        </span>
+      )}
+      {aiSteps > 0 && (
+        <details className="run-est-models">
+          <summary>model rates</summary>
+          <ul>
+            {est.models.map((m) => (
+              <li key={m.step_id}>
+                <code>{m.step_id}</code>: {m.model}
+                {m.input_per_million != null
+                  ? ` — $${m.input_per_million}/$${m.output_per_million} per 1M`
+                  : ' — (unpriced)'}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </div>
+  );
+}
 
 function initialPayload(def: WorkflowDefinition): Record<string, unknown> {
   const ex = def.trigger?.example_payload;
@@ -23,6 +65,18 @@ export function RunDialog({ def, onClose }: { def: WorkflowDefinition; onClose: 
   const [jsonText, setJsonText] = useState(JSON.stringify(seeded, null, 2));
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [estimate, setEstimate] = useState<CostEstimate | null>(null);
+
+  useEffect(() => {
+    let ignore = false;
+    api
+      .getCostEstimate(def.id)
+      .then((e) => !ignore && setEstimate(e))
+      .catch(() => !ignore && setEstimate(null));
+    return () => {
+      ignore = true;
+    };
+  }, [def.id]);
 
   const update: Update = (path, v) => setValue((prev) => setIn(prev, path, v) as Record<string, unknown>);
   const remove: Remove = (path) => setValue((prev) => removeAt(prev, path) as Record<string, unknown>);
@@ -83,6 +137,8 @@ export function RunDialog({ def, onClose }: { def: WorkflowDefinition; onClose: 
           the run.
           {!hasRole(['admins', 'operators']) && <span> Operator or Admin role required.</span>}
         </p>
+
+        {estimate && <CostEstimateLine est={estimate} />}
 
         <div className="rf-mode">
           <button

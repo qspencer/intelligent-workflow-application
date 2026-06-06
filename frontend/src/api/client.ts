@@ -3,6 +3,7 @@ import type {
   AuditEntry,
   CostRowByDay,
   CostRowByModel,
+  CostEstimate,
   CostRowByWorkflow,
   DevErrorsResponse,
   InstanceDetail,
@@ -214,6 +215,11 @@ export const api = {
 
   costByDay(since?: string): Promise<CostRowByDay[]> {
     return request('GET', '/cost/by-day', { query: { since } });
+  },
+
+  /** Pre-run cost context for the Run dialog (C6.2). */
+  getCostEstimate(id: string): Promise<CostEstimate> {
+    return request('GET', `/workflows/${id}/cost-estimate`);
   },
 
   /** Dev-only: recent backend ERROR logs (404s when not running AUTH_MODE=dev). */

@@ -1241,3 +1241,68 @@ a.wf-card:hover {
   overflow-x: auto;
   white-space: pre;
 }
+
+/* C6.2 — Run-dialog cost estimate */
+.run-estimate {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 14px;
+  margin: 4px 0 10px;
+  padding: 8px 10px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+}
+.run-est-budget {
+  color: var(--muted);
+}
+.run-est-models {
+  flex-basis: 100%;
+  font-size: 12px;
+  color: var(--muted);
+}
+.run-est-models summary {
+  cursor: pointer;
+}
+.run-est-models ul {
+  margin: 4px 0 0;
+  padding-left: 18px;
+}
+
+/* C6.2 — live budget meter in the canvas footer */
+.cf-budget {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.cf-budget-warn {
+  color: var(--warn);
+}
+.cf-budget-err {
+  color: var(--err);
+  font-weight: 600;
+}
+.cf-meter {
+  display: inline-block;
+  width: 64px;
+  height: 6px;
+  background: var(--border);
+  border-radius: 3px;
+  overflow: hidden;
+}
+.cf-meter-fill {
+  display: block;
+  height: 100%;
+  background: var(--ok);
+}
+.cf-budget-warn .cf-meter-fill {
+  background: var(--warn);
+}
+.cf-budget-err .cf-meter-fill {
+  background: var(--err);
+}

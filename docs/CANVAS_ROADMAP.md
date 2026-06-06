@@ -86,7 +86,7 @@ here is a demo a Zapier/Airtable/Gumloop GUI cannot reproduce.
 
 | Item | One-liner | Effort | Net-new backend |
 |---|---|---|---|
-| **C6.2 Cost estimate + live budget meter** | Per-run cost estimate in the Run dialog + a live token/$ meter during a run, against the budget. | S–M | `GET /api/workflows/{id}/cost-estimate` (thin; data exists) |
+| **C6.2 Cost estimate + live budget meter** ✅ | Per-run cost estimate in the Run dialog + a live token/$ meter during a run, against the budget. | S–M | `GET /api/workflows/{id}/cost-estimate` (thin; data exists) |
 | **C6.3 Capability boundaries visible** | On an agent node, show the tools it *can* use vs greyed-out, with the reason. | M | `GET /api/workflows/{id}/capabilities` |
 | **C6.4 Explain-this-run** | Click a node in a finished run → forensic view of what the agent saw, called, and cost. | M | `GET /api/workflow-instances/{id}/steps/{step_id}/explain` |
 | **C6.1 Test / dry-run** | A "Test" button that runs side-effect-free (MockWorld) so no real systems are touched. | L | `POST /api/workflows/{id}/dry-run` |
@@ -102,7 +102,7 @@ runtime behavior and an open design question, so it lands last.
 
 ---
 
-#### C6.2 — Cost estimate + live budget meter  *(S–M; do first)*
+#### C6.2 — Cost estimate + live budget meter  ✅ *(shipped)*
 
 - **Already built:** `cost/pricing.py` (per-model $/1M rates), per-step `cost_usd` + `model` on step
   output, `WorkflowContext.total_tokens`/`total_cost_usd`, `CostReportService.by_workflow`,

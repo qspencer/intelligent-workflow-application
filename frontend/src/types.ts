@@ -60,6 +60,12 @@ export interface WorkflowEdge {
   condition_label?: string | null;
 }
 
+export interface WorkflowPolicy {
+  max_total_tokens: number | null;
+  timeout_seconds?: number | null;
+  budget_action: 'notify' | 'pause' | 'escalate';
+}
+
 export interface WorkflowDefinition {
   id: string;
   name: string;
@@ -68,6 +74,26 @@ export interface WorkflowDefinition {
   /** Present on the single-workflow + list endpoints; the canvas needs them. */
   steps?: WorkflowStep[];
   edges?: WorkflowEdge[];
+  policies?: WorkflowPolicy;
+}
+
+/** Pre-run cost context for the Run dialog (C6.2). Mirrors
+ *  GET /api/workflows/{id}/cost-estimate. */
+export interface CostEstimateModel {
+  step_id: string;
+  model: string;
+  input_per_million: number | null;
+  output_per_million: number | null;
+}
+
+export interface CostEstimate {
+  workflow_id: string;
+  models: CostEstimateModel[];
+  run_count: number;
+  avg_cost_usd: number | null;
+  avg_tokens: number | null;
+  max_total_tokens: number | null;
+  budget_action: 'notify' | 'pause' | 'escalate';
 }
 
 /** Lightweight summary for the templates gallery (canvas C5.2). */

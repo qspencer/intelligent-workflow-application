@@ -354,7 +354,9 @@ export function WorkflowCanvas() {
               />
             )}
           </div>
-          {following && instance && <CanvasFooter instance={instance} steps={steps} />}
+          {following && instance && (
+            <CanvasFooter instance={instance} steps={steps} policy={def?.policies ?? null} />
+          )}
         </>
       )}
     </div>
