@@ -16,6 +16,12 @@ Failure modes:
   interval so the failure doesn't tight-loop. Operator must run the
   consent CLI to recover. Wiring this to `escalation_requested` audit
   entries lives one layer up in the orchestrator.
+- `GmailAuthMisconfigured` (credentials absent/invalid in the
+  SecretStore): a *permanent* configuration error — retrying can't fix
+  it. Logged once at WARNING (no traceback) and the loop stops, instead
+  of spewing a stack trace every interval. This is the common dev case
+  where a bundled example ships a `gmail_poll` trigger but Gmail isn't
+  configured locally. Configure credentials and restart to enable it.
 - Any other exception during poll or callback dispatch: logged at
   EXCEPTION, loop continues at the normal interval. A misbehaving
   individual message doesn't kill the trigger.
@@ -30,7 +36,10 @@ from datetime import UTC, datetime
 from typing import ClassVar
 
 from workflow_platform.connectors.email.gmail import GmailConnector
-from workflow_platform.connectors.email.gmail_auth import GmailAuthRevoked
+from workflow_platform.connectors.email.gmail_auth import (
+    GmailAuthMisconfigured,
+    GmailAuthRevoked,
+)
 from workflow_platform.triggers.base import Trigger, TriggerCallback
 
 logger = logging.getLogger(__name__)
@@ -99,6 +108,17 @@ class GmailPollTrigger(Trigger):
                 if await self._wait_or_stop(self.auth_revoked_backoff_seconds):
                     return
                 continue
+            except GmailAuthMisconfigured as exc:
+                # Permanent config error (e.g. credentials absent from the
+                # SecretStore) — retrying can't fix it. Log once, plainly, and
+                # stop this trigger instead of dumping a traceback every cycle.
+                logger.warning(
+                    "Gmail poll disabled for account %r: %s "
+                    "Configure credentials and restart to enable it.",
+                    self.connector.account,
+                    exc,
+                )
+                return
             except Exception:
                 logger.exception(
                     "Gmail poll failed for account %r; retrying after %.0fs.",

@@ -19,7 +19,10 @@ from tests._email_fakes import (
     stage_gmail_message,
 )
 from workflow_platform.connectors.email import GmailConnector
-from workflow_platform.connectors.email.gmail_auth import GmailAuthRevoked
+from workflow_platform.connectors.email.gmail_auth import (
+    GmailAuthMisconfigured,
+    GmailAuthRevoked,
+)
 from workflow_platform.triggers import GmailPollTrigger
 
 
@@ -253,6 +256,45 @@ async def test_generic_poll_error_logs_and_retries(caplog: pytest.LogCaptureFixt
         await trig.stop()
 
     assert any("Gmail poll failed" in rec.message for rec in caplog.records)
+
+
+async def test_misconfigured_auth_logs_once_and_stops(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    """A permanent config error (missing credentials) logs a single WARNING
+    and stops the loop — it must not retry or dump a traceback every interval.
+    This is the common dev case: a bundled example ships a `gmail_poll` trigger
+    but Gmail isn't configured locally."""
+    trig, _ = _make_trigger()
+
+    call_count = 0
+
+    async def broken_poll(*args: Any, **kwargs: Any) -> Any:
+        nonlocal call_count
+        call_count += 1
+        raise GmailAuthMisconfigured("Client credentials not in SecretStore.")
+
+    trig.connector.poll_inbox = broken_poll  # type: ignore[method-assign]
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        pass
+
+    caplog.set_level(logging.WARNING)
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: call_count >= 1)
+        # Wait several poll intervals (0.05s each); a retrying loop would call
+        # again. The misconfig handler should have stopped it after one call.
+        await asyncio.sleep(0.2)
+    finally:
+        await trig.stop()
+
+    assert call_count == 1, "loop should stop on misconfiguration, not retry"
+    assert any(
+        rec.levelno == logging.WARNING and "disabled" in rec.message for rec in caplog.records
+    )
+    # Did NOT fall through to the generic retry-with-traceback handler.
+    assert not any("Gmail poll failed" in rec.message for rec in caplog.records)
 
 
 # ---------- constructor validation ----------
