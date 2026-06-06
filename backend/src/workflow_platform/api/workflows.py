@@ -45,6 +45,19 @@ from workflow_platform.workflow import (
 )
 
 
+def _excerpt(value: Any, limit: int = 800) -> str | None:
+    """Bound a value for the explain view: strings pass through, other values
+    are JSON-encoded; anything over `limit` is truncated with a marker."""
+    if value is None:
+        return None
+    s = value if isinstance(value, str) else json.dumps(value, default=str)
+    return s if len(s) <= limit else s[:limit] + f"… (+{len(s) - limit} more chars)"
+
+
+def _iso(dt: datetime | None) -> str | None:
+    return dt.isoformat() if dt is not None else None
+
+
 def _denying_capability_layer(
     tool: str, named_layers: list[tuple[str, CapabilityPolicy | None]]
 ) -> str:
@@ -767,6 +780,91 @@ def build_router(
                 }
             )
         return {"workflow_id": workflow_id, "tool_catalog": catalog, "steps": steps_out}
+
+    @router.get("/workflow-instances/{instance_id}/steps/{step_id}/explain")
+    async def explain_step(
+        instance_id: str,
+        step_id: str,
+        _: UserIdentity = Depends(current_user),
+    ) -> dict[str, Any]:
+        """Forensic view of one step in a run (C6.4): for an agent step, what it
+        was asked, the tools it called (args + results), tokens/cost, and the
+        memory hash in effect; for a deterministic step, its function + output.
+        Assembled from the step execution + the step's audit slice."""
+        instance = await repositories.instances.get(instance_id)
+        if instance is None:
+            raise HTTPException(status_code=404, detail=f"Instance {instance_id!r} not found")
+        execs = [
+            e
+            for e in await repositories.steps.list_by_instance(instance_id)
+            if e.step_id == step_id
+        ]
+        if not execs:
+            raise HTTPException(
+                status_code=404, detail=f"Step {step_id!r} not found in instance {instance_id!r}"
+            )
+        exe = execs[-1]  # latest attempt (retries append)
+        output = exe.output or {}
+
+        # Static context from the definition (best-effort — may be gone).
+        definition = await repositories.definitions.get(instance.workflow_id)
+        step_def = (
+            next((s for s in definition.steps if s.id == step_id), None)
+            if definition is not None
+            else None
+        )
+        kind = (
+            step_def.type
+            if step_def is not None
+            else ("agentic" if "usage" in output else "deterministic")
+        )
+
+        audit = [
+            a
+            for a in await repositories.audit.list_by_instance(instance_id)
+            if a.step_id == step_id
+        ]
+        tool_calls = [
+            {
+                "name": a.detail.get("name"),
+                "input": _excerpt(a.detail.get("input")),
+                "result": _excerpt(a.detail.get("result")),
+                "timestamp": _iso(a.timestamp),
+            }
+            for a in audit
+            if a.action == "tool_call"
+        ]
+
+        common: dict[str, Any] = {
+            "instance_id": instance_id,
+            "step_id": step_id,
+            "state": exe.state.value,
+            "kind": kind,
+            "started_at": _iso(exe.started_at),
+            "completed_at": _iso(exe.completed_at),
+            "error": exe.error,
+        }
+        if kind == "agentic":
+            usage = output.get("usage") or {}
+            return {
+                **common,
+                "model": output.get("model"),
+                "memory_hash": output.get("memory_hash"),
+                "stop_reason": output.get("stop_reason"),
+                "iterations": usage.get("iterations"),
+                "usage": usage,
+                "cost_usd": output.get("cost_usd"),
+                "goal": _excerpt(getattr(step_def, "goal", None)),
+                "system_prompt": _excerpt(getattr(step_def, "system_prompt", None)),
+                "output_text": _excerpt(output.get("output_text")),
+                "tool_calls": tool_calls,
+            }
+        return {
+            **common,
+            "function": getattr(step_def, "function", None),
+            "config": _excerpt(getattr(step_def, "config", None)),
+            "output": _excerpt(output),
+        }
 
     return router
 

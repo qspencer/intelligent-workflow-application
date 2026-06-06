@@ -119,6 +119,40 @@ export interface CapabilityReport {
   steps: CapabilityReportStep[];
 }
 
+/** Explain-this-run forensic view (C6.4). Mirrors
+ *  GET /api/workflow-instances/{id}/steps/{step_id}/explain. */
+export interface ExplainToolCall {
+  name: string | null;
+  input: string | null;
+  result: string | null;
+  timestamp: string | null;
+}
+
+export interface ExplainStep {
+  instance_id: string;
+  step_id: string;
+  state: string;
+  kind: string;
+  started_at: string | null;
+  completed_at: string | null;
+  error: string | null;
+  // agentic
+  model?: string | null;
+  memory_hash?: string | null;
+  stop_reason?: string | null;
+  iterations?: number | null;
+  usage?: Record<string, number>;
+  cost_usd?: number | null;
+  goal?: string | null;
+  system_prompt?: string | null;
+  output_text?: string | null;
+  tool_calls?: ExplainToolCall[];
+  // deterministic
+  function?: string | null;
+  config?: string | null;
+  output?: string | null;
+}
+
 /** Lightweight summary for the templates gallery (canvas C5.2). */
 export interface WorkflowTemplate {
   id: string;

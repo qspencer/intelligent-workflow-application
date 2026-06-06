@@ -7,6 +7,7 @@ import type {
   CostEstimate,
   CostRowByWorkflow,
   DevErrorsResponse,
+  ExplainStep,
   InstanceDetail,
   WorkflowDefinition,
   WorkflowInstance,
@@ -226,6 +227,11 @@ export const api = {
   /** Per-agentic-step tool capability boundary (C6.3). */
   getCapabilities(id: string): Promise<CapabilityReport> {
     return request('GET', `/workflows/${id}/capabilities`);
+  },
+
+  /** Explain-this-run forensic view of one step in a run (C6.4). */
+  getExplain(instanceId: string, stepId: string): Promise<ExplainStep> {
+    return request('GET', `/workflow-instances/${instanceId}/steps/${stepId}/explain`);
   },
 
   /** Dev-only: recent backend ERROR logs (404s when not running AUTH_MODE=dev). */

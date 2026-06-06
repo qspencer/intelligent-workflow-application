@@ -88,7 +88,7 @@ here is a demo a Zapier/Airtable/Gumloop GUI cannot reproduce.
 |---|---|---|---|
 | **C6.2 Cost estimate + live budget meter** ✅ | Per-run cost estimate in the Run dialog + a live token/$ meter during a run, against the budget. | S–M | `GET /api/workflows/{id}/cost-estimate` (thin; data exists) |
 | **C6.3 Capability boundaries visible** ✅ | On an agent node, show the tools it *can* use vs greyed-out, with the reason. | M | `GET /api/workflows/{id}/capabilities` |
-| **C6.4 Explain-this-run** | Click a node in a finished run → forensic view of what the agent saw, called, and cost. | M | `GET /api/workflow-instances/{id}/steps/{step_id}/explain` |
+| **C6.4 Explain-this-run** ✅ | Click a node in a finished run → forensic view of what the agent saw, called, and cost. | M | `GET /api/workflow-instances/{id}/steps/{step_id}/explain` |
 | **C6.1 Test / dry-run** | A "Test" button that runs side-effect-free (MockWorld) so no real systems are touched. | L | `POST /api/workflows/{id}/dry-run` |
 
 ### Build order (cheapest-first; each independently shippable + demo-able)
@@ -133,7 +133,7 @@ runtime behavior and an open design question, so it lands last.
 - **Acceptance:** a step whose `tools:` list is narrower than the catalog shows the extras greyed
   with a correct reason; widening the allowlist and reloading moves a tool from denied → allowed.
 
-#### C6.4 — Explain-this-run  *(M)*
+#### C6.4 — Explain-this-run  ✅ *(shipped)*
 
 - **Already built:** immutable per-tool-call audit log, `AgentResult` (full conversation + per-call
   tool log), `memory_hash` on agent step output, per-step usage/cost, the EventBus.

@@ -1,5 +1,6 @@
 import { isAgentic, modelDisplayName, type CanvasNodeData } from '../../lib/canvas';
 import type { CapabilityReasonCode, CapabilityReportStep, StepExecution } from '../../types';
+import { ExplainPanel } from './ExplainPanel';
 import { OutputCard } from './OutputCard';
 
 const CAP_TAG: Record<CapabilityReasonCode, string> = {
@@ -54,6 +55,7 @@ export function Inspector({
         <div className="field">
           <span className="field-label">This run</span>
           <OutputCard step={execution} renderer={data.step?.output_renderer} />
+          <ExplainPanel instanceId={execution.instance_id} stepId={execution.step_id} />
         </div>
       )}
 
