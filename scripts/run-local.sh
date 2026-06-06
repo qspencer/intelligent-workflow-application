@@ -27,6 +27,15 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKEND="$REPO_ROOT/backend"
 
+# --- status helpers (colour only on a real terminal) --------------------------
+if [ -t 1 ]; then C_STEP=$'\033[1;36m'; C_OK=$'\033[1;32m'; C_WARN=$'\033[1;33m'; C_OFF=$'\033[0m'
+else C_STEP=''; C_OK=''; C_WARN=''; C_OFF=''; fi
+STEP=0
+step() { STEP=$((STEP + 1)); printf '%s[%d] %s%s\n' "$C_STEP" "$STEP" "$*" "$C_OFF"; }
+ok()   { printf '    %s✓%s %s\n' "$C_OK" "$C_OFF" "$*"; }
+warn() { printf '    %s!%s %s\n' "$C_WARN" "$C_OFF" "$*"; }
+die()  { printf '    %s✗%s %s\n' "$C_WARN" "$C_OFF" "$*" >&2; exit 1; }
+
 # --- defaults + flags ---------------------------------------------------------
 USE_POSTGRES=1
 START_TRIGGERS=1
@@ -48,7 +57,9 @@ for arg in "$@"; do
 done
 
 # --- pre-flight ---------------------------------------------------------------
-command -v uv >/dev/null 2>&1 || { echo "ERROR: 'uv' not found on PATH." >&2; exit 1; }
+step "Pre-flight checks"
+command -v uv >/dev/null 2>&1 || die "'uv' not found on PATH."
+ok "uv: $(uv --version 2>/dev/null | head -1)"
 
 # Gmail credentials present on disk? (existence only — the trigger self-disables
 # with a single warning if absent, so this is non-fatal.)
@@ -56,50 +67,66 @@ GMAIL_OK=0
 if [ -f "$REPO_ROOT/.secrets/gmail/$GMAIL_ACCOUNT/client_credentials.json" ] \
    && [ -f "$REPO_ROOT/.secrets/gmail/$GMAIL_ACCOUNT/refresh_token" ]; then
   GMAIL_OK=1
+  ok "Gmail credentials: found for $GMAIL_ACCOUNT"
+else
+  warn "Gmail credentials: not found — email-triage trigger will self-disable"
 fi
 
 # AWS creds only matter for live Bedrock.
 if [ "$BEDROCK_MODE" = "live" ]; then
-  if command -v aws >/dev/null 2>&1 && ! aws sts get-caller-identity >/dev/null 2>&1; then
-    echo "WARNING: BEDROCK_MODE=live but AWS creds don't resolve — agentic steps" >&2
-    echo "         will fail. Re-run with --replay to avoid Bedrock entirely." >&2
+  if command -v aws >/dev/null 2>&1; then
+    if aws sts get-caller-identity >/dev/null 2>&1; then
+      ok "AWS credentials: resolve (live Bedrock ready)"
+    else
+      warn "AWS credentials: do NOT resolve — agentic steps will fail (use --replay)"
+    fi
+  else
+    warn "AWS CLI not found — can't verify creds; live Bedrock may fail (use --replay)"
   fi
+else
+  ok "Bedrock: replay mode — no AWS calls"
 fi
 
-# --- Postgres + migrations ----------------------------------------------------
+# --- repositories -------------------------------------------------------------
 if [ "$USE_POSTGRES" = 1 ]; then
-  command -v docker >/dev/null 2>&1 || {
-    echo "ERROR: docker not found. Re-run with --in-memory to skip Postgres." >&2; exit 1; }
+  command -v docker >/dev/null 2>&1 || die "docker not found. Re-run with --in-memory."
   DATABASE_URL="${DATABASE_URL:-$DEFAULT_DB_URL}"
-  echo ">> Starting Postgres (docker compose up -d postgres)…"
-  ( cd "$REPO_ROOT" && docker compose up -d postgres )
-  echo ">> Waiting for Postgres to report healthy…"
+
+  step "Postgres: start container (docker compose up -d postgres)"
+  ( cd "$REPO_ROOT" && docker compose up -d postgres >/dev/null )
+  ok "container up"
+
+  step "Postgres: wait for healthy"
   ( cd "$REPO_ROOT"
     for _ in $(seq 1 30); do
       if docker compose ps postgres --format json | grep -q '"Health":"healthy"'; then exit 0; fi
       sleep 2
     done
-    echo "ERROR: Postgres did not become healthy in time." >&2; exit 1
-  )
-  echo ">> Applying migrations (alembic upgrade head)…"
+    exit 1
+  ) || die "Postgres did not become healthy in time."
+  ok "healthy"
+
+  step "Migrations: alembic upgrade head"
   ( cd "$BACKEND" && DATABASE_URL="$DATABASE_URL" uv run alembic upgrade head )
+  ok "schema up to date"
   export DATABASE_URL
 else
-  echo ">> Using in-memory repositories (nothing persists across restarts)."
+  step "Repositories: in-memory (nothing persists across restarts)"
+  ok "no Postgres / docker needed"
   unset DATABASE_URL 2>/dev/null || true
 fi
 
 # --- runtime env --------------------------------------------------------------
+step "Configure runtime environment"
 export AUTH_MODE=dev
 export BEDROCK_MODE
 export WORKFLOW_DEFINITIONS_DIR="$REPO_ROOT/examples"
 export LOG_FORMAT="${LOG_FORMAT:-text}"
 export WORKFLOW_PLATFORM_START_TRIGGERS="$START_TRIGGERS"
 [ "$GMAIL_OK" = 1 ] && export WORKFLOW_PLATFORM_GMAIL_ACCOUNT="$GMAIL_ACCOUNT"
+ok "env set"
 
-# --- summary ------------------------------------------------------------------
 echo "──────────────────────────────────────────────────────────────"
-echo " backend configuration"
 if [ "$USE_POSTGRES" = 1 ]; then
   echo "   repositories : Postgres ($DATABASE_URL)"
 else
@@ -118,5 +145,6 @@ echo "   listening on : http://localhost:$PORT   (frontend dev server proxies he
 echo "──────────────────────────────────────────────────────────────"
 
 # --- launch -------------------------------------------------------------------
+step "Launch uvicorn (Ctrl-C to stop) — startup logs + per-trigger status follow"
 cd "$BACKEND"
 exec uv run uvicorn workflow_platform.main:app --reload --port "$PORT"
