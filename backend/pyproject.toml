@@ -39,6 +39,7 @@ dev = [
     "mypy>=1.13",
     "types-PyYAML>=6.0",
     "types-croniter>=2.0",
+    "schemathesis>=4.21.1",
 ]
 
 [build-system]
@@ -58,6 +59,7 @@ markers = [
     "live: hits real AWS Bedrock — costs a few cents per run. Set BEDROCK_LIVE=1 to run.",
     "gmail_live: hits the real Gmail account. Free; requires Gate 4 complete. Set GMAIL_LIVE=1 to run.",
     "browser_live: launches real Chromium against the public RPA Challenge OCR site. Free; needs `playwright install chromium`. Set BROWSER_LIVE=1 to run.",
+    "schema: schemathesis contract/fuzz validation over the OpenAPI schema (GET endpoints). Free, no AWS. Set SCHEMA_TESTS=1 to run.",
 ]
 
 [tool.ruff]

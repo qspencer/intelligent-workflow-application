@@ -425,8 +425,9 @@ used during D8 capability development.
 
 ## 5. Live tests — Bedrock, Gmail, Browser
 
-**What:** four opt-in suites, each gated by its own env var. CI runs
-them together on a weekly cron (`.github/workflows/live-tests.yml`).
+**What:** opt-in suites, each gated by its own env var. The three *live* ones run
+together on a weekly cron (`.github/workflows/live-tests.yml`); `schema` and
+`integration` are PR gates in `ci.yml` (own jobs).
 
 | Marker | Env gate | Cost | What it hits |
 |---|---|---|---|
@@ -434,6 +435,7 @@ them together on a weekly cron (`.github/workflows/live-tests.yml`).
 | `gmail_live` | `GMAIL_LIVE=1` | free | Project Gmail account (smoke + send + label) |
 | `browser_live` | `BROWSER_LIVE=1` | free (Bedrock end-to-end variant: ~$0.05–0.15) | Real Chromium against RPA Challenge URL |
 | `integration` | `TEST_DATABASE_URL=…` | free | Postgres (covered separately in §6) |
+| `schema` | `SCHEMA_TESTS=1` | free | Schemathesis fuzz over the OpenAPI GET endpoints (covered separately in §5b) |
 
 **Why manual:** real services can drift in ways no replay test catches
 — region access, inference profile health, Gmail quota, RPA Challenge
@@ -467,6 +469,37 @@ in `docs/BEDROCK_SETUP.md`. For Gmail, `backend/tools/smoke_gmail.py`
 plays the same role.
 
 **Pass when:** every suite green at the markers you enabled.
+
+---
+
+## 5b. Schemathesis contract / fuzz validation
+
+**What:** property-based validation derived from FastAPI's own OpenAPI schema.
+Every **GET** endpoint is fuzzed (junk path ids, bad query params, odd headers);
+the asserted property is `not_a_server_error` — no input may ever produce a 5xx.
+
+**Why manual / separate:** complements the hand-written endpoint tests with
+breadth + adversarial inputs, at near-zero maintenance (the cases are generated
+from the app, so they can't drift from the schema). Scoped to GET endpoints so it
+stays self-contained — no Bedrock, no state mutation, no recordings — and runs
+in-process against in-memory repos + replay Bedrock. It's a **PR gate** in
+`ci.yml` (its own `schema` job, parallel to `backend`), and opt-in locally.
+
+```bash
+cd backend
+SCHEMA_TESTS=1 uv run pytest -m schema -q
+# ~20 GET operations fuzzed; ~2–3 min (hypothesis sweep). No AWS, free.
+```
+
+Authenticates as a dev admin (`X-Dev-User` / `X-Dev-Groups: admins`) so it
+exercises real handler logic rather than bouncing off the auth middleware. A
+failure means some GET handler 500s on an input it should reject cleanly (e.g. a
+404 / 422) — a real bug. Side-effecting / model-calling endpoints (scaffold,
+dry-run, run, import, lifecycle) are deliberately out of scope; they're covered
+by the hand-written tests in §A.
+
+**Pass when:** `uv run pytest -m schema` reports all GET operations passed (no
+server errors).
 
 ---
 

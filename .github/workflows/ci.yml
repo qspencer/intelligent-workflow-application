@@ -75,6 +75,32 @@ jobs:
       - name: Test (integration, requires Postgres)
         run: uv run pytest -m integration
 
+  schema:
+    # Schemathesis contract/fuzz validation derived from FastAPI's OpenAPI
+    # schema: every GET endpoint, fuzzed, must never 5xx. Free + no AWS (runs
+    # the app in-process against in-memory repos + replay Bedrock), so it's a
+    # PR gate — but its own job since the hypothesis sweep takes a couple of
+    # minutes and shouldn't sit on the backend job's critical path.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: backend
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@d0cc045d04ccac9d8b7881df0226f9e82c39688e # v6
+        with:
+          version: "0.5.x"
+
+      - name: Sync deps
+        run: uv sync --frozen
+
+      - name: Schemathesis contract tests (OpenAPI GET endpoints)
+        env:
+          SCHEMA_TESTS: "1"
+        run: uv run pytest -m schema -q
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
