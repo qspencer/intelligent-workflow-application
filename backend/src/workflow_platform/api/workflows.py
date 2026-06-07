@@ -14,6 +14,7 @@ from __future__ import annotations
 import asyncio
 import dataclasses
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -32,6 +33,11 @@ from workflow_platform.persistence import (
     StepExecution,
     WorkflowInstance,
     WorkflowInstanceState,
+)
+from workflow_platform.scaffold import (
+    DEFAULT_SCAFFOLD_MODEL,
+    ScaffoldError,
+    scaffold_workflow,
 )
 from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.templates import default_examples_dir, load_templates, slugify, unique_id
@@ -200,6 +206,80 @@ def build_router(
         validate_and_order(definition)
         await repositories.definitions.save(definition)
         return definition
+
+    @router.post("/workflows/scaffold")
+    async def scaffold_workflow_endpoint(
+        request: Request,
+        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
+    ) -> dict[str, Any]:
+        """NL scaffold (C7.1): turn a plain-English description into a draft
+        workflow and persist it as an editable starting point.
+
+        Body: `{"description": "<what the workflow should do>"}`. One Bedrock call,
+        handed the live catalog so it only references real triggers / functions /
+        tools. The result is id'd, structurally validated, and saved; the caller
+        opens it on the canvas (edit mode) to refine. Returns the new id + any
+        advisory findings (e.g. disconnected steps)."""
+        if engine is None:
+            raise HTTPException(status_code=503, detail="No workflow engine is configured.")
+
+        body = await request.body()
+        text = body.decode("utf-8") if body else ""
+        try:
+            spec = json.loads(text) if text.strip() else {}
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
+        description = spec.get("description") if isinstance(spec, dict) else None
+        if not isinstance(description, str) or not description.strip():
+            raise HTTPException(status_code=400, detail="`description` is required.")
+
+        catalog = build_catalog(engine.functions, engine.tools)
+        model = os.environ.get("WORKFLOW_PLATFORM_SCAFFOLD_MODEL", DEFAULT_SCAFFOLD_MODEL)
+        try:
+            raw = await scaffold_workflow(
+                engine.bedrock, model=model, description=description, catalog=catalog
+            )
+        except ScaffoldError as exc:
+            raise HTTPException(
+                status_code=422, detail=f"Couldn't scaffold a workflow: {exc}"
+            ) from exc
+
+        existing = {d.id for d in await repositories.definitions.list_all()}
+        name = raw.get("name") if isinstance(raw.get("name"), str) and raw.get("name") else None
+        new_name = name or "Scaffolded workflow"
+        raw["name"] = new_name
+        raw["id"] = unique_id(slugify(new_name), existing)
+        raw.setdefault("description", "")
+        raw.setdefault("trigger", {"type": "manual", "config": {}})
+
+        try:
+            definition = WorkflowDefinition.model_validate(raw)
+        except ValidationError as exc:
+            first = "; ".join(
+                f"{'.'.join(str(p) for p in e.get('loc', ()))}: {e.get('msg', '')}"
+                for e in exc.errors()[:3]
+            )
+            raise HTTPException(
+                status_code=422, detail=f"Scaffolded workflow was malformed: {first}"
+            ) from exc
+
+        # Persisted definitions are always structurally runnable-shaped (matches
+        # create/import). Advisory findings (warnings) are returned, not blocking.
+        try:
+            validate_and_order(definition)
+        except WorkflowDefinitionError as exc:
+            raise HTTPException(
+                status_code=422, detail=f"Scaffolded workflow was structurally invalid: {exc}"
+            ) from exc
+
+        await repositories.definitions.save(definition)
+        findings = [f.model_dump() for f in validate_definition(definition)]
+        return {
+            "status": "created",
+            "workflow_id": definition.id,
+            "name": definition.name,
+            "findings": findings,
+        }
 
     @router.get("/catalog")
     async def get_catalog(
