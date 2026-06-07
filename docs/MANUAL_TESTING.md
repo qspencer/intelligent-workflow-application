@@ -68,6 +68,18 @@ You should see one or two JSON log lines on startup, ending with
 `Uvicorn running on http://0.0.0.0:8001`. Each line is one JSON object —
 that's the `JsonFormatter` doing its job.
 
+> **Gmail needs one more env var.** The `email_send` / `email_label_apply` tools
+> and the `gmail_poll` trigger stay off — and you'll see a `Gmail poll disabled …
+> Client credentials not in SecretStore` warning — unless
+> **`WORKFLOW_PLATFORM_GMAIL_ACCOUNT=<address>`** is set, *even when the creds
+> exist under `.secrets/gmail/<address>/`*. That env var is what triggers the
+> on-disk-`.secrets`→`os.environ` seeding the `EnvSecretStore` reads from. Add
+> `WORKFLOW_PLATFORM_GMAIL_ACCOUNT=intelligent.workflow.engine@quentinspencer.com`
+> to the command above, or just use **`./scripts/run-local.sh`** (from the repo
+> root), which sets it and verifies the credential files for you. Creds setup
+> itself is Gates 3–4 in `docs/EMAIL_CONNECTOR_PLAN.md`
+> (`uv run python tools/gmail_auth.py --account <address>`).
+
 **Smoke** — terminal B:
 
 ```bash
@@ -901,9 +913,11 @@ the moment.
    it's CI-able.
 
 3. **In-process triggers via `WORKFLOW_DEFINITIONS_DIR`.** Filesystem
-   / schedule / webhook / Gmail-poll triggers all auto-register on
-   startup when you point the env var at a directory of workflow
-   YAMLs:
+   / schedule / webhook triggers all auto-register on startup when you
+   point the env var at a directory of workflow YAMLs. (**Gmail-poll
+   additionally needs `WORKFLOW_PLATFORM_GMAIL_ACCOUNT=<address>`** — see
+   the note under §1 — otherwise it logs "Gmail poll disabled" and stays
+   off even with creds on disk.)
 
    ```bash
    cd backend
