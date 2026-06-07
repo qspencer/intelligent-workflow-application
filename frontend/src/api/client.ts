@@ -195,6 +195,15 @@ export const api = {
     return postJson(`/workflows/${workflowId}/run`, triggerPayload);
   },
 
+  /** Dry-run (C6.1): sandboxed test — MockWorld, external tools disabled, live
+   *  Bedrock. Returns the persisted (dry-run-tagged) instance id. */
+  dryRunWorkflow(
+    workflowId: string,
+    triggerPayload: Record<string, unknown>,
+  ): Promise<{ status: string; instance_id: string; state: string; dry_run: boolean; sandbox: string }> {
+    return postJson(`/workflows/${workflowId}/dry-run`, triggerPayload);
+  },
+
   forkInstance(
     id: string,
     fromStepId: string,

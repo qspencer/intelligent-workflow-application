@@ -54,7 +54,15 @@ function initialPayload(def: WorkflowDefinition): Record<string, unknown> {
   return ex && Object.keys(ex).length > 0 ? structuredClone(ex) : {};
 }
 
-export function RunDialog({ def, onClose }: { def: WorkflowDefinition; onClose: () => void }) {
+export function RunDialog({
+  def,
+  onClose,
+  dryRun = false,
+}: {
+  def: WorkflowDefinition;
+  onClose: () => void;
+  dryRun?: boolean;
+}) {
   const navigate = useNavigate();
   const seeded = initialPayload(def);
   const hasFields = Object.keys(seeded).length > 0;
@@ -116,13 +124,15 @@ export function RunDialog({ def, onClose }: { def: WorkflowDefinition; onClose: 
     setSubmitting(true);
     setError(null);
     try {
-      const res = await api.runWorkflow(def.id, payload as Record<string, unknown>);
+      const res = dryRun
+        ? await api.dryRunWorkflow(def.id, payload as Record<string, unknown>)
+        : await api.runWorkflow(def.id, payload as Record<string, unknown>);
       onClose();
       // Flip the canvas into live (instance) mode — the C2 overlay takes over.
-      navigate(`/canvas/${def.id}?instance=${res.instance_id}`);
+      navigate(`/canvas/${def.id}?instance=${res.instance_id}${dryRun ? '&dry=1' : ''}`);
     } catch (err) {
       setSubmitting(false);
-      setError(errorMessage(err, 'Run failed'));
+      setError(errorMessage(err, dryRun ? 'Test failed' : 'Run failed'));
     }
   }
 
@@ -130,13 +140,21 @@ export function RunDialog({ def, onClose }: { def: WorkflowDefinition; onClose: 
     <div className="dialog-overlay" onClick={() => !submitting && onClose()}>
       <div className="dialog large" onClick={(e) => e.stopPropagation()}>
         <h3>
-          Run <code>{def.id}</code>
+          {dryRun ? 'Test' : 'Run'} <code>{def.id}</code>
         </h3>
         <p className="muted">
-          Fill in the trigger details and run. The canvas will switch to a live view of
-          the run.
-          {!hasRole(['admins', 'operators']) && <span> Operator or Admin role required.</span>}
+          Fill in the trigger details and {dryRun ? 'test' : 'run'}. The canvas will switch to
+          a live view of the {dryRun ? 'test' : 'run'}.
+          {!hasRole(dryRun ? ['admins', 'operators', 'designers'] : ['admins', 'operators']) && (
+            <span> {dryRun ? 'Designer, Operator or Admin' : 'Operator or Admin'} role required.</span>
+          )}
         </p>
+        {dryRun && (
+          <p className="run-sandbox">
+            🧪 Sandbox — runs against a mock world with email/connector/browser tools disabled
+            (live AI). Nothing real is touched.
+          </p>
+        )}
 
         {estimate && <CostEstimateLine est={estimate} />}
 
@@ -195,7 +213,13 @@ export function RunDialog({ def, onClose }: { def: WorkflowDefinition; onClose: 
             Cancel
           </button>
           <button className="primary" onClick={() => void submit()} disabled={submitting}>
-            {submitting ? 'Running…' : 'Run'}
+            {submitting
+              ? dryRun
+                ? 'Testing…'
+                : 'Running…'
+              : dryRun
+                ? 'Test'
+                : 'Run'}
           </button>
         </div>
       </div>

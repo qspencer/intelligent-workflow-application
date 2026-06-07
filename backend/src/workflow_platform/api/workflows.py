@@ -12,6 +12,7 @@ Role gating (per `docs/ARCHITECTURE.md` D4):
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import json
 from datetime import datetime
 from pathlib import Path
@@ -22,7 +23,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from workflow_platform.auth import Role, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.cost import CostReportService, price_for_model
-from workflow_platform.engine import WorkflowEngine
+from workflow_platform.engine import ToolCatalog, WorkflowEngine
 from workflow_platform.persistence import (
     AuditEntry,
     Repositories,
@@ -32,6 +33,7 @@ from workflow_platform.persistence import (
 )
 from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.templates import default_examples_dir, load_templates, slugify, unique_id
+from workflow_platform.tools import Tool, ToolContext, ToolResult
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.workflow import (
     TriggerSpec,
@@ -43,6 +45,36 @@ from workflow_platform.workflow import (
     load_definition_from_yaml,
     validate_and_order,
 )
+from workflow_platform.world import mock_world
+
+_DRY_RUN_EXTERNAL_PREFIXES = ("email_", "connector_", "browser_")
+
+
+def _is_external_tool(name: str) -> bool:
+    """Tools that reach outside the sandbox (mailbox / network / browser). In a
+    dry run these are replaced with no-op stubs so a test touches nothing real."""
+    return name.startswith(_DRY_RUN_EXTERNAL_PREFIXES)
+
+
+def _sandbox_tool(original: Tool) -> Tool:
+    """A no-op stand-in for an external tool, keeping its name/description/schema
+    so the agent still *sees* and can *call* it — the call just does nothing and
+    returns a sandbox notice. (We can't simply drop the tool: the engine fails a
+    step that references a tool missing from the catalog.)"""
+
+    class _Sandboxed(Tool):
+        name = original.name
+        description = original.description
+        parameters_schema = original.parameters_schema
+
+        async def execute(
+            self, params: dict[str, Any], context: ToolContext | None = None
+        ) -> ToolResult:
+            return ToolResult(
+                content={"sandboxed": True, "note": f"{original.name} not executed (dry run)"}
+            )
+
+    return _Sandboxed()
 
 
 def _excerpt(value: Any, limit: int = 800) -> str | None:
@@ -261,6 +293,68 @@ def build_router(
             "status": "started",
             "instance_id": instance.id,
             "state": instance.state.value,
+        }
+
+    @router.post("/workflows/{workflow_id}/dry-run")
+    async def dry_run_workflow(
+        workflow_id: str,
+        request: Request,
+        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR, Role.DESIGNER)),
+    ) -> dict[str, Any]:
+        """Run a workflow once in a sandbox (C6.1): a `MockWorld` (no real file /
+        database / messaging side effects) and a tool catalog with the external
+        tools (email / connector / browser) removed, but **live Bedrock** so the
+        agent reasons for real — "sandbox the world, keep the brain". The
+        instance is persisted and tagged `dry_run` so the canvas can follow it.
+
+        Browser-automation workflows are rejected (a real browser can't be
+        sandboxed yet)."""
+        if engine is None:
+            raise HTTPException(
+                status_code=503, detail="Dry-run requires a WorkflowEngine bound to the API."
+            )
+        definition = await repositories.definitions.get(workflow_id)
+        if definition is None:
+            raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
+        uses_browser = any(
+            s.type == "agentic" and any(t.startswith("browser_") for t in s.tools)
+            for s in definition.steps
+        )
+        if uses_browser:
+            raise HTTPException(
+                status_code=400,
+                detail="Dry-run isn't supported for browser-automation workflows yet.",
+            )
+        body = await request.body()
+        text = body.decode("utf-8") if body else ""
+        try:
+            payload = json.loads(text) if text.strip() else {}
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
+        if not isinstance(payload, dict):
+            raise HTTPException(status_code=400, detail="Trigger payload must be a JSON object")
+
+        sandbox_tools: list[Tool] = []
+        for tool_name in engine.tools.names():
+            tool = engine.tools.get(tool_name)
+            if tool is None:
+                continue
+            sandbox_tools.append(_sandbox_tool(tool) if _is_external_tool(tool_name) else tool)
+        dry_engine = dataclasses.replace(
+            engine, world=mock_world(), tools=ToolCatalog(sandbox_tools)
+        )
+
+        instance = await dry_engine.run(definition, trigger_payload=payload)
+        # Tag in history so a dry run is distinguishable from a real one.
+        instance.context = {**(instance.context or {}), "dry_run": True}
+        await repositories.instances.update(instance)
+        return {
+            "status": "completed",
+            "instance_id": instance.id,
+            "state": instance.state.value,
+            "dry_run": True,
+            "error": instance.error,
+            "sandbox": "MockWorld; external tools (email/connector/browser) disabled; live Bedrock",
         }
 
     @router.get("/workflow-instances")

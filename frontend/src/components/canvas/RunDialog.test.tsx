@@ -1,4 +1,4 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
@@ -61,6 +61,27 @@ describe('RunDialog cost estimate (C6.2)', () => {
       </MemoryRouter>,
     );
     expect(await screen.findByText(/No cost history yet — 1 AI step/)).toBeInTheDocument();
+  });
+
+  it('dry-run mode shows the sandbox note and calls dryRunWorkflow', async () => {
+    vi.spyOn(api, 'getCostEstimate').mockResolvedValue(estimate());
+    const dry = vi.spyOn(api, 'dryRunWorkflow').mockResolvedValue({
+      status: 'completed',
+      instance_id: 'i9',
+      state: 'completed',
+      dry_run: true,
+      sandbox: 'MockWorld; external tools disabled; live Bedrock',
+    });
+    const run = vi.spyOn(api, 'runWorkflow');
+    render(
+      <MemoryRouter>
+        <RunDialog def={def()} dryRun onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText(/Sandbox/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Test' }));
+    await waitFor(() => expect(dry).toHaveBeenCalledWith('wf1', {}));
+    expect(run).not.toHaveBeenCalled();
   });
 
   it('still renders the dialog if the estimate fails to load', async () => {

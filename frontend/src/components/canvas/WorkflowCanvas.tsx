@@ -51,6 +51,7 @@ export function WorkflowCanvas() {
   const [instance, setInstance] = useState<WorkflowInstance | null>(null);
   const [steps, setSteps] = useState<StepExecution[]>([]);
   const [runOpen, setRunOpen] = useState(false);
+  const [testOpen, setTestOpen] = useState(false);
   // C6.3 capability boundary — best-effort; null if unavailable.
   const [caps, setCaps] = useState<CapabilityReport | null>(null);
 
@@ -295,9 +296,14 @@ export function WorkflowCanvas() {
           ) : (
             <>
               {!following && def && (
-                <button className="primary" onClick={() => setRunOpen(true)}>
-                  Run
-                </button>
+                <>
+                  <button className="primary" onClick={() => setRunOpen(true)}>
+                    Run
+                  </button>
+                  <button onClick={() => setTestOpen(true)} title="Dry-run in a sandbox">
+                    Test
+                  </button>
+                </>
               )}
               {canEdit && def && <button onClick={startEdit}>Edit</button>}
             </>
@@ -309,6 +315,14 @@ export function WorkflowCanvas() {
       </div>
 
       {runOpen && def && <RunDialog def={def} onClose={() => setRunOpen(false)} />}
+      {testOpen && def && <RunDialog def={def} dryRun onClose={() => setTestOpen(false)} />}
+
+      {following && searchParams.get('dry') === '1' && (
+        <div className="dry-banner">
+          🧪 Dry run — sandboxed (mock world; email/connector/browser tools disabled, live AI).
+          Nothing real was touched.
+        </div>
+      )}
 
       {loading ? (
         <p>Loading…</p>

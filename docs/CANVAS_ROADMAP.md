@@ -3,8 +3,8 @@
 **Extends:** `docs/WORKFLOW_CANVAS.md` cut/epic nomenclature (C1–C4 shipped; E1–E3 epics).
 **Companion to:** `docs/VISION.md` Goal 4 (progressive disclosure) and `docs/BUILD_PLAN.md` Phase 3.
 **Status of inputs:** C1 read-only → C2 live status → C3 run-from-form → C4 edit + Tier 1 polish →
-**C5 friendly shell** are **all shipped.** **C6 (the trust wedge) is the next build — scoped in
-detail below.** C7–C8 remain sketches until their turn; E1–E5 stay deferred. Derived from a
+**C5 friendly shell → C6 trust wedge** are **all shipped.** **C7 (authoring parity) is the next
+build.** C7–C8 remain sketches until their turn; E1–E5 stay deferred. Derived from a
 competitive GUI gap analysis against Airtable AI, Amazon Quick Suite, Union.ai, Tines, Gumloop, and
 Zapier (`gui-gap-analysis.md` §6 closing sequence → these cuts).
 
@@ -28,10 +28,9 @@ C1–C4 got us to "a developer can edit a workflow on a canvas." C5–C8 get us 
 
 1. **C5 first (reframe + cold-start).** ✅ Shipped. The canvas was built but the app was framed as a
    dev console; C5 reframed it around the friendly surface + surfaced the 10 examples as templates.
-2. **C6 second (the trust wedge).** ▶ Next. Surface the four assets *no competitor's GUI shows* —
-   cost/budget, capability boundaries, per-tool-call audit, replay/dry-run. This is where we win
-   demos. Do it **before** chasing feature parity, not after. Build order (cheapest-first):
-   C6.2 cost → C6.3 capability → C6.4 explain → C6.1 dry-run (detailed scope below).
+2. **C6 second (the trust wedge).** ✅ Shipped. Surfaced the four assets *no competitor's GUI shows*
+   — cost/budget meter, capability boundaries, explain-this-run, and a sandboxed dry-run. This is
+   where we win demos; done **before** chasing feature parity.
 3. **C7 third (authoring parity).** The universal features every competitor has and we lack — NL
    scaffolding, connector picker, build-time validation.
 4. **C8 fourth (operability + polish).** Batch, safer goal editing, a11y/responsive.
@@ -46,9 +45,9 @@ data already exists, so they convert the C5 reframe into "a governed, cost-aware
 ## Dependency map
 
 ```
-C5 ✅ Friendly shell  ──►  C6 ▶ Trust wedge  ──►  C7 Authoring parity  ──►  C8 Polish
-   (shipped)                cost → capability      (scaffold + catalog      (batch +
-                            → explain → dry-run     + validate endpoints)    a11y)
+C5 ✅ Friendly shell  ──►  C6 ✅ Trust wedge  ──►  C7 ▶ Authoring parity  ──►  C8 Polish
+   (shipped)                (shipped)               (scaffold + catalog       (batch +
+                                                     + validate endpoints)     a11y)
 
 Epics, independent design passes, parallel-able once C6 lands:
    E1 sub-workflows · E2 collaboration · E3 AI-layout-B · E4 delivery surfaces · E5 version history
@@ -79,7 +78,7 @@ Designer/Admin (viewers get the read-only home). 16 new tests (8 backend, 8 fron
 
 ---
 
-## C6 — The trust wedge (differentiators) ▶ NEXT BUILD
+## C6 — The trust wedge (differentiators) ✅ shipped
 
 **North star for the cut:** the canvas *shows* the governance no competitor's GUI shows. Every item
 here is a demo a Zapier/Airtable/Gumloop GUI cannot reproduce.
@@ -89,7 +88,7 @@ here is a demo a Zapier/Airtable/Gumloop GUI cannot reproduce.
 | **C6.2 Cost estimate + live budget meter** ✅ | Per-run cost estimate in the Run dialog + a live token/$ meter during a run, against the budget. | S–M | `GET /api/workflows/{id}/cost-estimate` (thin; data exists) |
 | **C6.3 Capability boundaries visible** ✅ | On an agent node, show the tools it *can* use vs greyed-out, with the reason. | M | `GET /api/workflows/{id}/capabilities` |
 | **C6.4 Explain-this-run** ✅ | Click a node in a finished run → forensic view of what the agent saw, called, and cost. | M | `GET /api/workflow-instances/{id}/steps/{step_id}/explain` |
-| **C6.1 Test / dry-run** | A "Test" button that runs side-effect-free (MockWorld) so no real systems are touched. | L | `POST /api/workflows/{id}/dry-run` |
+| **C6.1 Test / dry-run** ✅ | A "Test" button that runs side-effect-free (MockWorld) so no real systems are touched. | L | `POST /api/workflows/{id}/dry-run` |
 
 ### Build order (cheapest-first; each independently shippable + demo-able)
 
@@ -146,24 +145,25 @@ runtime behavior and an open design question, so it lands last.
 - **Acceptance:** after a real run, clicking an agent node shows its actual tool calls with arguments
   and the memory hash; a deterministic step shows its function + inputs/outputs.
 
-#### C6.1 — Test / dry-run  *(L; do last)*
+#### C6.1 — Test / dry-run  ✅ *(shipped)*
 
 - **Already built:** `MockWorld` (side-effect-free filesystem/messaging/db), `BedrockMode`
   record/replay/live, the engine runs against any `World`.
-- **New backend:** `POST /api/workflows/{id}/dry-run` → runs the definition once against `MockWorld`
-  (no real file/email/http/connector side effects) and returns the instance result inline, tagged
-  `dry_run: true` so it's distinguishable in history.
-- **⚠ Open design decision (resolve before building):** what does Bedrock do during a dry-run?
-  Options — **(a)** live Bedrock (the agent reasons for real; costs a little; "sandbox the world,
-  keep the brain") — most useful default; **(b)** replay (zero cost, fully deterministic, but needs
-  a recording per request — brittle for arbitrary workflows); **(c)** a stub responder. Recommend
-  **(a)** as the default with a per-run toggle to (b) when recordings exist. This is the only C6 item
-  that needs a real decision; the other three are pure surfacing.
-- **New frontend:** a **Test** button on the canvas (next to Run) → runs dry → renders results in the
-  existing output cards with a clear "sandbox — nothing real was touched" banner.
-- **Acceptance:** clicking Test on the email-triage or PDF-classifier workflow produces a result with
-  **no** real file written / email sent / connector call made (assert against MockWorld), labelled as
-  a dry run.
+- **As built:** `POST /api/workflows/{id}/dry-run` runs the definition once against a `MockWorld`
+  AND a tool catalog with external tools (email/connector/browser) replaced by no-op sandbox stubs
+  — so the agent still *sees* and *calls* them, but nothing real happens (we can't just drop them:
+  the engine fails a step that references a tool missing from the catalog). The instance is
+  persisted and tagged `dry_run`. **Browser-automation workflows are rejected** (400) — a real
+  Chromium can't be sandboxed yet.
+- **Decision made — Bedrock during dry-run = (a) live** ("sandbox the world, keep the brain"): the
+  agent reasons for real against live Bedrock; only side-effecting *tools* and the *world* are
+  sandboxed. The replay toggle (b) is deferred until per-request recordings are portable.
+- **New frontend:** a **Test** button on the canvas (next to Run) opens the Run dialog in dry-run
+  mode (sandbox note), runs dry, and follows the tagged instance with a "nothing real was touched"
+  banner.
+- **Acceptance (met):** dry-running a workflow that calls `email_send` records **no** real send (the
+  tool is a sandbox stub); browser workflows are rejected; live-verified `webhook-echo` completes
+  with real AI output and no side effects.
 
 **Exit criterion for C6:** in a demo we open the Run dialog and show the per-run cost; start a run
 and watch the live budget meter; click an agent node to show exactly which tools it's *allowed* to
@@ -221,17 +221,16 @@ Named so they're not silent gaps. Each is larger than a cut and parallel-able on
 
 ## If we only do one thing (next)
 
-**C6.2 (cost estimate + live budget meter).** C5 reframed the app around the friendly surface; the
-single highest-leverage *next* move is to show cost-per-run and a live budget meter where decisions
-happen. The data already exists, the lift is S–M, and it shifts the product's read from "a workflow
-viewer" to "a governed, cost-aware automation tool" — the position no competitor's GUI occupies.
+**C7.3 (build-time validation).** With C5 (friendly shell) and C6 (the trust wedge) shipped, the
+next highest-leverage move is inline validation on save/edit — red node borders + messages wrapping
+the existing Kahn's-DAG + edge-target validator. It's the cheapest C7 item (the validator already
+exists) and removes the "find out it's broken only when you run it" rough edge.
 
 ## If we only do two things
 
-**C6.2 + C6.3.** Add per-agent capability boundaries on the canvas. Together with the cost meter,
-they make the two governance assets competitors can't match — *what each agent costs* and *what each
-agent is allowed to touch* — visible on the authoring surface. Both are mostly surfacing existing
-backend data.
+**C7.3 + C7.2 (connector/trigger picker).** Validation plus a searchable catalog of functions +
+connectors (`GET /api/catalog`) covers the two parity gaps a buyer notices first — "it tells me
+what's wrong" and "I can pick an action from a list" — without the research-gated NL-scaffold rung.
 
 ---
 
@@ -240,7 +239,7 @@ backend data.
 | Cut | Theme | Items | Net-new backend |
 |---|---|---|---|
 | **C5** ✅ | Friendly shell & cold-start | Automations home, templates gallery, create-blank | `GET /api/templates`, `POST /api/workflows` |
-| **C6** ▶ next | The trust wedge | cost/budget meter, capability viz, explain-this-run, dry-run (build in that order) | `GET .../cost-estimate`, `GET .../capabilities`, `GET .../steps/{id}/explain`, `POST .../dry-run` |
-| **C7** | Authoring parity | NL scaffold, connector picker, validation, safer goals | `POST .../scaffold`, `GET /api/catalog`, `POST .../validate` |
+| **C6** ✅ | The trust wedge | cost/budget meter, capability viz, explain-this-run, dry-run | `GET .../cost-estimate`, `GET .../capabilities`, `GET .../steps/{id}/explain`, `POST .../dry-run` |
+| **C7** ▶ next | Authoring parity | NL scaffold, connector picker, validation, safer goals | `POST .../scaffold`, `GET /api/catalog`, `POST .../validate` |
 | **C8** | Operability & polish | Batch run, polish/a11y/responsive | `POST .../run-batch` |
 | **E1–E5** | Deferred epics | Sub-workflows, collab, AI-layout-B, delivery, version history | (per-epic design passes) |

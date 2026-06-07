@@ -1412,3 +1412,22 @@ a.wf-card:hover {
 .explain-pre.explain-error {
   color: var(--err);
 }
+
+/* C6.1 — dry-run sandbox note (Run dialog) + banner (canvas) */
+.run-sandbox {
+  margin: 0 0 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 10%, var(--panel));
+  font-size: 13px;
+}
+.dry-banner {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--warn);
+  border-radius: 6px;
+  background: color-mix(in srgb, var(--warn) 12%, var(--panel));
+  font-size: 13px;
+  font-weight: 500;
+}
