@@ -119,6 +119,33 @@ export interface CapabilityReport {
   steps: CapabilityReportStep[];
 }
 
+/** Authoring catalog (C7.2). Mirrors GET /api/catalog. */
+export interface CatalogField {
+  name: string;
+  required: boolean;
+  description: string;
+}
+export interface CatalogTrigger {
+  type: string;
+  label: string;
+  description: string;
+  config_fields: CatalogField[];
+}
+export interface CatalogFunction {
+  name: string;
+  description: string;
+}
+export interface CatalogTool {
+  name: string;
+  description: string;
+  category: string;
+}
+export interface WorkflowCatalog {
+  triggers: CatalogTrigger[];
+  functions: CatalogFunction[];
+  tools: CatalogTool[];
+}
+
 /** Build-time validation finding (C7.3). Mirrors POST /api/workflows/validate. */
 export interface ValidationFinding {
   level: 'error' | 'warning';

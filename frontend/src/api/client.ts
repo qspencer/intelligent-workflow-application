@@ -9,6 +9,7 @@ import type {
   DevErrorsResponse,
   ExplainStep,
   ValidationResult,
+  WorkflowCatalog,
   InstanceDetail,
   WorkflowDefinition,
   WorkflowInstance,
@@ -194,6 +195,11 @@ export const api = {
     triggerPayload: Record<string, unknown>,
   ): Promise<{ status: string; instance_id: string; state: string }> {
     return postJson(`/workflows/${workflowId}/run`, triggerPayload);
+  },
+
+  /** Authoring catalog (C7.2): triggers + functions + tools for the picker. */
+  getCatalog(): Promise<WorkflowCatalog> {
+    return request('GET', '/catalog');
   },
 
   /** Build-time validation (C7.3): structural findings for a (possibly unsaved)

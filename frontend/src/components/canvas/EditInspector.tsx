@@ -1,7 +1,8 @@
 import { TRIGGER_NODE_ID, isAgentic } from '../../lib/canvas';
 import { removeAt, setIn, type Path } from '../../lib/run-form';
-import type { WorkflowDefinition } from '../../types';
+import type { WorkflowCatalog, WorkflowDefinition } from '../../types';
 import { FieldEditor } from './FieldEditor';
+import { ToolPicker } from './ToolPicker';
 
 /**
  * Editable Inspector (C4). Edits the selected step or trigger against an
@@ -14,11 +15,13 @@ export function EditInspector({
   selectedId,
   onChange,
   onDeleteStep,
+  catalog,
 }: {
   draft: WorkflowDefinition;
   selectedId: string | null;
   onChange: (next: WorkflowDefinition) => void;
   onDeleteStep: (stepId: string) => void;
+  catalog?: WorkflowCatalog | null;
 }) {
   if (!selectedId) {
     return (
@@ -35,17 +38,41 @@ export function EditInspector({
       onChange({ ...draft, trigger: setIn(trigger, path, value) as typeof trigger });
     const remove = (path: Path) =>
       onChange({ ...draft, trigger: removeAt(trigger, path) as typeof trigger });
+    const triggerCatalog = catalog?.triggers ?? [];
+    const selectedTrigger = triggerCatalog.find((t) => t.type === trigger.type);
     return (
       <aside className="canvas-inspector">
         <h3>Edit trigger</h3>
         <label className="rf-field">
           <span className="rf-label">type</span>
-          <input
-            type="text"
-            value={trigger.type}
-            onChange={(e) => update(['type'], e.target.value)}
-          />
+          {triggerCatalog.length > 0 ? (
+            <select value={trigger.type} onChange={(e) => update(['type'], e.target.value)}>
+              {!selectedTrigger && <option value={trigger.type}>{trigger.type}</option>}
+              {triggerCatalog.map((t) => (
+                <option key={t.type} value={t.type}>
+                  {t.label} ({t.type})
+                </option>
+              ))}
+            </select>
+          ) : (
+            <input
+              type="text"
+              value={trigger.type}
+              onChange={(e) => update(['type'], e.target.value)}
+            />
+          )}
         </label>
+        {selectedTrigger && <p className="picker-desc">{selectedTrigger.description}</p>}
+        {selectedTrigger && selectedTrigger.config_fields.length > 0 && (
+          <ul className="picker-hints">
+            {selectedTrigger.config_fields.map((f) => (
+              <li key={f.name}>
+                <code>{f.name}</code>
+                {f.required && <span className="req"> *</span>} — {f.description}
+              </li>
+            ))}
+          </ul>
+        )}
         <div className="field">
           <span className="field-label">config</span>
           <FieldEditor label="" value={trigger.config ?? {}} path={['config']} update={update} remove={remove} />
@@ -144,19 +171,44 @@ export function EditInspector({
           </label>
           <div className="field">
             <span className="field-label">tools</span>
-            <FieldEditor label="" value={step.tools} path={['tools']} update={update} remove={remove} />
+            {catalog?.tools ? (
+              <ToolPicker
+                tools={catalog.tools}
+                selected={step.tools}
+                onChange={(next) => update(['tools'], next)}
+              />
+            ) : (
+              <FieldEditor label="" value={step.tools} path={['tools']} update={update} remove={remove} />
+            )}
           </div>
         </>
       ) : (
         <>
           <label className="rf-field">
             <span className="rf-label">function</span>
-            <input
-              type="text"
-              value={step.function}
-              onChange={(e) => update(['function'], e.target.value)}
-            />
+            {catalog?.functions ? (
+              <select value={step.function} onChange={(e) => update(['function'], e.target.value)}>
+                {!catalog.functions.some((f) => f.name === step.function) && (
+                  <option value={step.function}>{step.function}</option>
+                )}
+                {catalog.functions.map((f) => (
+                  <option key={f.name} value={f.name}>
+                    {f.name}
+                  </option>
+                ))}
+              </select>
+            ) : (
+              <input
+                type="text"
+                value={step.function}
+                onChange={(e) => update(['function'], e.target.value)}
+              />
+            )}
           </label>
+          {(() => {
+            const fn = catalog?.functions?.find((f) => f.name === step.function);
+            return fn?.description ? <p className="picker-desc">{fn.description}</p> : null;
+          })()}
           <div className="field">
             <span className="field-label">config</span>
             <FieldEditor label="" value={step.config} path={['config']} update={update} remove={remove} />

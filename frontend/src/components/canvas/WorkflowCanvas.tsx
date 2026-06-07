@@ -29,6 +29,7 @@ import type {
   CapabilityReport,
   StepExecution,
   ValidationFinding,
+  WorkflowCatalog,
   WorkflowDefinition,
   WorkflowInstance,
 } from '../../types';
@@ -58,6 +59,8 @@ export function WorkflowCanvas() {
   const [caps, setCaps] = useState<CapabilityReport | null>(null);
   // C7.3 build-time validation findings (edit mode).
   const [findings, setFindings] = useState<ValidationFinding[]>([]);
+  // C7.2 authoring catalog (triggers / functions / tools) — fetched once.
+  const [catalog, setCatalog] = useState<WorkflowCatalog | null>(null);
 
   // ---- edit mode (C4 slice 1: edit fields + save) ----
   const [draft, setDraft] = useState<WorkflowDefinition | null>(null);
@@ -144,6 +147,18 @@ export function WorkflowCanvas() {
     setEdges(graph.edges as Edge[]);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [structureKey, editing, def, setNodes, setEdges]);
+
+  // ---- authoring catalog (C7.2), fetched once for the edit pickers ----
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .getCatalog()
+      .then((c) => !cancelled && setCatalog(c))
+      .catch(() => !cancelled && setCatalog(null));
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   // ---- build-time validation (C7.3), edit mode, debounced on draft edits ----
   useEffect(() => {
@@ -421,6 +436,7 @@ export function WorkflowCanvas() {
                 selectedId={selectedId}
                 onChange={setDraft}
                 onDeleteStep={deleteStep}
+                catalog={catalog}
               />
             ) : (
               <Inspector
