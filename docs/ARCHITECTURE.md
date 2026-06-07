@@ -976,7 +976,7 @@ The dashboard is the primary monitoring interface but must not overwhelm:
 - Returns "would have done X" at each step
 - Useful for quick validation of workflow structure
 
-Further testing strategies (property-based testing, agent behavioral contracts, etc.) to be designed later.
+Further testing strategies (property-based testing, agent behavioral contracts, etc.) — and the forward-looking test-suite roadmap generally — live in `docs/TESTING.md`.
 
 ### D12: Workflow Versioning
 

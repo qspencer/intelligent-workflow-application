@@ -24,6 +24,7 @@ All design docs live under `docs/`. The `README.md` at the root has the quick-st
 | `docs/BEDROCK_SETUP.md` | Operator-facing AWS Bedrock onboarding (model access, inference profiles, use-case form, quotas) |
 | `docs/MANUAL_TESTING.md` | The single manual-test plan. Part A: backend/API operator playbook (smoke + role checks + observability + what's not yet manually testable). Part B: tick-the-box canvas GUI walkthrough (C5 shell, C6 trust wedge, C7 authoring). (Absorbed the former `MANUAL_TESTING_C5.md`.) |
 | `docs/NEXT_STEPS.md` | Prioritized backlog (P0 / P1 / P2) for closing the manual-testing gaps surfaced in `MANUAL_TESTING.md` |
+| `docs/TESTING.md` | Test-suite **roadmap** — current automated-test inventory + prioritized future investments (schemathesis widening, coverage floor, generated FE types, Playwright E2E, property/mutation testing) with triggers. Forward-looking companion to ARCHITECTURE's "TDD by Layer". |
 | `docs/USE_CASES.md` | Candidate validation workloads (filesystem / webhook / schedule), capability-fit map, recommended first build (GitHub PR triage) |
 | `docs/RAG_PRODUCTION_NOTES.md` | Notes from a production-RAG article: what aligns with current design, what to pull forward, what to capture as Phase B inputs |
 | `docs/SEMANTICS.md` | Decision log: why we haven't adopted a formal ontology / knowledge graph / semantic layer, and what trigger reopens each |
