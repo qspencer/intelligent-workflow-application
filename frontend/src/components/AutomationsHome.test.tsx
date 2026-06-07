@@ -90,6 +90,27 @@ describe('AutomationsHome', () => {
     await waitFor(() => expect(create).toHaveBeenCalledWith({ name: 'Invoice triage' }));
   });
 
+  it('drafts a workflow from a plain-English description (C7.1)', async () => {
+    vi.spyOn(api, 'listWorkflows').mockResolvedValue([]);
+    const scaffold = vi.spyOn(api, 'scaffoldWorkflow').mockResolvedValue({
+      status: 'created',
+      workflow_id: 'drafted',
+      name: 'Drafted',
+      findings: [],
+    });
+    render(
+      <MemoryRouter>
+        <AutomationsHome />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Describe it' }));
+    fireEvent.change(screen.getByPlaceholderText(/When a PDF lands/i), {
+      target: { value: 'do a thing' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Draft it' }));
+    await waitFor(() => expect(scaffold).toHaveBeenCalledWith('do a thing'));
+  });
+
   it('hides Create for non-designer roles', async () => {
     localStorage.setItem('wp.groups', 'viewers');
     vi.spyOn(api, 'listWorkflows').mockResolvedValue([]);

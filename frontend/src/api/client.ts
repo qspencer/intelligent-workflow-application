@@ -8,6 +8,7 @@ import type {
   CostRowByWorkflow,
   DevErrorsResponse,
   ExplainStep,
+  ScaffoldResult,
   ValidationResult,
   WorkflowCatalog,
   InstanceDetail,
@@ -200,6 +201,12 @@ export const api = {
   /** Authoring catalog (C7.2): triggers + functions + tools for the picker. */
   getCatalog(): Promise<WorkflowCatalog> {
     return request('GET', '/catalog');
+  },
+
+  /** NL scaffold (C7.1): describe a workflow in plain English; the server
+   *  drafts + persists it and returns the new id to open on the canvas. */
+  scaffoldWorkflow(description: string): Promise<ScaffoldResult> {
+    return postJson('/workflows/scaffold', { description });
   },
 
   /** Build-time validation (C7.3): structural findings for a (possibly unsaved)

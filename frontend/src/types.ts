@@ -160,6 +160,14 @@ export interface ValidationResult {
   findings: ValidationFinding[];
 }
 
+/** NL scaffold result (C7.1). Mirrors POST /api/workflows/scaffold. */
+export interface ScaffoldResult {
+  status: string;
+  workflow_id: string;
+  name: string;
+  findings: ValidationFinding[];
+}
+
 /** Explain-this-run forensic view (C6.4). Mirrors
  *  GET /api/workflow-instances/{id}/steps/{step_id}/explain. */
 export interface ExplainToolCall {

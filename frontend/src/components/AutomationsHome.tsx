@@ -43,6 +43,12 @@ export function AutomationsHome() {
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
+  // C7.1 NL scaffold — "Describe it".
+  const [describeOpen, setDescribeOpen] = useState(false);
+  const [describeText, setDescribeText] = useState('');
+  const [scaffolding, setScaffolding] = useState(false);
+  const [describeError, setDescribeError] = useState<string | null>(null);
+
   const canCreate = hasRole(['admins', 'designers']);
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -104,6 +110,22 @@ export function AutomationsHome() {
     }
   }
 
+  async function submitDescribe(): Promise<void> {
+    const text = describeText.trim();
+    if (!text) return;
+    setScaffolding(true);
+    setDescribeError(null);
+    try {
+      const result = await api.scaffoldWorkflow(text);
+      setScaffolding(false);
+      setDescribeOpen(false);
+      navigate(`/canvas/${result.workflow_id}?edit=1`);
+    } catch (err) {
+      setScaffolding(false);
+      setDescribeError(errorMessage(err, 'Could not draft a workflow from that description'));
+    }
+  }
+
   return (
     <div className="page-home">
       <div className="header">
@@ -112,6 +134,17 @@ export function AutomationsHome() {
           <Link className="button" to="/templates">
             Browse templates
           </Link>
+          {canCreate && (
+            <button
+              onClick={() => {
+                setDescribeText('');
+                setDescribeError(null);
+                setDescribeOpen(true);
+              }}
+            >
+              Describe it
+            </button>
+          )}
           {canCreate && (
             <button
               className="primary"
@@ -185,6 +218,39 @@ export function AutomationsHome() {
               </button>
               <button className="primary" onClick={() => void submitCreate()} disabled={creating}>
                 {creating ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {describeOpen && (
+        <div className="dialog-overlay" onClick={() => !scaffolding && setDescribeOpen(false)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Describe your automation</h3>
+            <p className="muted">
+              Say what it should do in plain English. We'll draft the steps — you refine them on the
+              next screen.
+            </p>
+            <textarea
+              autoFocus
+              rows={5}
+              placeholder="e.g. When a PDF lands in my inbox folder, pull out the text, classify it, and file it into a folder by type."
+              value={describeText}
+              onChange={(e) => setDescribeText(e.target.value)}
+              disabled={scaffolding}
+            />
+            {describeError && <p className="error">{describeError}</p>}
+            <div className="dialog-actions">
+              <button onClick={() => setDescribeOpen(false)} disabled={scaffolding}>
+                Cancel
+              </button>
+              <button
+                className="primary"
+                onClick={() => void submitDescribe()}
+                disabled={scaffolding || !describeText.trim()}
+              >
+                {scaffolding ? 'Drafting…' : 'Draft it'}
               </button>
             </div>
           </div>

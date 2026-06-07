@@ -180,7 +180,7 @@ so we're not disqualified on a feature checklist.
 
 | Item | Scope | Effort | Backend? |
 |---|---|---|---|
-| **C7.1 NL scaffold → editable draft** | A prompt box: describe the workflow → one bounded agentic call emits a draft `WorkflowDefinition` rendered on the canvas for human editing. **Scoped to one LLM call producing a draft the user must approve** — deliberately sidesteps the research-gated full conversational rung. | L | `POST /api/workflows/scaffold` (one agentic call over the function/connector catalog) |
+| **C7.1 NL scaffold → editable draft** ✅ | A prompt box: describe the workflow → one bounded agentic call emits a draft `WorkflowDefinition` rendered on the canvas for human editing. **Scoped to one LLM call producing a draft the user must approve** — deliberately sidesteps the research-gated full conversational rung. | L | `POST /api/workflows/scaffold` (one agentic call over the function/connector catalog) |
 | **C7.2 Connector / trigger picker** ✅ | Searchable catalog of functions + connectors with icons + one-line descriptions, grouped by domain (Files, Email, HTTP, Schedule, Webhook). Replaces the generic "+ Function / + AI step." | M | `GET /api/catalog` (functions + connectors + config schemas + descriptions) |
 | **C7.3 Build-time validation** ✅ | Red node borders + inline messages on save/edit ("step has no inputs," "edge target missing"). Wraps the existing Kahn's-DAG + edge-target + capability-shape validator. | M | `POST /api/workflows/validate` (wraps existing validator) |
 | **C7.4 Safer goal editing** | Reframe the agentic `goal` textarea: "you're editing the AI's instructions," inline help, examples. Defer the structured "goal wizard." | S | No |
