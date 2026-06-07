@@ -3,6 +3,9 @@
 # run-local.sh — start the backend locally in a full-feature configuration
 # suitable for manually testing every application feature.
 #
+# Backend only. For the canvas GUI (C5-C7), start the frontend dev server in a
+# second terminal: `cd frontend && npm run dev` (serves :4200, proxies to here).
+#
 # Defaults (the "test everything" config):
 #   - Postgres repositories (persistence -> dashboard history, cost reports,
 #     fork/retry across restarts). Brought up via docker compose + migrated.
@@ -141,7 +144,9 @@ else
 fi
 echo "   definitions  : $WORKFLOW_DEFINITIONS_DIR"
 echo "   auth         : dev  (send X-Dev-User / X-Dev-Groups; default acts as admin)"
-echo "   listening on : http://localhost:$PORT   (frontend dev server proxies here)"
+echo "   backend on   : http://localhost:$PORT"
+echo "   frontend     : not started — for the canvas GUI (C5-C7) run in another"
+echo "                  terminal:  cd frontend && npm run dev   (→ http://localhost:4200)"
 echo "──────────────────────────────────────────────────────────────"
 
 # --- launch -------------------------------------------------------------------
