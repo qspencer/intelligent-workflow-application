@@ -1,15 +1,23 @@
 # Manual testing guide
 
 A run-through of what to verify by hand on a fresh checkout. Complements the
-automated suites — it doesn't replace them.
+automated suites — it doesn't replace them. This is the **single** manual-test
+plan; it covers both the backend/API (Part A) and the full canvas GUI through
+C7 (Part B).
 
-Each section says *what* you're testing, *why* it's worth doing manually, and
-*exact commands*. Where the answer is "still automated tests", I send you back
-to those rather than rebuild them as click-through.
+- **Part A — Backend & API (operator playbook).** Sections 1–11: backend boot,
+  imports, the example workflows, live services, Postgres, cost, RBAC, metrics,
+  logging, frontend smoke. Each says *what* you're testing, *why* it's worth
+  doing manually, and *exact commands*. Where the answer is "still automated
+  tests", I send you back to those rather than rebuild them as click-through.
+- **Part B — Canvas GUI walkthrough (C5–C7).** A tick-the-box, follow-along
+  click-through of the friendly shell (C5), the trust wedge (C6), and authoring
+  parity (C7). See `docs/CANVAS_ROADMAP.md` for what each cut is.
 
-Time budget: a quick smoke (pre-flight + sections 1–3) is ~10 minutes.
-Everything in this doc end-to-end is ~40 minutes plus live-service
-latency (the browser end-to-end live test alone is ~5 minutes).
+Time budget: a quick smoke (pre-flight + sections 1–3) is ~10 minutes. Part A
+end-to-end is ~40 minutes plus live-service latency (the browser end-to-end live
+test alone is ~5 minutes). The Part B GUI walkthrough is ~20 minutes (a few
+cents of Bedrock for the dry-run / scaffold / run cases).
 
 ---
 
@@ -36,6 +44,8 @@ Bedrock gates from `docs/BEDROCK_SETUP.md` should already be cleared — if not,
 fix that first or skip the live checks below.
 
 ---
+
+# Part A — Backend & API (operator playbook)
 
 ## 1. Backend boots and core endpoints respond
 
@@ -135,8 +145,8 @@ The top nav shows **Automations** and **Templates**; the developer console
 console and persists, no console errors, and `X-Dev-User` shows up on the API
 calls.
 
-> For an exhaustive click-through of the C5 surfaces (home / templates / create /
-> clone / RBAC gating), use the dedicated script in `docs/MANUAL_TESTING_C5.md`.
+> For an exhaustive, tick-the-box click-through of the GUI surfaces — C5 front
+> door, C6 trust wedge, C7 authoring — see **Part B** below.
 
 ---
 
@@ -227,6 +237,12 @@ page opens this same live view.
 - Palette ("+ Function step" / "+ AI step") adds a node; select a node and use
   the Inspector's **Connections** ("+ Connect to…") to wire it (or drag
   between node handles); **Delete step** removes a node + its edges.
+- The Inspector's fields are now **catalog pickers** (C7.2), not raw text: the
+  trigger **type**, the deterministic **function**, and the agent **tools** are
+  selects / a grouped checkbox list with descriptions; the agent **goal** is the
+  reframed "Instructions for the AI" field with help + examples (C7.4). Invalid
+  edits light up **red node borders** + a findings panel and block Save (C7.3).
+  These have their own detailed walkthrough in **Part B**.
 - **Save** round-trips through `/api/workflows/import` then re-fetches. Confirm
   it stuck:
   ```bash
@@ -237,6 +253,11 @@ page opens this same live view.
 **Pass when:** the graph renders correctly; the Run form generates from the
 example payload; a deterministic run shows live "Done" status; an edit saves +
 persists; and the Edit button is hidden for non-Designer roles.
+
+> **The trust-wedge (C6) and authoring (C7) surfaces — Test/dry-run, cost
+> estimate, capability boundaries, explain-this-run, the catalog pickers,
+> "Describe it", and inline validation — get a full tick-the-box walkthrough in
+> Part B.** This section stays the quick "canvas basics" operator check.
 
 ---
 
@@ -609,16 +630,210 @@ npm test         # vitest run, ~7s
 npm run build    # tsc -b && vite build (typecheck + bundle), ~5s
 ```
 
-80 tests across 10 files + a clean build. Same checks CI runs. Covers the
+134 tests across 24 files + a clean build. Same checks CI runs. Covers the
 dev-auth headers, the fetch API client (URL / method / body construction),
 App routing, evaluation/usage helpers, the role switcher, the WebSocket
-events hook, and the canvas + run-form helpers (layout, labels, status,
-immutable form updates).
+events hook, the canvas + run-form helpers (layout, labels, status, immutable
+form updates), and the C6/C7 components (cost meter, explain panel, validation
+panel, the catalog `ToolPicker` + Inspector pickers, and the `GoalField`).
 
-**Pass when:** vitest reports `Tests 80 passed (80)` and the build prints the
+**Pass when:** vitest reports `Tests 134 passed (134)` and the build prints the
 Vite `✓ built in …` summary.
 
 ---
+
+# Part B — Canvas GUI walkthrough (C5–C7)
+
+A tick-the-box, follow-along click-through of the GUI. Each case: **Steps →
+Expected.** Tick the box when it passes. This is the canvas counterpart to Part
+A's API checks — it covers the friendly shell (C5), the trust wedge (C6), and
+authoring parity (C7). See `docs/CANVAS_ROADMAP.md` for the cut definitions.
+
+## Setup
+
+Two processes. The Vite dev server runs on **:4200** and proxies `/api` + `/ws`
+to the backend on **:8001**. The C6/C7 cases that call the model (dry-run,
+"Describe it") need **live Bedrock** — same AWS creds as Part A §5.
+
+```bash
+# Terminal 1 — backend (dev auth; live Bedrock for dry-run + scaffold; Postgres
+# so created workflows persist across restarts)
+cd backend
+DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
+AUTH_MODE=dev BEDROCK_MODE=live \
+  uv run uvicorn workflow_platform.main:app --reload --port 8001
+
+# Terminal 2 — frontend
+cd frontend
+npm run dev      # → http://localhost:4200
+```
+
+`scripts/run-local.sh` wires all of the above (Postgres + migrate + live Bedrock
++ all triggers + Gmail-from-`.secrets` + dev auth) in one command if you'd rather
+not assemble the env by hand.
+
+Notes:
+- **Templates load from repo-root `examples/`** by default, resolved
+  independently of the working directory. Override with `WORKFLOW_DEFINITIONS_DIR`.
+- **Two independent header controls:** the **"Acting as"** role switcher
+  (`admins` / `designers` / `operators` / `viewers` / `auditors`; writes
+  localStorage + reloads) and the **Developer** toggle (shows/hides the dev
+  console nav). Default identity (nothing set) acts as **admin**.
+- **In-memory backend** (no `DATABASE_URL`): created workflows live only until
+  restart; the bundled templates are always present.
+
+---
+
+## C5 — Friendly shell & cold-start
+
+### TC1 — Automations home is the front door  ☐
+**Steps:** Load `http://localhost:4200/` (bare root).
+**Expected:** heading **"Your automations"** (not a list of instances); top nav
+shows **Automations** + **Templates** only; fresh backend shows the empty state
+("No automations yet."), otherwise a **card grid**.
+
+### TC2 — Templates gallery lists the bundled examples  ☐
+**Steps:** Click **Browse templates** (or the Templates nav link).
+**Expected:** a card grid of the bundled example workflows (Email Triage, GitHub
+PR triage, Invoice Extraction, PDF Classifier, RPA Challenge OCR, Research Paper
+triage, Scheduled Health Report, Webhook Echo, …), each with a **step count** and
+a **friendly trigger label** ("On a webhook", "On a schedule", "On a new file",
+"Run manually") — not the raw enum.
+
+### TC3 — Use a template → clone → land on the canvas  ☐
+**Steps:** On a template card (admin/designer), click **Use this template**.
+**Expected:** navigate to `/canvas/<new-id>?edit=1`, canvas opens **in edit mode**
+("Editing" pill, palette, Save/Discard); cloned **steps + edges present**; name
+ends with **"(copy)"**, id is its slug; back on **Automations** the new workflow
+appears as a card.
+
+### TC4 — Create a blank workflow  ☐
+**Steps:** Home → **Create** → name it ("Invoice triage") → **Create** in dialog.
+**Expected:** canvas opens in edit mode with a single trigger node, **no steps**;
+id is the slug; add a step + Save persists; the card shows **0 runs** on the home.
+
+### TC5 — Blank id de-duplication  ☐
+**Steps:** **Create** with a **blank** name, twice.
+**Expected:** first → "Untitled workflow" / `untitled-workflow`; second →
+`untitled-workflow-2` (no collision, no error).
+
+### TC6 — Developer toggle reveals/hides the console  ☐
+**Steps:** Click **Developer: off** (top-right), then reload.
+**Expected:** toggling **on** reveals **Instances / Workflows / Cost** in the
+nav, **off** hides them; the state **persists across reload**; with it on,
+**Workflows** shows the developer table (the dev console still works, just demoted).
+
+### TC7 — Deep links to the dev console still work  ☐
+**Steps:** With Developer **off**, visit `/workflows` and `/instances` directly.
+**Expected:** both render — the toggle governs **nav visibility only**.
+
+### TC8 — Card enrichment: run count + latest status  ☐
+**Steps:** Run a workflow once, return to **Automations**.
+**Expected:** that card shows an updated **run count** and a **status pill** for
+the latest run ("Done" / "Failed" / "Running") — friendly words, not the enum.
+
+### TC9 — RBAC: authoring is gated, reading is not  ☐
+**Steps:** Use the **role switcher** to become a **viewer**.
+**Expected:** on the home the **Create** + **Describe it** buttons are gone; in
+**Templates** the **Use this template** button is gone (browsing still works);
+switch back to designer/admin → all return. API cross-check:
+```bash
+curl -s -o /dev/null -w "%{http_code}\n" -X POST http://localhost:8001/api/workflows \
+  -H 'X-Dev-User: v' -H 'X-Dev-Groups: viewers' -H 'Content-Type: application/json' -d '{}'
+# → 403
+```
+
+### TC10 — Dialog cancel / no-op safety  ☐
+**Steps:** Open **Create**, type a name, click **Cancel** (or the overlay).
+**Expected:** dialog closes, **no workflow created**, home unchanged.
+
+---
+
+## C6 — The trust wedge
+
+Use a real agentic workflow with history — `pdf-classifier` (import it, Part A
+§3) run a couple of times via live Bedrock is ideal.
+
+### TC11 — Cost estimate in the Run dialog  ☐
+**Steps:** Open a workflow's canvas → **Run**.
+**Expected:** the Run dialog shows a per-run **cost estimate** — "~$X/run (avg of
+N runs)" when the workflow has history, or the per-step **model rates** when it
+has none (no fabricated number). Backed by `GET /api/workflows/{id}/cost-estimate`.
+
+### TC12 — Live budget meter during a run  ☐
+**Steps:** Start a run and watch the canvas **footer** while it executes.
+**Expected:** a **token / $ meter** climbs live as steps complete; it turns
+`--warn` past ~80% of `max_total_tokens` and `--err` at the cap, with the
+`budget_action` (notify / pause / escalate) shown. A workflow with
+`budget_action: pause` visibly **pauses** at the cap.
+
+### TC13 — Capability boundary on an agent node  ☐
+**Steps:** Select an **agent** step (view mode is fine).
+**Expected:** the Inspector shows a **capability boundary** — the tools the step
+*can* use vs greyed-out/denied, each with a reason (e.g. "not in this step's
+allowlist"). Backed by `GET /api/workflows/{id}/capabilities` (the engine's layer
+intersection). Deterministic steps don't show it.
+
+### TC14 — Explain-this-run  ☐
+**Steps:** Open a **finished** run (`/canvas/<id>?instance=<uuid>`, or "View on
+canvas" from an instance page) → click a step node.
+**Expected:** an **explain** panel — for an agent step: what it was asked, the
+tools it called (args + results), tokens/cost, and the memory hash in effect; for
+a deterministic step: its function + output. Backed by
+`GET /api/workflow-instances/{id}/steps/{step_id}/explain`.
+
+### TC15 — Test / dry-run (sandboxed)  ☐
+**Steps:** On a non-browser workflow's canvas, click **Test**.
+**Expected:** it runs against a **MockWorld** with external tools
+(email/connector/browser) replaced by no-op stubs but **live Bedrock** ("sandbox
+the world, keep the brain"); the canvas shows the **"🧪 Dry run — sandboxed …
+Nothing real was touched."** banner and live status. A **browser** workflow is
+**rejected** with a clear message. Backed by `POST /api/workflows/{id}/dry-run`;
+the instance is tagged `dry_run` in its context.
+
+---
+
+## C7 — Authoring parity
+
+### TC16 — "Describe it" NL scaffold  ☐
+**Steps:** On the home (admin/designer), click **Describe it** → type a plain
+description (e.g. *"When a PDF lands in my inbox folder, extract the text,
+classify it, and file it into a folder by type."*) → **Draft it**. (Live Bedrock.)
+**Expected:** a workflow is drafted and you land on its **canvas in edit mode**;
+the steps/edges reflect the description and reference only **real** functions /
+tools. A nonsense description or model hiccup surfaces an error in the dialog to
+retry. Backed by `POST /api/workflows/scaffold`.
+
+### TC17 — Catalog pickers in the Inspector  ☐
+**Steps:** In edit mode, select the **trigger** node, a **deterministic** step,
+then an **agent** step.
+**Expected:** trigger **type** is a **select** of real trigger types with a
+description + config-field hints; the deterministic **function** is a **select**
+with a description; the agent **tools** is a **ToolPicker** — checkboxes
+**grouped by category** (filesystem / email / connector / browser / …) with
+one-line descriptions. Tools enabled but absent from the engine's catalog are
+surfaced, not dropped. Backed by `GET /api/catalog`. (If the catalog can't load,
+each falls back to the prior raw text input.)
+
+### TC18 — Build-time validation (red borders + blocked save)  ☐
+**Steps:** In edit mode, break something — clear an agent step's **goal**, or add
+a step and leave it **disconnected**.
+**Expected:** a **findings panel** lists every problem (error/warning counts +
+messages); error nodes get a **red border**; clicking a finding selects its node.
+**Save is blocked** while errors exist ("Fix N validation error(s) before
+saving."); warnings (e.g. disconnected step) don't block. Backed by
+`POST /api/workflows/validate`.
+
+### TC19 — Safer goal editing  ☐
+**Steps:** In edit mode, select an **agent** step and look at the goal field.
+**Expected:** it's labelled **"Instructions for the AI"** (not "goal") with inline
+help ("this is what the AI reads as its task on every run … editing this changes
+how the agent behaves") and a **See examples** toggle that reveals a few example
+instructions. Editing it updates the draft (and re-runs validation per TC18).
+
+---
+
+# Reference (applies to both parts)
 
 ## Triggering workflows from the dashboard or shell
 
@@ -705,6 +920,8 @@ Update it when any of the following changes:
 - A new test marker is registered in `pyproject.toml`
 - A new example workflow lands under `examples/` (add a 4x section)
 - A new route lands in `frontend/src/components/App.tsx`
+- A new canvas cut ships (add a Part B `TC` case; the next is **C8** —
+  batch run + a11y/responsive — currently unbuilt)
 - One of the "open gaps" above gets closed (delete that bullet)
 - Auth or role mapping changes in `backend/src/workflow_platform/auth/`
 - Frontend or backend test counts drift far enough from what's quoted
