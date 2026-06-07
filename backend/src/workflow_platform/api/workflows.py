@@ -23,8 +23,9 @@ from pydantic import ValidationError
 
 from workflow_platform.auth import Role, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
+from workflow_platform.catalog import build_catalog
 from workflow_platform.cost import CostReportService, price_for_model
-from workflow_platform.engine import ToolCatalog, WorkflowEngine
+from workflow_platform.engine import ToolCatalog, WorkflowEngine, default_function_registry
 from workflow_platform.persistence import (
     AuditEntry,
     Repositories,
@@ -199,6 +200,17 @@ def build_router(
         validate_and_order(definition)
         await repositories.definitions.save(definition)
         return definition
+
+    @router.get("/catalog")
+    async def get_catalog(
+        _: UserIdentity = Depends(current_user),
+    ) -> dict[str, Any]:
+        """Authoring catalog (C7.2): the trigger types, deterministic functions,
+        and agent tools the canvas offers as a searchable palette. Reflects the
+        engine's live registries so it never offers an unwired building block."""
+        functions = engine.functions if engine is not None else default_function_registry()
+        tools = engine.tools if engine is not None else ToolCatalog([])
+        return build_catalog(functions, tools).model_dump()
 
     @router.post("/workflows/validate")
     async def validate_workflow(
