@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
+from pydantic import ValidationError
 
 from workflow_platform.auth import Role, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
@@ -44,6 +45,7 @@ from workflow_platform.workflow import (
     load_definition,
     load_definition_from_yaml,
     validate_and_order,
+    validate_definition,
 )
 from workflow_platform.world import mock_world
 
@@ -197,6 +199,56 @@ def build_router(
         validate_and_order(definition)
         await repositories.definitions.save(definition)
         return definition
+
+    @router.post("/workflows/validate")
+    async def validate_workflow(
+        request: Request,
+        _: UserIdentity = Depends(current_user),
+    ) -> dict[str, Any]:
+        """Validate a (possibly unsaved) workflow definition for the canvas (C7.3).
+
+        Body is a full WorkflowDefinition JSON. Returns every structural finding
+        at once — keyed to the node/edge it concerns — so the canvas can light up
+        red borders + inline messages before a save or run."""
+        body = await request.body()
+        text = body.decode("utf-8") if body else ""
+        try:
+            spec = json.loads(text) if text.strip() else {}
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
+        if not isinstance(spec, dict):
+            raise HTTPException(status_code=400, detail="Body must be a JSON object")
+
+        try:
+            definition = WorkflowDefinition.model_validate(spec)
+        except ValidationError as exc:
+            steps_raw = spec.get("steps")
+            raw_steps: list[Any] = steps_raw if isinstance(steps_raw, list) else []
+            findings = []
+            for err in exc.errors():
+                loc = err.get("loc", ())
+                node_id = None
+                if len(loc) >= 2 and loc[0] == "steps" and isinstance(loc[1], int):
+                    step = raw_steps[loc[1]] if loc[1] < len(raw_steps) else {}
+                    node_id = step.get("id") if isinstance(step, dict) else None
+                findings.append(
+                    {
+                        "level": "error",
+                        "code": "parse_error",
+                        "message": f"{'.'.join(str(p) for p in loc)}: {err.get('msg', '')}".lstrip(
+                            ": "
+                        ),
+                        "node_id": node_id,
+                        "edge": None,
+                    }
+                )
+            return {"valid": False, "findings": findings}
+
+        findings_models = validate_definition(definition)
+        return {
+            "valid": not any(f.level == "error" for f in findings_models),
+            "findings": [f.model_dump() for f in findings_models],
+        }
 
     @router.get("/workflows/instance-counts")
     async def workflows_instance_counts(

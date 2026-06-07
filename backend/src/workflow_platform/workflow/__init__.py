@@ -17,6 +17,7 @@ from workflow_platform.workflow.loader import (
     load_definition_from_yaml,
 )
 from workflow_platform.workflow.topology import WorkflowDefinitionError, validate_and_order
+from workflow_platform.workflow.validation import ValidationFinding, validate_definition
 
 __all__ = [
     "AgenticStep",
@@ -26,6 +27,7 @@ __all__ = [
     "Step",
     "StepRuntimePolicy",
     "TriggerSpec",
+    "ValidationFinding",
     "WorkflowDefinition",
     "WorkflowDefinitionError",
     "WorkflowPolicy",
@@ -35,4 +37,5 @@ __all__ = [
     "load_definition_from_file",
     "load_definition_from_yaml",
     "validate_and_order",
+    "validate_definition",
 ]
