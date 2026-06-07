@@ -1540,3 +1540,30 @@ a.wf-card:hover {
 .tp-extra {
   font-size: 12px;
 }
+
+/* C7.4 — safer goal editing */
+.goal-field {
+  margin: 8px 0;
+}
+.goal-label {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+}
+.goal-field textarea {
+  width: 100%;
+}
+.goal-help {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--muted);
+}
+.goal-examples {
+  margin: 6px 0 0;
+  padding-left: 18px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.goal-examples li {
+  margin: 4px 0;
+}

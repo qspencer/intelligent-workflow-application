@@ -2,6 +2,7 @@ import { TRIGGER_NODE_ID, isAgentic } from '../../lib/canvas';
 import { removeAt, setIn, type Path } from '../../lib/run-form';
 import type { WorkflowCatalog, WorkflowDefinition } from '../../types';
 import { FieldEditor } from './FieldEditor';
+import { GoalField } from './GoalField';
 import { ToolPicker } from './ToolPicker';
 
 /**
@@ -149,10 +150,7 @@ export function EditInspector({
               onChange={(e) => update(['model'], e.target.value)}
             />
           </label>
-          <label className="rf-field">
-            <span className="rf-label">goal (instructions)</span>
-            <textarea rows={8} value={step.goal} onChange={(e) => update(['goal'], e.target.value)} />
-          </label>
+          <GoalField value={step.goal} onChange={(v) => update(['goal'], v)} />
           <label className="rf-field">
             <span className="rf-label">max_iterations</span>
             <input

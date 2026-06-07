@@ -3,8 +3,8 @@
 **Extends:** `docs/WORKFLOW_CANVAS.md` cut/epic nomenclature (C1–C4 shipped; E1–E3 epics).
 **Companion to:** `docs/VISION.md` Goal 4 (progressive disclosure) and `docs/BUILD_PLAN.md` Phase 3.
 **Status of inputs:** C1 read-only → C2 live status → C3 run-from-form → C4 edit + Tier 1 polish →
-**C5 friendly shell → C6 trust wedge** are **all shipped.** **C7 (authoring parity) is the next
-build.** C7–C8 remain sketches until their turn; E1–E5 stay deferred. Derived from a
+**C5 friendly shell → C6 trust wedge → C7 authoring parity** are **all shipped.** **C8 (operability
+& polish) is the next build.** C8 remains a sketch until its turn; E1–E5 stay deferred. Derived from a
 competitive GUI gap analysis against Airtable AI, Amazon Quick Suite, Union.ai, Tines, Gumloop, and
 Zapier (`gui-gap-analysis.md` §6 closing sequence → these cuts).
 
@@ -45,9 +45,9 @@ data already exists, so they convert the C5 reframe into "a governed, cost-aware
 ## Dependency map
 
 ```
-C5 ✅ Friendly shell  ──►  C6 ✅ Trust wedge  ──►  C7 ▶ Authoring parity  ──►  C8 Polish
+C5 ✅ Friendly shell  ──►  C6 ✅ Trust wedge  ──►  C7 ✅ Authoring parity  ──►  C8 ▶ Polish
    (shipped)                (shipped)               (scaffold + catalog       (batch +
-                                                     + validate endpoints)     a11y)
+                                                     + validate; shipped)      a11y)
 
 Epics, independent design passes, parallel-able once C6 lands:
    E1 sub-workflows · E2 collaboration · E3 AI-layout-B · E4 delivery surfaces · E5 version history
@@ -173,17 +173,22 @@ that.
 
 ---
 
-## C7 — Authoring parity
+## C7 — Authoring parity ✅ shipped
 
 **North star for the cut:** close the universal features every competitor has and we entirely lack,
 so we're not disqualified on a feature checklist.
+
+> **All four sub-cuts shipped.** C7.3 validation (`POST /api/workflows/validate` + red node borders),
+> C7.2 catalog (`GET /api/catalog` + Inspector pickers / `ToolPicker`), C7.1 NL scaffold
+> (`POST /api/workflows/scaffold` + the "Describe it" entry point), and C7.4 safer goal editing
+> (the `GoalField` reframe). Together: *describe → draft → pick/validate → save.*
 
 | Item | Scope | Effort | Backend? |
 |---|---|---|---|
 | **C7.1 NL scaffold → editable draft** ✅ | A prompt box: describe the workflow → one bounded agentic call emits a draft `WorkflowDefinition` rendered on the canvas for human editing. **Scoped to one LLM call producing a draft the user must approve** — deliberately sidesteps the research-gated full conversational rung. | L | `POST /api/workflows/scaffold` (one agentic call over the function/connector catalog) |
 | **C7.2 Connector / trigger picker** ✅ | Searchable catalog of functions + connectors with icons + one-line descriptions, grouped by domain (Files, Email, HTTP, Schedule, Webhook). Replaces the generic "+ Function / + AI step." | M | `GET /api/catalog` (functions + connectors + config schemas + descriptions) |
 | **C7.3 Build-time validation** ✅ | Red node borders + inline messages on save/edit ("step has no inputs," "edge target missing"). Wraps the existing Kahn's-DAG + edge-target + capability-shape validator. | M | `POST /api/workflows/validate` (wraps existing validator) |
-| **C7.4 Safer goal editing** | Reframe the agentic `goal` textarea: "you're editing the AI's instructions," inline help, examples. Defer the structured "goal wizard." | S | No |
+| **C7.4 Safer goal editing** ✅ | Reframe the agentic `goal` textarea: "you're editing the AI's instructions," inline help, examples. Defer the structured "goal wizard." | S | No |
 
 **Exit criterion:** a designer types "triage inbound invoices and email me the urgent ones," gets a
 draft on the canvas, picks a real connector from the picker, and the canvas flags the one step that's
@@ -240,6 +245,6 @@ what's wrong" and "I can pick an action from a list" — without the research-ga
 |---|---|---|---|
 | **C5** ✅ | Friendly shell & cold-start | Automations home, templates gallery, create-blank | `GET /api/templates`, `POST /api/workflows` |
 | **C6** ✅ | The trust wedge | cost/budget meter, capability viz, explain-this-run, dry-run | `GET .../cost-estimate`, `GET .../capabilities`, `GET .../steps/{id}/explain`, `POST .../dry-run` |
-| **C7** ▶ next | Authoring parity | NL scaffold, connector picker, validation, safer goals | `POST .../scaffold`, `GET /api/catalog`, `POST .../validate` |
+| **C7** ✅ | Authoring parity | NL scaffold, connector picker, validation, safer goals | `POST .../scaffold`, `GET /api/catalog`, `POST .../validate` |
 | **C8** | Operability & polish | Batch run, polish/a11y/responsive | `POST .../run-batch` |
 | **E1–E5** | Deferred epics | Sub-workflows, collab, AI-layout-B, delivery, version history | (per-epic design passes) |
