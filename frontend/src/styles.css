@@ -1075,24 +1075,53 @@ a.button:hover {
   gap: 16px;
 }
 .wf-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
+  position: relative;
   background: var(--panel);
   border: 1px solid var(--border);
   border-radius: 8px;
   padding: 16px;
-  color: var(--text);
 }
-a.wf-card:hover {
+.wf-card:hover {
   border-color: var(--accent);
+}
+.wf-card-link {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  color: var(--text);
   text-decoration: none;
+}
+.wf-card-link:hover {
+  text-decoration: none;
+}
+.wf-card-delete {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  border: none;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  padding: 3px 6px;
+  border-radius: 4px;
+  opacity: 0;
+}
+.wf-card:hover .wf-card-delete,
+.wf-card-delete:focus-visible {
+  opacity: 1;
+}
+.wf-card-delete:hover {
+  color: var(--err);
+  background: color-mix(in srgb, var(--err) 14%, transparent);
 }
 .wf-card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 8px;
+  padding-right: 18px;
 }
 .wf-card-name {
   font-weight: 600;

@@ -30,6 +30,10 @@ class DefinitionRepo(ABC):
     @abstractmethod
     async def list_all(self) -> list[WorkflowDefinition]: ...
 
+    @abstractmethod
+    async def delete(self, definition_id: str) -> bool:
+        """Delete a definition. Returns True if it existed, False otherwise."""
+
 
 class InstanceRepo(ABC):
     @abstractmethod

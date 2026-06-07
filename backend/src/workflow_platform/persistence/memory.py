@@ -38,6 +38,9 @@ class InMemoryDefinitionRepo(DefinitionRepo):
     async def list_all(self) -> list[WorkflowDefinition]:
         return list(self._items.values())
 
+    async def delete(self, definition_id: str) -> bool:
+        return self._items.pop(definition_id, None) is not None
+
 
 class InMemoryInstanceRepo(InstanceRepo):
     def __init__(self) -> None:

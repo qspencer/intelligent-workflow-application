@@ -111,6 +111,35 @@ describe('AutomationsHome', () => {
     await waitFor(() => expect(scaffold).toHaveBeenCalledWith('do a thing'));
   });
 
+  it('deletes a workflow from its card after confirming', async () => {
+    vi.spyOn(api, 'listWorkflows').mockResolvedValue([def({ id: 'cruft', name: 'Cruft Flow' })]);
+    const del = vi
+      .spyOn(api, 'deleteWorkflow')
+      .mockResolvedValue({ deleted_workflow: 'cruft', deleted_instances: 0, deleted_steps: 0 });
+    render(
+      <MemoryRouter>
+        <AutomationsHome />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Delete Cruft Flow' }));
+    // Confirm in the dialog (its button is labelled just "Delete").
+    const dialog = within(screen.getByText('Delete automation').closest('.dialog') as HTMLElement);
+    fireEvent.click(dialog.getByRole('button', { name: 'Delete' }));
+    await waitFor(() => expect(del).toHaveBeenCalledWith('cruft'));
+  });
+
+  it('hides the card delete button for non-designer roles', async () => {
+    localStorage.setItem('wp.groups', 'viewers');
+    vi.spyOn(api, 'listWorkflows').mockResolvedValue([def({ id: 'cruft', name: 'Cruft Flow' })]);
+    render(
+      <MemoryRouter>
+        <AutomationsHome />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Cruft Flow')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Delete Cruft Flow' })).not.toBeInTheDocument();
+  });
+
   it('hides Create for non-designer roles', async () => {
     localStorage.setItem('wp.groups', 'viewers');
     vi.spyOn(api, 'listWorkflows').mockResolvedValue([]);

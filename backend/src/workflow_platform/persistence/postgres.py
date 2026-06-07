@@ -63,6 +63,14 @@ class PostgresDefinitionRepo(DefinitionRepo):
             rows = result.scalars().all()
         return [WorkflowDefinition.model_validate(r.body) for r in rows]
 
+    async def delete(self, definition_id: str) -> bool:
+        async with self._sf() as s, s.begin():
+            row = await s.get(WorkflowDefinitionRow, definition_id)
+            if row is None:
+                return False
+            await s.delete(row)
+        return True
+
 
 class PostgresInstanceRepo(InstanceRepo):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:

@@ -166,7 +166,9 @@ Looking ahead: validating the email_triage example against real mail (same rubri
 
 **Dev/operability tooling added this phase:** a dev-only backend **error badge** in the dashboard header (`AUTH_MODE=dev`-gated `ErrorCaptureHandler` ring buffer + `GET /api/dev/errors`); **`scripts/run-local-be.sh`** (one-command full-feature local backend: Postgres + migrate + live Bedrock + all triggers + Gmail-from-`.secrets` + dev auth, with per-step status output); a `.claude/skills/` set + `docs/{UI_POLISH_AND_A11Y,RELEASE_READINESS,DECISIONS}.md` cherry-picked from the ECC review (`/home/ubuntu/Documents/intelligent-workflow-engine/ecc-skill-evaluation.md`); the bundled-examples dir now resolves CWD-independently (`templates.default_examples_dir`). Security/deps: `pyjwt` → 2.13.0 (PYSEC-2026-175/177/178/179); dev toolchain `vite 5→8 / vitest 2→4 / plugin-react 4→6`; CI npm-audit scoped to prod deps. Contract testing: a `schema` pytest suite (schemathesis, dev-dep) fuzzes every OpenAPI **GET** endpoint in-process for `not_a_server_error`; opt-in via `SCHEMA_TESTS=1`, a PR gate as its own parallel `schema` job in `ci.yml` (see `docs/MANUAL_TESTING.md` §5b).
 
-685 backend unit tests + 134 frontend tests passing; Postgres/Bedrock/Gmail/browser integration tests deselect by default. Ruff, mypy strict, and ruff-format clean across 164 source files; frontend `vite build` clean.
+688 backend unit tests + 136 frontend tests passing; Postgres/Bedrock/Gmail/browser/schema suites deselect by default. Ruff, mypy strict, and ruff-format clean across 166 source files; frontend `vite build` clean.
+
+Workflow lifecycle: `DELETE /api/workflows/{id}` (Admin/Designer) hard-deletes a definition and cascades to its instances + step_executions (`DefinitionRepo.delete` on both repos), closing the create-but-never-delete asymmetry; the Automations-home cards gained a hover delete affordance with a confirm dialog. (Doesn't unregister an already-running in-process trigger — restart clears it; bundled examples re-seed on boot.)
 
 Run `git log --oneline` for the live state of the tree.
 

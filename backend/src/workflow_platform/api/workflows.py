@@ -361,6 +361,41 @@ def build_router(
             raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
         return definition
 
+    @router.delete("/workflows/{workflow_id}")
+    async def delete_workflow(
+        workflow_id: str,
+        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
+    ) -> dict[str, Any]:
+        """Hard-delete a workflow definition and cascade to its run history
+        (instances + their step_executions). Admin/Designer only.
+
+        Returns counts: `{deleted_workflow, deleted_instances, deleted_steps}`.
+        Audit entries are immutable and preserved (same as instance deletes).
+
+        Note: this does not unregister an already-running in-process trigger for
+        the workflow (filesystem / schedule / webhook / gmail_poll) — restart the
+        server to fully clear it. Bundled examples are re-seeded on restart by the
+        trigger orchestrator, so deleting one only clears it until the next boot."""
+        if await repositories.definitions.get(workflow_id) is None:
+            raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
+
+        instances = await repositories.instances.list_by_workflow(workflow_id)
+        instance_ids = [i.id for i in instances]
+        deleted_steps = (
+            await repositories.steps.delete_by_instances(instance_ids) if instance_ids else 0
+        )
+        deleted_instances = 0
+        for instance_id in instance_ids:
+            if await repositories.instances.delete(instance_id):
+                deleted_instances += 1
+
+        await repositories.definitions.delete(workflow_id)
+        return {
+            "deleted_workflow": workflow_id,
+            "deleted_instances": deleted_instances,
+            "deleted_steps": deleted_steps,
+        }
+
     @router.get("/workflows/{workflow_id}/export")
     async def export_workflow(
         workflow_id: str,

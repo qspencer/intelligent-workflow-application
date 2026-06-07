@@ -49,6 +49,11 @@ export function AutomationsHome() {
   const [scaffolding, setScaffolding] = useState(false);
   const [describeError, setDescribeError] = useState<string | null>(null);
 
+  // Delete a workflow (definition + run history).
+  const [deleteTarget, setDeleteTarget] = useState<WorkflowDefinition | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
+
   const canCreate = hasRole(['admins', 'designers']);
 
   const refresh = useCallback(async (): Promise<void> => {
@@ -107,6 +112,21 @@ export function AutomationsHome() {
     } catch (err) {
       setCreating(false);
       setCreateError(errorMessage(err, 'Could not create workflow'));
+    }
+  }
+
+  async function submitDelete(): Promise<void> {
+    if (!deleteTarget) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await api.deleteWorkflow(deleteTarget.id);
+      setDeleting(false);
+      setDeleteTarget(null);
+      await refresh();
+    } catch (err) {
+      setDeleting(false);
+      setDeleteError(errorMessage(err, 'Could not delete automation'));
     }
   }
 
@@ -177,19 +197,34 @@ export function AutomationsHome() {
           {definitions.map((wf) => {
             const state = latest[wf.id];
             return (
-              <Link key={wf.id} className="wf-card" to={`/canvas/${wf.id}`}>
-                <div className="wf-card-head">
-                  <span className="wf-card-name">{wf.name}</span>
-                  {state && (
-                    <span className={`status-pill status-${state}`}>{STATUS_LABEL[state]}</span>
-                  )}
-                </div>
-                <p className="wf-card-desc">{describe(wf.description) || '—'}</p>
-                <div className="wf-card-meta">
-                  <span>{wf.steps?.length ?? 0} steps</span>
-                  <span>{counts[wf.id] || 0} runs</span>
-                </div>
-              </Link>
+              <div key={wf.id} className="wf-card">
+                <Link className="wf-card-link" to={`/canvas/${wf.id}`}>
+                  <div className="wf-card-head">
+                    <span className="wf-card-name">{wf.name}</span>
+                    {state && (
+                      <span className={`status-pill status-${state}`}>{STATUS_LABEL[state]}</span>
+                    )}
+                  </div>
+                  <p className="wf-card-desc">{describe(wf.description) || '—'}</p>
+                  <div className="wf-card-meta">
+                    <span>{wf.steps?.length ?? 0} steps</span>
+                    <span>{counts[wf.id] || 0} runs</span>
+                  </div>
+                </Link>
+                {canCreate && (
+                  <button
+                    className="wf-card-delete"
+                    title="Delete automation"
+                    aria-label={`Delete ${wf.name}`}
+                    onClick={() => {
+                      setDeleteError(null);
+                      setDeleteTarget(wf);
+                    }}
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
             );
           })}
         </div>
@@ -251,6 +286,27 @@ export function AutomationsHome() {
                 disabled={scaffolding || !describeText.trim()}
               >
                 {scaffolding ? 'Drafting…' : 'Draft it'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {deleteTarget && (
+        <div className="dialog-overlay" onClick={() => !deleting && setDeleteTarget(null)}>
+          <div className="dialog" onClick={(e) => e.stopPropagation()}>
+            <h3>Delete automation</h3>
+            <p>
+              Delete <strong>{deleteTarget.name}</strong>? This removes the workflow and its run
+              history. This can't be undone.
+            </p>
+            {deleteError && <p className="error">{deleteError}</p>}
+            <div className="dialog-actions">
+              <button onClick={() => setDeleteTarget(null)} disabled={deleting}>
+                Cancel
+              </button>
+              <button className="danger" onClick={() => void submitDelete()} disabled={deleting}>
+                {deleting ? 'Deleting…' : 'Delete'}
               </button>
             </div>
           </div>

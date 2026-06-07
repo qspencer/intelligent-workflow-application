@@ -119,6 +119,14 @@ export const api = {
     return request('GET', `/workflows/${id}`);
   },
 
+  /** Hard-delete a workflow definition + its run history (Admin/Designer).
+   *  Returns the cascade counts. */
+  deleteWorkflow(
+    id: string,
+  ): Promise<{ deleted_workflow: string; deleted_instances: number; deleted_steps: number }> {
+    return request('DELETE', `/workflows/${id}`);
+  },
+
   /** Map of `workflow_id → instance count`, aggregated server-side. */
   workflowInstanceCounts(): Promise<Record<string, number>> {
     return request('GET', '/workflows/instance-counts');
