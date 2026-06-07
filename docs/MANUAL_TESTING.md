@@ -75,7 +75,7 @@ that's the `JsonFormatter` doing its job.
 > exist under `.secrets/gmail/<address>/`*. That env var is what triggers the
 > on-disk-`.secrets`→`os.environ` seeding the `EnvSecretStore` reads from. Add
 > `WORKFLOW_PLATFORM_GMAIL_ACCOUNT=intelligent.workflow.engine@quentinspencer.com`
-> to the command above, or just use **`./scripts/run-local.sh`** (from the repo
+> to the command above, or just use **`./scripts/run-local-be.sh`** (from the repo
 > root), which sets it and verifies the credential files for you. Creds setup
 > itself is Gates 3–4 in `docs/EMAIL_CONNECTOR_PLAN.md`
 > (`uv run python tools/gmail_auth.py --account <address>`).
@@ -713,7 +713,7 @@ cd frontend
 npm run dev      # → http://localhost:4200
 ```
 
-`scripts/run-local.sh` wires all of the above (Postgres + migrate + live Bedrock
+`scripts/run-local-be.sh` wires all of the above (Postgres + migrate + live Bedrock
 + all triggers + Gmail-from-`.secrets` + dev auth) in one command if you'd rather
 not assemble the env by hand.
 

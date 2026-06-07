@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# run-local.sh — start the backend locally in a full-feature configuration
+# run-local-be.sh — start the backend locally in a full-feature configuration
 # suitable for manually testing every application feature.
 #
 # Backend only. For the canvas GUI (C5-C7), start the frontend dev server in a
@@ -16,11 +16,11 @@
 #   - Human-readable (text) logs.
 #
 # Usage:
-#   scripts/run-local.sh                # full config above
-#   scripts/run-local.sh --in-memory    # skip Postgres (ephemeral repos, no docker)
-#   scripts/run-local.sh --no-triggers  # don't auto-start triggers (no schedule/gmail
+#   scripts/run-local-be.sh                # full config above
+#   scripts/run-local-be.sh --in-memory    # skip Postgres (ephemeral repos, no docker)
+#   scripts/run-local-be.sh --no-triggers  # don't auto-start triggers (no schedule/gmail
 #                                        #   Bedrock spend; fire workflows manually instead)
-#   scripts/run-local.sh --replay       # BEDROCK_MODE=replay (no AWS/Bedrock calls)
+#   scripts/run-local-be.sh --replay       # BEDROCK_MODE=replay (no AWS/Bedrock calls)
 #
 # Env overrides: PORT (8001), GMAIL_ACCOUNT, DATABASE_URL, BEDROCK_MODE, LOG_FORMAT
 #
