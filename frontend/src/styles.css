@@ -1431,3 +1431,55 @@ a.wf-card:hover {
   font-size: 13px;
   font-weight: 500;
 }
+
+/* C7.3 — build-time validation: invalid node border + findings panel */
+.react-flow__node.rf-invalid {
+  outline: 2px solid var(--err);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+.validation-panel {
+  margin: 8px 0;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--err);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 13px;
+}
+.validation-summary {
+  display: flex;
+  gap: 12px;
+  font-weight: 600;
+  margin-bottom: 4px;
+}
+.validation-summary .vp-err {
+  color: var(--err);
+}
+.validation-summary .vp-warn {
+  color: var(--warn);
+}
+.validation-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.vp-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 2px 0;
+}
+.vp-node-link {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  font-family: ui-monospace, monospace;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+.vp-msg {
+  color: var(--text);
+}

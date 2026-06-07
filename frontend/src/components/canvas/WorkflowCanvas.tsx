@@ -28,6 +28,7 @@ import type {
   AuditEntry,
   CapabilityReport,
   StepExecution,
+  ValidationFinding,
   WorkflowDefinition,
   WorkflowInstance,
 } from '../../types';
@@ -35,6 +36,7 @@ import { CanvasFooter } from './CanvasFooter';
 import { EditInspector } from './EditInspector';
 import { Inspector } from './Inspector';
 import { RunDialog } from './RunDialog';
+import { ValidationPanel } from './ValidationPanel';
 import { nodeTypes, type FlowNode } from './CanvasNodes';
 
 export function WorkflowCanvas() {
@@ -54,6 +56,8 @@ export function WorkflowCanvas() {
   const [testOpen, setTestOpen] = useState(false);
   // C6.3 capability boundary — best-effort; null if unavailable.
   const [caps, setCaps] = useState<CapabilityReport | null>(null);
+  // C7.3 build-time validation findings (edit mode).
+  const [findings, setFindings] = useState<ValidationFinding[]>([]);
 
   // ---- edit mode (C4 slice 1: edit fields + save) ----
   const [draft, setDraft] = useState<WorkflowDefinition | null>(null);
@@ -141,6 +145,42 @@ export function WorkflowCanvas() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [structureKey, editing, def, setNodes, setEdges]);
 
+  // ---- build-time validation (C7.3), edit mode, debounced on draft edits ----
+  useEffect(() => {
+    if (!editing || !draft) {
+      setFindings([]);
+      return;
+    }
+    const t = setTimeout(() => {
+      api
+        .validateWorkflow(draft)
+        .then((r) => setFindings(r.findings))
+        .catch(() => setFindings([]));
+    }, 400);
+    return () => clearTimeout(t);
+  }, [editing, draft]);
+
+  const errorNodeIds = useMemo(
+    () =>
+      new Set(
+        findings.filter((f) => f.level === 'error' && f.node_id).map((f) => f.node_id as string),
+      ),
+    [findings],
+  );
+
+  // Re-mark invalid nodes (red border) without forcing a structural rebuild.
+  useEffect(() => {
+    setNodes(
+      (nds) =>
+        nds.map((n) => ({
+          ...n,
+          className: errorNodeIds.has(n.id) ? 'rf-invalid' : undefined,
+        })) as FlowNode[],
+    );
+  }, [errorNodeIds, setNodes]);
+
+  const errorCount = findings.filter((f) => f.level === 'error').length;
+
   // ---- instance (live status), only when ?instance=<id> ----
   const refreshInstance = useCallback(async () => {
     if (!instanceId) return;
@@ -223,6 +263,10 @@ export function WorkflowCanvas() {
   }
   async function save(): Promise<void> {
     if (!draft) return;
+    if (errorCount > 0) {
+      setSaveError(`Fix ${errorCount} validation error${errorCount === 1 ? '' : 's'} before saving.`);
+      return;
+    }
     setSaving(true);
     setSaveError(null);
     try {
@@ -323,6 +367,8 @@ export function WorkflowCanvas() {
           Nothing real was touched.
         </div>
       )}
+
+      {editing && <ValidationPanel findings={findings} onSelect={setSelectedId} />}
 
       {loading ? (
         <p>Loading…</p>

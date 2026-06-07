@@ -119,6 +119,20 @@ export interface CapabilityReport {
   steps: CapabilityReportStep[];
 }
 
+/** Build-time validation finding (C7.3). Mirrors POST /api/workflows/validate. */
+export interface ValidationFinding {
+  level: 'error' | 'warning';
+  code: string;
+  message: string;
+  node_id: string | null;
+  edge: { from: string; to: string } | null;
+}
+
+export interface ValidationResult {
+  valid: boolean;
+  findings: ValidationFinding[];
+}
+
 /** Explain-this-run forensic view (C6.4). Mirrors
  *  GET /api/workflow-instances/{id}/steps/{step_id}/explain. */
 export interface ExplainToolCall {

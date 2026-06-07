@@ -8,6 +8,7 @@ import type {
   CostRowByWorkflow,
   DevErrorsResponse,
   ExplainStep,
+  ValidationResult,
   InstanceDetail,
   WorkflowDefinition,
   WorkflowInstance,
@@ -193,6 +194,12 @@ export const api = {
     triggerPayload: Record<string, unknown>,
   ): Promise<{ status: string; instance_id: string; state: string }> {
     return postJson(`/workflows/${workflowId}/run`, triggerPayload);
+  },
+
+  /** Build-time validation (C7.3): structural findings for a (possibly unsaved)
+   *  definition, keyed to node/edge. */
+  validateWorkflow(def: WorkflowDefinition): Promise<ValidationResult> {
+    return postJson('/workflows/validate', def);
   },
 
   /** Dry-run (C6.1): sandboxed test — MockWorld, external tools disabled, live
