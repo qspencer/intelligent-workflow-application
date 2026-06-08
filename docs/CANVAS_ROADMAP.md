@@ -3,8 +3,9 @@
 **Extends:** `docs/WORKFLOW_CANVAS.md` cut/epic nomenclature (C1–C4 shipped; E1–E3 epics).
 **Companion to:** `docs/VISION.md` Goal 4 (progressive disclosure) and `docs/BUILD_PLAN.md` Phase 3.
 **Status of inputs:** C1 read-only → C2 live status → C3 run-from-form → C4 edit + Tier 1 polish →
-**C5 friendly shell → C6 trust wedge → C7 authoring parity** are **all shipped.** **C8 (operability
-& polish) is the next build.** C8 remains a sketch until its turn; E1–E5 stay deferred. Derived from a
+**C5 friendly shell → C6 trust wedge → C7 authoring parity → C8 operability & polish** are **all
+shipped** (C8.2 ships the a11y baseline + Playwright/axe harness; cosmetic polish stays continuous).
+**The planned canvas cuts are done; next is the deferred epics E1–E5.** Derived from a
 competitive GUI gap analysis against Airtable AI, Amazon Quick Suite, Union.ai, Tines, Gumloop, and
 Zapier (`gui-gap-analysis.md` §6 closing sequence → these cuts).
 
@@ -45,7 +46,7 @@ data already exists, so they convert the C5 reframe into "a governed, cost-aware
 ## Dependency map
 
 ```
-C5 ✅ Friendly shell  ──►  C6 ✅ Trust wedge  ──►  C7 ✅ Authoring parity  ──►  C8 ▶ Polish
+C5 ✅ Friendly shell  ──►  C6 ✅ Trust wedge  ──►  C7 ✅ Authoring parity  ──►  C8 ✅ Polish
    (shipped)                (shipped)               (scaffold + catalog       (batch +
                                                      + validate; shipped)      a11y)
 
@@ -203,7 +204,7 @@ misconfigured before they run it.
 | Item | Scope | Effort | Backend? |
 |---|---|---|---|
 | **C8.1 Batch run from the GUI** ✅ | CSV/JSON upload in the Run dialog → fires N instances; footer cycles instance ids. Surfaces the batch pattern we've proven in shell scripts (50-paper, PR batches). | M | `POST /api/workflows/{id}/run-batch` (bounded `asyncio.gather`) |
-| **C8.2 Polish / a11y / responsive** | Empty states, loading skeletons, focus management, ARIA on custom nodes, a responsive breakpoint. Design tokens (CSS vars) already exist. | M, continuous | No |
+| **C8.2 Polish / a11y / responsive** ✅ *(a11y baseline + harness; cosmetic polish continuous)* | Empty states, loading skeletons, focus management, ARIA on custom nodes, a responsive breakpoint. Design tokens (CSS vars) already exist. | M, continuous | No |
 
 **Exit criterion:** an operator uploads a CSV of 50 rows and watches the batch run; a keyboard-only
 user can navigate the canvas; the app doesn't look like a prototype.
@@ -246,5 +247,5 @@ what's wrong" and "I can pick an action from a list" — without the research-ga
 | **C5** ✅ | Friendly shell & cold-start | Automations home, templates gallery, create-blank | `GET /api/templates`, `POST /api/workflows` |
 | **C6** ✅ | The trust wedge | cost/budget meter, capability viz, explain-this-run, dry-run | `GET .../cost-estimate`, `GET .../capabilities`, `GET .../steps/{id}/explain`, `POST .../dry-run` |
 | **C7** ✅ | Authoring parity | NL scaffold, connector picker, validation, safer goals | `POST .../scaffold`, `GET /api/catalog`, `POST .../validate` |
-| **C8** | Operability & polish | Batch run, polish/a11y/responsive | `POST .../run-batch` |
+| **C8** ✅ | Operability & polish | Batch run, polish/a11y/responsive | `POST .../run-batch` |
 | **E1–E5** | Deferred epics | Sub-workflows, collab, AI-layout-B, delivery, version history | (per-epic design passes) |

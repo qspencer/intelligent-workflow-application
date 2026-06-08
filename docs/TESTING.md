@@ -29,15 +29,17 @@ Keep this honest; it's the baseline the roadmap improves on.
 | Contract / fuzz | `test_schema_conformance.py` (`schema` marker) | Schemathesis over the OpenAPI **GET** endpoints; `not_a_server_error`. Opt-in `SCHEMA_TESTS=1`; PR gate (own CI job). |
 | Integration | `integration` marker | Postgres round-trip. PR gate (CI Postgres service). |
 | Live (drift) | `live` / `gmail_live` / `browser_live` | Real Bedrock / Gmail / Chromium. Weekly cron, not a PR gate. |
-| Frontend | `frontend/src/**/*.test.tsx` (~134 tests) | Vitest + Testing Library + jsdom; behavior, not pixels. `vite build` typechecks. |
+| Frontend | `frontend/src/**/*.test.tsx` (~146 tests) | Vitest + Testing Library + jsdom; behavior, not pixels. `vite build` typechecks. |
+| E2E / a11y | `frontend/e2e/*.spec.ts` (Playwright + `@axe-core/playwright`) | Real-browser canvas flows (create → edit → save → delete) + axe scans on home/templates/canvas. Self-contained webServer (in-memory backend, replay Bedrock, no triggers). PR gate (own CI `e2e` job). |
 | Migrations | CI | Alembic upgrade → downgrade → upgrade sanity. |
 | Supply chain | CI | `pip-audit` (backend) + `npm audit` scoped to prod deps (frontend). |
 
-Gaps the roadmap targets: **no browser-level E2E** (jsdom can't do real layout /
-focus / contrast); **no coverage floor** (measured, not gated); **schemathesis
-is GET-only / server-error-only**; **TS types hand-mirror Pydantic** (drift
-risk); **no property-based or mutation testing** on the security-critical core;
-**PDF-classifier replay path isn't exercised in CI** (non-portable recordings).
+Gaps the roadmap targets: **no coverage floor** (measured, not gated);
+**schemathesis is GET-only / server-error-only**; **TS types hand-mirror
+Pydantic** (drift risk); **no property-based or mutation testing** on the
+security-critical core; **PDF-classifier replay path isn't exercised in CI**
+(non-portable recordings). (Browser-level E2E + a11y — formerly the top gap —
+shipped as T4 below.)
 
 ---
 
@@ -66,13 +68,14 @@ types match a fresh generation. Turns a whole class of contract bugs into a diff
 
 ### Tier 2 — real coverage gaps
 
-**T4. Playwright E2E for the canvas.**
-jsdom tests can't see real layout, focus order, or contrast. Add a thin Playwright
-suite for the headline loop — *describe → draft → edit (pickers + validation) →
-save → run/dry-run → watch live status* — plus `axe` accessibility checks
-(`docs/UI_POLISH_AND_A11Y.md` calls these out as the Playwright-only bits). This
-is the RTL-vs-Playwright boundary from the `react-testing` skill.
-*Trigger:* before the C8 polish/a11y cut (it's the verification surface for it).
+**T4. Playwright E2E for the canvas. — ✅ shipped (with C8.2).**
+`frontend/e2e/` covers create → edit → save (the "Saved ✓" path) → delete in a
+real browser, plus `@axe-core/playwright` scans on home / templates / canvas
+(serious+critical gate; the first run caught a `mode-pill` contrast bug, since
+fixed). Self-contained webServer (in-memory backend, replay Bedrock, no
+triggers); PR gate via the CI `e2e` job. *Remaining to deepen later:* the
+run/dry-run/live-status legs (need a fixtured Bedrock recording or a stubbed
+run), and broader axe coverage of the live-run + validation-error states.
 
 **T5. Property-based tests for the engine + security core.**
 Use hypothesis directly (not just via schemathesis) on the deterministic invariants:

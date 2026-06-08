@@ -498,7 +498,8 @@ main {
   font-size: 12px;
   font-weight: 500;
   background: #ececec;
-  color: var(--muted);
+  /* --text (not --muted): muted grey on the grey pill fails WCAG AA contrast. */
+  color: var(--text);
 }
 .canvas-shell {
   display: flex;
