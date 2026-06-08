@@ -84,6 +84,42 @@ describe('RunDialog cost estimate (C6.2)', () => {
     expect(run).not.toHaveBeenCalled();
   });
 
+  it('runs a batch from pasted JSON and shows per-row results (C8.1)', async () => {
+    vi.spyOn(api, 'getCostEstimate').mockResolvedValue(estimate());
+    const batch = vi.spyOn(api, 'runBatch').mockResolvedValue({
+      workflow_id: 'wf1',
+      submitted: 2,
+      succeeded: 2,
+      failed: 0,
+      results: [
+        { index: 0, ok: true, instance_id: 'i1', state: 'completed' },
+        { index: 1, ok: true, instance_id: 'i2', state: 'completed' },
+      ],
+    });
+    render(
+      <MemoryRouter>
+        <RunDialog def={def()} onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Batch' }));
+    fireEvent.change(screen.getByRole('textbox'), { target: { value: '[{"a":1},{"a":2}]' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Run batch' }));
+    await waitFor(() => expect(batch).toHaveBeenCalledWith('wf1', [{ a: 1 }, { a: 2 }]));
+    expect(await screen.findByText(/Fired/)).toBeInTheDocument();
+    expect(screen.getAllByText('view run')).toHaveLength(2);
+  });
+
+  it('offers no Batch tab in dry-run mode', async () => {
+    vi.spyOn(api, 'getCostEstimate').mockResolvedValue(estimate());
+    render(
+      <MemoryRouter>
+        <RunDialog def={def()} dryRun onClose={() => {}} />
+      </MemoryRouter>,
+    );
+    await screen.findByText(/Sandbox/);
+    expect(screen.queryByRole('button', { name: 'Batch' })).not.toBeInTheDocument();
+  });
+
   it('still renders the dialog if the estimate fails to load', async () => {
     vi.spyOn(api, 'getCostEstimate').mockRejectedValue(new Error('404'));
     render(

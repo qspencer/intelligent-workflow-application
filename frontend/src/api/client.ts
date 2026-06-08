@@ -1,6 +1,7 @@
 import { authHeaders } from '../lib/auth';
 import type {
   AuditEntry,
+  BatchRunResult,
   CapabilityReport,
   CostRowByDay,
   CostRowByModel,
@@ -204,6 +205,11 @@ export const api = {
     triggerPayload: Record<string, unknown>,
   ): Promise<{ status: string; instance_id: string; state: string }> {
     return postJson(`/workflows/${workflowId}/run`, triggerPayload);
+  },
+
+  /** Batch run (C8.1): fire one instance per payload row. */
+  runBatch(workflowId: string, rows: Record<string, unknown>[]): Promise<BatchRunResult> {
+    return postJson(`/workflows/${workflowId}/run-batch`, rows);
   },
 
   /** Authoring catalog (C7.2): triggers + functions + tools for the picker. */

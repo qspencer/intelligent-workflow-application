@@ -160,6 +160,22 @@ export interface ValidationResult {
   findings: ValidationFinding[];
 }
 
+/** Batch run (C8.1). Mirrors POST /api/workflows/{id}/run-batch. */
+export interface BatchRunItem {
+  index: number;
+  ok: boolean;
+  instance_id?: string;
+  state?: string;
+  error?: string;
+}
+export interface BatchRunResult {
+  workflow_id: string;
+  submitted: number;
+  succeeded: number;
+  failed: number;
+  results: BatchRunItem[];
+}
+
 /** NL scaffold result (C7.1). Mirrors POST /api/workflows/scaffold. */
 export interface ScaffoldResult {
   status: string;

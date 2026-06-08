@@ -1570,6 +1570,28 @@ a.button:hover {
   font-size: 12px;
 }
 
+/* C8.1 — batch run dialog */
+.rf-batch {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.rf-batch input[type='file'] {
+  font-size: 13px;
+}
+.batch-result-list {
+  list-style: none;
+  margin: 8px 0;
+  padding: 0;
+  max-height: 280px;
+  overflow-y: auto;
+  font-size: 13px;
+}
+.batch-result-list li {
+  padding: 3px 0;
+  border-bottom: 1px solid var(--border);
+}
+
 /* Canvas save confirmation */
 .save-ok {
   color: var(--ok);
