@@ -66,6 +66,7 @@ export function WorkflowCanvas() {
   const [draft, setDraft] = useState<WorkflowDefinition | null>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [justSaved, setJustSaved] = useState(false);
   const editing = draft !== null;
   // Edit is a definition-view, Designer/Admin affordance — not while
   // following a run, and not for read-only roles.
@@ -159,6 +160,13 @@ export function WorkflowCanvas() {
       cancelled = true;
     };
   }, []);
+
+  // Clear the transient "Saved ✓" badge a few seconds after a successful save.
+  useEffect(() => {
+    if (!justSaved) return;
+    const t = setTimeout(() => setJustSaved(false), 2500);
+    return () => clearTimeout(t);
+  }, [justSaved]);
 
   // ---- build-time validation (C7.3), edit mode, debounced on draft edits ----
   useEffect(() => {
@@ -261,6 +269,7 @@ export function WorkflowCanvas() {
     if (!def) return;
     setDraft(structuredClone(def));
     setSaveError(null);
+    setJustSaved(false);
   }
 
   // Arriving from "Create" / "Use this template" lands here with ?edit=1 —
@@ -291,6 +300,7 @@ export function WorkflowCanvas() {
       const fresh = await api.getWorkflow(id);
       setDef(fresh);
       setDraft(null);
+      setJustSaved(true);
     } catch (err) {
       setSaveError(errorMessage(err, 'Save failed'));
     } finally {
@@ -342,13 +352,23 @@ export function WorkflowCanvas() {
           <h2>{def?.name ?? id}</h2>
         </div>
         <div className="canvas-header-actions">
+          {justSaved && (
+            <span className="save-ok" role="status">
+              Saved ✓
+            </span>
+          )}
           {editing ? (
             <>
               {saveError && <span className="error">{saveError}</span>}
               <button onClick={discardEdit} disabled={saving}>
                 Discard
               </button>
-              <button className="primary" onClick={() => void save()} disabled={saving || !dirty}>
+              <button
+                className="primary"
+                onClick={() => void save()}
+                disabled={saving || !dirty}
+                title={!saving && !dirty ? 'No changes to save' : undefined}
+              >
                 {saving ? 'Saving…' : 'Save'}
               </button>
             </>
