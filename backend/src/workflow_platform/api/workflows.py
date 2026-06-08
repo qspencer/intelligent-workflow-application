@@ -58,6 +58,11 @@ from workflow_platform.world import mock_world
 
 _DRY_RUN_EXTERNAL_PREFIXES = ("email_", "connector_", "browser_")
 
+# Batch run (C8.1): cap total rows so one request can't run unbounded, and cap
+# in-flight runs so a batch doesn't stampede Bedrock.
+_BATCH_MAX = 100
+_BATCH_CONCURRENCY = 5
+
 
 def _is_external_tool(name: str) -> bool:
     """Tools that reach outside the sandbox (mailbox / network / browser). In a
@@ -472,6 +477,76 @@ def build_router(
             "status": "started",
             "instance_id": instance.id,
             "state": instance.state.value,
+        }
+
+    @router.post("/workflows/{workflow_id}/run-batch")
+    async def run_workflow_batch(
+        workflow_id: str,
+        request: Request,
+        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+    ) -> dict[str, Any]:
+        """Fire a workflow once per row of a batch (C8.1).
+
+        Body: a JSON array of trigger-payload objects (the GUI parses an uploaded
+        CSV / pasted JSON into this). Runs with bounded concurrency so a large
+        batch doesn't stampede Bedrock; one row's failure is isolated, not fatal.
+        Awaited synchronously like the single run, so results carry final state.
+
+        Returns `{submitted, succeeded, failed, results}` where each result is
+        `{index, ok, instance_id?, state?, error?}` in input order."""
+        if engine is None:
+            raise HTTPException(
+                status_code=503, detail="Run requires a WorkflowEngine bound to the API."
+            )
+        eng = engine  # narrowed; capture for the closure below
+        definition = await repositories.definitions.get(workflow_id)
+        if definition is None:
+            raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
+
+        body = await request.body()
+        text = body.decode("utf-8") if body else ""
+        try:
+            payloads = json.loads(text) if text.strip() else []
+        except json.JSONDecodeError as exc:
+            raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
+        if not isinstance(payloads, list):
+            raise HTTPException(
+                status_code=400, detail="Batch body must be a JSON array of payload objects"
+            )
+        if not payloads:
+            raise HTTPException(status_code=400, detail="Batch is empty — provide at least one row")
+        if len(payloads) > _BATCH_MAX:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Batch too large: {len(payloads)} rows (max {_BATCH_MAX}).",
+            )
+        if any(not isinstance(p, dict) for p in payloads):
+            raise HTTPException(status_code=400, detail="Every batch row must be a JSON object")
+
+        sem = asyncio.Semaphore(_BATCH_CONCURRENCY)
+
+        async def _run_one(index: int, payload: dict[str, Any]) -> dict[str, Any]:
+            async with sem:
+                # Isolate one row's failure so the rest of the batch still runs.
+                try:
+                    inst = await eng.run(definition, trigger_payload=payload)
+                except Exception as exc:
+                    return {"index": index, "ok": False, "error": str(exc)}
+                return {
+                    "index": index,
+                    "ok": True,
+                    "instance_id": inst.id,
+                    "state": inst.state.value,
+                }
+
+        results = await asyncio.gather(*(_run_one(i, p) for i, p in enumerate(payloads)))
+        succeeded = sum(1 for r in results if r["ok"])
+        return {
+            "workflow_id": workflow_id,
+            "submitted": len(payloads),
+            "succeeded": succeeded,
+            "failed": len(payloads) - succeeded,
+            "results": results,
         }
 
     @router.post("/workflows/{workflow_id}/dry-run")
