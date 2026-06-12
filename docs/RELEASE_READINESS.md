@@ -38,8 +38,9 @@ Then inspect the surface that actually exists in our repo:
   `require_roles`), not just hidden in the UI.
 - Secrets out of client bundles, logs, example output, and committed files (`.secrets/` 0600,
   gitignored).
-- **Our known gap:** the webhook trigger endpoint still needs HMAC verification before it's
-  exposed publicly — treat an unverified public webhook as a blocker (see below).
+- Webhook HMAC (G2) shipped: a trigger with `secret_name` requires `X-Hub-Signature-256` and
+  fails closed when the secret can't load. **Audit check:** any *publicly exposed* webhook
+  trigger whose YAML omits `secret_name` is still a blocker — unsigned is for local dev only.
 
 ### Data integrity
 - Migrations run forward cleanly **and** have a rollback/recovery note (see the

@@ -64,22 +64,16 @@ Worth doing when someone wants to demo the PDF flow offline. Until then,
 the existing `test_pdf_classifier_workflow.py` covers the flow with
 `FakeBedrock`. Effort: **S** for either fix.
 
-### G2 — Webhook HMAC verification (production hardening)
+### G2 — Webhook HMAC verification (production hardening) — **Done**
 
-`POST /api/triggers/webhook/{trigger_id}` is exempt from the user-auth
-middleware (the webhook endpoint can't carry a user token). In
-production that's a problem: anyone who learns a webhook URL can fire a
-workflow. The endpoint should verify an `X-Hub-Signature-256` (or
-similar) HMAC against a per-webhook secret stored in `SecretStore`.
-
-Acceptance:
-- New `WebhookTrigger` config field for the secret name.
-- Middleware-equivalent verification in `POST /api/triggers/webhook/...`
-  before calling into the registry.
-- Reject with 401 on missing / bad signature; existing tests still pass
-  for the unsigned-OK dev path.
-
-Effort: **S**. Blocks any real-world webhook integration.
+Shipped exactly per the acceptance criteria: `trigger.config.secret_name`
+names a `SecretStore` key; when set, `POST /api/triggers/webhook/{id}`
+requires a GitHub-style `X-Hub-Signature-256: sha256=<hex>` over the raw
+body (timing-safe compare), 401 on missing/bad signature, and **503
+fail-closed** when the named secret can't be loaded (never falls open).
+Signature is checked before the body is parsed. Triggers without
+`secret_name` keep the unsigned local-dev path. 6 tests in
+`backend/tests/test_webhook_hmac.py`.
 
 ### G3 — Cost dashboard view — **Done**
 

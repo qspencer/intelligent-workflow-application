@@ -5,15 +5,18 @@ Role gating (per `docs/ARCHITECTURE.md` D4):
 - Read endpoints: any authenticated role.
 - Audit endpoints: Admin or Auditor.
 - Lifecycle ops (pause/resume): Admin or Operator.
-- Webhook fire: not authenticated by user (production must add HMAC or
-  shared-secret verification; out of scope for Week 5).
+- Webhook fire: not authenticated by user; HMAC-verified instead when the
+  trigger's config names a `secret_name` (G2). Unsigned only for local dev.
 """
 
 from __future__ import annotations
 
 import asyncio
 import dataclasses
+import hashlib
+import hmac
 import json
+import logging
 import os
 from datetime import datetime
 from pathlib import Path
@@ -39,6 +42,7 @@ from workflow_platform.scaffold import (
     ScaffoldError,
     scaffold_workflow,
 )
+from workflow_platform.secrets import SecretNotFoundError, SecretStore
 from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.templates import default_examples_dir, load_templates, slugify, unique_id
 from workflow_platform.tools import Tool, ToolContext, ToolResult
@@ -55,6 +59,8 @@ from workflow_platform.workflow import (
     validate_definition,
 )
 from workflow_platform.world import mock_world
+
+logger = logging.getLogger(__name__)
 
 _DRY_RUN_EXTERNAL_PREFIXES = ("email_", "connector_", "browser_")
 
@@ -122,6 +128,7 @@ def build_router(
     engine: WorkflowEngine | None = None,
     webhook_registry: WebhookRegistry | None = None,
     templates_dir: Path | None = None,
+    secret_store: SecretStore | None = None,
 ) -> APIRouter:
     router = APIRouter(prefix="/api")
     # Source for the templates gallery (canvas roadmap C5.2). Defaults to the
@@ -908,10 +915,54 @@ def build_router(
         return await repositories.audit.list_recent(limit=min(limit, 500))
 
     if webhook_registry is not None:
+        registry = webhook_registry  # narrowed for the closure
 
         @router.post("/triggers/webhook/{trigger_id}")
-        async def fire_webhook(trigger_id: str, payload: dict[str, Any]) -> dict[str, Any]:
-            fired = await webhook_registry.fire(trigger_id, payload)
+        async def fire_webhook(trigger_id: str, request: Request) -> dict[str, Any]:
+            """Fire a webhook trigger. Exempt from user auth (senders can't
+            carry a user token), so security is HMAC (G2): when the trigger's
+            YAML config sets `secret_name`, the request must carry a GitHub-
+            style `X-Hub-Signature-256: sha256=<hex hmac-sha256(secret, body)>`
+            header — 401 otherwise, 503 (fail closed) if the named secret can't
+            be loaded. Triggers without `secret_name` accept unsigned posts:
+            the local-dev path; don't deploy one reachable from the internet."""
+            raw = await request.body()
+
+            secret_name = registry.secret_name(trigger_id)
+            if secret_name is not None:
+                if secret_store is None:
+                    logger.error(
+                        "Webhook %r requires HMAC but the API has no SecretStore; refusing.",
+                        trigger_id,
+                    )
+                    raise HTTPException(status_code=503, detail="Webhook verification unavailable")
+                try:
+                    secret = await secret_store.get(secret_name)
+                except SecretNotFoundError:
+                    logger.error(
+                        "Webhook %r: HMAC secret %r not found in SecretStore; refusing.",
+                        trigger_id,
+                        secret_name,
+                    )
+                    raise HTTPException(
+                        status_code=503, detail="Webhook verification unavailable"
+                    ) from None
+                signature = request.headers.get("X-Hub-Signature-256", "")
+                expected = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+                if not signature.startswith("sha256=") or not hmac.compare_digest(
+                    expected, signature[len("sha256=") :]
+                ):
+                    logger.warning("Webhook %r: rejected request with bad/missing HMAC", trigger_id)
+                    raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+            try:
+                payload = json.loads(raw.decode("utf-8")) if raw.strip() else {}
+            except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+                raise HTTPException(status_code=400, detail=f"Invalid JSON body: {exc}") from exc
+            if not isinstance(payload, dict):
+                raise HTTPException(status_code=400, detail="Webhook payload must be a JSON object")
+
+            fired = await registry.fire(trigger_id, payload)
             if not fired:
                 raise HTTPException(
                     status_code=404, detail=f"No webhook trigger registered for {trigger_id!r}"

@@ -204,6 +204,7 @@ def create_app(
             engine=engine,
             webhook_registry=webhook_registry,
             templates_dir=definitions_dir,
+            secret_store=secret_store,
         )
     )
     app.include_router(build_ws_router(events))

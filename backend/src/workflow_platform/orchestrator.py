@@ -171,7 +171,11 @@ class TriggerOrchestrator:
                 )
             if spec.type == "webhook":
                 trigger_id = config.get("trigger_id") or definition.id
-                return WebhookTrigger(self.webhook_registry, trigger_id)
+                return WebhookTrigger(
+                    self.webhook_registry,
+                    trigger_id,
+                    secret_name=config.get("secret_name"),
+                )
             if spec.type == "gmail_poll":
                 if self.secret_store is None:
                     logger.warning(

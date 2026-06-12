@@ -70,7 +70,7 @@ Week 5 (executor depth + memory + second trigger):
 - Per-step retries (`runtime.retries`) + per-step / per-workflow timeouts (`runtime.timeout_seconds`, `policies.timeout_seconds`); `step_retry` audit entries.
 - Pause/resume: `WorkflowInstanceState.PAUSED`, between-step state polling, `engine.resume(definition, instance_id)` continues from where it left off; `POST /api/workflow-instances/{id}/{pause,resume}` (Admin/Operator).
 - Agent memory Phase A: `MemoryManager` (file-backed, structured Markdown), engine prepends loaded memory to each agentic step's system prompt under "Prior agent memory".
-- Webhook trigger: `WebhookRegistry` + `WebhookTrigger`; `POST /api/triggers/webhook/{trigger_id}` is exempt from user-auth middleware (production must add HMAC verification).
+- Webhook trigger: `WebhookRegistry` + `WebhookTrigger`; `POST /api/triggers/webhook/{trigger_id}` is exempt from user-auth middleware. HMAC verification (G2, landed post-Phase-3): a `secret_name` in the trigger config names a SecretStore key; when set, the endpoint requires `X-Hub-Signature-256` and fails closed if the secret can't load. Unsigned only when no `secret_name` (local dev).
 
 121 unit tests passing (was 100). Ruff and mypy strict clean across 72 source files.
 

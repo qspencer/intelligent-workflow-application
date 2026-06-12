@@ -359,6 +359,25 @@ curl -s -H 'X-Dev-User: alice' -H 'X-Dev-Groups: admins' \
 of the payload. Also visible on the dashboard at `/instances` after a
 refresh.
 
+**Secured variant (HMAC, G2).** Add `secret_name: MY_WEBHOOK_SECRET` to the
+workflow's `trigger.config` (the value is a `SecretStore` key — with the
+default `EnvSecretStore` that's an env-var name), export
+`MY_WEBHOOK_SECRET=s3cret` before starting the backend, and restart. Then:
+
+```bash
+body='{"event":"build_completed","project":"alpha"}'
+sig="sha256=$(printf '%s' "$body" | openssl dgst -sha256 -hmac 's3cret' | awk '{print $2}')"
+
+# Unsigned → 401; signed → 200 fired.
+curl -s -o /dev/null -w '%{http_code}\n' -X POST -H 'Content-Type: application/json' \
+  -d "$body" http://localhost:8001/api/triggers/webhook/echo          # → 401
+curl -s -X POST -H 'Content-Type: application/json' -H "X-Hub-Signature-256: $sig" \
+  -d "$body" http://localhost:8001/api/triggers/webhook/echo          # → fired
+```
+
+If the named secret isn't set in the environment, the endpoint returns **503**
+(fails closed) rather than accepting unsigned posts.
+
 ---
 
 ## 4c. Schedule example (real backend, watch it tick)
