@@ -42,7 +42,7 @@ import { nodeTypes, type FlowNode } from './CanvasNodes';
 
 export function WorkflowCanvas() {
   const { id = '' } = useParams<{ id: string }>();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const instanceId = searchParams.get('instance');
   const following = instanceId !== null;
 
@@ -216,6 +216,11 @@ export function WorkflowCanvas() {
     }
   }, [instanceId]);
 
+  // Poll fast while the run is live; once terminal, drop to a slow heartbeat
+  // (a retry/resume elsewhere can revive it — the state change re-arms the
+  // fast cadence via the dependency below).
+  const instanceTerminal =
+    instance != null && ['completed', 'failed', 'killed'].includes(instance.state);
   useEffect(() => {
     if (!instanceId) {
       setInstance(null);
@@ -223,9 +228,9 @@ export function WorkflowCanvas() {
       return;
     }
     void refreshInstance();
-    const timer = setInterval(() => void refreshInstance(), 2500);
+    const timer = setInterval(() => void refreshInstance(), instanceTerminal ? 30_000 : 2500);
     return () => clearInterval(timer);
-  }, [instanceId, refreshInstance]);
+  }, [instanceId, refreshInstance, instanceTerminal]);
 
   // Refresh immediately on any audit event for this instance (real-time feel).
   useEvents(
@@ -274,13 +279,22 @@ export function WorkflowCanvas() {
 
   // Arriving from "Create" / "Use this template" lands here with ?edit=1 —
   // drop straight into edit mode so a freshly-minted workflow is editable
-  // without a second click. Only once def has loaded and the role allows it.
+  // without a second click. The param is consumed (stripped from the URL) so
+  // it triggers exactly once: without that, the lingering param re-entered
+  // edit mode after every save/discard, and the previously stale-closure deps
+  // could miss a same-component navigation that only changed the query.
   useEffect(() => {
     if (searchParams.get('edit') === '1' && canEdit && def && draft === null) {
       setDraft(structuredClone(def));
+      setSearchParams(
+        (prev) => {
+          prev.delete('edit');
+          return prev;
+        },
+        { replace: true },
+      );
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [def, canEdit]);
+  }, [def, canEdit, draft, searchParams, setSearchParams]);
   function discardEdit(): void {
     setDraft(null);
     setSaveError(null);

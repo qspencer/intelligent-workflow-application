@@ -15,8 +15,8 @@ test('create → edit → save confirms, canvas is accessible, then delete', asy
   await page.getByPlaceholder('e.g. Invoice triage').fill(NAME);
   await page.locator('.dialog').getByRole('button', { name: 'Create' }).click();
 
-  // Lands on the canvas in edit mode.
-  await expect(page).toHaveURL(/\/canvas\/.*edit=1/);
+  // Lands on the canvas in edit mode (the ?edit=1 param is consumed on entry).
+  await expect(page).toHaveURL(/\/canvas\//);
   await expect(page.getByText('Editing')).toBeVisible();
 
   // Canvas accessibility (real layout — jsdom can't check this).

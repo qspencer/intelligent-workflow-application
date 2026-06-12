@@ -36,6 +36,18 @@ describe('parseBatchInput (C8.1)', () => {
     expect(() => parseBatchInput('name,amount')).toThrow(/data row/i);
   });
 
+  it('parses quoted fields spanning multiple lines', () => {
+    const csv = 'name,note\nAcme,"line one\nline two"\nBeta,plain';
+    expect(parseBatchInput(csv)).toEqual([
+      { name: 'Acme', note: 'line one\nline two' },
+      { name: 'Beta', note: 'plain' },
+    ]);
+  });
+
+  it('rejects an unterminated quoted field', () => {
+    expect(() => parseBatchInput('name,note\nAcme,"never closed')).toThrow(/unterminated/i);
+  });
+
   it('rejects blank input', () => {
     expect(() => parseBatchInput('   ')).toThrow(/No data/i);
   });

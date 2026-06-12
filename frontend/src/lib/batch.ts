@@ -28,14 +28,13 @@ export function parseBatchInput(text: string): Record<string, unknown>[] {
 }
 
 function parseCsv(text: string): Record<string, unknown>[] {
-  const lines = text.split(/\r?\n/).filter((l) => l.trim() !== '');
-  if (lines.length < 2) {
+  const records = csvRecords(text).filter((cells) => cells.some((c) => c !== ''));
+  if (records.length < 2) {
     throw new Error('CSV needs a header row and at least one data row.');
   }
-  const headers = splitCsvLine(lines[0]);
+  const headers = records[0];
   if (headers.some((h) => h === '')) throw new Error('CSV header has an empty column name.');
-  return lines.slice(1).map((line) => {
-    const cells = splitCsvLine(line);
+  return records.slice(1).map((cells) => {
     const row: Record<string, unknown> = {};
     headers.forEach((h, i) => {
       row[h] = cells[i] ?? '';
@@ -44,17 +43,30 @@ function parseCsv(text: string): Record<string, unknown>[] {
   });
 }
 
-/** Split one CSV line, honoring double-quoted fields (with `""` escapes and
- *  commas inside quotes). */
-function splitCsvLine(line: string): string[] {
-  const out: string[] = [];
+/** Tokenize CSV into records of cells in one character-level pass, honoring
+ *  double-quoted fields — including `""` escapes and commas *and newlines*
+ *  inside quotes (so multiline cells parse instead of corrupting rows). */
+function csvRecords(text: string): string[][] {
+  const records: string[][] = [];
+  let cells: string[] = [];
   let cur = '';
   let inQuotes = false;
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
+
+  const endCell = () => {
+    cells.push(cur.trim());
+    cur = '';
+  };
+  const endRecord = () => {
+    endCell();
+    records.push(cells);
+    cells = [];
+  };
+
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
     if (inQuotes) {
       if (ch === '"') {
-        if (line[i + 1] === '"') {
+        if (text[i + 1] === '"') {
           cur += '"';
           i++;
         } else {
@@ -66,12 +78,14 @@ function splitCsvLine(line: string): string[] {
     } else if (ch === '"') {
       inQuotes = true;
     } else if (ch === ',') {
-      out.push(cur);
-      cur = '';
-    } else {
+      endCell();
+    } else if (ch === '\n') {
+      endRecord();
+    } else if (ch !== '\r') {
       cur += ch;
     }
   }
-  out.push(cur);
-  return out.map((s) => s.trim());
+  if (inQuotes) throw new Error('CSV has an unterminated quoted field.');
+  endRecord();
+  return records;
 }

@@ -54,18 +54,29 @@ export function InstanceDetail() {
       setLoading(false);
     }
     try {
-      setAuditEntries(await api.instanceAudit(id));
+      const fresh = await api.instanceAudit(id);
+      // Merge, don't replace: a poll that started before a WS-pushed entry
+      // arrived must not make that entry vanish until the next poll.
+      setAuditEntries((current) => {
+        const ids = new Set(fresh.map((e) => e.id));
+        const extras = current.filter((e) => !ids.has(e.id));
+        return extras.length > 0 ? [...fresh, ...extras] : fresh;
+      });
     } catch {
-      // Auditor/Admin role required; ignore silently for others.
-      setAuditEntries([]);
+      // Auditor/Admin role required; keep whatever the WS stream delivered.
     }
   }, [id]);
 
+  // Poll fast while the run is live; once terminal, drop to a slow heartbeat
+  // (retry/resume can revive a terminal run — the state change re-arms the
+  // fast cadence, and lifecycle buttons call refresh() directly).
+  const instanceTerminal =
+    instance != null && ['completed', 'failed', 'killed'].includes(instance.state);
   useEffect(() => {
     void refresh();
-    const timer = setInterval(() => void refresh(), 3000);
+    const timer = setInterval(() => void refresh(), instanceTerminal ? 30_000 : 3000);
     return () => clearInterval(timer);
-  }, [refresh]);
+  }, [refresh, instanceTerminal]);
 
   // Live audit-event stream; append matching entries, deduped by id.
   useEvents(
