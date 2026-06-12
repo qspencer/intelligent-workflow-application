@@ -108,6 +108,34 @@ async def test_error_rate_alert_skipped_below_min_sample() -> None:
     assert all(a["action"] != "alert_high_error_rate" for a in alerts)
 
 
+async def test_error_rate_ignores_dry_runs() -> None:
+    """A designer hammering a broken draft via Test (C6.1) must not trip the
+    production error-rate alert — dry-run instances are excluded."""
+    repos = in_memory_repositories()
+    now = datetime.now(UTC)
+    for _ in range(5):
+        await repos.instances.create(
+            WorkflowInstance(
+                workflow_id="wf",
+                state=WorkflowInstanceState.FAILED,
+                context={"dry_run": True},
+                created_at=now - timedelta(seconds=10),
+            )
+        )
+    # Real traffic is healthy.
+    for _ in range(5):
+        await repos.instances.create(
+            WorkflowInstance(
+                workflow_id="wf",
+                state=WorkflowInstanceState.COMPLETED,
+                created_at=now - timedelta(seconds=10),
+            )
+        )
+    monitor = MonitoringService(repos, config=_config(error_rate_threshold=0.5))
+    alerts = await monitor.run_once(now=now)
+    assert all(a["action"] != "alert_high_error_rate" for a in alerts)
+
+
 # --- queue depth ---
 
 

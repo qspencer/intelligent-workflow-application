@@ -4,6 +4,16 @@ Pulls completed agentic step executions from the repo and groups by workflow,
 day, or model. The cost is read from `step.output["cost_usd"]` (computed by the
 engine at step-completion time), so reports don't need to recompute pricing.
 
+Dry runs (C6.1) use live Bedrock, so their spend is real money — but their
+behavior isn't representative (external tools are stubbed). The views treat
+them accordingly:
+- `by_workflow` attributes dry-run spend to a separate `<id> (dry-run)` key, so
+  the real per-workflow series stays clean while the spend stays visible.
+- `run_stats_for_workflow` (the C6.2 pre-run estimate) excludes dry runs — an
+  estimate should reflect real runs only.
+- `by_model` / `by_day` include them: those are "what did we actually spend"
+  views, and a dry-run token is a real token.
+
 For Postgres deployments at scale, replace these Python aggregations with
 single-pass SQL queries — Phase 3 work.
 """
@@ -49,31 +59,36 @@ class CostReportService:
         self.repositories = repositories
         self.sample_limit = sample_limit
 
-    async def _sample(self, since: datetime | None) -> list[tuple[str, dict[str, Any]]]:
-        """Return (workflow_id, output_dict) tuples for recent COMPLETED steps
-        that have a `cost_usd` field. Skips deterministic / failed / skipped
-        steps and steps without usage."""
+    async def _sample(self, since: datetime | None) -> list[tuple[str, dict[str, Any], bool]]:
+        """Return (workflow_id, output_dict, is_dry_run) tuples for recent
+        COMPLETED steps that have a `cost_usd` field. Skips deterministic /
+        failed / skipped steps and steps without usage."""
         executions = await self.repositories.steps.list_recent(limit=self.sample_limit, since=since)
-        sampled: list[tuple[str, dict[str, Any]]] = []
-        instance_to_workflow: dict[str, str] = {}
+        sampled: list[tuple[str, dict[str, Any], bool]] = []
+        instance_info: dict[str, tuple[str, bool]] = {}
         for exe in executions:
             if exe.state != StepExecutionState.COMPLETED:
                 continue
             output = exe.output or {}
             if "cost_usd" not in output:
                 continue
-            workflow_id = instance_to_workflow.get(exe.instance_id)
-            if workflow_id is None:
+            info = instance_info.get(exe.instance_id)
+            if info is None:
                 instance = await self.repositories.instances.get(exe.instance_id)
                 if instance is None:
                     continue
-                instance_to_workflow[exe.instance_id] = instance.workflow_id
-                workflow_id = instance.workflow_id
-            sampled.append((workflow_id, output))
+                info = (instance.workflow_id, bool((instance.context or {}).get("dry_run")))
+                instance_info[exe.instance_id] = info
+            sampled.append((info[0], output, info[1]))
         return sampled
 
     async def by_workflow(self, since: datetime | None = None) -> list[CostRow]:
-        return _group(await self._sample(since), lambda workflow_id, _: workflow_id)
+        return _group(
+            [
+                (f"{workflow_id} (dry-run)" if dry else workflow_id, output)
+                for workflow_id, output, dry in await self._sample(since)
+            ]
+        )
 
     async def run_stats_for_workflow(
         self, workflow_id: str, since: datetime | None = None
@@ -82,7 +97,7 @@ class CostReportService:
         COMPLETED agentic steps. `run_count` counts distinct instances seen in
         the same sample, so `avg_*` is a consistent per-run figure."""
         executions = await self.repositories.steps.list_recent(limit=self.sample_limit, since=since)
-        instance_to_workflow: dict[str, str] = {}
+        instance_info: dict[str, tuple[str, bool]] = {}
         instances_seen: set[str] = set()
         total_cost = 0.0
         total_tokens = 0
@@ -92,14 +107,17 @@ class CostReportService:
             output = exe.output or {}
             if "cost_usd" not in output:
                 continue
-            wf = instance_to_workflow.get(exe.instance_id)
-            if wf is None:
+            info = instance_info.get(exe.instance_id)
+            if info is None:
                 instance = await self.repositories.instances.get(exe.instance_id)
                 if instance is None:
                     continue
-                instance_to_workflow[exe.instance_id] = instance.workflow_id
-                wf = instance.workflow_id
-            if wf != workflow_id:
+                info = (instance.workflow_id, bool((instance.context or {}).get("dry_run")))
+                instance_info[exe.instance_id] = info
+            wf, dry = info
+            # Dry runs aren't representative of a real run's cost (external
+            # tools are stubbed) — keep them out of the pre-run estimate.
+            if wf != workflow_id or dry:
                 continue
             instances_seen.add(exe.instance_id)
             total_cost += float(output.get("cost_usd", 0.0))
@@ -111,9 +129,12 @@ class CostReportService:
         )
 
     async def by_model(self, since: datetime | None = None) -> list[CostRow]:
+        # Spend view: dry-run tokens are real Bedrock spend, so include them.
         return _group(
-            await self._sample(since),
-            lambda _, output: str(output.get("model", "<unknown>")),
+            [
+                (str(output.get("model", "<unknown>")), output)
+                for _, output, _dry in await self._sample(since)
+            ]
         )
 
     async def by_day(self, since: datetime | None = None) -> list[CostRow]:
@@ -146,13 +167,10 @@ class CostReportService:
         return rows
 
 
-def _group(
-    sampled: list[tuple[str, dict[str, Any]]],
-    key_fn: Any,
-) -> list[CostRow]:
+def _group(keyed: list[tuple[str, dict[str, Any]]]) -> list[CostRow]:
     groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
-    for workflow_id, output in sampled:
-        groups[key_fn(workflow_id, output)].append(output)
+    for key, output in keyed:
+        groups[key].append(output)
     rows: list[CostRow] = []
     for key, outputs in groups.items():
         total_cost = sum(float(o.get("cost_usd", 0.0)) for o in outputs)

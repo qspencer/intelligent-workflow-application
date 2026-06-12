@@ -374,6 +374,9 @@ def build_router(
         """Hard-delete a workflow definition and cascade to its run history
         (instances + their step_executions). Admin/Designer only.
 
+        409 if any instance is non-terminal (pending/running/paused) — kill or
+        wait first, so the engine never has its rows deleted mid-run.
+
         Returns counts: `{deleted_workflow, deleted_instances, deleted_steps}`.
         Audit entries are immutable and preserved (same as instance deletes).
 
@@ -385,6 +388,24 @@ def build_router(
             raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
 
         instances = await repositories.instances.list_by_workflow(workflow_id)
+        # Refuse while any run is live: deleting rows out from under the engine
+        # breaks its next state write, and a PAUSED run would become
+        # unresumable. Kill or wait first.
+        terminal = {
+            WorkflowInstanceState.COMPLETED,
+            WorkflowInstanceState.FAILED,
+            WorkflowInstanceState.KILLED,
+        }
+        live = [i for i in instances if i.state not in terminal]
+        if live:
+            states = sorted({i.state.value for i in live})
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Workflow {workflow_id!r} has {len(live)} non-terminal instance(s) "
+                    f"(states: {', '.join(states)}). Kill or wait for them, then delete."
+                ),
+            )
         instance_ids = [i.id for i in instances]
         deleted_steps = (
             await repositories.steps.delete_by_instances(instance_ids) if instance_ids else 0
@@ -560,6 +581,11 @@ def build_router(
         tools (email / connector / browser) removed, but **live Bedrock** so the
         agent reasons for real — "sandbox the world, keep the brain". The
         instance is persisted and tagged `dry_run` so the canvas can follow it.
+
+        The tag keeps dry runs out of the per-workflow cost series, the C6.2
+        pre-run estimate, and the monitoring error-rate alert. By-model /
+        by-day cost views and Prometheus counters keep them deliberately —
+        dry-run tokens are real Bedrock spend and real system activity.
 
         Browser-automation workflows are rejected (a real browser can't be
         sandboxed yet)."""

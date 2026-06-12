@@ -146,6 +146,8 @@ class MonitoringService:
         recent = await self.repositories.instances.list_recent(
             limit=self.config.instance_sample_limit, since=now - window
         )
+        # Dry runs (C6.1) are interactive experiments — a designer testing a
+        # broken draft shouldn't trip the production error-rate alert.
         terminal = [
             i
             for i in recent
@@ -155,6 +157,7 @@ class MonitoringService:
                 WorkflowInstanceState.FAILED,
                 WorkflowInstanceState.KILLED,
             )
+            and not (i.context or {}).get("dry_run")
         ]
         if len(terminal) < self.config.error_rate_min_sample:
             return []

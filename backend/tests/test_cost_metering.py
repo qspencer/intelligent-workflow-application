@@ -318,6 +318,53 @@ async def test_cost_report_by_day_groups_correctly() -> None:
     assert keyed[today].total_cost_usd == pytest.approx(2.5)
 
 
+async def _seed_dry_run(repos: Any) -> None:
+    """A completed dry run of wf-a (live-Bedrock spend, sandboxed behavior)."""
+    inst = WorkflowInstance(
+        workflow_id="wf-a",
+        state=WorkflowInstanceState.COMPLETED,
+        context={"dry_run": True},
+    )
+    await repos.instances.create(inst)
+    await repos.steps.create(
+        StepExecution(
+            instance_id=inst.id,
+            step_id="a",
+            state=StepExecutionState.COMPLETED,
+            output={"model": HAIKU, "cost_usd": 0.3, "usage": {"total_tokens": 600_000}},
+            started_at=datetime.now(UTC),
+        )
+    )
+
+
+async def test_by_workflow_separates_dry_runs() -> None:
+    repos = in_memory_repositories()
+    await _seed_reports(repos)
+    await _seed_dry_run(repos)
+    keyed = {r.key: r for r in await CostReportService(repos).by_workflow()}
+    # Real series unchanged; dry-run spend visible under its own key.
+    assert keyed["wf-a"].total_cost_usd == pytest.approx(0.5)
+    assert keyed["wf-a (dry-run)"].total_cost_usd == pytest.approx(0.3)
+
+
+async def test_run_stats_excludes_dry_runs() -> None:
+    repos = in_memory_repositories()
+    await _seed_reports(repos)
+    await _seed_dry_run(repos)
+    stats = await CostReportService(repos).run_stats_for_workflow("wf-a")
+    assert stats.run_count == 1  # the dry run isn't a sample
+    assert stats.total_cost_usd == pytest.approx(0.5)
+
+
+async def test_by_model_includes_dry_run_spend() -> None:
+    # Dry runs hit live Bedrock — the spend is real and belongs in by-model.
+    repos = in_memory_repositories()
+    await _seed_reports(repos)
+    await _seed_dry_run(repos)
+    keyed = {r.key: r for r in await CostReportService(repos).by_model()}
+    assert keyed[HAIKU].total_cost_usd == pytest.approx(0.8)
+
+
 async def test_cost_report_since_filter() -> None:
     repos = in_memory_repositories()
     await _seed_reports(repos)
