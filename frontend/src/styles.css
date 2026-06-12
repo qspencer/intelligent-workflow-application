@@ -37,6 +37,14 @@ a {
 a:hover {
   text-decoration: underline;
 }
+/* Links embedded in prose can't rely on color alone (WCAG 1.4.1 / axe
+   link-in-text-block — the accent-on-muted contrast delta is < 3:1), so they
+   keep a persistent underline. Standalone links (nav, cards, table cells)
+   stay underline-on-hover. */
+p a,
+li a {
+  text-decoration: underline;
+}
 
 button {
   font: inherit;
