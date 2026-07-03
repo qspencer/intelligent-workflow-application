@@ -100,7 +100,8 @@ const TRIGGER_LABELS: Record<string, { title: string; icon: string }> = {
   filesystem: { title: 'When a file arrives', icon: '📂' },
   schedule: { title: 'On a schedule', icon: '📅' },
   webhook: { title: 'When a webhook fires', icon: '🔗' },
-  gmail_poll: { title: 'When an email arrives', icon: '📥' },
+  email: { title: 'When an email arrives', icon: '📥' },
+  gmail_poll: { title: 'When an email arrives', icon: '📥' }, // legacy alias for email
   manual: { title: 'Manual / on demand', icon: '▶️' },
 };
 
@@ -123,8 +124,9 @@ export function triggerSubtitle(trigger: WorkflowDefinition['trigger']): string 
       return [pick('path'), pick('pattern')].filter(Boolean).join(' · ') || 'filesystem';
     case 'schedule':
       return pick('cron') ?? (pick('interval_seconds') ? `every ${pick('interval_seconds')}s` : 'schedule');
-    case 'gmail_poll':
-      return pick('account') ?? 'gmail';
+    case 'email':
+    case 'gmail_poll': // legacy alias
+      return pick('account') ?? pick('provider') ?? 'email';
     case 'webhook':
       return pick('trigger_id') ?? 'webhook';
     case 'manual':

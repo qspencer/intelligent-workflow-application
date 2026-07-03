@@ -69,7 +69,7 @@ You should see one or two JSON log lines on startup, ending with
 that's the `JsonFormatter` doing its job.
 
 > **Gmail needs one more env var.** The `email_send` / `email_label_apply` tools
-> and the `gmail_poll` trigger stay off — and you'll see a `Gmail poll disabled …
+> and the `email` (Gmail-poll) trigger stay off — and you'll see a `Gmail poll disabled …
 > Client credentials not in SecretStore` warning — unless
 > **`WORKFLOW_PLATFORM_GMAIL_ACCOUNT=<address>`** is set, *even when the creds
 > exist under `.secrets/gmail/<address>/`*. That env var is what triggers the
@@ -457,7 +457,7 @@ used during D8 capability development.
 ## 4e. DMARC report ingest (Gmail attachments → dmarc-viewer)
 
 **What:** the `dmarc_ingest` example under `examples/dmarc_ingest/` — a fully
-**deterministic** pipeline (no LLM anywhere): the `gmail_poll` trigger filters
+**deterministic** pipeline (no LLM anywhere): the `email` trigger (provider: gmail) filters
 server-side (`query: has:attachment (filename:zip OR filename:gz)`) and
 downloads each matching message's attachments to a spool dir (`download_dir`);
 then two reusable catalog steps — `extract_archive` unzips the `.zip`/`.xml.gz`
@@ -482,7 +482,7 @@ uv run pytest tests/test_dmarc_ingest.py -v
 uv run python tools/fetch_dmarc.py \
   --account qrsconsulting@quentinspencer.com --since 2024-01-01 --fire
 
-# Ongoing: just leave the backend running — the gmail_poll trigger handles
+# Ongoing: just leave the backend running — the email trigger handles
 # new report mail as it arrives (poll every 300s).
 ```
 
@@ -972,7 +972,7 @@ the moment.
 
 3. **In-process triggers via `WORKFLOW_DEFINITIONS_DIR`.** Filesystem
    / schedule / webhook triggers all auto-register on startup when you
-   point the env var at a directory of workflow YAMLs. (**Gmail-poll
+   point the env var at a directory of workflow YAMLs. (**The email trigger
    additionally needs `WORKFLOW_PLATFORM_GMAIL_ACCOUNT=<address>`** — see
    the note under §1 — otherwise it logs "Gmail poll disabled" and stays
    off even with creds on disk.)

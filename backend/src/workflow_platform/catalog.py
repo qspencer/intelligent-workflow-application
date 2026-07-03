@@ -84,17 +84,25 @@ TRIGGERS: list[TriggerCatalogItem] = [
         ],
     ),
     TriggerCatalogItem(
-        type="gmail_poll",
-        label="Gmail",
-        description="Poll a Gmail inbox and fire once per new message.",
+        type="email",
+        label="Email",
+        description="Watch a mailbox and fire once per new message. "
+        "(`gmail_poll` is the accepted legacy alias for provider=gmail.)",
         config_fields=[
-            CatalogField(name="account", required=True, description="Gmail account from .secrets."),
+            CatalogField(
+                name="provider",
+                description="Email provider (default 'gmail'; others as they land).",
+            ),
+            CatalogField(
+                name="account", required=True, description="Mailbox address from .secrets."
+            ),
             CatalogField(name="label", description="Mailbox label to poll (default INBOX)."),
             CatalogField(name="poll_interval_seconds", description="Seconds between polls."),
             CatalogField(name="max_messages", description="Max messages per poll."),
             CatalogField(
                 name="query",
-                description="Extra Gmail search clause, e.g. 'has:attachment filename:zip'.",
+                description="Extra provider-native search clause, e.g. Gmail's "
+                "'has:attachment filename:zip'.",
             ),
             CatalogField(
                 name="download_dir",

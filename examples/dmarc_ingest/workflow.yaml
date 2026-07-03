@@ -19,8 +19,9 @@ description: |
   once per message via the run-batch API.
 
 trigger:
-  type: gmail_poll
+  type: email
   config:
+    provider: gmail
     account: qrsconsulting@quentinspencer.com
     # Server-side filter: only mail carrying zip/gz attachments fires.
     # DMARC subjects always start with "Report domain:"; keeping the filter

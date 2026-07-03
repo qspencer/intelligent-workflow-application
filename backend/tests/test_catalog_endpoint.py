@@ -36,7 +36,7 @@ def test_build_catalog_has_all_trigger_types() -> None:
         "filesystem",
         "schedule",
         "webhook",
-        "gmail_poll",
+        "email",
     }
     fs = next(t for t in cat.triggers if t.type == "filesystem")
     path = next(f for f in fs.config_fields if f.name == "path")

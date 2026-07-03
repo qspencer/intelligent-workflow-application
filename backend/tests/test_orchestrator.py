@@ -562,6 +562,60 @@ async def test_gmail_poll_make_trigger_returns_gmail_poll_trigger(tmp_path: Path
     assert trigger.connector.account == "intelligent.workflow.engine@quentinspencer.com"
 
 
+async def test_email_type_with_gmail_provider_builds_gmail_poll_trigger(tmp_path: Path) -> None:
+    """`type: email` is the semantic trigger type; `provider` picks the
+    implementation (gmail_poll remains the legacy alias)."""
+    orch = _orchestrator(tmp_path, engine=_make_engine(), secret_store=EnvSecretStore())
+    definition = load_definition(
+        {
+            "id": "email-wf",
+            "name": "Email",
+            "trigger": {
+                "type": "email",
+                "config": {"provider": "gmail", "account": "a@b.com", "query": "has:attachment"},
+            },
+            "steps": [{"id": "a", "type": "deterministic", "function": "noop"}],
+            "edges": [],
+        }
+    )
+    trigger = orch._make_trigger(definition)
+    assert isinstance(trigger, GmailPollTrigger)
+    assert trigger.connector.account == "a@b.com"
+    assert trigger.query == "has:attachment"
+
+
+async def test_email_type_defaults_provider_to_gmail(tmp_path: Path) -> None:
+    orch = _orchestrator(tmp_path, engine=_make_engine(), secret_store=EnvSecretStore())
+    definition = load_definition(
+        {
+            "id": "email-wf",
+            "name": "Email",
+            "trigger": {"type": "email", "config": {"account": "a@b.com"}},
+            "steps": [{"id": "a", "type": "deterministic", "function": "noop"}],
+            "edges": [],
+        }
+    )
+    assert isinstance(orch._make_trigger(definition), GmailPollTrigger)
+
+
+async def test_email_type_unknown_provider_skips_with_warning(
+    tmp_path: Path, caplog: pytest.LogCaptureFixture
+) -> None:
+    orch = _orchestrator(tmp_path, engine=_make_engine(), secret_store=EnvSecretStore())
+    definition = load_definition(
+        {
+            "id": "email-wf",
+            "name": "Email",
+            "trigger": {"type": "email", "config": {"provider": "outlook", "account": "a@b.com"}},
+            "steps": [{"id": "a", "type": "deterministic", "function": "noop"}],
+            "edges": [],
+        }
+    )
+    caplog.set_level(logging.WARNING)
+    assert orch._make_trigger(definition) is None
+    assert "outlook" in caplog.text
+
+
 async def test_gmail_poll_seeds_trigger_account_env_from_disk(tmp_path: Path) -> None:
     """The dev-path fix for multi-account: bootstrap only seeds the single
     *tools* account, so the orchestrator must seed each gmail_poll trigger's

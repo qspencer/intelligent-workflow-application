@@ -96,7 +96,7 @@ class TriggerOrchestrator:
         self.engine = engine
         self.webhook_registry = webhook_registry
         # `secret_store` is only required for triggers that need credentials
-        # (e.g., `gmail_poll`). Workflows that don't use them work without it.
+        # (e.g., the email trigger). Workflows that don't use them work without it.
         self.secret_store = secret_store
         self._started: list[Trigger] = []
 
@@ -177,10 +177,22 @@ class TriggerOrchestrator:
                     trigger_id,
                     secret_name=config.get("secret_name"),
                 )
-            if spec.type == "gmail_poll":
+            if spec.type in ("email", "gmail_poll"):
+                # Semantic type is `email`; the provider is config, like every
+                # other trigger names the event and configures the mechanism.
+                # `gmail_poll` is the legacy alias (implies provider=gmail).
+                provider = "gmail" if spec.type == "gmail_poll" else config.get("provider", "gmail")
+                if provider != "gmail":
+                    logger.warning(
+                        "Workflow %s: email trigger provider %r is not supported yet "
+                        "(supported: gmail); skipping.",
+                        definition.id,
+                        provider,
+                    )
+                    return None
                 if self.secret_store is None:
                     logger.warning(
-                        "Workflow %s: gmail_poll trigger requires a SecretStore; "
+                        "Workflow %s: email trigger requires a SecretStore; "
                         "TriggerOrchestrator was constructed without one. Skipping.",
                         definition.id,
                     )
@@ -188,7 +200,7 @@ class TriggerOrchestrator:
                 account = config.get("account")
                 if not isinstance(account, str) or not account:
                     logger.warning(
-                        "Workflow %s: gmail_poll trigger requires `account` in config; skipping.",
+                        "Workflow %s: email trigger requires `account` in config; skipping.",
                         definition.id,
                     )
                     return None

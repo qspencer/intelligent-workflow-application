@@ -12,8 +12,9 @@ description: |
   `GmailPollTrigger` emits when the connector polls inbox.
 
 trigger:
-  type: gmail_poll
+  type: email
   config:
+    provider: gmail
     account: intelligent.workflow.engine@quentinspencer.com
     poll_interval_seconds: 60
     label: INBOX

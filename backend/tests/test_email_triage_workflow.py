@@ -82,7 +82,7 @@ def _build_engine(bedrock: FakeBedrock, svc: FakeGmailService | None = None) -> 
 def test_workflow_yaml_loads_and_has_expected_shape() -> None:
     definition = load_definition_from_file(WORKFLOW_PATH)
     assert definition.id == "email-triage"
-    assert definition.trigger.type == "gmail_poll"
+    assert definition.trigger.type == "email"
     assert [s.id for s in definition.steps] == ["triage", "record"]
     triage = definition.steps[0]
     assert triage.type == "agentic"

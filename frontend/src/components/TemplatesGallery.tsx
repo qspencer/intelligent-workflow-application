@@ -9,6 +9,8 @@ const TRIGGER_LABEL: Record<string, string> = {
   filesystem: 'On a new file',
   schedule: 'On a schedule',
   webhook: 'On a webhook',
+  email: 'On an email',
+  gmail_poll: 'On an email', // legacy alias for email
   manual: 'Run manually',
 };
 

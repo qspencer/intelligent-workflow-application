@@ -1,6 +1,6 @@
 """Tests for `extract_archive` and the dmarc-ingest example workflow.
 
-The workflow is fully deterministic (no agentic steps): the gmail_poll trigger
+The workflow is fully deterministic (no agentic steps): the email trigger
 spools DMARC report attachments to disk and puts their paths on the payload;
 `extract_archive` unpacks the .zip / .xml.gz files into the dmarc-viewer's
 watched directory. Tests run against `mock_world()` — no Gmail, no Bedrock.
@@ -198,7 +198,7 @@ def test_dmarc_ingest_yaml_parses() -> None:
 
 
 async def test_dmarc_ingest_runs_end_to_end() -> None:
-    """Trigger payload (as the gmail_poll trigger builds it) → XMLs land in the
+    """Trigger payload (as the email trigger builds it) → XMLs land in the
     dmarc-viewer watched dir. No Bedrock involved at any point."""
     definition = _load_definition()
     world = mock_world()

@@ -388,7 +388,7 @@ def build_router(
         Audit entries are immutable and preserved (same as instance deletes).
 
         Note: this does not unregister an already-running in-process trigger for
-        the workflow (filesystem / schedule / webhook / gmail_poll) — restart the
+        the workflow (filesystem / schedule / webhook / email) — restart the
         server to fully clear it. Bundled examples are re-seeded on restart by the
         trigger orchestrator, so deleting one only clears it until the next boot."""
         if await repositories.definitions.get(workflow_id) is None:
