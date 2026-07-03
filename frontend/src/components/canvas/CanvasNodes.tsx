@@ -11,6 +11,7 @@ function Card({ data, kind }: { data: CanvasNodeData; kind: string }) {
   const className = `canvas-node ${kind}${status ? ` status-${status.cssClass}` : ''}`;
   return (
     <div className={className}>
+      {kind === 'trigger' && <div className="node-kind-label">Trigger</div>}
       <span className="node-icon" aria-hidden="true">
         {data.icon}
       </span>

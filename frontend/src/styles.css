@@ -526,6 +526,7 @@ main {
 
 /* Node cards. Width/height track the dagre layout constants in canvas.ts. */
 .canvas-node {
+  position: relative;
   width: 230px;
   min-height: 72px;
   display: flex;
@@ -538,8 +539,25 @@ main {
   border-radius: 6px;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
 }
+/* The trigger reads differently from processing steps: thicker frame + an
+   explicit "Trigger" caption, centered at the top edge of the card. */
 .canvas-node.trigger {
+  border-width: 2px;
+  border-left-width: 4px;
   border-left-color: var(--muted);
+  padding-top: 22px;
+}
+.node-kind-label {
+  position: absolute;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--muted);
+  line-height: 1;
 }
 .canvas-node.deterministic {
   border-left-color: var(--accent);
