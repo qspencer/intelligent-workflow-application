@@ -134,7 +134,7 @@ The top nav shows **Automations** and **Templates**; the developer console
 1. **Automations** (default, `/`) — heading "Your automations". Empty state
    ("No automations yet.") on a fresh backend, or a card grid once workflows
    exist. Not a list of instances.
-2. **Templates** — a card grid of the 10 bundled example workflows, each with a
+2. **Templates** — a card grid of the bundled example workflows, each with a
    step count and a friendly trigger label ("On a webhook", "On a schedule", …).
 3. **Developer toggle** (top-right, "Developer: off") — click it and the
    **Instances / Workflows / Cost** nav links appear; the choice persists across
@@ -451,6 +451,44 @@ BROWSER_LIVE=1 BEDROCK_LIVE=1 uv run python tools/probe_rpa.py
 
 Dumps every step's output + the audit log to stdout. Same harness
 used during D8 capability development.
+
+---
+
+## 4e. DMARC report ingest (Gmail attachments → dmarc-viewer)
+
+**What:** the `dmarc_ingest` example under `examples/dmarc_ingest/` — a fully
+**deterministic** pipeline (no LLM anywhere): the `gmail_poll` trigger filters
+server-side (`query: has:attachment (filename:zip OR filename:gz)`), downloads
+each matching message's attachments to a spool dir (`download_dir`), and the
+`extract_archive` function unpacks the `.zip`/`.xml.gz` reports into the
+dmarc-viewer app's watched directory, which auto-loads any `.xml` written there.
+
+**Why manual:** exercises the attachment-download path (connector →
+trigger spool → payload `attachment_paths`) end to end against real mail.
+
+Prereqs: Gmail credentials for the workflow's account under
+`.secrets/gmail/<account>/` (Gates 3–4, `docs/EMAIL_CONNECTOR_PLAN.md`) and the
+dmarc-viewer running in watched mode (`cd /home/ubuntu/Dev/dmarc-viewer && npm
+start`).
+
+```bash
+# Replay-mode automated coverage (no Gmail / no Bedrock):
+cd backend
+uv run pytest tests/test_dmarc_ingest.py -v
+
+# Backfill — one-shot over historical mail, firing the workflow per message
+# via run-batch (backend must be running with the example loaded):
+uv run python tools/fetch_dmarc.py \
+  --account qrsconsulting@quentinspencer.com --since 2024-01-01 --fire
+
+# Ongoing: just leave the backend running — the gmail_poll trigger handles
+# new report mail as it arrives (poll every 300s).
+```
+
+**Pass when:** the backfill prints per-batch `submitted/succeeded/failed`
+counts, `.xml` files appear in `/home/ubuntu/Dev/dmarc-viewer/xml-files/`, and
+the viewer auto-loads them (it rescans every 10s). Each run is visible in the
+dashboard with the step's `extracted_count` in its output.
 
 ---
 

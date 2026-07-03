@@ -109,6 +109,58 @@ async def test_poll_inbox_builds_after_query_from_since() -> None:
     assert list_call["maxResults"] == 5
 
 
+async def test_poll_inbox_appends_extra_query() -> None:
+    svc = FakeGmailService()
+    svc.list_response = {"messages": []}
+    conn = _make_connector(svc)
+
+    await conn.poll_inbox(label="INBOX", query="has:attachment (filename:zip OR filename:gz)")
+
+    list_call = next(kw for (m, kw) in svc.calls if m == "messages.list")
+    assert list_call["q"] == "label:INBOX has:attachment (filename:zip OR filename:gz)"
+
+
+async def test_poll_inbox_parses_attachment_metadata() -> None:
+    svc = FakeGmailService()
+    svc.list_response = {"messages": [{"id": "m-att"}]}
+    svc.get_responses["m-att"] = stage_gmail_message(
+        "m-att",
+        subject="Report domain: example.com",
+        attachments=[
+            {
+                "filename": "google.com!example.com!1700000000!1700086400.zip",
+                "mimeType": "application/zip",
+                "attachmentId": "att-1",
+                "size": 1234,
+            }
+        ],
+    )
+    conn = _make_connector(svc)
+
+    (msg,) = await conn.poll_inbox()
+
+    (att,) = msg.attachments
+    assert att.filename == "google.com!example.com!1700000000!1700086400.zip"
+    assert att.mime_type == "application/zip"
+    assert att.attachment_id == "att-1"
+    assert att.size_bytes == 1234
+
+
+async def test_download_attachment_decodes_base64url() -> None:
+    svc = FakeGmailService()
+    original = b"\x00\x01zip-bytes-\xff"
+    # Gmail returns unpadded base64url — the connector must re-pad.
+    encoded = base64.urlsafe_b64encode(original).decode("ascii").rstrip("=")
+    svc.attachment_responses[("m-att", "att-1")] = {"data": encoded, "size": len(original)}
+    conn = _make_connector(svc)
+
+    data = await conn.download_attachment("m-att", "att-1")
+
+    assert data == original
+    call = next(kw for (m, kw) in svc.calls if m == "messages.attachments.get")
+    assert call == {"userId": "me", "messageId": "m-att", "id": "att-1"}
+
+
 # ---------- send_email ----------
 
 

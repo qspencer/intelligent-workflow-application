@@ -38,13 +38,23 @@ class EmailConnector(Connector):
         since: datetime | None = None,
         label: str | None = None,
         max_messages: int = 50,
+        query: str | None = None,
     ) -> list[EmailMessage]:
         """Return messages received strictly after `since`, newest-first
-        order optional. Returns at most `max_messages` entries."""
+        order optional. Returns at most `max_messages` entries. `query` is an
+        extra provider-native search clause (providers without server-side
+        search may ignore it)."""
 
     @abstractmethod
     async def send_email(self, req: EmailSendRequest) -> str:
         """Send a message. Returns the provider's message_id."""
+
+    async def download_attachment(self, message_id: str, attachment_id: str) -> bytes:
+        """Fetch one attachment's bytes. Default: unsupported — providers
+        implement it when their API exposes attachment content (Gmail does).
+        Matches the connector convention of NotImplementedError defaults so
+        providers only implement what they support."""
+        raise NotImplementedError(f"{type(self).__name__} does not support attachment download")
 
     @abstractmethod
     async def apply_labels(self, message_id: str, labels: list[str]) -> None:

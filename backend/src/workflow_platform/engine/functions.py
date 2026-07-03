@@ -7,10 +7,12 @@ through `FunctionRegistry`.
 from __future__ import annotations
 
 import csv
+import gzip
 import io
 import json
 import logging
 import re
+import zipfile
 from datetime import date, datetime
 from pathlib import PurePosixPath
 from typing import Any
@@ -844,6 +846,114 @@ async def write_csv(
     }
 
 
+async def extract_archive(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Extract `.zip` / `.gz` archives into a destination directory.
+
+    Config:
+    - `paths` (literal list) or `paths_from` (dotted context ref, e.g.
+      `trigger.attachment_paths`) — the archive files to extract.
+    - `dest_dir` (required) — where extracted members are written.
+    - `member_suffix` (optional, e.g. `.xml`) — only members whose name ends
+      with this (case-insensitive) are written; others are skipped.
+
+    Member names are flattened to their basename (zip-slip safe). Repeated
+    names within one run get a numeric prefix; re-running over the same
+    archives overwrites deterministically (idempotent re-delivery).
+    Non-archive inputs are skipped, not fatal — a triggering email may carry
+    unrelated attachments alongside the reports.
+    """
+    dest_dir = config.get("dest_dir")
+    if not isinstance(dest_dir, str) or not dest_dir:
+        raise StepFailure("extract_archive requires `dest_dir` in config")
+    raw_paths = config.get("paths", _resolve_value(context, config.get("paths_from")))
+    if raw_paths is None:
+        raw_paths = []
+    if not isinstance(raw_paths, list) or any(not isinstance(p, str) for p in raw_paths):
+        raise StepFailure("extract_archive `paths` must be a list of file path strings")
+    suffix = config.get("member_suffix")
+    suffix_l = suffix.lower() if isinstance(suffix, str) and suffix else None
+
+    extracted: list[str] = []
+    skipped: list[dict[str, str]] = []
+    used_names: set[str] = set()
+
+    def _dest_name(name: str) -> str:
+        base = PurePosixPath(name.replace("\\", "/")).name or "member"
+        candidate = base
+        counter = 2
+        while candidate in used_names:
+            candidate = f"{counter}_{base}"
+            counter += 1
+        used_names.add(candidate)
+        return candidate
+
+    async def _write(name: str, data: bytes) -> None:
+        out = f"{dest_dir.rstrip('/')}/{_dest_name(name)}"
+        await world.fs.write_bytes(out, data)
+        extracted.append(out)
+
+    for path in raw_paths:
+        lower = path.lower()
+        try:
+            blob = await world.fs.read_bytes(path)
+        except Exception as exc:
+            skipped.append({"path": path, "reason": f"unreadable: {exc}"})
+            continue
+        if lower.endswith(".zip"):
+            try:
+                with zipfile.ZipFile(io.BytesIO(blob)) as zf:
+                    for info in zf.infolist():
+                        if info.is_dir():
+                            continue
+                        member = PurePosixPath(info.filename).name
+                        if suffix_l and not member.lower().endswith(suffix_l):
+                            skipped.append({"path": f"{path}!{info.filename}", "reason": "suffix"})
+                            continue
+                        await _write(member, zf.read(info))
+            except zipfile.BadZipFile:
+                skipped.append({"path": path, "reason": "not a valid zip"})
+        elif lower.endswith(".gz"):
+            member = PurePosixPath(path).name[: -len(".gz")] or "member"
+            if suffix_l and not member.lower().endswith(suffix_l):
+                skipped.append({"path": path, "reason": "suffix"})
+                continue
+            try:
+                await _write(member, gzip.decompress(blob))
+            except (OSError, EOFError):
+                skipped.append({"path": path, "reason": "not a valid gzip"})
+        else:
+            skipped.append({"path": path, "reason": "not an archive"})
+
+    return {
+        "dest_dir": dest_dir,
+        "extracted": extracted,
+        "extracted_count": len(extracted),
+        "skipped": skipped,
+    }
+
+
+def _resolve_value(context: WorkflowContext, dotted: Any) -> Any:
+    """Resolve a dotted `trigger.…` / `steps.…` ref to whatever it points at
+    (any JSON value — `_resolve_path` is the string-only variant)."""
+    if not isinstance(dotted, str) or not dotted:
+        return None
+    parts = dotted.split(".")
+    cursor: Any
+    if parts[0] == "trigger":
+        cursor = context.trigger
+    elif parts[0] == "steps":
+        cursor = context.steps
+    else:
+        return None
+    for part in parts[1:]:
+        if not isinstance(cursor, dict) or part not in cursor:
+            return None
+        cursor = cursor[part]
+    return cursor
+
+
 def _resolve_path(context: WorkflowContext, dotted: str | None) -> str | None:
     if not dotted:
         return None
@@ -880,5 +990,6 @@ def default_function_registry() -> FunctionRegistry:
             "append_file": append_file,
             "filter_rows_by_date": filter_rows_by_date,
             "write_csv": write_csv,
+            "extract_archive": extract_archive,
         }
     )

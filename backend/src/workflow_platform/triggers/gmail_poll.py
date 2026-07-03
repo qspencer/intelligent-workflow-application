@@ -33,13 +33,15 @@ import asyncio
 import contextlib
 import logging
 from datetime import UTC, datetime
-from typing import ClassVar
+from pathlib import Path
+from typing import Any, ClassVar
 
 from workflow_platform.connectors.email.gmail import GmailConnector
 from workflow_platform.connectors.email.gmail_auth import (
     GmailAuthMisconfigured,
     GmailAuthRevoked,
 )
+from workflow_platform.connectors.email.models import EmailMessage
 from workflow_platform.triggers.base import Trigger, TriggerCallback
 
 logger = logging.getLogger(__name__)
@@ -56,6 +58,8 @@ class GmailPollTrigger(Trigger):
         label: str | None = "INBOX",
         max_messages: int = 50,
         auth_revoked_backoff_seconds: float = 300.0,
+        query: str | None = None,
+        download_dir: str | None = None,
     ) -> None:
         if poll_interval_seconds <= 0:
             raise ValueError("poll_interval_seconds must be positive")
@@ -64,6 +68,14 @@ class GmailPollTrigger(Trigger):
         self.label = label
         self.max_messages = max_messages
         self.auth_revoked_backoff_seconds = auth_revoked_backoff_seconds
+        # Extra Gmail search clause (e.g. `has:attachment filename:zip`) —
+        # server-side filtering so the trigger only fires on matching mail.
+        self.query = query
+        # When set, each message's attachments are downloaded to
+        # `<download_dir>/<message_id>/<filename>` before the callback fires,
+        # and the payload gains `attachment_paths`. Deterministic steps can't
+        # reach the connector, so the trigger delivers files, not ids.
+        self.download_dir = download_dir
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
         self._cursor: datetime | None = None
@@ -97,6 +109,7 @@ class GmailPollTrigger(Trigger):
                     since=self._cursor,
                     label=self.label,
                     max_messages=self.max_messages,
+                    query=self.query,
                 )
             except GmailAuthRevoked:
                 logger.error(
@@ -136,7 +149,7 @@ class GmailPollTrigger(Trigger):
                 if self._stop.is_set():
                     return
                 try:
-                    await on_event(msg.model_dump(mode="json"))
+                    await on_event(await self._build_payload(msg))
                 except Exception:
                     logger.exception(
                         "Trigger callback failed for Gmail message %s; loop continues.",
@@ -145,6 +158,34 @@ class GmailPollTrigger(Trigger):
 
             if await self._wait_or_stop(self.poll_interval_seconds):
                 return
+
+    async def _build_payload(self, msg: EmailMessage) -> dict[str, Any]:
+        """The trigger's event payload: the message JSON, plus — when
+        `download_dir` is set — its attachments spooled to disk and their
+        local paths under `attachment_paths`. A single failed download is
+        logged and skipped rather than sinking the whole message."""
+        payload: dict[str, Any] = msg.model_dump(mode="json")
+        if self.download_dir is None or not msg.attachments:
+            return payload
+        target = Path(self.download_dir) / msg.message_id
+        await asyncio.to_thread(target.mkdir, parents=True, exist_ok=True)
+        paths: list[str] = []
+        for i, att in enumerate(msg.attachments):
+            # Flatten any path components a hostile filename might carry.
+            name = Path(att.filename).name or f"attachment-{i}"
+            dest = target / name
+            try:
+                data = await self.connector.download_attachment(msg.message_id, att.attachment_id)
+                await asyncio.to_thread(dest.write_bytes, data)
+                paths.append(str(dest))
+            except Exception:
+                logger.exception(
+                    "Failed to download attachment %r from Gmail message %s; skipping it.",
+                    att.filename,
+                    msg.message_id,
+                )
+        payload["attachment_paths"] = paths
+        return payload
 
     async def _wait_or_stop(self, seconds: float) -> bool:
         """Sleep up to `seconds` or until `stop()` is called. Returns True

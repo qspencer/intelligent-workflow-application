@@ -92,6 +92,15 @@ TRIGGERS: list[TriggerCatalogItem] = [
             CatalogField(name="label", description="Mailbox label to poll (default INBOX)."),
             CatalogField(name="poll_interval_seconds", description="Seconds between polls."),
             CatalogField(name="max_messages", description="Max messages per poll."),
+            CatalogField(
+                name="query",
+                description="Extra Gmail search clause, e.g. 'has:attachment filename:zip'.",
+            ),
+            CatalogField(
+                name="download_dir",
+                description="Spool dir: attachments are downloaded here and their paths "
+                "added to the payload as attachment_paths.",
+            ),
         ],
     ),
 ]

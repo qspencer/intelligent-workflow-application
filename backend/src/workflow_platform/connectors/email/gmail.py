@@ -22,6 +22,7 @@ from typing import Any, ClassVar, Protocol
 from workflow_platform.connectors.email.base import EmailConnector
 from workflow_platform.connectors.email.models import (
     EmailAddress,
+    EmailAttachment,
     EmailMessage,
     EmailSendRequest,
 )
@@ -114,7 +115,11 @@ class GmailConnector(EmailConnector):
         since: datetime | None = None,
         label: str | None = None,
         max_messages: int = 50,
+        query: str | None = None,
     ) -> list[EmailMessage]:
+        """List + fetch messages. `query` is an extra raw Gmail search clause
+        (e.g. `has:attachment filename:zip`) ANDed with the since/label parts —
+        server-side filtering so triggers don't fire on irrelevant mail."""
         svc = await self._get_service()
         query_parts: list[str] = []
         if since is not None:
@@ -122,7 +127,9 @@ class GmailConnector(EmailConnector):
             query_parts.append(f"after:{int(since.timestamp())}")
         if label:
             query_parts.append(f"label:{label}")
-        query = " ".join(query_parts)
+        if query:
+            query_parts.append(query)
+        q = " ".join(query_parts)
 
         ids: list[str] = []
         page_token: str | None = None
@@ -131,8 +138,8 @@ class GmailConnector(EmailConnector):
                 "userId": self.USER_ID,
                 "maxResults": min(self.LIST_PAGE_SIZE, max_messages - len(ids)),
             }
-            if query:
-                kwargs["q"] = query
+            if q:
+                kwargs["q"] = q
             if page_token:
                 kwargs["pageToken"] = page_token
             resp = await self._execute(svc.users().messages().list(**kwargs))
@@ -205,6 +212,19 @@ class GmailConnector(EmailConnector):
             )
         )
 
+    async def download_attachment(self, message_id: str, attachment_id: str) -> bytes:
+        """Fetch one attachment's bytes. Gmail returns attachment content only
+        via a dedicated call (`messages.attachments.get`), base64url-encoded."""
+        svc = await self._get_service()
+        resp = await self._execute(
+            svc.users()
+            .messages()
+            .attachments()
+            .get(userId=self.USER_ID, messageId=message_id, id=attachment_id)
+        )
+        data = resp["data"]
+        return base64.urlsafe_b64decode(data + "=" * (-len(data) % 4))
+
     # --- helpers ---
 
     async def _resolve_label_id(self, name: str) -> str:
@@ -267,6 +287,30 @@ def _extract_bodies(payload: dict[str, Any]) -> tuple[str, str | None]:
     return text, html
 
 
+def _extract_attachments(payload: dict[str, Any]) -> list[EmailAttachment]:
+    """Walk `payload.parts` collecting real attachments — parts that carry a
+    filename and a Gmail `attachmentId` (bodies fetched separately)."""
+    found: list[EmailAttachment] = []
+
+    def walk(part: dict[str, Any]) -> None:
+        body = part.get("body") or {}
+        filename = part.get("filename") or ""
+        if filename and body.get("attachmentId"):
+            found.append(
+                EmailAttachment(
+                    filename=filename,
+                    mime_type=part.get("mimeType", "application/octet-stream"),
+                    attachment_id=body["attachmentId"],
+                    size_bytes=int(body.get("size", 0) or 0),
+                )
+            )
+        for child in part.get("parts", []) or []:
+            walk(child)
+
+    walk(payload)
+    return found
+
+
 def _parse_gmail_message(raw: dict[str, Any]) -> EmailMessage:
     payload = raw.get("payload", {})
     headers = _header_map(payload.get("headers", []))
@@ -287,6 +331,7 @@ def _parse_gmail_message(raw: dict[str, Any]) -> EmailMessage:
         labels=list(raw.get("labelIds", []) or []),
         in_reply_to=headers.get("In-Reply-To"),
         headers=headers,
+        attachments=_extract_attachments(payload),
     )
 
 

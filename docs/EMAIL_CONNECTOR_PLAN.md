@@ -484,10 +484,10 @@ Don't build these in v1; pull in when a workload demands:
 
 | Feature | When to revisit |
 |---|---|
-| Attachment read/write | A workflow needs to triage attached PDFs (then it's mostly wiring `pdf_extract` to the message's attachments) |
+| Attachment **read** — **shipped** (DMARC-ingest workload pulled it in) | `EmailMessage.attachments` metadata is parsed on every poll; `GmailConnector.download_attachment` fetches bytes; `GmailPollTrigger(download_dir=…)` spools them to disk and puts `attachment_paths` on the payload (deterministic steps can't reach the connector, so the trigger delivers files). Attachment *send* remains deferred. |
 | Calendar integration | Separate connector — same provider, different API surface |
 | Contact / address-book operations | Same |
-| Full-text search beyond label + recency | Workflow needs "find messages matching X" rather than "process new" |
+| Full-text search beyond label + recency — **partly shipped** | `poll_inbox(query=…)` passes a raw Gmail search clause through (server-side filtering, e.g. `has:attachment filename:zip`). A dedicated "search" trigger shape is still deferred. |
 | Per-thread agent memory | A workflow needs to remember "what we last said to alice@" |
 | Multi-account in one workflow | One operator runs multiple mailboxes through the same workflow |
 | HTML rendering as more than `body_html` field | An agentic step needs to *understand* the HTML structure, not just see it |

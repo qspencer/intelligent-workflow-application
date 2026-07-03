@@ -91,6 +91,51 @@ async def test_fires_on_each_message_in_first_poll() -> None:
     assert fired[0]["message_id"] in {"m-1", "m-2"}
 
 
+async def test_download_dir_spools_attachments_onto_payload(tmp_path: Any) -> None:
+    """With `download_dir` set, the trigger downloads each attachment before
+    firing and the payload carries their local paths (`attachment_paths`) —
+    deterministic steps can't reach the connector, so the trigger delivers
+    files, not ids."""
+    import base64
+
+    svc = FakeGmailService()
+    svc.list_response = {"messages": [{"id": "m-dmarc"}]}
+    svc.get_responses["m-dmarc"] = stage_gmail_message(
+        "m-dmarc",
+        subject="Report domain: example.com",
+        attachments=[
+            {"filename": "report.zip", "attachmentId": "att-1", "size": 3},
+            # A hostile filename must be flattened, never written outside the spool.
+            {"filename": "../../evil.zip", "attachmentId": "att-2", "size": 3},
+        ],
+    )
+    for att_id, content in (("att-1", b"one"), ("att-2", b"two")):
+        svc.attachment_responses[("m-dmarc", att_id)] = {
+            "data": base64.urlsafe_b64encode(content).decode("ascii")
+        }
+
+    fired: list[dict[str, Any]] = []
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        fired.append(payload)
+
+    trig, _ = _make_trigger(svc)
+    trig.download_dir = str(tmp_path)
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: len(fired) >= 1)
+    finally:
+        await trig.stop()
+
+    paths = fired[0]["attachment_paths"]
+    assert len(paths) == 2
+    assert all(p.startswith(str(tmp_path)) for p in paths)
+    assert (tmp_path / "m-dmarc" / "report.zip").read_bytes() == b"one"
+    # Flattened: written as evil.zip inside the message dir, not up the tree.
+    assert (tmp_path / "m-dmarc" / "evil.zip").read_bytes() == b"two"
+    assert not (tmp_path.parent / "evil.zip").exists()
+
+
 async def test_advances_cursor_so_second_poll_uses_after_query() -> None:
     svc = FakeGmailService()
     # Two distinct internal dates: 1000ms then 2000ms.

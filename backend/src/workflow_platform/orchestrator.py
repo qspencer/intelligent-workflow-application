@@ -198,6 +198,8 @@ class TriggerOrchestrator:
                     poll_interval_seconds=float(config.get("poll_interval_seconds", 60.0)),
                     label=config.get("label", "INBOX"),
                     max_messages=int(config.get("max_messages", 50)),
+                    query=config.get("query"),
+                    download_dir=config.get("download_dir"),
                 )
             if spec.type == "manual":
                 # `manual` is a deliberate no-op — definitions tagged this way

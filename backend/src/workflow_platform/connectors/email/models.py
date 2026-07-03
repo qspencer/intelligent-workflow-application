@@ -21,6 +21,17 @@ class EmailAddress(BaseModel):
     name: str | None = None
 
 
+class EmailAttachment(BaseModel):
+    """Attachment metadata on an inbound message. The bytes are NOT fetched
+    during a poll (each needs a separate per-attachment API call) — use the
+    connector's `download_attachment(message_id, attachment_id)`."""
+
+    filename: str
+    mime_type: str
+    attachment_id: str
+    size_bytes: int = 0
+
+
 class EmailMessage(BaseModel):
     """Inbound email shape — what triggers emit as their event payload."""
 
@@ -38,6 +49,7 @@ class EmailMessage(BaseModel):
     labels: list[str] = Field(default_factory=list)
     in_reply_to: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
+    attachments: list[EmailAttachment] = Field(default_factory=list)
 
 
 class EmailSendRequest(BaseModel):

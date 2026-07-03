@@ -21,6 +21,7 @@ from workflow_platform.connectors.email.gmail_auth import (
 )
 from workflow_platform.connectors.email.models import (
     EmailAddress,
+    EmailAttachment,
     EmailMessage,
     EmailProvider,
     EmailSendRequest,
@@ -28,6 +29,7 @@ from workflow_platform.connectors.email.models import (
 
 __all__ = [
     "EmailAddress",
+    "EmailAttachment",
     "EmailConnector",
     "EmailMessage",
     "EmailProvider",

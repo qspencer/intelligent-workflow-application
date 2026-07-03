@@ -55,6 +55,21 @@ class _Messages:
         self._svc.calls.append(("messages.modify", kwargs))
         return _Request(self._svc.modify_response)
 
+    def attachments(self) -> _Attachments:
+        return _Attachments(self._svc)
+
+
+class _Attachments:
+    def __init__(self, svc: FakeGmailService) -> None:
+        self._svc = svc
+
+    def get(self, **kwargs: Any) -> _Request:
+        self._svc.calls.append(("messages.attachments.get", kwargs))
+        key = (kwargs["messageId"], kwargs["id"])
+        if key not in self._svc.attachment_responses:
+            raise KeyError(f"FakeGmailService has no staged attachment for {key!r}")
+        return _Request(self._svc.attachment_responses[key])
+
 
 class _Labels:
     def __init__(self, svc: FakeGmailService) -> None:
@@ -91,6 +106,8 @@ class FakeGmailService:
         self.modify_response: dict[str, Any] = {}
         self.labels_response: dict[str, Any] = {"labels": []}
         self.profile_response: dict[str, Any] = {"emailAddress": "test@example.com"}
+        # (message_id, attachment_id) -> attachments.get response ({"data": b64url, ...})
+        self.attachment_responses: dict[tuple[str, str], dict[str, Any]] = {}
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self._list_page_idx = 0
 
@@ -122,6 +139,7 @@ def stage_gmail_message(
     in_reply_to: str | None = None,
     references: str | None = None,
     message_id_header: str | None = None,
+    attachments: list[dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Build a Gmail-shaped message JSON for `messages().get(format='full')`."""
     headers: list[dict[str, str]] = [
@@ -152,6 +170,19 @@ def stage_gmail_message(
                 "mimeType": "text/html",
                 "body": {
                     "data": base64.urlsafe_b64encode(body_html.encode("utf-8")).decode("ascii")
+                },
+            }
+        )
+    for att in attachments or []:
+        # Gmail's attachment parts carry a filename and a body.attachmentId
+        # (the bytes come from a separate attachments.get call).
+        payload["parts"].append(
+            {
+                "mimeType": att.get("mimeType", "application/zip"),
+                "filename": att["filename"],
+                "body": {
+                    "attachmentId": att["attachmentId"],
+                    "size": att.get("size", 0),
                 },
             }
         )
