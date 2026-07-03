@@ -458,9 +458,10 @@ used during D8 capability development.
 
 **What:** the `dmarc_ingest` example under `examples/dmarc_ingest/` — a fully
 **deterministic** pipeline (no LLM anywhere): the `gmail_poll` trigger filters
-server-side (`query: has:attachment (filename:zip OR filename:gz)`), downloads
-each matching message's attachments to a spool dir (`download_dir`), and the
-`extract_archive` function unpacks the `.zip`/`.xml.gz` reports into the
+server-side (`query: has:attachment (filename:zip OR filename:gz)`) and
+downloads each matching message's attachments to a spool dir (`download_dir`);
+then two reusable catalog steps — `extract_archive` unzips the `.zip`/`.xml.gz`
+reports into a staging dir, and `copy_files` delivers the XMLs into the
 dmarc-viewer app's watched directory, which auto-loads any `.xml` written there.
 
 **Why manual:** exercises the attachment-download path (connector →

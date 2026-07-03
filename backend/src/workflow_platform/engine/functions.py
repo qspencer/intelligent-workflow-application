@@ -934,6 +934,56 @@ async def extract_archive(
     }
 
 
+async def copy_files(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Copy files into a destination directory — the generic delivery step.
+
+    Config:
+    - `paths` (literal list) or `paths_from` (dotted context ref, e.g.
+      `steps.extract_reports.extracted`) — the files to copy.
+    - `dest_dir` (required) — files land there under their basename.
+    - `suffix` (optional, e.g. `.xml`) — only copy files whose name ends with
+      this (case-insensitive).
+
+    Copies by basename (flattened), overwriting deterministically — re-running
+    a delivery is idempotent. Unreadable sources are skipped, not fatal.
+    """
+    dest_dir = config.get("dest_dir")
+    if not isinstance(dest_dir, str) or not dest_dir:
+        raise StepFailure("copy_files requires `dest_dir` in config")
+    raw_paths = config.get("paths", _resolve_value(context, config.get("paths_from")))
+    if raw_paths is None:
+        raw_paths = []
+    if not isinstance(raw_paths, list) or any(not isinstance(p, str) for p in raw_paths):
+        raise StepFailure("copy_files `paths` must be a list of file path strings")
+    suffix = config.get("suffix")
+    suffix_l = suffix.lower() if isinstance(suffix, str) and suffix else None
+
+    copied: list[str] = []
+    skipped: list[dict[str, str]] = []
+    for path in raw_paths:
+        name = PurePosixPath(path.replace("\\", "/")).name
+        if suffix_l and not name.lower().endswith(suffix_l):
+            skipped.append({"path": path, "reason": "suffix"})
+            continue
+        try:
+            payload = await world.fs.read_bytes(path)
+        except Exception as exc:
+            skipped.append({"path": path, "reason": f"unreadable: {exc}"})
+            continue
+        out = f"{dest_dir.rstrip('/')}/{name}"
+        await world.fs.write_bytes(out, payload)
+        copied.append(out)
+
+    return {
+        "dest_dir": dest_dir,
+        "copied": copied,
+        "copied_count": len(copied),
+        "skipped": skipped,
+    }
+
+
 def _resolve_value(context: WorkflowContext, dotted: Any) -> Any:
     """Resolve a dotted `trigger.…` / `steps.…` ref to whatever it points at
     (any JSON value — `_resolve_path` is the string-only variant)."""
@@ -991,5 +1041,6 @@ def default_function_registry() -> FunctionRegistry:
             "filter_rows_by_date": filter_rows_by_date,
             "write_csv": write_csv,
             "extract_archive": extract_archive,
+            "copy_files": copy_files,
         }
     )

@@ -2,14 +2,16 @@ id: dmarc-ingest
 name: DMARC Report Ingest
 description: |
   Watches a Gmail inbox for DMARC aggregate reports (providers send them as
-  .zip / .xml.gz attachments), extracts the XML, and delivers it to the
+  .zip / .xml.gz attachments), unzips them, and delivers the XML to the
   dmarc-viewer app's watched directory — which auto-loads any .xml written
   into it. Fully deterministic: no LLM anywhere in the pipeline.
 
-  The gmail_poll trigger does the heavy lifting: the `query` filters
-  server-side so only report mail fires the workflow, and `download_dir`
-  makes the trigger spool each message's attachments to disk and put their
-  local paths on the payload as `attachment_paths`.
+  Shape: the trigger handles *acquisition* (server-side Gmail filtering via
+  `query`; attachment download via `download_dir`, which puts local file
+  paths on the payload as `attachment_paths`) — then two reusable steps:
+  extract_archive unzips into a staging dir, copy_files delivers the XMLs
+  to the destination. Each step is a catalog capability usable in any
+  other workflow.
 
   Backfill ("go through all existing mail") is a separate one-shot:
   `backend/tools/fetch_dmarc.py` fetches historical messages with the same
@@ -33,12 +35,23 @@ trigger:
 
 steps:
   - id: extract_reports
-    label: "Extract reports to dmarc-viewer"
+    label: "Unzip report archives"
     type: deterministic
     function: extract_archive
     config:
       paths_from: trigger.attachment_paths
-      dest_dir: /home/ubuntu/Dev/dmarc-viewer/xml-files
+      dest_dir: /tmp/dmarc-extracted
       member_suffix: .xml
 
-edges: []
+  - id: deliver_reports
+    label: "Deliver XMLs to dmarc-viewer"
+    type: deterministic
+    function: copy_files
+    config:
+      paths_from: steps.extract_reports.extracted
+      dest_dir: /home/ubuntu/Dev/dmarc-viewer/xml-files
+      suffix: .xml
+
+edges:
+  - from: extract_reports
+    to: deliver_reports

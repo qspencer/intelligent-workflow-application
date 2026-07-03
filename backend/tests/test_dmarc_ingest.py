@@ -22,7 +22,7 @@ from workflow_platform.engine import (
     default_function_registry,
 )
 from workflow_platform.engine.context import WorkflowContext
-from workflow_platform.engine.functions import extract_archive
+from workflow_platform.engine.functions import copy_files, extract_archive
 from workflow_platform.engine.registry import StepFailure
 from workflow_platform.persistence import WorkflowInstanceState, in_memory_repositories
 from workflow_platform.workflow import load_definition_from_yaml
@@ -140,6 +140,48 @@ async def test_missing_dest_dir_raises() -> None:
         await extract_archive({"paths": []}, _ctx(), mock_world())
 
 
+# --- copy_files stock function ---
+
+
+async def test_copy_files_delivers_by_basename_with_suffix_filter() -> None:
+    world = mock_world()
+    await world.fs.write_bytes("/staging/agg.xml", b"<feedback/>")
+    await world.fs.write_bytes("/staging/notes.txt", b"skip me")
+    ctx = WorkflowContext(
+        instance_id="i",
+        workflow_id="w",
+        steps={"extract": {"extracted": ["/staging/agg.xml", "/staging/notes.txt"]}},
+    )
+
+    out = await copy_files(
+        {"paths_from": "steps.extract.extracted", "dest_dir": "/final", "suffix": ".xml"},
+        ctx,
+        world,
+    )
+
+    assert out["copied"] == ["/final/agg.xml"]
+    assert out["copied_count"] == 1
+    assert await world.fs.read_bytes("/final/agg.xml") == b"<feedback/>"
+    assert any(s["reason"] == "suffix" for s in out["skipped"])
+
+
+async def test_copy_files_skips_unreadable_sources() -> None:
+    world = mock_world()
+    out = await copy_files({"paths": ["/nope/missing.xml"], "dest_dir": "/final"}, _ctx(), world)
+    assert out["copied_count"] == 0
+    assert "unreadable" in out["skipped"][0]["reason"]
+
+
+async def test_copy_files_requires_dest_dir() -> None:
+    with pytest.raises(StepFailure):
+        await copy_files({"paths": []}, _ctx(), mock_world())
+
+
+async def test_copy_files_empty_paths_is_a_clean_noop() -> None:
+    out = await copy_files({"paths_from": "steps.x.y", "dest_dir": "/final"}, _ctx(), mock_world())
+    assert out == {"dest_dir": "/final", "copied": [], "copied_count": 0, "skipped": []}
+
+
 # --- the dmarc-ingest example workflow ---
 
 
@@ -185,8 +227,13 @@ async def test_dmarc_ingest_runs_end_to_end() -> None:
     )
 
     assert instance.state == WorkflowInstanceState.COMPLETED
+    # Step 1: archives unzipped into the staging dir…
+    extract_out = instance.context["steps"]["extract_reports"]
+    assert extract_out["extracted_count"] == 2
+    assert extract_out["dest_dir"] == "/tmp/dmarc-extracted"
+    # …step 2: XMLs delivered to the viewer's watched dir.
+    deliver_out = instance.context["steps"]["deliver_reports"]
+    assert deliver_out["copied_count"] == 2
     dest = "/home/ubuntu/Dev/dmarc-viewer/xml-files"
     assert await world.fs.read_bytes(f"{dest}/google.com!qs.com!1!2.xml") == b"<feedback/>"
     assert await world.fs.read_bytes(f"{dest}/agg.xml") == b"<gz/>"
-    out = instance.context["steps"]["extract_reports"]
-    assert out["extracted_count"] == 2
