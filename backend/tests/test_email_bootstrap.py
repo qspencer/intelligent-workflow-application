@@ -27,7 +27,7 @@ from workflow_platform.connectors.email import (
     GmailConnector,
     maybe_build_gmail_connector,
 )
-from workflow_platform.connectors.email.bootstrap import _seed_env_from_disk
+from workflow_platform.connectors.email.bootstrap import seed_gmail_env_from_disk
 from workflow_platform.secrets import EnvSecretStore, SecretStore
 
 ACCOUNT = "test-bootstrap@example.com"
@@ -107,19 +107,19 @@ def test_builds_connector_by_seeding_env_from_disk(tmp_path: Path) -> None:
     assert os.environ[TOKEN_KEY] == "refresh-token-from-disk"
 
 
-def test_seed_env_from_disk_is_idempotent(tmp_path: Path) -> None:
-    """If env is already populated, _seed_env_from_disk reports True without
+def testseed_gmail_env_from_disk_is_idempotent(tmp_path: Path) -> None:
+    """If env is already populated, seed_gmail_env_from_disk reports True without
     re-reading the disk (and without overwriting env)."""
     os.environ[CREDS_KEY] = "pre-existing-creds"
     os.environ[TOKEN_KEY] = "pre-existing-token"
     with patch("workflow_platform.connectors.email.bootstrap._SECRETS_ROOT", tmp_path):
         # Disk files don't even exist, but env hits short-circuit.
-        assert _seed_env_from_disk(ACCOUNT) is True
+        assert seed_gmail_env_from_disk(ACCOUNT) is True
     assert os.environ[CREDS_KEY] == "pre-existing-creds"
     assert os.environ[TOKEN_KEY] == "pre-existing-token"
 
 
-def test_seed_env_from_disk_returns_false_when_only_one_file_present(
+def testseed_gmail_env_from_disk_returns_false_when_only_one_file_present(
     tmp_path: Path,
 ) -> None:
     """Both files must exist — having just one isn't enough."""
@@ -127,7 +127,7 @@ def test_seed_env_from_disk_returns_false_when_only_one_file_present(
     (tmp_path / ACCOUNT / "client_credentials.json").write_text(CLIENT_CREDS_JSON)
     # No refresh_token file.
     with patch("workflow_platform.connectors.email.bootstrap._SECRETS_ROOT", tmp_path):
-        assert _seed_env_from_disk(ACCOUNT) is False
+        assert seed_gmail_env_from_disk(ACCOUNT) is False
     # And env was not partially populated.
     assert CREDS_KEY not in os.environ
     assert TOKEN_KEY not in os.environ

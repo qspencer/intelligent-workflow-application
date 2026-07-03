@@ -29,11 +29,12 @@ from typing import Any
 from workflow_platform.connectors.email import (
     GmailConnector,
     GmailOAuthProvider,
+    seed_gmail_env_from_disk,
 )
 from workflow_platform.engine import WorkflowEngine
 from workflow_platform.memory import MemoryManager
 from workflow_platform.persistence import Repositories
-from workflow_platform.secrets import SecretStore
+from workflow_platform.secrets import EnvSecretStore, SecretStore
 from workflow_platform.triggers import (
     FilesystemTrigger,
     GmailPollTrigger,
@@ -191,6 +192,14 @@ class TriggerOrchestrator:
                         definition.id,
                     )
                     return None
+                # Dev path: EnvSecretStore reads os.environ, but bootstrap only
+                # seeds the single *tools* account (WORKFLOW_PLATFORM_GMAIL_ACCOUNT).
+                # Seed this trigger's account from .secrets/gmail/<account>/ too,
+                # so poll triggers aren't limited to the tools account. Best-effort:
+                # if nothing is on disk the trigger self-disables at first poll
+                # with the existing "Gmail poll disabled" warning.
+                if isinstance(self.secret_store, EnvSecretStore):
+                    seed_gmail_env_from_disk(account)
                 auth_provider = GmailOAuthProvider(account=account, secret_store=self.secret_store)
                 connector = GmailConnector(account=account, auth_provider=auth_provider)
                 return GmailPollTrigger(

@@ -64,16 +64,26 @@ step "Pre-flight checks"
 command -v uv >/dev/null 2>&1 || die "'uv' not found on PATH."
 ok "uv: $(uv --version 2>/dev/null | head -1)"
 
-# Gmail credentials present on disk? (existence only — the trigger self-disables
-# with a single warning if absent, so this is non-fatal.)
+# Gmail credentials on disk. Every complete credential dir is usable by
+# gmail_poll triggers (the orchestrator seeds each trigger's account from
+# .secrets); the send/label TOOLS bind to the single $GMAIL_ACCOUNT.
+# (Existence only — a trigger self-disables with one warning if absent.)
 GMAIL_OK=0
-if [ -f "$REPO_ROOT/.secrets/gmail/$GMAIL_ACCOUNT/client_credentials.json" ] \
-   && [ -f "$REPO_ROOT/.secrets/gmail/$GMAIL_ACCOUNT/refresh_token" ]; then
-  GMAIL_OK=1
-  ok "Gmail credentials: found for $GMAIL_ACCOUNT"
-else
-  warn "Gmail credentials: not found — email-triage trigger will self-disable"
-fi
+for dir in "$REPO_ROOT"/.secrets/gmail/*/; do
+  [ -d "$dir" ] || continue
+  acct="$(basename "$dir")"
+  if [ -f "$dir/client_credentials.json" ] && [ -f "$dir/refresh_token" ]; then
+    if [ "$acct" = "$GMAIL_ACCOUNT" ]; then
+      GMAIL_OK=1
+      ok "Gmail credentials: $acct (tools account: email_send / email_label_apply)"
+    else
+      ok "Gmail credentials: $acct (poll triggers only)"
+    fi
+  else
+    warn "Gmail credentials: $acct incomplete (missing client_credentials.json or refresh_token)"
+  fi
+done
+[ "$GMAIL_OK" = 1 ] || warn "Gmail tools account $GMAIL_ACCOUNT has no credentials — email tools will not be wired"
 
 # AWS creds only matter for live Bedrock.
 if [ "$BEDROCK_MODE" = "live" ]; then

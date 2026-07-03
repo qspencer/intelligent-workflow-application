@@ -562,6 +562,39 @@ async def test_gmail_poll_make_trigger_returns_gmail_poll_trigger(tmp_path: Path
     assert trigger.connector.account == "intelligent.workflow.engine@quentinspencer.com"
 
 
+async def test_gmail_poll_seeds_trigger_account_env_from_disk(tmp_path: Path) -> None:
+    """The dev-path fix for multi-account: bootstrap only seeds the single
+    *tools* account, so the orchestrator must seed each gmail_poll trigger's
+    own account from .secrets/gmail/<account>/ — otherwise a workflow polling
+    a second mailbox self-disables even though its credentials are on disk."""
+    import os
+    from unittest.mock import patch
+
+    account = "dmarc-inbox@example.com"
+    creds_key = f"gmail/{account}/client_credentials"
+    token_key = f"gmail/{account}/refresh_token"
+    for key in (creds_key, token_key):
+        os.environ.pop(key, None)
+
+    secrets_root = tmp_path / "gmail-secrets"
+    acct_dir = secrets_root / account
+    acct_dir.mkdir(parents=True)
+    (acct_dir / "client_credentials.json").write_text('{"installed": {"client_id": "x"}}')
+    (acct_dir / "refresh_token").write_text("tok-123\n")
+
+    orch = _orchestrator(tmp_path, engine=_make_engine(), secret_store=EnvSecretStore())
+    try:
+        with patch("workflow_platform.connectors.email.bootstrap._SECRETS_ROOT", secrets_root):
+            trigger = orch._make_trigger(_gmail_poll_definition(account=account))
+        assert isinstance(trigger, GmailPollTrigger)
+        # The trigger's account is now readable through EnvSecretStore.
+        assert os.environ[creds_key] == '{"installed": {"client_id": "x"}}'
+        assert os.environ[token_key] == "tok-123"
+    finally:
+        for key in (creds_key, token_key):
+            os.environ.pop(key, None)
+
+
 async def test_gmail_poll_without_secret_store_skips_with_warning(
     tmp_path: Path, caplog: pytest.LogCaptureFixture
 ) -> None:

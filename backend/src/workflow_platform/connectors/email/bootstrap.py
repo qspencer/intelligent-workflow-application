@@ -52,7 +52,7 @@ def maybe_build_gmail_connector(
     """
     if not account:
         return None
-    if isinstance(secret_store, EnvSecretStore) and not _seed_env_from_disk(account):
+    if isinstance(secret_store, EnvSecretStore) and not seed_gmail_env_from_disk(account):
         logger.warning(
             "Gmail account %r set but credentials not found in env or %s. "
             "Email tools will NOT be wired into the engine catalog. "
@@ -66,7 +66,7 @@ def maybe_build_gmail_connector(
     return GmailConnector(account=account, auth_provider=provider)
 
 
-def _seed_env_from_disk(account: str) -> bool:
+def seed_gmail_env_from_disk(account: str) -> bool:
     """If `.secrets/gmail/<account>/` has both credential files and the
     process env doesn't already, populate `os.environ` so
     `EnvSecretStore.get(...)` succeeds.
