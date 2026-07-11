@@ -84,6 +84,14 @@ files are short enough that manual review remains practical.
 
 **Goal:** Documents uploaded by admins are parsed, chunked, contextualized, and made retrievable.
 
+> **Candidate building block (evaluated 2026-07-11):** `engram`
+> (`~/Dev/engram`) — provenance-aware per-entity memory (typed graph +
+> episodes, third-party quarantine, BYO-LLM). Covers the *learned user/
+> environment memory* slice of Phases B+ rather than document ingestion.
+> Deferral rationale, integration gaps, and the reopen trigger (email-triage
+> validation against real mail) are logged in `docs/SEMANTICS.md` →
+> "Deferred: engram".
+
 **Components:**
 
 1. **Document parser**

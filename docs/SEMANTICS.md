@@ -123,6 +123,54 @@ starts. Reach for graph storage only after benchmarking against vector
 
 ---
 
+## Deferred: engram (provenance-aware per-entity agent memory)
+
+**What it is.** [`engram`](file:///home/ubuntu/Dev/engram) — a local Python
+library (v0.1.0, source-install, MIT) giving agents durable per-user memory:
+typed graph edges + dated episodes as store of record, supersession instead
+of erasure, and — its distinctive property — *authorship as a security
+control*: third-party content (received email, external docs) is structurally
+quarantined as claims-by-the-claimant, never facts-about-the-user, with an
+abstention gate on recall. BYO-LLM (`Complete` callable with per-role model
+routing), embedded SQLite, pluggable store. Evaluated hands-on 2026-07-11;
+working demo at `~/Dev/engram-demo` (installed, ran end-to-end, quarantine
+behavior verified against a live model).
+
+**What it would buy.** The memory dimension the platform *doesn't* have:
+today's `MemoryManager` holds operator-curated rubrics per agent step
+(static guidance); engram would add *learned, per-entity* memory across runs
+— exactly `LEARNING.md`'s users/environment dimensions and the deferred
+Phase B+ territory. Sharpest fit: **email triage**, where per-correspondent
+memory and the received-mail-is-untrusted quarantine map one-to-one onto
+concerns the platform already treats as first-class (cf. `EvidenceAuthor.
+THIRD_PARTY` vs. our own trigger-delivers-untrusted-payload posture).
+
+**Why we don't have it today.** (a) No workload pulls it: every validated
+workload runs well on rubric memory, and email triage — the one that would
+benefit — hasn't been validated against real mail even *with* the current
+setup. (b) Known integration gaps: sync API in an async platform (needs
+`to_thread` + an unanswered SQLite thread-safety question); its LLM calls
+must route through `BedrockClient` for cost metering, audit, and
+record/replay (a `Complete` adapter is ~30 lines and inherits replay for
+free — the easy part); its direct SQLite writes bypass the World
+abstraction, so dry-runs would mutate real memory without an isolation
+story. (c) Maturity: v0.1, not on PyPI, one consumer.
+
+**Decision trigger to reopen.** Validate email triage against real mail
+(the standing next workload step). If the rubric-only agent demonstrably
+suffers from having no durable per-correspondent memory — repeated
+re-asking, misclassification that sender history would fix, or unsafe
+handling of claims in received mail — that's the pull. Any *other* workload
+needing cross-run user/entity facts triggers it equally.
+
+**Until then, default to:** `MemoryManager` rubrics (structured Markdown,
+hash-audited). If reopened: run the design-reviewer first (this partially
+reopens the knowledge-graph deferral above — engram *is* a typed graph,
+albeit embedded), and scope the integration as one slice: Bedrock `Complete`
+adapter, async wrapper, dry-run-aware store, cost/audit plumbing (~1–2 days).
+
+---
+
 ## Deferred: semantic layer
 
 **What it is.** A definitions layer (dbt-sl, Cube, AtScale, Looker LookML)
