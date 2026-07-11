@@ -105,6 +105,11 @@ TRIGGERS: list[TriggerCatalogItem] = [
                 "'has:attachment filename:zip'.",
             ),
             CatalogField(
+                name="slim_payload",
+                description="Drop body_html + raw headers from the payload "
+                "(recommended for triage agents; saves ~40k tokens/message).",
+            ),
+            CatalogField(
                 name="download_dir",
                 description="Spool dir: attachments are downloaded here and their paths "
                 "added to the payload as attachment_paths.",

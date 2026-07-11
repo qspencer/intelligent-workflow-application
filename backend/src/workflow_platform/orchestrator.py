@@ -221,6 +221,7 @@ class TriggerOrchestrator:
                     max_messages=int(config.get("max_messages", 50)),
                     query=config.get("query"),
                     download_dir=config.get("download_dir"),
+                    slim_payload=bool(config.get("slim_payload", False)),
                 )
             if spec.type == "manual":
                 # `manual` is a deliberate no-op — definitions tagged this way

@@ -17,6 +17,10 @@ trigger:
     account: qspencer@gmail.com
     poll_interval_seconds: 120
     label: INBOX
+    # Drop body_html + raw headers from the payload: newsletters carry 100KB+
+    # of HTML and multi-KB DKIM headers, which the agent prompt would ingest
+    # verbatim (~40k input tokens/message). body_text is what triage needs.
+    slim_payload: true
   example_payload:
     provider: "gmail"
     message_id: "example-id"
@@ -62,7 +66,10 @@ steps:
          "summary": "<one short sentence — why this category>"}
     policy:
       max_iterations: 2
-      max_total_tokens: 4000
+      # Rubric (~1.6k) + goal + slimmed payload; long personal emails can
+      # still push past the old 4k. Real-world calibration from the first
+      # live batch.
+      max_total_tokens: 8000
 
   - id: record
     label: "Record the triage result"
@@ -77,5 +84,5 @@ edges:
     to: record
 
 policies:
-  max_total_tokens: 6000
+  max_total_tokens: 12000
   budget_action: pause

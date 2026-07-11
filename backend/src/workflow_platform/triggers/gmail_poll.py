@@ -60,6 +60,7 @@ class GmailPollTrigger(Trigger):
         auth_revoked_backoff_seconds: float = 300.0,
         query: str | None = None,
         download_dir: str | None = None,
+        slim_payload: bool = False,
     ) -> None:
         if poll_interval_seconds <= 0:
             raise ValueError("poll_interval_seconds must be positive")
@@ -76,6 +77,11 @@ class GmailPollTrigger(Trigger):
         # and the payload gains `attachment_paths`. Deterministic steps can't
         # reach the connector, so the trigger delivers files, not ids.
         self.download_dir = download_dir
+        # Drop body_html + raw headers from the payload. Newsletters carry
+        # 100KB+ of HTML and multi-KB DKIM/ARC headers; a triage agent that
+        # reads the payload verbatim burns ~40k input tokens per message on
+        # content body_text already covers. Opt-in per workflow.
+        self.slim_payload = slim_payload
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
         self._cursor: datetime | None = None
@@ -165,6 +171,9 @@ class GmailPollTrigger(Trigger):
         local paths under `attachment_paths`. A single failed download is
         logged and skipped rather than sinking the whole message."""
         payload: dict[str, Any] = msg.model_dump(mode="json")
+        if self.slim_payload:
+            payload["body_html"] = None
+            payload["headers"] = {}
         if self.download_dir is None or not msg.attachments:
             return payload
         target = Path(self.download_dir) / msg.message_id

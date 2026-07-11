@@ -91,6 +91,39 @@ async def test_fires_on_each_message_in_first_poll() -> None:
     assert fired[0]["message_id"] in {"m-1", "m-2"}
 
 
+async def test_slim_payload_drops_html_and_headers() -> None:
+    """slim_payload strips body_html + raw headers — the bulk that made a
+    triage agent burn ~40k input tokens on a newsletter — while keeping
+    body_text and everything else intact."""
+    svc = FakeGmailService()
+    svc.list_response = {"messages": [{"id": "m-slim"}]}
+    svc.get_responses["m-slim"] = stage_gmail_message(
+        "m-slim",
+        subject="Weekly digest",
+        body_text="plain text body",
+        body_html="<html>" + "x" * 5000 + "</html>",
+    )
+
+    fired: list[dict[str, Any]] = []
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        fired.append(payload)
+
+    trig, _ = _make_trigger(svc)
+    trig.slim_payload = True
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: len(fired) >= 1)
+    finally:
+        await trig.stop()
+
+    payload = fired[0]
+    assert payload["body_html"] is None
+    assert payload["headers"] == {}
+    assert payload["body_text"] == "plain text body"
+    assert payload["subject"] == "Weekly digest"
+
+
 async def test_download_dir_spools_attachments_onto_payload(tmp_path: Any) -> None:
     """With `download_dir` set, the trigger downloads each attachment before
     firing and the payload carries their local paths (`attachment_paths`) —

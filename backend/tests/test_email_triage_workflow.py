@@ -103,7 +103,7 @@ def test_live_validation_workflow_is_read_only() -> None:
     assert triage.tools == []
     assert triage.capabilities is not None and triage.capabilities.tools == []
     # Runaway protection on a high-traffic personal inbox.
-    assert definition.policies.max_total_tokens == 6000
+    assert definition.policies.max_total_tokens == 12000
     assert definition.policies.budget_action == "pause"
 
 
