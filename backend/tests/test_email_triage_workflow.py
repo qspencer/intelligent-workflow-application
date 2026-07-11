@@ -89,6 +89,24 @@ def test_workflow_yaml_loads_and_has_expected_shape() -> None:
     assert set(triage.tools) == {"email_send", "email_label_apply"}
 
 
+def test_live_validation_workflow_is_read_only() -> None:
+    """The live-validation variant runs against a PERSONAL mailbox — it must
+    never be able to send mail or apply labels. Pin the safety posture: no
+    tools offered AND an empty capability allowlist (defense in depth)."""
+    definition = load_definition_from_file(
+        WORKFLOW_PATH.parent.parent / "email_triage_live" / "workflow.yaml"
+    )
+    assert definition.id == "email-triage-live"
+    assert definition.trigger.type == "email"
+    triage = definition.steps[0]
+    assert triage.type == "agentic"
+    assert triage.tools == []
+    assert triage.capabilities is not None and triage.capabilities.tools == []
+    # Runaway protection on a high-traffic personal inbox.
+    assert definition.policies.max_total_tokens == 6000
+    assert definition.policies.budget_action == "pause"
+
+
 def test_fixtures_are_all_valid_email_messages() -> None:
     """Every committed fixture must parse as a valid EmailMessage —
     otherwise the workflow would never see them in production either."""

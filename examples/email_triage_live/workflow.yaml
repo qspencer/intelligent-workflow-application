@@ -1,0 +1,81 @@
+id: email-triage-live
+name: Email Triage (live validation, read-only)
+description: |
+  Validation run of the email-triage rubric against a REAL personal mailbox.
+  Read-only on purpose: the agent has NO tools — it cannot send replies or
+  apply labels; it only classifies. Results land as structured fields on
+  step_executions via record_email_triage, queryable across runs.
+
+  Purpose (see README.md): establish the rubric-only baseline and watch for
+  memory-shaped failures — the adoption trigger for the engram per-entity
+  memory library logged in docs/SEMANTICS.md ("Deferred: engram").
+
+trigger:
+  type: email
+  config:
+    provider: gmail
+    account: qspencer@gmail.com
+    poll_interval_seconds: 120
+    label: INBOX
+  example_payload:
+    provider: "gmail"
+    message_id: "example-id"
+    thread_id: "example-thread"
+    from_address:
+      address: "someone@example.com"
+      name: "Someone"
+    to:
+      - address: "qspencer@gmail.com"
+    cc: []
+    bcc: []
+    subject: "Example subject"
+    body_text: "Example body."
+    body_html: null
+    received_at: "2026-07-11T09:00:00+00:00"
+    labels: ["INBOX"]
+    in_reply_to: null
+    headers: {}
+
+steps:
+  - id: triage
+    label: "Classify the email (read-only)"
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    # Read-only validation: no tools, and a capability allowlist that pins it
+    # that way even if someone adds tools to the step later.
+    tools: []
+    capabilities:
+      tools: []
+    goal: |
+      You are triaging an inbound email — CLASSIFICATION ONLY. You have no
+      tools: never attempt to reply or label; this is a read-only validation
+      run. The trigger payload contains the full message: from_address,
+      to, cc, subject, body_text, received_at, labels.
+
+      Apply the rubric in your memory (above this prompt) to choose exactly
+      one `category` from the five-bucket catalog.
+
+      Then respond with ONLY a JSON object on one line — no prose, no
+      markdown fences:
+        {"category": "<one of five>", "confidence": <0..1>,
+         "reply_drafted": false, "labels_applied": [],
+         "summary": "<one short sentence — why this category>"}
+    policy:
+      max_iterations: 2
+      max_total_tokens: 4000
+
+  - id: record
+    label: "Record the triage result"
+    type: deterministic
+    function: record_email_triage
+    output_renderer: triage
+    config:
+      triage_from: steps.triage.output_text
+
+edges:
+  - from: triage
+    to: record
+
+policies:
+  max_total_tokens: 6000
+  budget_action: pause
