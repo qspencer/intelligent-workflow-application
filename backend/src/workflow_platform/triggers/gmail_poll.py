@@ -32,6 +32,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections import deque
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
@@ -85,6 +86,12 @@ class GmailPollTrigger(Trigger):
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
         self._cursor: datetime | None = None
+        # Dedupe: Gmail's `after:` is second-granular and inclusive (and we
+        # truncate with int()), so a message stamped exactly at the cursor
+        # re-matches on every poll. Track recently-fired ids so each message
+        # fires exactly once. Bounded ring so memory stays flat.
+        self._seen_ids: set[str] = set()
+        self._seen_order: deque[str] = deque(maxlen=500)
 
     async def start(self, on_event: TriggerCallback) -> None:
         if self._task is not None:
@@ -154,6 +161,9 @@ class GmailPollTrigger(Trigger):
             for msg in messages:
                 if self._stop.is_set():
                     return
+                if msg.message_id in self._seen_ids:
+                    continue
+                self._mark_seen(msg.message_id)
                 try:
                     await on_event(await self._build_payload(msg))
                 except Exception:
@@ -164,6 +174,12 @@ class GmailPollTrigger(Trigger):
 
             if await self._wait_or_stop(self.poll_interval_seconds):
                 return
+
+    def _mark_seen(self, message_id: str) -> None:
+        if len(self._seen_order) == self._seen_order.maxlen:
+            self._seen_ids.discard(self._seen_order[0])
+        self._seen_order.append(message_id)
+        self._seen_ids.add(message_id)
 
     async def _build_payload(self, msg: EmailMessage) -> dict[str, Any]:
         """The trigger's event payload: the message JSON, plus — when

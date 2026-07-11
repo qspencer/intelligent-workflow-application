@@ -91,6 +91,36 @@ async def test_fires_on_each_message_in_first_poll() -> None:
     assert fired[0]["message_id"] in {"m-1", "m-2"}
 
 
+async def test_message_fires_exactly_once_across_polls() -> None:
+    """Regression: Gmail's `after:` is second-granular and inclusive, so a
+    message stamped exactly at the cursor re-matches on every poll — the
+    live-validation run processed one newsletter 11 times. The id dedupe
+    must make each message fire exactly once no matter how many polls
+    re-return it."""
+    svc = FakeGmailService()
+    # Static list response: every poll returns the same message — exactly
+    # what the cursor boundary does in production.
+    svc.list_response = {"messages": [{"id": "m-dup"}]}
+    svc.get_responses["m-dup"] = stage_gmail_message("m-dup", subject="Once only")
+
+    fired: list[dict[str, Any]] = []
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        fired.append(payload)
+
+    trig, _ = _make_trigger(svc)  # 0.05s poll interval
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: len(fired) >= 1)
+        # Let several more poll cycles run; the same message keeps coming back.
+        await asyncio.sleep(0.3)
+    finally:
+        await trig.stop()
+
+    assert len(fired) == 1
+    assert fired[0]["subject"] == "Once only"
+
+
 async def test_slim_payload_drops_html_and_headers() -> None:
     """slim_payload strips body_html + raw headers — the bulk that made a
     triage agent burn ~40k input tokens on a newsletter — while keeping
