@@ -58,6 +58,13 @@ def test_delete_cascades_instances_and_steps(monkeypatch: pytest.MonkeyPatch) ->
     assert asyncio.run(repos.definitions.get("to-delete")) is None
     assert asyncio.run(repos.instances.list_by_workflow("to-delete")) == []
 
+    # The deletion left an audit trail (actor + cascade counts).
+    entries = asyncio.run(repos.audit.list_recent(limit=20))
+    entry = next(e for e in entries if e.action == "workflow_deleted")
+    assert entry.actor_type == "human" and entry.actor_id
+    assert entry.detail["workflow_id"] == "to-delete"
+    assert entry.detail["deleted_instances"] == 1
+
 
 def test_delete_unknown_404(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv("AUTH_MODE", "dev")

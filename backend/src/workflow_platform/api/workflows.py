@@ -139,6 +139,27 @@ def build_router(
     # them mid-flight. Tasks self-discard on completion.
     background_tasks: set[asyncio.Task[Any]] = set()
 
+    async def _audit_admin_action(
+        user: UserIdentity,
+        action: str,
+        *,
+        instance_id: str | None = None,
+        detail: dict[str, Any] | None = None,
+    ) -> None:
+        """Destructive admin operations must leave a trace — the audit log is
+        the platform's memory of what happened, and that includes deletions.
+        (Added after a bulk instance wipe was only reconstructable from HTTP
+        access logs.)"""
+        await repositories.audit.append(
+            AuditEntry(
+                actor_type="human",
+                actor_id=user.sub,
+                action=action,
+                workflow_instance_id=instance_id,
+                detail=detail or {},
+            )
+        )
+
     @router.get("/workflows", response_model=list[WorkflowDefinition])
     async def list_workflows(_: UserIdentity = Depends(current_user)) -> list[WorkflowDefinition]:
         return await repositories.definitions.list_all()
@@ -376,7 +397,7 @@ def build_router(
     @router.delete("/workflows/{workflow_id}")
     async def delete_workflow(
         workflow_id: str,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
+        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
     ) -> dict[str, Any]:
         """Hard-delete a workflow definition and cascade to its run history
         (instances + their step_executions). Admin/Designer only.
@@ -423,6 +444,15 @@ def build_router(
                 deleted_instances += 1
 
         await repositories.definitions.delete(workflow_id)
+        await _audit_admin_action(
+            user,
+            "workflow_deleted",
+            detail={
+                "workflow_id": workflow_id,
+                "deleted_instances": deleted_instances,
+                "deleted_steps": deleted_steps,
+            },
+        )
         return {
             "deleted_workflow": workflow_id,
             "deleted_instances": deleted_instances,
@@ -823,7 +853,7 @@ def build_router(
     @router.delete("/workflow-instances/{instance_id}", status_code=204)
     async def delete_instance(
         instance_id: str,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
     ) -> Response:
         """Hard-delete a terminal instance + its step_executions.
 
@@ -850,15 +880,21 @@ def build_router(
                     f"Kill it first, then delete."
                 ),
             )
-        await repositories.steps.delete_by_instance(instance_id)
+        deleted_steps = await repositories.steps.delete_by_instance(instance_id)
         await repositories.instances.delete(instance_id)
+        await _audit_admin_action(
+            user,
+            "instance_deleted",
+            instance_id=instance_id,
+            detail={"workflow_id": instance.workflow_id, "deleted_steps": deleted_steps},
+        )
         return Response(status_code=204)
 
     @router.delete("/workflow-instances")
     async def delete_instances_bulk(
         state: list[str] = Query(default=...),
         workflow_id: str | None = Query(default=None),
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
     ) -> dict[str, int]:
         """Bulk hard-delete every instance whose state is in `state` (one
         or more `?state=` query params). Cascades to step_executions.
@@ -892,6 +928,16 @@ def build_router(
             list(requested), workflow_id=workflow_id
         )
         deleted_steps = await repositories.steps.delete_by_instances(deleted_ids)
+        await _audit_admin_action(
+            user,
+            "instances_bulk_deleted",
+            detail={
+                "states": sorted(requested),
+                "workflow_id": workflow_id,  # null = platform-wide
+                "deleted_instances": len(deleted_ids),
+                "deleted_steps": deleted_steps,
+            },
+        )
         return {
             "deleted_instances": len(deleted_ids),
             "deleted_steps": deleted_steps,

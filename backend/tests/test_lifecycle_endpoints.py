@@ -322,9 +322,11 @@ def test_delete_terminal_instance_removes_it_and_steps(
     # Instance + steps gone.
     assert asyncio.run(repos.instances.get(completed_id)) is None
     assert asyncio.run(repos.steps.list_by_instance(completed_id)) == []
-    # Audit log entries for the deleted instance are intentionally preserved.
+    # Audit log entries for the deleted instance are intentionally preserved,
+    # plus exactly one new `instance_deleted` entry recording the deletion.
     post_audit = asyncio.run(repos.audit.list_by_instance(completed_id))
-    assert len(post_audit) == len(pre_audit)
+    assert len(post_audit) == len(pre_audit) + 1
+    assert any(e.action == "instance_deleted" for e in post_audit)
 
 
 def test_delete_failed_and_killed_instances_also_work(
@@ -406,6 +408,34 @@ def test_bulk_delete_removes_all_in_requested_terminal_states(
     # Post-state: none of the deleted instances remain.
     for inst in terminal_pre:
         assert asyncio.run(repos.instances.get(inst.id)) is None
+
+
+def test_deletes_write_audit_entries(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    """Destructive admin ops must leave a trace in the audit log — a real
+    platform-wide bulk wipe was once only reconstructable from HTTP access
+    logs. Both the single and bulk delete record actor + scope + counts."""
+    client, repos, _ = dev_app
+    pre = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    completed = next(i for i in pre if i.state == WorkflowInstanceState.COMPLETED)
+
+    r = client.delete(f"/api/workflow-instances/{completed.id}", headers=_admin())
+    assert r.status_code == 204
+    r = client.delete(
+        "/api/workflow-instances?state=completed&state=failed&state=killed",
+        headers=_admin(),
+    )
+    assert r.status_code == 200
+
+    entries = asyncio.run(repos.audit.list_recent(limit=50))
+    single = next(e for e in entries if e.action == "instance_deleted")
+    assert single.workflow_instance_id == completed.id
+    assert single.actor_type == "human" and single.actor_id
+    bulk = next(e for e in entries if e.action == "instances_bulk_deleted")
+    assert bulk.detail["states"] == ["completed", "failed", "killed"]
+    assert bulk.detail["workflow_id"] is None  # null records "platform-wide"
+    assert bulk.detail["deleted_instances"] >= 1
 
 
 def test_bulk_delete_scoped_by_workflow_id(
