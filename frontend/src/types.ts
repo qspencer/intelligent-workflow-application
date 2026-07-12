@@ -247,6 +247,8 @@ export interface WorkflowInstance {
   workflow_id: string;
   state: WorkflowState;
   trigger_payload: Record<string, unknown>;
+  /** Accumulated run context; `steps` holds each step's output object. */
+  context?: Record<string, unknown>;
   error: string | null;
   created_at: string;
   started_at: string | null;

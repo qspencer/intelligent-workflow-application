@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 
 import { api, errorMessage } from '../api/client';
 import { fmtShort } from '../lib/format';
+import { instanceSummary } from '../lib/instance-summary';
 import type { WorkflowInstance } from '../types';
 
 type RowAction = 'pause' | 'resume' | 'kill' | 'retry';
@@ -86,19 +87,24 @@ export function InstancesList() {
 
   async function deleteAllTerminal(): Promise<void> {
     if (deletingAll) return;
-    const n = terminalCount;
-    if (n === 0) return;
-    if (
-      !window.confirm(
-        `Delete ${n} completed/failed/killed instance${n === 1 ? '' : 's'}? ` +
-          `This cannot be undone. Running, pending, and paused instances are NOT affected.`,
-      )
-    ) {
-      return;
-    }
+    if (terminalCount === 0) return;
+    // Scope to the page's workflow filter. When unfiltered this deletes
+    // finished runs across EVERY workflow, and the count shown in this list
+    // (capped at 50) can badly understate what will actually be deleted —
+    // the confirm must say both things plainly. (This dialog once let a
+    // platform-wide wipe read like a small cleanup.)
+    const scope = workflowIdRef.current;
+    const message = scope
+      ? `Delete all finished (completed/failed/killed) runs of workflow "${scope}"? ` +
+        `This cannot be undone. Running, pending, and paused runs are NOT affected.`
+      : `Delete ALL finished runs across EVERY workflow?\n\n` +
+        `This list shows ${terminalCount}, but the delete applies platform-wide ` +
+        `and may remove far more. This cannot be undone.\n\n` +
+        `Tip: filter by workflow (?workflow_id=...) to scope the cleanup.`;
+    if (!window.confirm(message)) return;
     setDeletingAll(true);
     try {
-      await api.deleteInstancesByStates(['completed', 'failed', 'killed']);
+      await api.deleteInstancesByStates(['completed', 'failed', 'killed'], scope);
       setInstances((rows) => rows.filter((r) => !isTerminal(r.state)));
     } catch (err) {
       setError(errorMessage(err, 'Failed to bulk-delete instances'));
@@ -115,9 +121,17 @@ export function InstancesList() {
           className="danger"
           disabled={deletingAll || terminalCount === 0}
           onClick={() => void deleteAllTerminal()}
-          title="Delete every instance currently in Completed, Failed, or Killed status. Running, Pending, and Paused instances are not affected."
+          title={
+            workflowId
+              ? `Delete finished runs of ${workflowId} only. Running/pending/paused are not affected.`
+              : 'No workflow filter is active: this deletes finished runs across EVERY workflow, not just the rows shown.'
+          }
         >
-          {deletingAll ? 'Deleting…' : `Delete Finished (${terminalCount})`}
+          {deletingAll
+            ? 'Deleting…'
+            : workflowId
+              ? `Delete Finished (${terminalCount})`
+              : `Delete Finished — all workflows`}
         </button>
       </div>
 
@@ -135,13 +149,16 @@ export function InstancesList() {
                 <th>ID</th>
                 <th>Workflow</th>
                 <th>State</th>
+                <th>Result</th>
                 <th>Started</th>
                 <th>Finished</th>
                 <th className="actions-col"></th>
               </tr>
             </thead>
             <tbody>
-              {instances.map((inst) => (
+              {instances.map((inst) => {
+                const summary = instanceSummary(inst);
+                return (
                 <tr key={inst.id}>
                   <td>
                     <Link to={`/instances/${inst.id}`}>
@@ -151,6 +168,10 @@ export function InstancesList() {
                   <td>{inst.workflow_id}</td>
                   <td>
                     <span className={`badge ${inst.state}`}>{inst.state}</span>
+                  </td>
+                  <td className="result-col" title={summary.subject ?? undefined}>
+                    {summary.category && <span className="badge category">{summary.category}</span>}
+                    {summary.subject && <span className="result-subject">{summary.subject}</span>}
                   </td>
                   <td>{fmtShort(inst.started_at)}</td>
                   <td>{fmtShort(inst.completed_at)}</td>
@@ -163,7 +184,8 @@ export function InstancesList() {
                     />
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

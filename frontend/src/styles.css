@@ -1597,6 +1597,26 @@ a.button:hover {
   font-size: 12px;
 }
 
+/* Instances list — at-a-glance result column */
+.result-col {
+  max-width: 320px;
+}
+.result-col .badge.category {
+  background: #ece7fa;
+  color: #5b3fb5;
+  margin-right: 6px;
+}
+.result-subject {
+  color: var(--muted);
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-block;
+  max-width: 230px;
+  vertical-align: bottom;
+}
+
 /* C8.1 — batch run dialog */
 .rf-batch {
   display: flex;
