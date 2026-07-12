@@ -58,6 +58,10 @@ class GmailConnector(EmailConnector):
         self.account = account
         self.auth_provider = auth_provider
         self._service: Any = service
+        # Tests inject a fake service that never expires; only self-built
+        # services are rebuilt when the access token rotates.
+        self._service_is_injected = service is not None
+        self._service_token: str | None = None
         self._label_id_cache: dict[str, str] = {}
         # `googleapiclient.discovery.build()` returns a service whose
         # internal `httplib2.Http()` is documented NOT thread-safe.
@@ -75,17 +79,26 @@ class GmailConnector(EmailConnector):
     # --- service plumbing ---
 
     async def _get_service(self) -> Any:
-        if self._service is not None:
+        if self._service_is_injected:
             return self._service
-        # Lazy build: only paid in live runs. Tests inject `service=`.
+        # The service bakes in a bare access token (no refresh fields —
+        # refresh lives in the auth_provider, by design). Access tokens
+        # expire after ~1h, so consult the provider on every call (cheap:
+        # it caches until near-expiry) and rebuild the service whenever the
+        # token has rotated. Caching the service forever caused every poll
+        # to fail with RefreshError one hour into a long-running process.
+        token = await self.auth_provider.access_token()
+        if self._service is not None and token == self._service_token:
+            return self._service
+
         from google.oauth2.credentials import Credentials
         from googleapiclient.discovery import build
 
-        token = await self.auth_provider.access_token()
         creds = Credentials(token=token)  # type: ignore[no-untyped-call]
         self._service = await asyncio.to_thread(
             build, "gmail", "v1", credentials=creds, cache_discovery=False
         )
+        self._service_token = token
         return self._service
 
     async def _execute(self, request: Any) -> Any:

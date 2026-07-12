@@ -125,7 +125,7 @@ def test_scheduled_health_report_yaml_parses() -> None:
     definition = load_definition_from_yaml(yaml_path.read_text())
     assert definition.id == "scheduled-health-report"
     assert definition.trigger.type == "schedule"
-    assert definition.trigger.config["interval_seconds"] == 60
+    assert definition.trigger.config["interval_seconds"] == 3600
     step_ids = [s.id for s in definition.steps]
     assert step_ids == ["status", "append"]
 

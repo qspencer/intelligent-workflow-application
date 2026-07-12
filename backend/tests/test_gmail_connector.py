@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import base64
 from email import message_from_bytes
+from typing import Any
 
 import pytest
 from googleapiclient.errors import HttpError
@@ -159,6 +160,61 @@ async def test_download_attachment_decodes_base64url() -> None:
     assert data == original
     call = next(kw for (m, kw) in svc.calls if m == "messages.attachments.get")
     assert call == {"userId": "me", "messageId": "m-att", "id": "att-1"}
+
+
+# ---------- service rebuild on token rotation ----------
+
+
+async def test_service_rebuilds_when_access_token_rotates(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: the self-built service bakes in a bare access token (no
+    refresh fields). Caching it forever meant every Gmail call failed with
+    RefreshError one hour into a long-running process — first surfaced the
+    day the backend started running as a persistent systemd service. The
+    connector must consult the auth provider per call and rebuild the
+    service when the token rotates (and NOT rebuild when it hasn't)."""
+    import googleapiclient.discovery as discovery
+
+    class RotatingAuth:
+        def __init__(self) -> None:
+            self.token = "token-1"
+
+        async def access_token(self) -> str:
+            return self.token
+
+    built: list[str] = []
+
+    def fake_build(api: str, version: str, *, credentials: Any, cache_discovery: bool) -> object:
+        built.append(credentials.token)
+        return object()
+
+    monkeypatch.setattr(discovery, "build", fake_build)
+
+    auth = RotatingAuth()
+    conn = GmailConnector(account="a@b.com", auth_provider=auth)  # no injected service
+
+    s1 = await conn._get_service()
+    s2 = await conn._get_service()
+    assert s1 is s2 and built == ["token-1"]  # cached while token unchanged
+
+    auth.token = "token-2"  # provider refreshed (old token expired)
+    s3 = await conn._get_service()
+    assert s3 is not s1
+    assert built == ["token-1", "token-2"]
+
+
+async def test_injected_service_is_never_rebuilt() -> None:
+    """Test-injected fakes don't expire; the rotation logic must not touch
+    them (or the auth provider)."""
+
+    class ExplodingAuth:
+        async def access_token(self) -> str:
+            raise AssertionError("auth provider must not be consulted for injected services")
+
+    svc = FakeGmailService()
+    conn = GmailConnector(account="a@b.com", auth_provider=ExplodingAuth(), service=svc)
+    assert await conn._get_service() is svc
 
 
 # ---------- send_email ----------
