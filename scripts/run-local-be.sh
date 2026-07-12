@@ -21,6 +21,14 @@
 #   scripts/run-local-be.sh --no-triggers  # don't auto-start triggers (no schedule/gmail
 #                                        #   Bedrock spend; fire workflows manually instead)
 #   scripts/run-local-be.sh --replay       # BEDROCK_MODE=replay (no AWS/Bedrock calls)
+#   scripts/run-local-be.sh --as-service   # (re)install + restart systemd --user unit
+#                                        #   `workflow-be` and tail its logs; survives
+#                                        #   RDP disconnects. One-time prereq (sudo):
+#                                        #   loginctl enable-linger $USER. Any other
+#                                        #   flag combined with --as-service is baked
+#                                        #   into the unit's ExecStart.
+#   scripts/run-local-be.sh --cheatsheet   # print operational commands (service ctl,
+#                                        #   logs, health) and exit
 #
 # Env overrides: PORT (8001), GMAIL_ACCOUNT, DATABASE_URL, BEDROCK_MODE, LOG_FORMAT
 #
@@ -42,22 +50,91 @@ die()  { printf '    %s✗%s %s\n' "$C_WARN" "$C_OFF" "$*" >&2; exit 1; }
 # --- defaults + flags ---------------------------------------------------------
 USE_POSTGRES=1
 START_TRIGGERS=1
+AS_SERVICE=0
+PASSTHROUGH_ARGS=()
 PORT="${PORT:-8001}"
 BEDROCK_MODE="${BEDROCK_MODE:-live}"
 GMAIL_ACCOUNT="${GMAIL_ACCOUNT:-intelligent.workflow.engine@quentinspencer.com}"
 DEFAULT_DB_URL="postgresql+asyncpg://workflow:workflow@localhost:5432/workflow"
 
-usage() { sed -n '2,30p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; }
+
+cheatsheet() {
+  cat <<'SHEET'
+workflow-be operational commands
+────────────────────────────────
+Restart (fresh unit + code):   scripts/run-local-be.sh --as-service
+Or plain restart:              systemctl --user restart workflow-be
+Status:                        systemctl --user status workflow-be
+Follow logs:                   journalctl --user -u workflow-be -f
+Recent logs (last 100):        journalctl --user -u workflow-be -n 100
+Stop:                          systemctl --user stop workflow-be
+Health check:                  curl -s http://localhost:8001/api/health
+
+Foreground (no service):       scripts/run-local-be.sh
+Unit file:                     ~/.config/systemd/user/workflow-be.service
+SHEET
+}
 
 for arg in "$@"; do
   case "$arg" in
-    --in-memory)   USE_POSTGRES=0 ;;
-    --no-triggers) START_TRIGGERS=0 ;;
-    --replay)      BEDROCK_MODE=replay ;;
+    --as-service)  AS_SERVICE=1 ;;
+    --in-memory)   USE_POSTGRES=0;   PASSTHROUGH_ARGS+=("$arg") ;;
+    --no-triggers) START_TRIGGERS=0; PASSTHROUGH_ARGS+=("$arg") ;;
+    --replay)      BEDROCK_MODE=replay; PASSTHROUGH_ARGS+=("$arg") ;;
+    --cheatsheet)  cheatsheet; exit 0 ;;
     -h|--help)     usage; exit 0 ;;
     *) echo "unknown argument: $arg (try --help)" >&2; exit 2 ;;
   esac
 done
+
+# --- systemd --user service path ---------------------------------------------
+# When --as-service is given, we write/refresh the unit, restart the service,
+# and hand off to journalctl. The pre-flight + uvicorn launch runs INSIDE the
+# service (systemd re-invokes this script without --as-service).
+if [ "$AS_SERVICE" = 1 ]; then
+  UNIT_DIR="$HOME/.config/systemd/user"
+  UNIT_FILE="$UNIT_DIR/workflow-be.service"
+  mkdir -p "$UNIT_DIR"
+
+  EXEC_LINE="$SCRIPT_DIR/run-local-be.sh"
+  if [ "${#PASSTHROUGH_ARGS[@]}" -gt 0 ]; then
+    for a in "${PASSTHROUGH_ARGS[@]}"; do EXEC_LINE="$EXEC_LINE $a"; done
+  fi
+
+  cat > "$UNIT_FILE" <<UNIT
+[Unit]
+Description=Intelligent Workflow Backend (local dev)
+After=network-online.target
+
+[Service]
+Type=exec
+WorkingDirectory=$REPO_ROOT
+ExecStart=$EXEC_LINE
+Restart=on-failure
+RestartSec=5
+Environment=PATH=$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target
+UNIT
+
+  # Warn if linger isn't enabled — service will die at logout without it.
+  if [ "$(loginctl show-user "$USER" -p Linger --value 2>/dev/null)" != "yes" ]; then
+    warn "linger not enabled for $USER — service will stop at logout."
+    warn "Run once:  sudo loginctl enable-linger $USER"
+  fi
+
+  systemctl --user daemon-reload
+  systemctl --user enable workflow-be.service >/dev/null 2>&1 || true
+  systemctl --user restart workflow-be.service
+  ok "workflow-be.service (re)started with ExecStart: $EXEC_LINE"
+  echo "    stop with:  systemctl --user stop workflow-be"
+  echo "    following logs (Ctrl-C detaches; service keeps running)..."
+  exec journalctl --user -u workflow-be -n 0 -f
+fi
 
 # --- pre-flight ---------------------------------------------------------------
 step "Pre-flight checks"
