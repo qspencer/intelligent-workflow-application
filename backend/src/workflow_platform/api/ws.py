@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
@@ -55,16 +56,37 @@ def build_ws_router(events: EventBus, validator: OidcValidator | None = None) ->
 
         await ws.accept()
         queue = events.subscribe()
+        # Race the event queue against ws.receive(): receive() is how we
+        # notice a client disconnect (or the server closing the socket during
+        # shutdown) *promptly*. Blocking on queue.get() alone only detected a
+        # dead peer at the next send — on a quiet bus that's never, which left
+        # this handler task alive forever and hung uvicorn's --reload/shutdown
+        # in "Waiting for background tasks to complete".
+        recv_task: asyncio.Task[Any] = asyncio.create_task(ws.receive())
+        get_task: asyncio.Task[Any] | None = None
         try:
             while True:
-                event = await queue.get()
-                try:
+                if get_task is None:
+                    get_task = asyncio.create_task(queue.get())
+                done, _ = await asyncio.wait(
+                    {recv_task, get_task}, return_when=asyncio.FIRST_COMPLETED
+                )
+                if recv_task in done:
+                    msg = recv_task.result()  # re-raises on abnormal close
+                    if msg.get("type") == "websocket.disconnect":
+                        break
+                    # Ignore client chatter; keep listening for disconnect.
+                    recv_task = asyncio.create_task(ws.receive())
+                if get_task in done:
+                    event = get_task.result()
+                    get_task = None
                     await ws.send_json(event)
-                except (WebSocketDisconnect, RuntimeError):
-                    break
-        except asyncio.CancelledError:
+        except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
             pass
         finally:
+            for task in (recv_task, get_task):
+                if task is not None and not task.done():
+                    task.cancel()
             events.unsubscribe(queue)
             with contextlib.suppress(RuntimeError):
                 await ws.close()

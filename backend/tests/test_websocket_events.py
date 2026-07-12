@@ -38,6 +38,28 @@ def test_websocket_streams_published_events(
         assert msg == {"action": "workflow_started", "id": "abc"}
 
 
+def test_websocket_handler_exits_on_disconnect_with_no_events(
+    ws_app: tuple[TestClient, EventBus],
+) -> None:
+    """Regression: the handler used to block on queue.get() and only notice a
+    dead peer at the next send — on a quiet bus, never. The still-alive task
+    hung uvicorn's --reload/shutdown ("Waiting for background tasks to
+    complete") whenever a dashboard tab was open. Disconnecting with ZERO
+    events published must release the handler (observable via unsubscribe)."""
+    import time
+
+    client, bus = ws_app
+    with client.websocket_connect("/ws/events?user=alice&groups=admins"):
+        assert len(bus._subscribers) == 1
+    # Context exit sends websocket.disconnect; the handler must notice it
+    # promptly (no event ever flowed) and unsubscribe on the way out.
+    deadline = 50
+    while len(bus._subscribers) > 0 and deadline > 0:
+        time.sleep(0.05)
+        deadline -= 1
+    assert len(bus._subscribers) == 0
+
+
 def test_websocket_rejects_unauthenticated_connection(
     ws_app: tuple[TestClient, EventBus],
 ) -> None:
