@@ -1,7 +1,7 @@
 id: scheduled-health-report
 name: Scheduled Health Report
 description: |
-  Fires on a fixed interval, asks Claude to write a one-line status entry,
+  Fires hourly, asks Claude to write a one-line status entry,
   appends it to a log file via the `append_file` stock function. Useful as
   a "does the schedule trigger fire?" smoke target and as a template for
   any periodic agentic workflow.
@@ -9,8 +9,10 @@ description: |
 trigger:
   type: schedule
   config:
-    # Every 60s. Change to `cron: "*/5 * * * *"` for cron-style.
-    interval_seconds: 60
+    # Hourly. It's a smoke target — frequent enough to prove the schedule
+    # trigger fires, without flooding the instance list (at 60s it produced
+    # hundreds of runs per session). Change to `cron` for cron-style.
+    interval_seconds: 3600
   # Schedule triggers don't carry a real payload; the empty object
   # lets a manual Run via the dashboard mimic a scheduled fire.
   example_payload: {}

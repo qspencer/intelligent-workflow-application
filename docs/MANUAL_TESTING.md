@@ -383,7 +383,7 @@ If the named secret isn't set in the environment, the endpoint returns **503**
 ## 4c. Schedule example (real backend, watch it tick)
 
 **What:** the `scheduled_health_report` example workflow under
-`examples/scheduled_health_report/`. Fires once a minute, appends a
+`examples/scheduled_health_report/`. Fires hourly, appends a
 status line to `/tmp/scheduled-health-report.log`.
 
 **Why manual:** the schedule trigger has wall-clock behavior unit tests
@@ -392,7 +392,8 @@ can only simulate. Watching the file grow is the most direct proof.
 Start the backend (same command as 4b), then:
 
 ```bash
-# Wait a minute for the first fire, then:
+# Wait for the first fire (hourly by default — drop interval_seconds for a
+# quicker check), then:
 tail -f /tmp/scheduled-health-report.log
 
 # Instances per fire:
@@ -401,11 +402,12 @@ curl -s -H 'X-Dev-User: alice' -H 'X-Dev-Groups: admins' \
   | jq '.[] | {id, state, started_at}'
 ```
 
-**Pass when:** the log file gains one line per minute and the instance
+**Pass when:** the log file gains one line per interval and the instance
 list grows by one each tick.
 
-**Cost note:** ~$0.0001 per fire at Haiku 4.5. Leave the backend running
-overnight only if you mean to spend a few cents.
+**Cost note:** ~$0.0001 per fire at Haiku 4.5 — negligible at the hourly
+default. (It used to fire every 60s, which flooded the instance list and
+ticked spend continuously; hence the calmer default.)
 
 ---
 
