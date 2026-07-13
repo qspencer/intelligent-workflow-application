@@ -37,6 +37,18 @@ registers the trigger and seeds the rubric on boot. The cursor starts at
 If (2) accumulates real instances, that fires the SEMANTICS.md trigger:
 design-reviewer pass, then the scoped veracium integration.
 
+> **Status 2026-07-13:** the trigger fired (repeat-sender inconsistency + the
+> quarantine case; awaiting-reply was reclassified as a sent-mail-state gap,
+> not memory-shaped). The design review passed with conditions, and the
+> **write-only slice is live**: the `learned_memory` block in `workflow.yaml`
+> has the engine ingest two observations after each successful run — the mail
+> itself as `third_party` (claims quarantined) and the triage verdict as
+> `system` (per-sender classification history). Store:
+> `$WORKFLOW_PLATFORM_LEARNED_MEMORY_DB` (default `.memory/learned.db`).
+> Each write lands a `memory_observed` audit entry (hash, facts/quarantined
+> counts, tokens, cost). Recall-injection into the prompt is slice 2 — triage
+> behavior itself is unchanged until then.
+
 ## Querying results across runs
 
 ```sql

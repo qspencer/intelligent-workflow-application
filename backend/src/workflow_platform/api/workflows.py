@@ -18,6 +18,7 @@ import hmac
 import json
 import logging
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -30,6 +31,7 @@ from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.catalog import build_catalog
 from workflow_platform.cost import CostReportService, price_for_model
 from workflow_platform.engine import ToolCatalog, WorkflowEngine, default_function_registry
+from workflow_platform.memory import LearnedMemoryService
 from workflow_platform.persistence import (
     AuditEntry,
     Repositories,
@@ -657,11 +659,31 @@ def build_router(
             if tool is None:
                 continue
             sandbox_tools.append(_sandbox_tool(tool) if _is_external_tool(tool_name) else tool)
-        dry_engine = dataclasses.replace(
-            engine, world=mock_world(), tools=ToolCatalog(sandbox_tools)
-        )
-
-        instance = await dry_engine.run(definition, trigger_payload=payload)
+        # Learned memory in a dry run writes to an ephemeral scratch DB that is
+        # discarded with the temp dir — the full observe path still runs (live
+        # Bedrock distill, audit entries) but the real memory store is never
+        # touched: "sandbox the world, keep the brain".
+        with tempfile.TemporaryDirectory(prefix="dry-run-memory-") as scratch:
+            scratch_memory = (
+                LearnedMemoryService(
+                    engine.bedrock,
+                    Path(scratch) / "learned.db",
+                    model_id=engine.learned_memory.model_id,
+                )
+                if engine.learned_memory is not None
+                else None
+            )
+            dry_engine = dataclasses.replace(
+                engine,
+                world=mock_world(),
+                tools=ToolCatalog(sandbox_tools),
+                learned_memory=scratch_memory,
+            )
+            try:
+                instance = await dry_engine.run(definition, trigger_payload=payload)
+            finally:
+                if scratch_memory is not None:
+                    scratch_memory.close()
         # Tag in history so a dry run is distinguishable from a real one.
         instance.context = {**(instance.context or {}), "dry_run": True}
         await repositories.instances.update(instance)

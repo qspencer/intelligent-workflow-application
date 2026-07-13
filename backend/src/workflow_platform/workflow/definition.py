@@ -96,6 +96,38 @@ class Edge(BaseModel):
     condition_label: str | None = None
 
 
+class ObservationSpec(BaseModel):
+    """One memory write the engine performs after a successful run.
+
+    `text` is a template: `{trigger.x.y}` / `{steps.id.field}` placeholders
+    resolve against the workflow context (missing paths render empty).
+    `author` is the trust-critical field — `third_party` for content that
+    arrived from outside (received mail, external documents: its claims are
+    quarantined, never stored as user facts), `system` for platform-derived
+    content (e.g. a triage verdict), `user` for the user's own words.
+    """
+
+    text: str
+    author: Literal["user", "third_party", "system"] = "third_party"
+    event_type: str = "chat"
+    # Context paths (same dotted form as placeholders, no braces):
+    date_from: str | None = None  # ISO date/datetime the event occurred
+    ref_from: str | None = None  # evidence reference (e.g. a message id)
+
+
+class LearnedMemorySpec(BaseModel):
+    """Opt-in learned per-entity memory (veracium) for a workflow.
+
+    Write-only: the engine ingests `observations` after a run COMPLETEs.
+    Agents never see or write this memory directly — recall/injection is a
+    later slice. `user_id` names whose memory this is (e.g. the mailbox
+    owner); per-entity separation within it is veracium's job.
+    """
+
+    user_id: str
+    observations: list[ObservationSpec] = Field(default_factory=list)
+
+
 class WorkflowPolicy(BaseModel):
     max_total_tokens: int | None = None
     timeout_seconds: float | None = None
@@ -111,3 +143,4 @@ class WorkflowDefinition(BaseModel):
     edges: list[Edge] = Field(default_factory=list)
     policies: WorkflowPolicy = Field(default_factory=WorkflowPolicy)
     capabilities: CapabilityPolicy | None = None
+    learned_memory: LearnedMemorySpec | None = None

@@ -18,6 +18,7 @@ import asyncio
 import hashlib
 import json
 import logging
+import re
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
@@ -34,7 +35,7 @@ from workflow_platform.cost import cost_for_usage
 from workflow_platform.engine.context import WorkflowContext
 from workflow_platform.engine.registry import FunctionRegistry, StepFailure
 from workflow_platform.events import EventBus
-from workflow_platform.memory import MemoryManager
+from workflow_platform.memory import LearnedMemoryService, MemoryManager
 from workflow_platform.observability import Metrics, NoopMetrics
 from workflow_platform.persistence import (
     AuditEntry,
@@ -136,6 +137,10 @@ class WorkflowEngine:
     world: World
     system_capabilities: CapabilityPolicy | None = None
     memory: MemoryManager | None = None
+    # Learned per-entity memory (veracium, write-only slice). Only consulted
+    # for definitions that declare a `learned_memory` block; observations are
+    # engine-written after a successful run — agents have no write path.
+    learned_memory: LearnedMemoryService | None = None
     events: EventBus | None = None
     metrics: Metrics = field(default_factory=NoopMetrics)
     pause_check_interval: float = 0.0  # seconds; 0 disables polling-based pause checks
@@ -408,6 +413,10 @@ class WorkflowEngine:
             )
             return instance
 
+        # Learned-memory observations happen before the COMPLETED mark so their
+        # token/cost spend lands in the instance totals. A failed observation
+        # never fails the run — it audits and moves on.
+        await self._observe_learned_memory(definition, context, instance.id)
         instance = await self._mark_instance(
             instance, WorkflowInstanceState.COMPLETED, context, error=None
         )
@@ -942,6 +951,78 @@ class WorkflowEngine:
             "memory_hash": memory_hash,
         }
 
+    # --- learned memory (veracium, write-only slice) ---
+
+    async def _observe_learned_memory(
+        self,
+        definition: WorkflowDefinition,
+        context: WorkflowContext,
+        instance_id: str,
+    ) -> None:
+        """Engine-written memory observations for a successfully completed run.
+
+        Per the adoption conditions in docs/SEMANTICS.md: the engine — never
+        the agent — writes; every write is audited with a content hash and
+        provenance counts; spend is metered like any other Bedrock call.
+        """
+        spec = definition.learned_memory
+        if spec is None:
+            return
+        if self.learned_memory is None:
+            await self._audit(
+                "memory_observe_skipped",
+                actor_type="engine",
+                actor_id="learned_memory",
+                instance_id=instance_id,
+                detail={"reason": "no learned-memory service configured"},
+            )
+            return
+        for index, obs in enumerate(spec.observations):
+            text = _render_observation_template(obs.text, context)
+            if not text.strip():
+                await self._audit(
+                    "memory_observe_skipped",
+                    actor_type="engine",
+                    actor_id="learned_memory",
+                    instance_id=instance_id,
+                    detail={"reason": "observation rendered empty", "observation": index},
+                )
+                continue
+            date_raw = _resolve_context_value(context, obs.date_from)
+            date = str(date_raw)[:10] if date_raw else None
+            ref_raw = _resolve_context_value(context, obs.ref_from)
+            evidence_ref = str(ref_raw) if ref_raw is not None else None
+            try:
+                result = await self.learned_memory.observe(
+                    spec.user_id,
+                    text,
+                    author=obs.author,
+                    event_type=obs.event_type,
+                    date=date,
+                    evidence_ref=evidence_ref,
+                )
+            except Exception as exc:
+                logger.exception("learned-memory observation failed")
+                await self._audit(
+                    "memory_observe_failed",
+                    actor_type="engine",
+                    actor_id="learned_memory",
+                    instance_id=instance_id,
+                    detail={"observation": index, "error": str(exc)},
+                )
+                continue
+            context.total_tokens += result.input_tokens + result.output_tokens
+            context.total_cost_usd += result.cost_usd
+            self.metrics.agent_tokens(result.model, result.input_tokens, result.output_tokens)
+            self.metrics.bedrock_cost(result.model, result.cost_usd)
+            await self._audit(
+                "memory_observed",
+                actor_type="engine",
+                actor_id="learned_memory",
+                instance_id=instance_id,
+                detail={"user_id": spec.user_id, "observation": index, **result.model_dump()},
+            )
+
     # --- repository helpers ---
 
     async def _mark_instance(
@@ -1009,3 +1090,42 @@ def _build_user_message(step: AgenticStep, context: WorkflowContext) -> str:
     """
     payload = {"trigger": context.trigger, "prior_steps": context.steps}
     return f"{step.goal}\n\nContext:\n{json.dumps(payload, indent=2, default=str)}"
+
+
+def _resolve_context_value(context: WorkflowContext, dotted: str | None) -> Any:
+    """Resolve a `trigger.x.y` / `steps.id.field` path against the context.
+    Returns None for missing paths or unknown roots. Unlike the functions
+    module's string-only `_resolve_path`, non-string scalars pass through
+    (observation templates want confidence floats etc.)."""
+    if not dotted:
+        return None
+    head, *rest = dotted.split(".")
+    cursor: Any
+    if head == "trigger":
+        cursor = context.trigger
+    elif head == "steps":
+        cursor = context.steps
+    else:
+        return None
+    for part in rest:
+        if not isinstance(cursor, dict) or part not in cursor:
+            return None
+        cursor = cursor[part]
+    return cursor
+
+
+_TEMPLATE_PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_.]+)\}")
+
+
+def _render_observation_template(template: str, context: WorkflowContext) -> str:
+    """Substitute `{trigger.x}` / `{steps.id.field}` placeholders with context
+    values. Missing paths and non-scalar values render empty — an observation
+    is best-effort, never a failure."""
+
+    def _sub(match: re.Match[str]) -> str:
+        value = _resolve_context_value(context, match.group(1))
+        if value is None or isinstance(value, dict | list):
+            return ""
+        return str(value)
+
+    return _TEMPLATE_PLACEHOLDER.sub(_sub, template)

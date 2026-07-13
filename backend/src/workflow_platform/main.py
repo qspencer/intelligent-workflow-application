@@ -31,7 +31,7 @@ from workflow_platform.engine import (
     default_function_registry,
 )
 from workflow_platform.events import EventBus
-from workflow_platform.memory import MemoryManager
+from workflow_platform.memory import LearnedMemoryService, MemoryManager
 from workflow_platform.observability import (
     CONTENT_TYPE,
     ErrorBuffer,
@@ -87,15 +87,21 @@ def _default_engine(
     respects the `BEDROCK_MODE` env var so tests / replay still work. If
     `WORKFLOW_PLATFORM_GMAIL_ACCOUNT` is set and credentials are reachable,
     `EmailSendTool` + `EmailLabelApplyTool` join the default catalog."""
+    bedrock = BedrockClient()
+    learned_db = os.environ.get(
+        "WORKFLOW_PLATFORM_LEARNED_MEMORY_DB",
+        str(Path(os.environ.get("WORKFLOW_PLATFORM_MEMORY_DIR", ".memory")) / "learned.db"),
+    )
     return WorkflowEngine(
         repositories=repositories,
         functions=default_function_registry(),
         tools=ToolCatalog(_build_default_tools(secret_store)),
-        bedrock=BedrockClient(),
+        bedrock=bedrock,
         world=real_world(),
         metrics=metrics,
         events=events,
         memory=memory,
+        learned_memory=LearnedMemoryService(bedrock, learned_db),
     )
 
 

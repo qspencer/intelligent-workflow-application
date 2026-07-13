@@ -159,6 +159,30 @@ Acceptance:
 Effort: **S–M**. The natural next hardening item now that the backend runs
 as a long-lived systemd service.
 
+### G10 — Learned-memory recall injection (veracium slice 2)
+
+The write-only slice landed 2026-07-13 (decision record:
+`docs/SEMANTICS.md` → "Adopted (write-only slice): veracium"): the engine
+ingests per-run observations into a veracium store, but **nothing reads it
+yet** — triage behavior is unchanged by design. Slice 2 closes the loop:
+inject `recall()` context (grounded facts + the fenced never-assert
+third-party section) into the agentic step's prompt alongside the rubric,
+so per-sender history actually prevents the category flapping the live
+validation documented.
+
+Gate to start: enough accumulated history to judge recall quality — let
+the email-triage-live store collect ~2+ weeks of organic mail (or run a
+historical backfill through the observe path) first. Design questions to
+settle then: where recall sits in the prompt relative to the rubric; a
+per-step token budget for recalled context; whether `maintain()` (expiry/
+consolidation) runs on a schedule; and how `memory_hash`-style audit
+extends to recall reads (`memory_recalled` entries). The quarantine
+rendering must survive prompt assembly intact — that's the security
+property the whole adoption was for.
+
+Effort: **M**. Also unlocks re-examining awaiting-reply via sent-mail
+observation (explicitly out of both slices so far).
+
 ---
 
 ## Out of scope (still)

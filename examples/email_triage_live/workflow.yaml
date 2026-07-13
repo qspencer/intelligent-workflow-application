@@ -86,3 +86,31 @@ edges:
 policies:
   max_total_tokens: 12000
   budget_action: pause
+
+# Learned per-entity memory (veracium, write-only slice — docs/SEMANTICS.md
+# "veracium — adopted"). The ENGINE writes these after a successful run; the
+# agent has no memory tool and recall-injection is a later slice, so triage
+# behavior is unchanged. Two observations per message: the mail itself enters
+# as third_party (its claims are quarantined, never stored as user facts);
+# the triage verdict enters as system (this is what accumulates per-sender
+# classification history). Cost: two extra Haiku distill calls per message.
+learned_memory:
+  user_id: qspencer@gmail.com
+  observations:
+    - text: |
+        Received email from {trigger.from_address.name} <{trigger.from_address.address}>
+        Subject: {trigger.subject}
+
+        {trigger.body_text}
+      author: third_party
+      event_type: email
+      date_from: trigger.received_at
+      ref_from: trigger.message_id
+    - text: >
+        The triage agent classified the email from {trigger.from_address.address}
+        (subject: "{trigger.subject}") as {steps.record.category} with confidence
+        {steps.record.confidence}. Reason: {steps.record.summary}
+      author: system
+      event_type: triage
+      date_from: trigger.received_at
+      ref_from: trigger.message_id

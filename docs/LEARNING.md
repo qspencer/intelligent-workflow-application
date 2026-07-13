@@ -272,6 +272,18 @@ Learning must not introduce instability or drift:
 
 ## Memory Storage Format
 
+> **Superseded in part (2026-07-13).** This section's "all learning
+> artifacts are structured Markdown" no longer holds universally: the
+> *learned per-entity* memory dimension (users/environment) is now a typed
+> graph + episodes in SQLite via the adopted `veracium` library — see
+> `docs/SEMANTICS.md` → "Adopted (write-only slice): veracium" for the
+> decision record and conditions. The rationale below still governs
+> **operator-curated rubric memory** (`MemoryManager`, `agent_memory.md`)
+> and any artifact meant for direct prompt injection or human editing.
+> The split is deliberate: Markdown where humans author and models read
+> verbatim; a provenance-typed store where facts accumulate across runs
+> and trust levels must be structural, not stylistic.
+
 All learning artifacts (agent memory, user profiles, environment observations) use **structured Markdown** as the storage format. This is intentional:
 
 - LLMs parse Markdown more reliably than JSON or XML for narrative/contextual information

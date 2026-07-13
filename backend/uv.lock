@@ -2053,6 +2053,18 @@ wheels = [
 ]
 
 [[package]]
+name = "veracium"
+version = "0.1.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pydantic" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/0d/11/07b9540c93700137b29eff4b44a3a62ed59b2850110e83d79f24e36930b1/veracium-0.1.6.tar.gz", hash = "sha256:56d5756becaba3e8e8914fe856b94397deac6c8fedca682e20290d5e9d71ecbe", size = 81882, upload-time = "2026-07-13T12:07:20.871Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e2/c5/852442b70316d56a71f52f29d75f20995f84683c320e081c6292a6d04fbf/veracium-0.1.6-py3-none-any.whl", hash = "sha256:81de0ef255c08b68d095d85257d1817b96f52a8a8d3d5184a04d60767b239a28", size = 48312, upload-time = "2026-07-13T12:07:19.966Z" },
+]
+
+[[package]]
 name = "watchdog"
 version = "6.0.0"
 source = { registry = "https://pypi.org/simple" }
@@ -2231,6 +2243,7 @@ dependencies = [
     { name = "simpleeval" },
     { name = "sqlalchemy", extra = ["asyncio"] },
     { name = "uvicorn", extra = ["standard"] },
+    { name = "veracium" },
     { name = "watchdog" },
 ]
 
@@ -2271,6 +2284,7 @@ requires-dist = [
     { name = "simpleeval", specifier = ">=1.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.50" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.49.0" },
+    { name = "veracium", specifier = "==0.1.6" },
     { name = "watchdog", specifier = ">=5.0" },
 ]
 

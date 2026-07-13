@@ -84,13 +84,15 @@ files are short enough that manual review remains practical.
 
 **Goal:** Documents uploaded by admins are parsed, chunked, contextualized, and made retrievable.
 
-> **Candidate building block (evaluated 2026-07-11):** `veracium`
-> (`~/Dev/veracium`) — provenance-aware per-entity memory (typed graph +
-> episodes, third-party quarantine, BYO-LLM). Covers the *learned user/
-> environment memory* slice of Phases B+ rather than document ingestion.
-> Deferral rationale, integration gaps, and the reopen trigger (email-triage
-> validation against real mail) are logged in `docs/SEMANTICS.md` →
-> "Deferred: veracium".
+> **Adopted building block (2026-07-13):** `veracium` (PyPI, pinned) —
+> provenance-aware per-entity memory (typed graph + episodes, third-party
+> quarantine, BYO-LLM). Covers the *learned user/environment memory* slice
+> of Phases B+ rather than document ingestion. The email-triage live
+> validation fired the adoption trigger; the **write-only slice** is
+> implemented (`workflow_platform.memory.learned`, engine-written
+> observations, Bedrock-routed LLM calls, dry-run scratch isolation).
+> Recall-injection is the next slice. Decision record + conditions:
+> `docs/SEMANTICS.md` → "Adopted (write-only slice): veracium".
 
 **Components:**
 

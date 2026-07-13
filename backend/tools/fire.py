@@ -39,7 +39,7 @@ from workflow_platform.engine import (
     WorkflowEngine,
     default_function_registry,
 )
-from workflow_platform.memory import MemoryManager
+from workflow_platform.memory import LearnedMemoryService, MemoryManager
 from workflow_platform.orchestrator import seed_memory_from_workflow_dir
 from workflow_platform.persistence import (
     Repositories,
@@ -99,13 +99,18 @@ async def fire(args: argparse.Namespace) -> int:
         await repos.definitions.save(definition)
         await seed_memory_from_workflow_dir(definition, definition_path, memory)
 
+        bedrock = BedrockClient()
+        learned_db = os.environ.get(
+            "WORKFLOW_PLATFORM_LEARNED_MEMORY_DB", str(Path(memory_dir) / "learned.db")
+        )
         engine = WorkflowEngine(
             repositories=repos,
             functions=default_function_registry(),
             tools=ToolCatalog(_build_tools()),
-            bedrock=BedrockClient(),
+            bedrock=bedrock,
             world=real_world(),
             memory=memory,
+            learned_memory=LearnedMemoryService(bedrock, learned_db),
         )
         instance = await engine.run(definition, trigger_payload=trigger_payload)
     finally:

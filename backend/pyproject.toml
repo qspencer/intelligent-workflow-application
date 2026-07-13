@@ -28,6 +28,7 @@ dependencies = [
     "playwright>=1.40",
     "beautifulsoup4>=4.12",
     "json-repair>=0.59.10",
+    "veracium==0.1.6",
 ]
 
 [dependency-groups]
@@ -126,5 +127,7 @@ module = [
     "playwright.*",
     "bs4",
     "bs4.*",
+    "veracium",
+    "veracium.*",
 ]
 ignore_missing_imports = true

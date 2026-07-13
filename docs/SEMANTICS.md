@@ -123,7 +123,7 @@ starts. Reach for graph storage only after benchmarking against vector
 
 ---
 
-## Deferred: veracium (provenance-aware per-entity agent memory)
+## Adopted (write-only slice): veracium (provenance-aware per-entity agent memory)
 
 **What it is.** [`veracium`](file:///home/ubuntu/Dev/veracium) — formerly named
 `engram` (renamed upstream 2026-07-12; older commits and notes use the old
@@ -147,29 +147,65 @@ memory and the received-mail-is-untrusted quarantine map one-to-one onto
 concerns the platform already treats as first-class (cf. `EvidenceAuthor.
 THIRD_PARTY` vs. our own trigger-delivers-untrusted-payload posture).
 
-**Why we don't have it today.** (a) No workload pulls it: every validated
-workload runs well on rubric memory, and email triage — the one that would
-benefit — hasn't been validated against real mail even *with* the current
-setup. (b) Known integration gaps: sync API in an async platform (needs
-`to_thread` + an unanswered SQLite thread-safety question); its LLM calls
-must route through `BedrockClient` for cost metering, audit, and
-record/replay (a `Complete` adapter is ~30 lines and inherits replay for
-free — the easy part); its direct SQLite writes bypass the World
-abstraction, so dry-runs would mutate real memory without an isolation
-story. (c) Maturity: v0.1, not on PyPI, one consumer.
+**The trigger fired (2026-07-12/13).** The email-triage live validation
+(`examples/email_triage_live/`, ~1 day live + a 107-message two-week
+historical batch) produced two of the three named failure classes:
+*repeat-sender inconsistency* (Covetrus 4× fyi / 1× spam; a newsletter
+re-classified from scratch 32×) and the *quarantine case* (a "Security
+alert" email's claim asserted as fact in the triage summary, in an inbox
+that also contained a real spoofing warning). The third candidate —
+awaiting-reply correctness — was reclassified by the design review as a
+*sent-mail-state* gap, not a memory-shaped one: veracium only helps there
+once something observes the user's replies. Not counted as evidence.
 
-**Decision trigger to reopen.** Validate email triage against real mail
-(the standing next workload step). If the rubric-only agent demonstrably
-suffers from having no durable per-correspondent memory — repeated
-re-asking, misclassification that sender history would fix, or unsafe
-handling of claims in received mail — that's the pull. Any *other* workload
-needing cross-run user/entity facts triggers it equally.
+**Design review (2026-07-13): adopt, write-only first slice, three
+conditions.** The maturity objection was stale (veracium reached PyPI at
+0.1.6 with active security fixes); dependency posture is an exact-version
+PyPI pin, no vendoring. The conditions, all implemented:
 
-**Until then, default to:** `MemoryManager` rubrics (structured Markdown,
-hash-audited). If reopened: run the design-reviewer first (this partially
-reopens the knowledge-graph deferral above — veracium *is* a typed graph,
-albeit embedded), and scope the integration as one slice: Bedrock `Complete`
-adapter, async wrapper, dry-run-aware store, cost/audit plumbing (~1–2 days).
+1. **COALA N1 stands** — the *engine* writes observations after a
+   successful run; agents have no memory-write tool. Email-derived content
+   enters as `THIRD_PARTY` (claims quarantined, never user facts); every
+   write lands a `memory_observed` audit entry with a content hash and
+   provenance counts, mirroring `memory_hash`.
+2. **Dry-run isolation** via an ephemeral scratch DB discarded with the
+   run — the observe path executes for real (live Bedrock distill, audit)
+   but the real store is never touched. Rejecting memory-enabled dry runs
+   would have gutted the C6 trust wedge; a World-mediated store was judged
+   premature.
+3. **All veracium LLM calls route through `BedrockClient`** (a sync
+   `Complete` adapter that hops back onto the event loop), so they inherit
+   cost metering, audit, record/replay, and land in instance token/cost
+   totals. The SQLite thread-safety question resolved: veracium's store is
+   `check_same_thread=False` + lock, and the service serializes observes.
+
+**What's implemented (the write-only slice).**
+`workflow_platform.memory.learned.LearnedMemoryService` + an opt-in
+`learned_memory:` block on `WorkflowDefinition` (`user_id` +
+templated `observations`, each with `author` / `event_type` /
+`date_from` / `ref_from`). The engine ingests observations in
+`_observe_learned_memory` after a run COMPLETEs; failures audit
+(`memory_observe_failed`) and never fail the run. The curated-wiki
+recompile is disabled (`wiki_recompile_after_writes=0`) so the write path
+is exactly one cheap-tier distill call per observation. Store:
+`WORKFLOW_PLATFORM_LEARNED_MEMORY_DB` → default `.memory/learned.db`.
+First consumer: `examples/email_triage_live/` (mail as `third_party`,
+triage verdict as `system`). Pinned by `tests/test_learned_memory.py`.
+
+**Explicitly out of this slice (each needs its own pull):**
+recall-injection into agent prompts (slice 2 — the payoff, gated on the
+write-only store accumulating enough per-sender history to judge recall
+quality), sent-mail observation (would make awaiting-reply decidable), a
+Postgres-backed store, and the MCP surface. Note the standing caveat from
+the knowledge-graph section: adopting an embedded typed graph *partially*
+reopens that deferral — if cross-workflow traversal queries materialize,
+re-read it.
+
+**Rubric memory is unchanged:** `MemoryManager` structured-Markdown
+rubrics remain the operator-curated guidance channel; veracium adds the
+*learned* users/environment dimension alongside, per `LEARNING.md`. (The
+"all learning artifacts are structured Markdown" statement in LEARNING.md
+is superseded in part — recorded there.)
 
 ---
 
