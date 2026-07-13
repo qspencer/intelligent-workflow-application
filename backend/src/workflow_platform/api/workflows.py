@@ -978,8 +978,15 @@ def build_router(
     @router.get("/audit", response_model=list[AuditEntry])
     async def list_recent_audit(
         limit: int = 100,
+        instance_id: str | None = None,
         _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.AUDITOR)),
     ) -> list[AuditEntry]:
+        """Recent audit entries, optionally scoped to one instance. Before
+        `instance_id` was accepted here, passing it was silently ignored and
+        the global list came back — misleading for audit consumers."""
+        if instance_id is not None:
+            entries = await repositories.audit.list_by_instance(instance_id)
+            return entries[: min(limit, 500)]
         return await repositories.audit.list_recent(limit=min(limit, 500))
 
     if webhook_registry is not None:

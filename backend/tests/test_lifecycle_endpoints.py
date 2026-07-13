@@ -12,6 +12,7 @@ from tests._bedrock_fakes import FakeBedrock
 from workflow_platform.engine import FunctionRegistry, ToolCatalog, WorkflowEngine
 from workflow_platform.main import create_app
 from workflow_platform.persistence import (
+    AuditEntry,
     StepExecution,
     StepExecutionState,
     WorkflowInstance,
@@ -483,3 +484,33 @@ def test_bulk_delete_requires_admin_or_operator(
     client, _, _ = dev_app
     r = client.delete("/api/workflow-instances?state=completed", headers=_viewer())
     assert r.status_code == 403
+
+
+def test_audit_endpoint_filters_by_instance_id(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    """`GET /api/audit?instance_id=` scopes to that instance (previously the
+    param was silently ignored and the global list came back)."""
+    client, repos, _ = dev_app
+
+    async def _seed_audit() -> tuple[str, str]:
+        instances = await repos.instances.list_by_workflow("wf-1")
+        first, second = instances[0].id, instances[1].id
+        for iid, action in ((first, "workflow_started"), (second, "workflow_killed")):
+            await repos.audit.append(
+                AuditEntry(
+                    actor_type="engine",
+                    actor_id="workflow_engine",
+                    action=action,
+                    workflow_instance_id=iid,
+                )
+            )
+        return first, second
+
+    first, _second = asyncio.run(_seed_audit())
+
+    scoped = client.get(f"/api/audit?instance_id={first}", headers=_admin()).json()
+    assert [e["workflow_instance_id"] for e in scoped] == [first]
+
+    unscoped = client.get("/api/audit", headers=_admin()).json()
+    assert len(unscoped) >= 2

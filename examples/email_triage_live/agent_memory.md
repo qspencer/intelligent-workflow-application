@@ -16,7 +16,7 @@ breaks the parse and the run is wasted.
 ### Correct response (this is the entire response — nothing else):
 
 ```
-{"category":"fyi","confidence":0.95,"reply_drafted":false,"labels_applied":["triaged/fyi"],"summary":"Promotional newsletter from a known vendor."}
+{"category":"fyi","confidence":0.95,"reply_drafted":false,"labels_applied":[],"summary":"Promotional newsletter from a known vendor."}
 ```
 
 ### WRONG response (do NOT do this):
@@ -45,11 +45,8 @@ email — but the OUTPUT is JSON only.
 
 ### Edge cases — still emit JSON, no prose:
 
-- A tool call you tried failed (e.g. `email_label_apply` returns
-  "Label not found"). Record the label name you *tried* in
-  `labels_applied` and emit the JSON anyway.
 - The mail is unusual / empty / corrupt — emit
-  `{"category":"spam","confidence":0,"reply_drafted":false,"labels_applied":["triaged/spam"],"summary":"Fallback: ..."}`.
+  `{"category":"spam","confidence":0,"reply_drafted":false,"labels_applied":[],"summary":"Fallback: ..."}`.
 - You're uncertain about the category — pick the best fit, lower the
   `confidence` value, emit the JSON.
 
@@ -61,12 +58,20 @@ ambiguous one-line test message from yourself: 0.5.
 
 ## Account context
 
-This mailbox belongs to the project's dedicated Gmail account
-(`intelligent.workflow.engine@quentinspencer.com`). It is *not* a
-personal mailbox — it's the address used for workflow-platform
-integration testing and is the only address the connector authorizes
-against. Treat all mail here as low-stakes; this is a development inbox,
-not a live customer surface.
+This is the user's **personal mailbox** (`qspencer@gmail.com`), triaged
+in a **read-only validation run**: you have no tools — you cannot send
+replies or apply labels, only classify. Set `reply_drafted` to `false`
+and `labels_applied` to `[]` always. Misclassification has real cost
+here (a legitimate notice buried as spam, a scam surfaced as urgent),
+so reason before pattern-matching.
+
+Known account linkage: `qspencer@gmail.com` is listed as the recovery
+email for `sppencer2@gmail.com` (a separate account; whether the user
+recognizes it is an open question for the *user*, not for triage).
+Google sends recovery-address copies of that account's security and
+policy notices here. Those copies are genuine Google mail — classify
+them `urgent` (the user may need to act: sign in, or disavow an
+unrecognized account), never `spam`.
 
 ## Five-bucket category catalog
 
@@ -97,50 +102,39 @@ applied to the message.
   Signals: `In-Reply-To` header, "any update on...", "did you get my
   earlier...", "circling back."
 
-## When to auto-reply
+## Provider security notices — not spam by default
 
-The default is **no auto-reply**. Only call `email_send` when one of
-these conditions clearly holds:
+Urgency language + account/sign-in content does **not** equal phishing.
+Before calling a security/account notice `spam`, check the evidence of
+impersonation:
 
-1. `urgent` mail asks a yes/no question with an obvious answer the user
-   would give (e.g. "can you attend the rescheduled meeting at 3pm" and
-   the user is generally available). Even then, drafts should be
-   conservative — acknowledge receipt + a brief response.
-2. `awaiting-reply` mail asks a simple status question and the answer
-   is "I'm still working on it; will follow up by X." A brief
-   acknowledgement is better than silence.
-3. The mail is an out-of-office–style request for confirmation that
-   the user received it (rare).
+- **Sender**: genuine provider notices come from the provider's own
+  domain (`no-reply@accounts.google.com`, `account-security-noreply@
+  accountprotection.microsoft.com`, ...). This mailbox's payload has
+  passed Gmail's own SPF/DKIM handling to reach INBOX — a claimed
+  first-party sender address is meaningful signal here.
+- **Links**: genuine notices link only to the provider's first-party
+  domains (`accounts.google.com`, `support.google.com`). Phishing links
+  to lookalike or unrelated domains, URL shorteners, or raw IPs.
+- **Ask**: genuine notices ask you to act *on the provider's own site*
+  (sign in via their account chooser, review activity, disavow). Phishing
+  asks for credentials/codes in reply, payment, or clicks to third-party
+  hosts.
 
-Do NOT auto-reply when:
-- The mail is `spam`, `fyi`, or `personal`.
-- The reply would commit the user to anything (yes to a meeting, sure
-  to a request, etc.) that isn't trivially obvious.
-- You're uncertain. Always prefer no reply over a wrong one.
+If the sender and every link are first-party: classify `urgent` when
+action is needed (account deletion deadline, unrecognized-device alert,
+recovery-account notice), else `fyi`. Reserve `spam` for notices with
+actual impersonation evidence — and say what that evidence is in the
+`summary`. A false "phishing" verdict on a real notice buries mail the
+user may genuinely need to act on.
 
-Reply discipline:
-- Keep replies to 1–3 sentences.
-- Sign off with a generic "— Workflow Engine" so the human reader sees
-  immediately that this was an automated draft.
-- Use `reply_to_message_id` set to the inbound message's `message_id`
-  so the reply threads correctly (References + In-Reply-To headers are
-  built by the connector).
+## No replies, no labels (read-only run)
 
-## Triage labels
-
-Always apply exactly one of these via `email_label_apply` on the
-inbound message's `message_id`:
-
-- `triaged/urgent`
-- `triaged/fyi`
-- `triaged/spam`
-- `triaged/personal`
-- `triaged/awaiting-reply`
-
-These labels must already exist on the account. If `email_label_apply`
-returns "Label not found" — that's an operator-setup gap, not an agent
-mistake. Pick the right label name anyway and report it; the operator
-will create the missing label in Gmail.
+This validation run gives you **no tools**. Never attempt to send a
+reply or apply a label; the tool-using variant of this workflow is a
+separate example. In every response: `"reply_drafted": false` and
+`"labels_applied": []`. All the signal goes into `category`,
+`confidence`, and `summary`.
 
 ## What this rubric is NOT for
 
