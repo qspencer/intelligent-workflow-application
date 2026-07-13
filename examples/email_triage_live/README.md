@@ -2,8 +2,8 @@
 
 The rubric-iteration validation of `email_triage` against **real mail**
 (`qspencer@gmail.com`), and the experiment that decides whether the platform
-adopts the **engram** per-entity memory library (deferral + trigger logged in
-`docs/SEMANTICS.md` → "Deferred: engram").
+adopts the **veracium** per-entity memory library (deferral + trigger logged in
+`docs/SEMANTICS.md` → "Deferred: veracium").
 
 ## Safety posture
 
@@ -26,7 +26,7 @@ registers the trigger and seeds the rubric on boot. The cursor starts at
 1. **Rubric quality** — same loop as PR/paper triage: query the results,
    find misclassifications, tighten `agent_memory.md`, watch `memory_hash`
    change, repeat.
-2. **Memory-shaped failures** — the engram adoption evidence. Log every case of:
+2. **Memory-shaped failures** — the veracium adoption evidence. Log every case of:
    - a *known repeat sender* re-classified from scratch (sender history
      would have fixed the category);
    - an **awaiting-reply** decision that needs cross-run state ("did we
@@ -35,7 +35,7 @@ registers the trigger and seeds the rubric on boot. The cursor starts at
      summary asserts as fact — the quarantine case.
 
 If (2) accumulates real instances, that fires the SEMANTICS.md trigger:
-design-reviewer pass, then the scoped engram integration.
+design-reviewer pass, then the scoped veracium integration.
 
 ## Querying results across runs
 

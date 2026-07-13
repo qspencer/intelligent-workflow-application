@@ -7,8 +7,8 @@ description: |
   step_executions via record_email_triage, queryable across runs.
 
   Purpose (see README.md): establish the rubric-only baseline and watch for
-  memory-shaped failures — the adoption trigger for the engram per-entity
-  memory library logged in docs/SEMANTICS.md ("Deferred: engram").
+  memory-shaped failures — the adoption trigger for the veracium per-entity
+  memory library logged in docs/SEMANTICS.md ("Deferred: veracium").
 
 trigger:
   type: email

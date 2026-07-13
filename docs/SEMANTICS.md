@@ -123,22 +123,24 @@ starts. Reach for graph storage only after benchmarking against vector
 
 ---
 
-## Deferred: engram (provenance-aware per-entity agent memory)
+## Deferred: veracium (provenance-aware per-entity agent memory)
 
-**What it is.** [`engram`](file:///home/ubuntu/Dev/engram) — a local Python
-library (v0.1.0, source-install, MIT) giving agents durable per-user memory:
+**What it is.** [`veracium`](file:///home/ubuntu/Dev/veracium) — formerly named
+`engram` (renamed upstream 2026-07-12; older commits and notes use the old
+name) — a local Python library (v0.1.0, source-install, MIT) giving agents
+durable per-user memory:
 typed graph edges + dated episodes as store of record, supersession instead
 of erasure, and — its distinctive property — *authorship as a security
 control*: third-party content (received email, external docs) is structurally
 quarantined as claims-by-the-claimant, never facts-about-the-user, with an
 abstention gate on recall. BYO-LLM (`Complete` callable with per-role model
 routing), embedded SQLite, pluggable store. Evaluated hands-on 2026-07-11;
-working demo at `~/Dev/engram-demo` (installed, ran end-to-end, quarantine
+working demo at `~/Dev/veracium-demo` (installed, ran end-to-end, quarantine
 behavior verified against a live model).
 
 **What it would buy.** The memory dimension the platform *doesn't* have:
 today's `MemoryManager` holds operator-curated rubrics per agent step
-(static guidance); engram would add *learned, per-entity* memory across runs
+(static guidance); veracium would add *learned, per-entity* memory across runs
 — exactly `LEARNING.md`'s users/environment dimensions and the deferred
 Phase B+ territory. Sharpest fit: **email triage**, where per-correspondent
 memory and the received-mail-is-untrusted quarantine map one-to-one onto
@@ -165,7 +167,7 @@ needing cross-run user/entity facts triggers it equally.
 
 **Until then, default to:** `MemoryManager` rubrics (structured Markdown,
 hash-audited). If reopened: run the design-reviewer first (this partially
-reopens the knowledge-graph deferral above — engram *is* a typed graph,
+reopens the knowledge-graph deferral above — veracium *is* a typed graph,
 albeit embedded), and scope the integration as one slice: Bedrock `Complete`
 adapter, async wrapper, dry-run-aware store, cost/audit plumbing (~1–2 days).
 
