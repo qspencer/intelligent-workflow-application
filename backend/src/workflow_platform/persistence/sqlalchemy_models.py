@@ -80,3 +80,12 @@ class AuditLogRow(Base):
     workflow_instance_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     step_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     detail: Mapped[dict[str, Any]] = mapped_column(JsonColumn, nullable=False)
+
+
+class TriggerCursorRow(Base):
+    __tablename__ = "trigger_cursors"
+
+    trigger_id: Mapped[str] = mapped_column(String(255), primary_key=True)
+    cursor: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    seen_ids: Mapped[list[str]] = mapped_column(JsonColumn, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

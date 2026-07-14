@@ -131,33 +131,22 @@ Surfaced as R1 in `docs/AGENT_MEMORY_RESEARCH_NOTES.md` (ActiveGraph paper's "ch
 
 **Tests:** 8 new backend unit tests in `test_engine_fork.py` (root/middle/leaf fork semantics, audit-entry shape, agent-memory pick-up via FakeBedrock, error cases) + 4 new API tests in `test_lifecycle_endpoints.py` + 1 new Vitest test for `forkInstance`. Resume's existing tests still pass with the dispatch-loop change.
 
-### G9 — Persist the email-trigger poll cursor
+### G9 — Persist the email-trigger poll cursor — **landed 2026-07-14**
 
-Surfaced 2026-07-12 during the email-triage live validation: the
-`GmailPollTrigger` cursor is **process-local** (initializes to "now" on every
-start). Any mail arriving while the backend is down — or during the instant
-of a restart/reload — is skipped permanently and recoverable only by manual
-backfill (`tools/fetch_dmarc.py` / ad-hoc run-batch scripts). Two real
-misses on day one of running as a persistent service: three personal-inbox
-emails during the token-expiry outage, and a DMARC aggregate report that
-arrived at 23:59 UTC between restarts.
-
-Sketch: persist `(workflow_id or trigger identity) → last-polled timestamp`
-through the repositories (a small `trigger_cursors` table / in-memory dict),
-write it after each successful poll, and initialize from it on start —
-falling back to "now" when absent (first ever start keeps today's
-no-historical-flood behavior). Combined with the existing message-id dedupe,
-restart overlap re-polls are harmless. Consider the same for
-`FilesystemTrigger` later; email is the one with proven misses.
-
-Acceptance:
-- Stop the backend, receive a matching email, start the backend → the
-  message fires exactly once (no manual backfill).
-- First-ever start (no stored cursor) still ignores historical mail.
-- Restart mid-window doesn't double-fire (dedupe covers the overlap).
-
-Effort: **S–M**. The natural next hardening item now that the backend runs
-as a long-lived systemd service.
+Implemented as scoped: new `TriggerCursorRepo` (`trigger_cursors` table,
+Alembic `0002`; in-memory + Postgres upsert impls), `GmailPollTrigger`
+persists **cursor + the seen-id ring** after each dispatching poll and
+initializes from the store on start (falling back to "now" on true first
+start). The seen-id ring turned out to be load-bearing, not optional:
+Gmail's `after:` is second-granular and inclusive, so the last processed
+message always re-matches after a restart, and the in-memory dedupe dies
+with the process — persisting both makes restarts loss-free *and*
+duplicate-free. Keyed `email:<workflow_id>:<account>` so re-pointing a
+workflow at another mailbox starts fresh. Store failures degrade to the
+old process-local behavior (logged, never blocks polling). Tests:
+`test_trigger_cursor.py` (acceptance criteria) + a Postgres upsert
+round-trip. `FilesystemTrigger` still process-local — extend if a real
+miss shows up there.
 
 ### G10 — Learned-memory recall injection (veracium slice 2)
 

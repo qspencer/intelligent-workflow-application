@@ -7,11 +7,13 @@ from typing import Any
 
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from workflow_platform.persistence.models import (
     AuditEntry,
     StepExecution,
+    TriggerCursorState,
     WorkflowInstance,
 )
 from workflow_platform.persistence.repository import (
@@ -20,10 +22,12 @@ from workflow_platform.persistence.repository import (
     InstanceRepo,
     Repositories,
     StepExecutionRepo,
+    TriggerCursorRepo,
 )
 from workflow_platform.persistence.sqlalchemy_models import (
     AuditLogRow,
     StepExecutionRow,
+    TriggerCursorRow,
     WorkflowDefinitionRow,
     WorkflowInstanceRow,
 )
@@ -254,12 +258,46 @@ class PostgresAuditRepo(AuditRepo):
         return [_from_audit_row(r) for r in rows]
 
 
+class PostgresTriggerCursorRepo(TriggerCursorRepo):
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sf = session_factory
+
+    async def get(self, trigger_id: str) -> TriggerCursorState | None:
+        async with self._sf() as s:
+            row = await s.get(TriggerCursorRow, trigger_id)
+            if row is None:
+                return None
+            return TriggerCursorState(
+                cursor=row.cursor, seen_ids=list(row.seen_ids), updated_at=row.updated_at
+            )
+
+    async def set(self, trigger_id: str, state: TriggerCursorState) -> None:
+        async with self._sf() as s, s.begin():
+            stmt = pg_insert(TriggerCursorRow).values(
+                trigger_id=trigger_id,
+                cursor=state.cursor,
+                seen_ids=state.seen_ids,
+                updated_at=state.updated_at,
+            )
+            await s.execute(
+                stmt.on_conflict_do_update(
+                    index_elements=[TriggerCursorRow.trigger_id],
+                    set_={
+                        "cursor": stmt.excluded.cursor,
+                        "seen_ids": stmt.excluded.seen_ids,
+                        "updated_at": stmt.excluded.updated_at,
+                    },
+                )
+            )
+
+
 def postgres_repositories(session_factory: async_sessionmaker[AsyncSession]) -> Repositories:
     return Repositories(
         definitions=PostgresDefinitionRepo(session_factory),
         instances=PostgresInstanceRepo(session_factory),
         steps=PostgresStepExecutionRepo(session_factory),
         audit=PostgresAuditRepo(session_factory),
+        trigger_cursors=PostgresTriggerCursorRepo(session_factory),
     )
 
 

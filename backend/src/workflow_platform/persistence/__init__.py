@@ -3,6 +3,7 @@ from workflow_platform.persistence.models import (
     AuditEntry,
     StepExecution,
     StepExecutionState,
+    TriggerCursorState,
     WorkflowInstance,
     WorkflowInstanceState,
 )
@@ -12,6 +13,7 @@ from workflow_platform.persistence.repository import (
     InstanceRepo,
     Repositories,
     StepExecutionRepo,
+    TriggerCursorRepo,
 )
 
 __all__ = [
@@ -23,6 +25,8 @@ __all__ = [
     "StepExecution",
     "StepExecutionRepo",
     "StepExecutionState",
+    "TriggerCursorRepo",
+    "TriggerCursorState",
     "WorkflowInstance",
     "WorkflowInstanceState",
     "in_memory_repositories",

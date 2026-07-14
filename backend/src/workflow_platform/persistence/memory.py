@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from workflow_platform.persistence.models import (
     AuditEntry,
     StepExecution,
+    TriggerCursorState,
     WorkflowInstance,
 )
 from workflow_platform.persistence.repository import (
@@ -21,6 +22,7 @@ from workflow_platform.persistence.repository import (
     InstanceRepo,
     Repositories,
     StepExecutionRepo,
+    TriggerCursorRepo,
 )
 from workflow_platform.workflow import WorkflowDefinition
 
@@ -160,10 +162,23 @@ class InMemoryAuditRepo(AuditRepo):
         return [deepcopy(e) for e in self._entries if e.workflow_instance_id == instance_id]
 
 
+class InMemoryTriggerCursorRepo(TriggerCursorRepo):
+    def __init__(self) -> None:
+        self._states: dict[str, TriggerCursorState] = {}
+
+    async def get(self, trigger_id: str) -> TriggerCursorState | None:
+        state = self._states.get(trigger_id)
+        return state.model_copy(deep=True) if state else None
+
+    async def set(self, trigger_id: str, state: TriggerCursorState) -> None:
+        self._states[trigger_id] = state.model_copy(deep=True)
+
+
 def in_memory_repositories() -> Repositories:
     return Repositories(
         definitions=InMemoryDefinitionRepo(),
         instances=InMemoryInstanceRepo(),
         steps=InMemoryStepExecutionRepo(),
         audit=InMemoryAuditRepo(),
+        trigger_cursors=InMemoryTriggerCursorRepo(),
     )

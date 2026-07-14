@@ -222,6 +222,11 @@ class TriggerOrchestrator:
                     query=config.get("query"),
                     download_dir=config.get("download_dir"),
                     slim_payload=bool(config.get("slim_payload", False)),
+                    # G9: the poll position survives restarts. Keyed by
+                    # workflow + account so re-pointing a workflow at a
+                    # different mailbox starts fresh.
+                    cursor_store=self.repositories.trigger_cursors,
+                    cursor_key=f"email:{definition.id}:{account}",
                 )
             if spec.type == "manual":
                 # `manual` is a deliberate no-op — definitions tagged this way

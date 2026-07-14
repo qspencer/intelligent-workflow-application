@@ -15,6 +15,7 @@ from datetime import datetime
 from workflow_platform.persistence.models import (
     AuditEntry,
     StepExecution,
+    TriggerCursorState,
     WorkflowInstance,
 )
 from workflow_platform.workflow import WorkflowDefinition
@@ -105,6 +106,18 @@ class StepExecutionRepo(ABC):
         """Recent step executions, newest first (by started_at)."""
 
 
+class TriggerCursorRepo(ABC):
+    """Poll-position persistence for polling triggers (G9). Keyed by a
+    trigger identity string (e.g. `email:<workflow_id>:<account>`) so a
+    workflow re-pointed at a different mailbox starts fresh."""
+
+    @abstractmethod
+    async def get(self, trigger_id: str) -> TriggerCursorState | None: ...
+
+    @abstractmethod
+    async def set(self, trigger_id: str, state: TriggerCursorState) -> None: ...
+
+
 class AuditRepo(ABC):
     @abstractmethod
     async def append(self, entry: AuditEntry) -> AuditEntry: ...
@@ -124,3 +137,4 @@ class Repositories:
     instances: InstanceRepo
     steps: StepExecutionRepo
     audit: AuditRepo
+    trigger_cursors: TriggerCursorRepo

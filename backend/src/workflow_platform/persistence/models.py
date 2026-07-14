@@ -79,3 +79,17 @@ class AuditEntry(BaseModel):
     workflow_instance_id: str | None = None
     step_id: str | None = None
     detail: dict[str, Any] = Field(default_factory=dict)
+
+
+class TriggerCursorState(BaseModel):
+    """Persisted poll position for a polling trigger (G9).
+
+    `cursor` is the last-seen event timestamp; `seen_ids` is the recently
+    fired event-id ring. Both are needed for a loss-free AND duplicate-free
+    restart: Gmail's `after:` is second-granular and inclusive, so the
+    boundary message always re-matches — the persisted ids absorb it.
+    """
+
+    cursor: datetime
+    seen_ids: list[str] = Field(default_factory=list)
+    updated_at: datetime = Field(default_factory=_utcnow)

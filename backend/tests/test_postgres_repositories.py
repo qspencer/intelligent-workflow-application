@@ -127,3 +127,27 @@ async def test_definition_round_trip_via_postgres(engine: AsyncEngine) -> None:
 
     listed = await repos.definitions.list_all()
     assert {d.id for d in listed} == {"round-trip"}
+
+
+@skip_if_no_db
+async def test_trigger_cursor_upsert_round_trip(engine: AsyncEngine) -> None:
+    """G9: cursor state persists and upserts (second set overwrites)."""
+    from datetime import UTC, datetime
+
+    from workflow_platform.persistence import TriggerCursorState
+
+    repos = postgres_repositories(make_session_factory(engine))
+    key = "email:wf-pg:me@example.com"
+    assert await repos.trigger_cursors.get(key) is None
+
+    first = TriggerCursorState(cursor=datetime(2026, 7, 13, 12, 0, tzinfo=UTC), seen_ids=["m-1"])
+    await repos.trigger_cursors.set(key, first)
+    second = TriggerCursorState(
+        cursor=datetime(2026, 7, 14, 1, 30, tzinfo=UTC), seen_ids=["m-1", "m-2"]
+    )
+    await repos.trigger_cursors.set(key, second)
+
+    loaded = await repos.trigger_cursors.get(key)
+    assert loaded is not None
+    assert loaded.cursor == second.cursor
+    assert loaded.seen_ids == ["m-1", "m-2"]
