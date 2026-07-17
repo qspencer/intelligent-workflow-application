@@ -183,6 +183,39 @@ beyond a handful (tally them at session end), or the label-applying
 variant goes live (actions need the attention axis more than
 classification does). Effort: **M**.
 
+### G12 — Ask-the-user: clarification elicitation for classification
+
+Quentin, thinking aloud during the 2026-07-19 labeling session: the
+system should be able to ASK the user for the one context fact that
+would change its answer, rather than only passively accumulating
+context. Examples: Indeed job alerts are routine notifications — unless
+the user is out of work; the Kate Webb event thread classifies
+differently if the system knows the user plans to attend.
+
+Almost all infrastructure exists: the escalations plumbing
+(`RequestHumanReviewTool` + resolve API + dashboard panel) is the
+asking channel; answers land in veracium as USER-authored facts
+(highest trust, assertable — exactly right for self-reported context),
+with volatility classes fitting naturally (employment ≈ durable,
+event attendance ≈ transient expiring at the event date); veracium V3
+proactive recall is the sibling capability; PR #9 outcome tracking is
+how the system learns which question types actually pay for
+themselves.
+
+Two make-or-break constraints:
+1. **Question budget = expected value of information.** Ask only when
+   the answer is durable/reusable AND classification is sensitive to
+   it. Otherwise it's a nagging machine.
+2. **Questions are an injection surface.** Question generation derived
+   from third-party mail is tainted content; a hostile email must not
+   be able to induce a manipulative question or smuggle framing into
+   the USER-authored answer fact. Same provenance discipline as
+   everything else.
+
+Trigger to start: after the two-axis split (G11) — the `attention`
+axis is where elicited context pays off — and after outcome tracking
+ships (0.3.x), so question value is measurable. Effort: **M-L**.
+
 ### G10 — Learned-memory recall injection (veracium slice 2) — **landed 2026-07-17**
 
 Implemented against both security acceptance criteria (below): an
