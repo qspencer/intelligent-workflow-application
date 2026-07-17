@@ -419,3 +419,72 @@ def test_type_attribute() -> None:
     """The `type` class attribute must be `gmail_poll` so the orchestrator
     can dispatch on it from YAML."""
     assert GmailPollTrigger.type == "gmail_poll"
+
+
+# ---------- body_structure for image-only mail ----------
+
+
+def test_summarize_html_structure() -> None:
+    from workflow_platform.triggers.gmail_poll import summarize_html_structure
+
+    html = """
+    <html><head><title>Young Washington</title></head><body>
+      <a href="https://www.faithfilmfan.com/tickets"><img
+        src="https://cdn.faithfilmfan.com/poster.jpg" alt="Young Washington - In Theaters July 4"></a>
+      <a href="https://fandango.com/yw"><img src="https://cdn.x.com/b.jpg" alt="Get Tickets"></a>
+      <img src="https://track.example.com/pixel.gif">
+    </body></html>"""
+    s = summarize_html_structure(html)
+    assert "title: Young Washington" in s
+    assert "faithfilmfan.com" in s and "fandango.com" in s
+    assert "images: 3" in s
+    assert "Young Washington - In Theaters July 4" in s
+    # Bounded and fetch-free by construction; caps hold on hostile input.
+    huge = "<a href='https://e.com/x'>" + "<img alt='spam alt'>" * 500 + "</a>"
+    assert len(summarize_html_structure(huge)) <= 600
+
+
+async def test_image_only_mail_gains_body_structure() -> None:
+    svc = FakeGmailService()
+    svc.list_response = {"messages": [{"id": "img-1"}]}
+    svc.get_responses["img-1"] = stage_gmail_message(
+        "img-1",
+        subject="Image only",
+        body_text="",
+        body_html='<a href="https://vendor.com/sale"><img alt="Big Sale"></a>',
+    )
+    fired: list[dict[str, Any]] = []
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        fired.append(payload)
+
+    trig, _ = _make_trigger(svc)
+    trig.slim_payload = True
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: len(fired) >= 1)
+    finally:
+        await trig.stop()
+
+    payload = fired[0]
+    assert payload["body_html"] is None  # slim still strips the raw HTML
+    assert "vendor.com" in payload["body_structure"]
+    assert "Big Sale" in payload["body_structure"]
+
+
+async def test_text_mail_gets_no_body_structure() -> None:
+    svc = FakeGmailService()
+    svc.list_response = {"messages": [{"id": "t-1"}]}
+    svc.get_responses["t-1"] = stage_gmail_message("t-1", body_text="hello there")
+    fired: list[dict[str, Any]] = []
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        fired.append(payload)
+
+    trig, _ = _make_trigger(svc)
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: len(fired) >= 1)
+    finally:
+        await trig.stop()
+    assert "body_structure" not in fired[0]

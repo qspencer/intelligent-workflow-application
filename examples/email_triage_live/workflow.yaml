@@ -54,7 +54,10 @@ steps:
       You are triaging an inbound email — CLASSIFICATION ONLY. You have no
       tools: never attempt to reply or label; this is a read-only validation
       run. The trigger payload contains the full message: from_address,
-      to, cc, subject, body_text, received_at, labels.
+      to, cc, subject, body_text, received_at, labels — plus, when the
+      body is image-only (empty body_text), a `body_structure` summary of
+      the HTML (link domains, image count, alt texts) derived safely
+      without fetching anything.
 
       Apply the rubric in your memory (above this prompt) to choose exactly
       one `category` from the seven-bucket catalog.

@@ -45,7 +45,15 @@ email — but the OUTPUT is JSON only.
 
 ### Edge cases — still emit JSON, no prose:
 
-- The mail is unusual / empty / corrupt — emit
+- **Empty `body_text` is usually image-only marketing, NOT spam.** Many
+  legitimate promotional emails are pure images with no text part. When
+  `body_text` is empty, check `body_structure` (a derived summary of the
+  HTML: link domains, image count, alt texts) and the sender: an
+  identifiable sender whose link domains match their identity →
+  `promotion` (or `newsletter`) at moderate confidence. Empty body is
+  only `spam` when paired with actual deception signals (mismatched or
+  lookalike domains, no identifiable sender).
+- The mail is truly corrupt / unparseable — emit
   `{"category":"spam","confidence":0,"reply_drafted":false,"labels_applied":[],"summary":"Fallback: ..."}`.
 - You're uncertain about the category — pick the best fit, lower the
   `confidence` value, emit the JSON.

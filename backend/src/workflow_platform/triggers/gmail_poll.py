@@ -54,6 +54,48 @@ from workflow_platform.triggers.base import Trigger, TriggerCallback
 logger = logging.getLogger(__name__)
 
 
+def summarize_html_structure(html: str, *, max_items: int = 8, max_chars: int = 600) -> str:
+    """A bounded, fetch-free summary of an HTML body's structure: title,
+    link domains, image count, and image alt texts. Gives the triage agent
+    signal on image-only marketing mail without ever requesting a remote
+    resource (alt texts and domains are still third-party-authored text —
+    same trust level as the body they stand in for)."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    parts: list[str] = []
+    title = soup.title.get_text(strip=True) if soup.title else ""
+    if title:
+        parts.append(f"title: {title}")
+    domains: list[str] = []
+    for a in soup.find_all("a", href=True):
+        href = str(a["href"])
+        if href.startswith(("http://", "https://")):
+            domain = href.split("/", 3)[2].lower().removeprefix("www.")
+            if domain and domain not in domains:
+                domains.append(domain)
+    if domains:
+        shown = ", ".join(domains[:max_items])
+        more = f" (+{len(domains) - max_items} more)" if len(domains) > max_items else ""
+        parts.append(f"link domains: {shown}{more}")
+    images = soup.find_all("img")
+    if images:
+        parts.append(f"images: {len(images)}")
+        alts: list[str] = []
+        for img in images:
+            alt = str(img.get("alt") or "").strip()
+            if alt and alt not in alts:
+                alts.append(alt)
+        if alts:
+            shown = "; ".join(alts[:max_items])
+            parts.append(f"image alt texts: {shown}")
+    text = soup.get_text(" ", strip=True)
+    if text:
+        parts.append(f"visible text: {text[:200]}")
+    summary = " | ".join(parts)
+    return summary[:max_chars] if summary else "(no structure extracted)"
+
+
 class GmailPollTrigger(Trigger):
     type: ClassVar[str] = "gmail_poll"
 
@@ -241,6 +283,13 @@ class GmailPollTrigger(Trigger):
         local paths under `attachment_paths`. A single failed download is
         logged and skipped rather than sinking the whole message."""
         payload: dict[str, Any] = msg.model_dump(mode="json")
+        # Image-only mail has no text part: before (possibly) discarding the
+        # HTML, derive a safe structural summary — link domains, image count,
+        # alt texts — so the triage agent isn't blind on it. Derivation is
+        # pure parsing: nothing is fetched, so no tracking pixels fire and no
+        # remote content reaches the model.
+        if not str(payload.get("body_text") or "").strip() and msg.body_html:
+            payload["body_structure"] = summarize_html_structure(msg.body_html)
         if self.slim_payload:
             payload["body_html"] = None
             payload["headers"] = {}
