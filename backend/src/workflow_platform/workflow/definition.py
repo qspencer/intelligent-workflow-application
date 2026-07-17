@@ -120,17 +120,32 @@ class ObservationSpec(BaseModel):
     ref_from: str | None = None  # evidence reference (e.g. a message id)
 
 
+class RecallSpec(BaseModel):
+    """Read side of learned memory (G10): before each agentic step, the
+    engine recalls what prior runs learned about the entity at `query_from`
+    (a `trigger.x.y` context path — e.g. the sender address) and injects the
+    provenance-fenced context into the agent's system prompt. The recalled
+    block is injected VERBATIM — never flattened or re-summarized — and the
+    entity value is normalized before querying (case, plus-addressing).
+    """
+
+    query_from: str
+    token_budget: int = 600
+
+
 class LearnedMemorySpec(BaseModel):
     """Opt-in learned per-entity memory (veracium) for a workflow.
 
-    Write-only: the engine ingests `observations` after a run COMPLETEs.
-    Agents never see or write this memory directly — recall/injection is a
-    later slice. `user_id` names whose memory this is (e.g. the mailbox
-    owner); per-entity separation within it is veracium's job.
+    The engine ingests `observations` after a run COMPLETEs (write side) and,
+    when `recall` is set, injects per-entity history into agentic steps
+    (read side). Agents never write this memory directly. `user_id` names
+    whose memory this is (e.g. the mailbox owner); per-entity separation
+    within it is veracium's job.
     """
 
     user_id: str
     observations: list[ObservationSpec] = Field(default_factory=list)
+    recall: RecallSpec | None = None
 
 
 class WorkflowPolicy(BaseModel):

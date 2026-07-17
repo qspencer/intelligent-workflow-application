@@ -148,16 +148,24 @@ old process-local behavior (logged, never blocks polling). Tests:
 round-trip. `FilesystemTrigger` still process-local — extend if a real
 miss shows up there.
 
-### G10 — Learned-memory recall injection (veracium slice 2)
+### G10 — Learned-memory recall injection (veracium slice 2) — **landed 2026-07-17**
 
-The write-only slice landed 2026-07-13 (decision record:
-`docs/SEMANTICS.md` → "Adopted (write-only slice): veracium"): the engine
-ingests per-run observations into a veracium store, but **nothing reads it
-yet** — triage behavior is unchanged by design. Slice 2 closes the loop:
-inject `recall()` context (grounded facts + the fenced never-assert
-third-party section) into the agentic step's prompt alongside the rubric,
-so per-sender history actually prevents the category flapping the live
-validation documented.
+Implemented against both security acceptance criteria (below): an
+opt-in `recall:` block on `learned_memory` (`query_from` context path +
+`token_budget`); before each agentic step the engine normalizes the
+entity (case + plus-addressing — requirement #2), calls
+`LearnedMemoryService.recall_context` (zero LLM calls: subgraph render,
+wiki off), and injects veracium's pre-rendered block **verbatim** below
+the rubric — never-assert fence intact (requirement #1, pinned by
+`test_engine_injects_recall_verbatim_with_fence`). Every recall audits
+`memory_recalled` (query, context hash, edge/episode counts, injected
+flag); failures audit `memory_recall_failed` and never fail the step;
+step output gains a `recall` field for run-to-run correlation. Dry runs
+snapshot-copy the real store into the ephemeral scratch DB so recall
+behaves exactly as production while writes stay discarded.
+Empty-store recalls skip injection (judged by counts — veracium renders
+a placeholder string, not an empty one). First consumer:
+`examples/email_triage_live/` (recall keyed on the sender address).
 
 Gate to start: enough accumulated history to judge recall quality. The
 historical backfill ran 2026-07-13 (`tools/backfill_learned_memory.py`:

@@ -35,6 +35,33 @@ from workflow_platform.cost.pricing import cost_for_usage
 DEFAULT_LEARNED_MEMORY_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 
+def normalize_entity(value: str) -> str:
+    """Normalize an entity key before it touches recall (G10 security
+    requirement #2: sender-derived keys are attacker-chosen strings).
+    Email-shaped values get case folding and plus-addressing stripped
+    (`User+Tag@Gmail.com` → `user@gmail.com`) so one sender can't split
+    across memory partitions or dodge its own history. Non-email values
+    just fold case. veracium treats ids as opaque; normalization is ours."""
+    v = value.strip().lower()
+    if v.count("@") == 1:
+        local, domain = v.split("@")
+        local = local.split("+", 1)[0]
+        if local and domain:
+            return f"{local}@{domain}"
+    return v
+
+
+class RecalledMemory(BaseModel):
+    """Result of one recall, shaped for audit-log detail + prompt injection."""
+
+    query: str
+    context: str
+    context_hash: str
+    edges: int
+    episodes: int
+    token_budget: int
+
+
 class LearnedObservation(BaseModel):
     """Result of one memory write, shaped for audit-log detail."""
 
@@ -185,6 +212,32 @@ class LearnedMemoryService:
             output_tokens=output_tokens,
             cost_usd=cost,
             model=self.model_id,
+        )
+
+    async def recall_context(
+        self, user_id: str, query: str, *, token_budget: int = 600
+    ) -> RecalledMemory:
+        """Assemble the learned-memory context for a query (G10 read side).
+
+        With the wiki disabled this renders the entity-matched subgraph
+        directly — zero LLM calls, so recall is cost-free at read time. The
+        returned `context` is veracium's pre-rendered block, unverified fence
+        included; callers must inject it VERBATIM (G10 security requirement
+        #1: no flattening, no LLM re-summarization — that would be
+        laundering, one layer up)."""
+        async with self._lock:
+            memory = self._get_memory()
+            recall = await asyncio.to_thread(
+                memory.recall, user_id, query, token_budget=token_budget
+            )
+        context = str(recall.context or "")
+        return RecalledMemory(
+            query=query,
+            context=context,
+            context_hash="sha256:" + hashlib.sha256(context.encode()).hexdigest()[:16],
+            edges=len(recall.edges),
+            episodes=len(recall.episodes),
+            token_budget=token_budget,
         )
 
     def close(self) -> None:

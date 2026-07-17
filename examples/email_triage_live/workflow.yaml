@@ -96,6 +96,12 @@ policies:
 # classification history). Cost: two extra Haiku distill calls per message.
 learned_memory:
   user_id: qspencer@gmail.com
+  # G10 read side: before the triage step, recall what prior runs learned
+  # about this sender (normalized address) and inject it — provenance fence
+  # intact — below the rubric. Zero LLM cost (subgraph render, wiki off).
+  recall:
+    query_from: trigger.from_address.address
+    token_budget: 600
   observations:
     - text: |
         Received email from {trigger.from_address.name} <{trigger.from_address.address}>

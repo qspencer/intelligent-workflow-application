@@ -18,6 +18,7 @@ import hmac
 import json
 import logging
 import os
+import shutil
 import tempfile
 from datetime import datetime
 from pathlib import Path
@@ -659,20 +660,29 @@ def build_router(
             if tool is None:
                 continue
             sandbox_tools.append(_sandbox_tool(tool) if _is_external_tool(tool_name) else tool)
-        # Learned memory in a dry run writes to an ephemeral scratch DB that is
-        # discarded with the temp dir — the full observe path still runs (live
-        # Bedrock distill, audit entries) but the real memory store is never
-        # touched: "sandbox the world, keep the brain".
+        # Learned memory in a dry run: snapshot-read, discard-write. The real
+        # store is COPIED into an ephemeral scratch DB so recall (G10) behaves
+        # exactly as production would, while observe writes land in the copy
+        # and vanish with the temp dir — "sandbox the world, keep the brain".
         with tempfile.TemporaryDirectory(prefix="dry-run-memory-") as scratch:
-            scratch_memory = (
-                LearnedMemoryService(
+            scratch_memory: LearnedMemoryService | None = None
+            if engine.learned_memory is not None:
+                scratch_db = Path(scratch) / "learned.db"
+                real_db = engine.learned_memory.db_path
+                if real_db.is_file():
+                    try:
+                        shutil.copyfile(real_db, scratch_db)
+                    except OSError:
+                        logger.warning(
+                            "Dry-run: couldn't snapshot the learned-memory store; "
+                            "recall will see an empty store.",
+                            exc_info=True,
+                        )
+                scratch_memory = LearnedMemoryService(
                     engine.bedrock,
-                    Path(scratch) / "learned.db",
+                    scratch_db,
                     model_id=engine.learned_memory.model_id,
                 )
-                if engine.learned_memory is not None
-                else None
-            )
             dry_engine = dataclasses.replace(
                 engine,
                 world=mock_world(),

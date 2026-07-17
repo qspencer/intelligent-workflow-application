@@ -123,7 +123,7 @@ starts. Reach for graph storage only after benchmarking against vector
 
 ---
 
-## Adopted (write-only slice): veracium (provenance-aware per-entity agent memory)
+## Adopted: veracium (provenance-aware per-entity agent memory)
 
 **What it is.** [`veracium`](file:///home/ubuntu/Dev/veracium) — formerly named
 `engram` (renamed upstream 2026-07-12; older commits and notes use the old
@@ -192,11 +192,14 @@ is exactly one cheap-tier distill call per observation. Store:
 First consumer: `examples/email_triage_live/` (mail as `third_party`,
 triage verdict as `system`). Pinned by `tests/test_learned_memory.py`.
 
-**Explicitly out of this slice (each needs its own pull):**
-recall-injection into agent prompts (slice 2 — the payoff, gated on the
-write-only store accumulating enough per-sender history to judge recall
-quality), sent-mail observation (would make awaiting-reply decidable), a
-Postgres-backed store, and the MCP surface. Note the standing caveat from
+**Slice 2 (recall injection) landed 2026-07-17** — see
+`docs/NEXT_STEPS.md` §G10 for the implementation record (verbatim fence
+injection + normalized entity keys, per the veracium dev session's
+security requirements). **Still explicitly out (each needs its own
+pull):** sent-mail observation (would make awaiting-reply decidable), the
+Postgres-backed store (decided contribute-later, triggers recorded in
+NEXT_STEPS), outcome-event emission (waiting on veracium 0.3.x merging
+the validated PR #9), and the MCP surface. Note the standing caveat from
 the knowledge-graph section: adopting an embedded typed graph *partially*
 reopens that deferral — if cross-workflow traversal queries materialize,
 re-read it.

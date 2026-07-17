@@ -19,6 +19,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from workflow_platform.connectors.base import Connector
 from workflow_platform.security import ResolvedCapabilities
+from workflow_platform.workflow.definition import LearnedMemorySpec
 
 
 class WorkflowContext(BaseModel):
@@ -37,6 +38,10 @@ class WorkflowContext(BaseModel):
     # from `model_dump()` so connector instances don't leak into the
     # JSON-serialized `instance.context`.
     connectors: dict[str, Connector] = Field(default_factory=dict, exclude=True)
+    # The definition's learned_memory block, stashed at run start so agentic
+    # steps can recall per-entity history (G10) without threading the whole
+    # definition through the dispatch chain. Runtime-only, like `connectors`.
+    learned_memory_spec: LearnedMemorySpec | None = Field(default=None, exclude=True)
 
     def step_output(self, step_id: str) -> dict[str, Any] | None:
         return self.steps.get(step_id)
