@@ -214,6 +214,11 @@ concrete workload requiring them:
   customer asks.
 - **Cost analyst LLM** — deterministic cost reports cover operator
   needs; revisit when pattern-finding adds real value.
+- **veracium Postgres `Store` adapter (V5)** — decided 2026-07-17: this
+  project contributes it as a PR against veracium's `Store` interface
+  (dev-session review), but not now. Triggers to start: the platform
+  deploys beyond solo-dev, or per-entity write volume outgrows the
+  single SQLite file. Until then the learned-memory store stays SQLite.
 - **Formal ontology / knowledge graph / semantic layer** — each has a
   specific decision trigger documented in `docs/SEMANTICS.md`; none
   are needed at single-workload / single-engineer scale.
