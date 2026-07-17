@@ -169,22 +169,30 @@ a schedule; and how `memory_hash`-style audit extends to recall reads
 (`memory_recalled` entries). The quarantine rendering must survive prompt
 assembly intact — that's the security property the whole adoption was for.
 
-**Blocker found during the backfill (must resolve before recall ships):
-system-observation laundering.** The verdict observation is authored
-`system` (the classification is ours), but its template embeds
-third-party-controlled text (subject line; the agent summary derives from
-body content). veracium grants system-authored events MENTIONABLE
-(assertable) disclosure, so the distiller sometimes lifts marketing-mail
-content into assertable user facts (`user -[uses_tool]-> <advertiser>`,
-130 such edges in the seeded store). No exposure in the write-only slice
-(nothing reads the store), and the store is cheaply rebuildable from
-Postgres once fixed. Candidate fixes, not yet decided: (a) platform-side —
-strip raw third-party text from the system observation (sender address +
-category + confidence only) or author it `third_party` and accept use-only
-disclosure for classification history; (b) veracium-side — treat quoted/
-embedded third-party spans inside SYSTEM events as use-only at extraction
-(we own the library; kin to the 0.1.6 `use_only`-leak fix). Decide at
-slice-2 design time, then re-run the backfill.
+**Blocker RESOLVED (2026-07-17): system-observation laundering.** The
+verdict observation embedded third-party text in a system-authored event,
+which veracium ≤0.1.6 granted assertable disclosure (130 laundered edges
+in the first seeded store). Fixed veracium-side (option b): `derived_from`
+shipped in 0.1.7, we upgraded to **0.2.1**, threaded
+`ObservationSpec.derived_from` through the pipeline (the triage verdict
+declares `system` + `derived_from: third_party`), and **rebuilt the store
+from scratch** (`--reingest`, 149 instances / 298 observations, ~$0.91).
+Post-rebuild audit: zero mentionable edges of any authorship; pinned by
+`test_observe_derived_from_caps_disclosure` against real veracium.
+
+**Two security requirements for the recall implementation** (from the
+veracium dev session's response, `~/Documents/veracium/proposals/
+response-to-veracium-enhancements.md` §4 — treat as G10 acceptance
+criteria):
+1. `recall.context` includes the UNVERIFIED third-party block *by design*
+   — prompt assembly must preserve the never-assert fence verbatim: don't
+   flatten it into plain context, don't re-summarize it with an LLM step
+   (that would be laundering again, one layer up).
+2. Recall keys derive from sender addresses — attacker-chosen strings.
+   Normalize before keying (case, plus-addressing, display-name tricks);
+   veracium treats ids as opaque, so normalization is ours. Note the wiki
+   cost model when enabling it (W2): recompile-per-8-writes is
+   **per-entity** — hundreds of senders = hundreds of wikis.
 
 Effort: **M**. Also unlocks re-examining awaiting-reply via sent-mail
 observation (explicitly out of both slices so far).
