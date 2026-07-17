@@ -16,7 +16,7 @@ breaks the parse and the run is wasted.
 ### Correct response (this is the entire response — nothing else):
 
 ```
-{"category":"fyi","confidence":0.95,"reply_drafted":false,"labels_applied":[],"summary":"Promotional newsletter from a known vendor."}
+{"category":"promotion","confidence":0.95,"reply_drafted":false,"labels_applied":[],"summary":"Seasonal discount offer from a known vendor."}
 ```
 
 ### WRONG response (do NOT do this):
@@ -28,9 +28,9 @@ I'll analyze this email against the rubric.
 - From: ...
 - Subject: ...
 
-**Categorization:** fyi
+**Categorization:** promotion
 
-{"category":"fyi", ...}
+{"category":"promotion", ...}
 ```
 
 The wrong response has analysis prose before the JSON. The
@@ -40,7 +40,7 @@ email — but the OUTPUT is JSON only.
 ### Schema
 
 ```
-{"category":"<one of: urgent|fyi|spam|personal|awaiting-reply>","confidence":<0..1>,"reply_drafted":<true|false>,"labels_applied":[<labels you tried to apply>],"summary":"<one short sentence>"}
+{"category":"<one of: urgent|awaiting-reply|personal|notification|newsletter|promotion|spam>","confidence":<0..1>,"reply_drafted":<true|false>,"labels_applied":[<labels you tried to apply>],"summary":"<one short sentence>"}
 ```
 
 ### Edge cases — still emit JSON, no prose:
@@ -73,34 +73,57 @@ policy notices here. Those copies are genuine Google mail — classify
 them `urgent` (the user may need to act: sign in, or disavow an
 unrecognized account), never `spam`.
 
-## Five-bucket category catalog
+## Seven-bucket category catalog
 
-Pick exactly one. The category drives downstream queries and the label
-applied to the message.
+Pick exactly one. The category drives downstream queries and reporting.
+The old five-bucket catalog's `fyi` was split three ways (notification /
+newsletter / promotion) on 2026-07-19 — it had absorbed 85% of all mail
+and carried no information.
 
 - **`urgent`** — Mail that needs the user to *act soon*. Examples:
-  meeting moved to today, deadline today, security alert, code-red
-  outage notification. Calendar invites with same-day or next-day times
-  count as urgent. Generic "important" newsletters do NOT.
-
-- **`fyi`** — Mail the user should know about but doesn't need to act
-  on. Examples: newsletters they actually subscribed to, release notes,
-  weekly digests, status reports, account-activity notifications,
-  receipts for things they bought.
-
-- **`spam`** — Unsolicited mass mail, phishing attempts, "you've won,"
-  obvious scams, mailing-list signups they didn't make. Do not auto-
-  reply to spam. The triage label is enough; don't engage.
-
-- **`personal`** — Mail from an individual writing to the user
-  conversationally (friend, family, colleague). Usually conversational
-  in tone. The user may want to reply themselves; auto-reply is
-  generally inappropriate for personal mail.
+  meeting moved to today, deadline today, security alert, account
+  deletion deadline, code-red outage notification. Calendar invites
+  with same-day or next-day times count as urgent.
 
 - **`awaiting-reply`** — Mail that's a response to a thread the user
   started, or where the sender is waiting on something from the user.
-  Signals: `In-Reply-To` header, "any update on...", "did you get my
-  earlier...", "circling back."
+  Signals: `In-Reply-To` header, an explicit ask to respond ("let me
+  know", "vote by Friday", "any update on..."), "circling back." An
+  explicit request for a reply beats conversational tone.
+
+- **`personal`** — Mail from an individual writing to the user
+  conversationally (friend, family, colleague) that does NOT explicitly
+  wait on a reply. The user may want to respond themselves.
+
+- **`notification`** — Automated mail about the user's own accounts,
+  orders, or events: receipts and order confirmations, shipping
+  updates, calendar reminders (not same/next-day), terms-of-service
+  and policy updates, account-activity and sign-in notices, job
+  alerts, provider security notices that need no action.
+
+- **`newsletter`** — Subscribed content read for its own sake:
+  recipe/content newsletters, weekly digests and briefs, release
+  notes, editorial mailings. The content IS the point; there is no
+  offer and nothing about the user's accounts.
+
+- **`promotion`** — Commercial offers and marketing from legitimate,
+  identifiable senders: sales, discounts, coupons, product launches,
+  seasonal deals, giveaways — whether or not the user ever subscribed.
+  "Legitimate but selling something" belongs here, not in spam.
+
+- **`spam`** — Deceptive, malicious, or truly unsolicited mass mail:
+  phishing and impersonation, "you've won," obvious scams, snowshoe
+  senders with no real identity. Spam is a judgment about DECEPTION,
+  not about whether mail is commercial — a real vendor's marketing is
+  `promotion` even when unwanted.
+
+Tiebreakers:
+- promotion vs newsletter: is there an offer/price/discount? →
+  promotion. Pure content → newsletter.
+- notification vs promotion: about the user's OWN account/order/event →
+  notification, even when it upsells at the bottom.
+- spam vs promotion: can you identify the real sender and their real
+  business? Then it isn't spam, however pushy.
 
 ## Provider security notices — not spam by default
 
@@ -123,7 +146,7 @@ impersonation:
 
 If the sender and every link are first-party: classify `urgent` when
 action is needed (account deletion deadline, unrecognized-device alert,
-recovery-account notice), else `fyi`. Reserve `spam` for notices with
+recovery-account notice), else `notification`. Reserve `spam` for notices with
 actual impersonation evidence — and say what that evidence is in the
 `summary`. A false "phishing" verdict on a real notice buries mail the
 user may genuinely need to act on.

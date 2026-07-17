@@ -358,6 +358,23 @@ def _extract_email_triage(raw: str) -> dict[str, Any] | None:
     return out or None
 
 
+# The seven-bucket email-triage taxonomy (2026-07-19: the old `fyi` split
+# into notification / newsletter / promotion — it had absorbed 85% of mail).
+# Shared by the rubric, the review tool, and the LLM judge. The parser below
+# deliberately does NOT validate against it: historical runs carry the old
+# five-bucket values and both taxonomies coexist in the data, keyed by
+# memory_hash.
+TRIAGE_CATEGORIES = [
+    "urgent",
+    "awaiting-reply",
+    "personal",
+    "notification",
+    "newsletter",
+    "promotion",
+    "spam",
+]
+
+
 async def record_email_triage(
     config: dict[str, Any], context: WorkflowContext, world: World
 ) -> dict[str, Any]:

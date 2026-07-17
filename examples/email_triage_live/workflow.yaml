@@ -57,11 +57,11 @@ steps:
       to, cc, subject, body_text, received_at, labels.
 
       Apply the rubric in your memory (above this prompt) to choose exactly
-      one `category` from the five-bucket catalog.
+      one `category` from the seven-bucket catalog.
 
       Then respond with ONLY a JSON object on one line — no prose, no
       markdown fences:
-        {"category": "<one of five>", "confidence": <0..1>,
+        {"category": "<one of seven>", "confidence": <0..1>,
          "reply_drafted": false, "labels_applied": [],
          "summary": "<one short sentence — why this category>"}
     policy:

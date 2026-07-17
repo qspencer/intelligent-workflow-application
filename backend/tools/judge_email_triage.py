@@ -37,13 +37,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.cost.pricing import cost_for_usage
+from workflow_platform.engine.functions import TRIAGE_CATEGORIES
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_RUBRIC = BACKEND_DIR.parent / "examples" / "email_triage_live" / "agent_memory.md"
 JUDGE_MODEL = os.environ.get("WORKFLOW_PLATFORM_JUDGE_MODEL", "us.anthropic.claude-sonnet-4-6")
-CATEGORIES = {"urgent", "fyi", "spam", "personal", "awaiting-reply"}
+CATEGORIES = set(TRIAGE_CATEGORIES)
 BODY_CAP = 4000
 CONCURRENCY = 4
 
@@ -64,7 +65,7 @@ Received: {received_at}
 --- END EMAIL ---
 
 Respond with ONLY a JSON object on one line:
-{{"category": "<one of: urgent|fyi|spam|personal|awaiting-reply>", "confidence": <0..1>, "reasoning": "<one sentence>"}}"""
+{{"category": "<one of: urgent|awaiting-reply|personal|notification|newsletter|promotion|spam>", "confidence": <0..1>, "reasoning": "<one sentence>"}}"""
 
 
 def _find_json(text: str) -> dict[str, Any] | None:

@@ -40,13 +40,14 @@ from typing import Any
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
+from workflow_platform.engine.functions import TRIAGE_CATEGORIES
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_LABELS = BACKEND_DIR / ".memory" / "triage-ground-truth.jsonl"
 DEFAULT_JUDGE_REPORT = Path("/tmp/email-triage-judge-report.json")
-CATEGORIES = ["urgent", "fyi", "spam", "personal", "awaiting-reply"]
+CATEGORIES = TRIAGE_CATEGORIES
 
 BOLD = "\033[1m"
 DIM = "\033[2m"
@@ -151,10 +152,10 @@ def _pick_category(current: str) -> str | None:
         marker = f" {DIM}(agent's choice){RESET}" if cat == current else ""
         print(f"  {n}. {cat}{marker}")
     while True:
-        choice = input("1-5 (or x to cancel): ").strip().lower()
+        choice = input(f"1-{len(CATEGORIES)} (or x to cancel): ").strip().lower()
         if choice == "x":
             return None
-        if choice in ("1", "2", "3", "4", "5"):
+        if choice.isdigit() and 1 <= int(choice) <= len(CATEGORIES):
             return CATEGORIES[int(choice) - 1]
 
 
@@ -192,7 +193,13 @@ async def run(args: argparse.Namespace) -> int:
     for item in items:
         item["judge"] = judges.get(item["message_id"])
 
-    pending = [i for i in items if i["message_id"] not in labels]
+    revisit_cats = {c.strip() for c in args.revisit.split(",") if c.strip()}
+    pending = [
+        i
+        for i in items
+        if i["message_id"] not in labels
+        or (revisit_cats and labels[i["message_id"]].get("true_category") in revisit_cats)
+    ]
     # Highest-value first: judge disagreements, then the rest chronologically.
     pending.sort(
         key=lambda i: (
@@ -265,6 +272,13 @@ def main() -> int:
         "--judge-report",
         default=str(DEFAULT_JUDGE_REPORT),
         help="judge_email_triage.py report; when present, disagreements are queued first",
+    )
+    parser.add_argument(
+        "--revisit",
+        default="",
+        help="comma-separated true_category values to re-queue for re-labeling "
+        "(e.g. 'fyi,spam' after the 2026-07-19 taxonomy split); their prior "
+        "labels are superseded by the new answer (append-only file, last wins)",
     )
     parser.add_argument("--summary", action="store_true", help="print stats and exit")
     return asyncio.run(run(parser.parse_args()))
