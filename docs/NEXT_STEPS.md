@@ -148,6 +148,41 @@ old process-local behavior (logged, never blocks polling). Tests:
 round-trip. `FilesystemTrigger` still process-local — extend if a real
 miss shows up there.
 
+### G11 — Two-axis triage: separate category from attention
+
+Surfaced during the 2026-07-19 ground-truth labeling session, twice in
+one pass. The seven-bucket taxonomy still mixes two orthogonal axes —
+what mail IS (source: personal / notification / newsletter / promotion /
+spam) and what it DEMANDS (attention). Interim fix in the rubric:
+explicit precedence (urgent > awaiting-reply > source categories).
+Collision evidence so far:
+
+1. **personal × urgent** — a family member's identity-spoofing warning
+   (dews7@me.com). Precedence resolves it (urgent), losing the
+   personal-sender fact to the summary.
+2. **notification × review** — a PayPal receipt ("Patreon: $5.34").
+   Precedence CANNOT resolve this one: the mail states no demand, and
+   its importance (routine vs account-compromise evidence) depends on
+   user context the classifier doesn't have. This motivates an
+   `attention: review` value — money-movement / security-adjacent
+   notifications are "routine if expected; worth a glance because only
+   the user knows."
+
+Sketch: split the agent output into `category` (the five source values)
++ `attention: urgent | reply-expected | review | none`. Touches: rubric,
+record_email_triage, review tool (second question per email), judge,
+per-axis accuracy metrics, one re-classification pass
+(tools/reclassify_triage.py makes this cheap). Longer-term, learned
+memory closes the `review` gap properly: "user has a recurring ~$5
+Patreon charge" makes the receipt confidently routine — importance
+becomes a join between the email and what the system knows about the
+user.
+
+Trigger to start: the finished labeled corpus shows axis collisions
+beyond a handful (tally them at session end), or the label-applying
+variant goes live (actions need the attention axis more than
+classification does). Effort: **M**.
+
 ### G10 — Learned-memory recall injection (veracium slice 2) — **landed 2026-07-17**
 
 Implemented against both security acceptance criteria (below): an
