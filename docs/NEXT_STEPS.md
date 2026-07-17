@@ -87,15 +87,12 @@ Tests: +11 frontend tests (4 ApiService URL-construction tests covering the thre
 
 Aside: writing the component spec surfaced that the existing `Object.create(prototype)` test pattern doesn't work for components with class-field `signal()` initializers — those skip. The spec's `makeComponent` helper documents the workaround (manually re-wire the signal + computed fields) so future component specs have a template.
 
-### G4 — Live events on the instances *list* page
+### G4 — Live events on the instances *list* page — **Done**
 
-P2.1 wired WebSocket events into the instance-*detail* page. The
-*instances list* still polls every 3-5s — new instances created via
-fire.py or a trigger appear with that lag. Subscribing the list to the
-same `EventsService` (filter on `action == 'workflow_started'`,
-prepend new instances to the list) would give parity.
-
-Effort: **S**. Same stream, different consumer.
+Landed 2026-07-19 in the UI refresh (commit `8002b9c`): the React
+instances list subscribes to the same `useEvents` stream as the detail
+page and refreshes immediately on `workflow_started` /
+`workflow_completed` instead of waiting up to 5s for the poll.
 
 ### G5 — Memory-hash diff view
 
