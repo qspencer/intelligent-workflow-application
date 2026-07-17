@@ -45,7 +45,7 @@ from pydantic import BaseModel, Field, ValidationError
 
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.catalog import WorkflowCatalog
-from workflow_platform.scaffold import ScaffoldError, scaffold_workflow
+from workflow_platform.scaffold import ScaffoldError, build_system_prompt, scaffold_workflow
 from workflow_platform.templates import slugify
 from workflow_platform.workflow import (
     AgenticStep,
@@ -318,9 +318,13 @@ async def evaluate_model(
         (r.case_id, c.name) for r in results for c in r.criteria if c.status == "unsatisfiable"
     ]
     judge_deferred = sum(1 for r in results for c in r.criteria if c.status == "judge")
+    prompt_hash = "sha256:" + hashlib.sha256(build_system_prompt(catalog).encode()).hexdigest()[:16]
     return {
         "model": model,
         "catalog_hash": catalog_hash(catalog),
+        # The system prompt shapes scores as much as the model does; compare
+        # runs like-for-like on (model, catalog_hash, prompt_hash).
+        "prompt_hash": prompt_hash,
         "cases": len(results),
         "l1_pass": l1_passes,
         "l1_rate": round(l1_passes / len(results), 4) if results else None,

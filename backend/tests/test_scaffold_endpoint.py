@@ -135,3 +135,16 @@ def test_scaffold_role_gated(monkeypatch: pytest.MonkeyPatch) -> None:
         headers={"X-Dev-User": "v", "X-Dev-Groups": "viewers"},
     )
     assert r.status_code == 403
+
+
+def test_extract_json_tolerates_trailing_prose() -> None:
+    """The Haiku eval run's dominant L1 failure: valid JSON followed by
+    explanation text ('Extra data'). raw_decode scanning takes the first
+    complete object."""
+    out = extract_json('{"name": "wf", "steps": []}\n\nThis workflow watches a folder and...')
+    assert out == {"name": "wf", "steps": []}
+
+
+def test_extract_json_tolerates_braces_in_leading_prose() -> None:
+    out = extract_json('Here is {my} answer: {"name": "wf"} hope that helps')
+    assert out == {"name": "wf"}
