@@ -50,6 +50,13 @@ design-reviewer pass, then the scoped veracium integration.
 > `*.pre-7bucket.jsonl`). Axis-collision tally for G11: 4 (2 resolved by
 > the precedence rule, 2 notification×review — unresolvable without the
 > attention axis).
+>
+> **Judge calibration (same day):** a blind Sonnet judge over the same
+> corpus scores **90.3% vs human truth** (and missed the one real agent
+> error) — the cheap production agent with rubric + recall beats the
+> stronger judge model by 9 points. Consequence for the eval framework:
+> LLM-judge scores on this task type carry ~10% noise; use them to flag
+> for human review, never as truth or an auto-apply gate.
 
 > **Status 2026-07-13:** the trigger fired (repeat-sender inconsistency + the
 > quarantine case; awaiting-reply was reclassified as a sent-mail-state gap,
