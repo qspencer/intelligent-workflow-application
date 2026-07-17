@@ -8,6 +8,7 @@ import { ErrorBadge } from './ErrorBadge';
 import { InstanceDetail } from './InstanceDetail';
 import { InstancesList } from './InstancesList';
 import { RoleSwitcher } from './RoleSwitcher';
+import { UserChip } from './UserChip';
 import { TemplatesGallery } from './TemplatesGallery';
 import { WorkflowsList } from './WorkflowsList';
 import { WorkflowCanvas } from './canvas/WorkflowCanvas';
@@ -60,6 +61,7 @@ export function App() {
           >
             {advanced ? 'Developer: on' : 'Developer: off'}
           </button>
+          <UserChip />
           <RoleSwitcher />
         </div>
       </header>

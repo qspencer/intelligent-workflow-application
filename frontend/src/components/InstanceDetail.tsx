@@ -3,6 +3,7 @@ import { Link, useNavigate, useParams } from 'react-router-dom';
 
 import { api, errorMessage } from '../api/client';
 import { extractEvaluations, scoreClass } from '../lib/evaluation';
+import { extractRecall, summarizeMemory } from '../lib/memory';
 import { fmtMedium, fmtShort, fmtShortTime } from '../lib/format';
 import {
   costSkew,
@@ -117,6 +118,7 @@ export function InstanceDetail() {
   }
 
   const evaluations = extractEvaluations(steps);
+  const memory = summarizeMemory(auditEntries);
 
   return (
     <div className="page-instance-detail">
@@ -230,6 +232,62 @@ export function InstanceDetail() {
             </>
           )}
 
+          {memory && (
+            <>
+              <h3>Learned memory</h3>
+              <div className="memory-panel">
+                {memory.recalls.map((r, i) => (
+                  <div className="memory-row" key={`recall-${i}`}>
+                    <span className="memory-kind recalled">recalled</span>
+                    <span>
+                      {r.injected
+                        ? `${r.edges} fact${r.edges === 1 ? '' : 's'} + ${r.episodes} episode${
+                            r.episodes === 1 ? '' : 's'
+                          } about `
+                        : 'no prior history for '}
+                      <code>{r.query}</code>
+                    </span>
+                  </div>
+                ))}
+                {memory.observed.writes > 0 && (
+                  <div className="memory-row">
+                    <span className="memory-kind observed">observed</span>
+                    <span>
+                      {memory.observed.writes} write{memory.observed.writes === 1 ? '' : 's'} —{' '}
+                      {memory.observed.facts} fact{memory.observed.facts === 1 ? '' : 's'},{' '}
+                      {memory.observed.quarantined} quarantined claim
+                      {memory.observed.quarantined === 1 ? '' : 's'} ($
+                      {memory.observed.costUsd.toFixed(4)})
+                    </span>
+                  </div>
+                )}
+                {memory.outcomes.map((o, i) => (
+                  <div className="memory-row" key={`outcome-${i}`}>
+                    <span className="memory-kind outcome">{o.outcome}</span>
+                    <span>
+                      via {o.emitter}
+                      {o.correctedValue ? (
+                        <>
+                          {' '}
+                          → <code>{o.correctedValue}</code>
+                        </>
+                      ) : null}
+                    </span>
+                  </div>
+                ))}
+                {memory.failures > 0 && (
+                  <div className="memory-row">
+                    <span className="memory-kind failed">degraded</span>
+                    <span>
+                      {memory.failures} memory operation{memory.failures === 1 ? '' : 's'} failed
+                      (run unaffected)
+                    </span>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
+
           <h3>Steps</h3>
           <table>
             <thead>
@@ -240,6 +298,7 @@ export function InstanceDetail() {
                 <th>Finished</th>
                 <th>Usage</th>
                 <th>Memory</th>
+                <th>Recall</th>
                 <th>Error</th>
                 <th>Fork</th>
               </tr>
@@ -248,6 +307,7 @@ export function InstanceDetail() {
               {steps.map((s) => {
                 const u = extractUsage(s);
                 const mh = memoryHash(s);
+                const recall = extractRecall(s);
                 return (
                   <tr key={s.id}>
                     <td>{s.step_id}</td>
@@ -269,6 +329,19 @@ export function InstanceDetail() {
                       {mh ? (
                         <code className="mh" title={mh}>
                           {shortHash(mh)}
+                        </code>
+                      ) : (
+                        <span className="muted">—</span>
+                      )}
+                    </td>
+                    <td>
+                      {recall ? (
+                        <code
+                          className="recall"
+                          title={`Recalled history for ${recall.query}` +
+                            (recall.contextHash ? ` (${recall.contextHash})` : '')}
+                        >
+                          {recall.edges}e·{recall.episodes}ep
                         </code>
                       ) : (
                         <span className="muted">—</span>

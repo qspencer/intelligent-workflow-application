@@ -1672,3 +1672,51 @@ a.button:hover {
 .goal-examples li {
   margin: 4px 0;
 }
+
+/* --- Users/orgs: header identity chip (/api/me) --- */
+.user-chip {
+  display: inline-flex;
+  gap: 0.35rem;
+  align-items: baseline;
+  padding: 0.2rem 0.6rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 999px;
+  font-size: 0.8rem;
+}
+.user-chip-name { font-weight: 600; }
+.user-chip-org { color: var(--muted); }
+
+/* --- Seven-bucket triage category badges --- */
+.badge.category { background: #ececec; color: var(--muted); }
+.badge.category.cat-urgent { background: #fce4e4; color: var(--err); }
+.badge.category.cat-awaiting-reply { background: #e6f0fa; color: var(--accent); }
+.badge.category.cat-personal { background: #f0e6fa; color: #7c3aed; }
+.badge.category.cat-notification { background: #e0f2f1; color: #0f766e; }
+.badge.category.cat-newsletter { background: #e6f4ea; color: var(--ok); }
+.badge.category.cat-promotion { background: #fff4e0; color: var(--warn); }
+.badge.category.cat-spam { background: #f3e8e8; color: #9f1239; }
+
+/* --- Learned-memory panel (instance detail) --- */
+.memory-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+  padding: 0.6rem 0.8rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+  font-size: 0.85rem;
+}
+.memory-row { display: flex; gap: 0.6rem; align-items: baseline; }
+.memory-kind {
+  min-width: 5.5rem;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-weight: 600;
+  color: var(--muted);
+}
+.memory-kind.recalled { color: var(--accent); }
+.memory-kind.observed { color: var(--ok); }
+.memory-kind.outcome { color: var(--warn); }
+.memory-kind.failed { color: var(--err); }
+code.recall { font-size: 0.8rem; }

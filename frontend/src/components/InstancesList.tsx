@@ -4,6 +4,8 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, errorMessage } from '../api/client';
 import { fmtShort } from '../lib/format';
 import { instanceSummary } from '../lib/instance-summary';
+import { categoryClass } from '../lib/memory';
+import { useEvents } from '../hooks/useEvents';
 import type { WorkflowInstance } from '../types';
 
 type RowAction = 'pause' | 'resume' | 'kill' | 'retry';
@@ -52,6 +54,19 @@ export function InstancesList() {
     const timer = setInterval(() => void refresh(), 5000);
     return () => clearInterval(timer);
   }, [refresh, workflowId]);
+
+  // Live parity with the detail page (G4): a run starting or finishing
+  // anywhere refreshes the list immediately instead of waiting for the poll.
+  useEvents(
+    useCallback(
+      (entry) => {
+        if (entry.action === 'workflow_started' || entry.action === 'workflow_completed') {
+          void refresh();
+        }
+      },
+      [refresh],
+    ),
+  );
 
   const terminalCount = instances.filter((i) => isTerminal(i.state)).length;
 
@@ -170,7 +185,11 @@ export function InstancesList() {
                     <span className={`badge ${inst.state}`}>{inst.state}</span>
                   </td>
                   <td className="result-col" title={summary.subject ?? undefined}>
-                    {summary.category && <span className="badge category">{summary.category}</span>}
+                    {summary.category && (
+                      <span className={`badge category ${categoryClass(summary.category)}`}>
+                        {summary.category}
+                      </span>
+                    )}
                     {summary.subject && <span className="result-subject">{summary.subject}</span>}
                   </td>
                   <td>{fmtShort(inst.started_at)}</td>

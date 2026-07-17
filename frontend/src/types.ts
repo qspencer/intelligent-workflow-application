@@ -322,3 +322,18 @@ export interface DevErrorsResponse {
   distinct: number;
   errors: DevError[];
 }
+
+
+/** GET /api/me — IdP identity + JIT-persisted platform user + org. */
+export interface Me {
+  identity: { sub: string; email: string | null; roles: string[] };
+  user: {
+    id: string;
+    iss: string;
+    sub: string;
+    email: string | null;
+    display_name: string | null;
+    org_id: string;
+  } | null;
+  organization: { id: string; name: string } | null;
+}

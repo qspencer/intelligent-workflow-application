@@ -1,5 +1,6 @@
 import { authHeaders } from '../lib/auth';
 import type {
+  Me,
   AuditEntry,
   BatchRunResult,
   CapabilityReport,
@@ -156,6 +157,10 @@ export const api = {
 
   instanceAudit(id: string): Promise<AuditEntry[]> {
     return request('GET', `/workflow-instances/${id}/audit`);
+  },
+
+  me(): Promise<Me> {
+    return request('GET', '/me');
   },
 
   pauseInstance(id: string): Promise<unknown> {
