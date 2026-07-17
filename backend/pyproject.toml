@@ -27,7 +27,7 @@ dependencies = [
     "google-auth-oauthlib>=1.2",
     "playwright>=1.40",
     "beautifulsoup4>=4.12",
-    "json-repair>=0.59.10",
+    "json-repair>=0.61.5",
     "veracium==0.2.1",
 ]
 
