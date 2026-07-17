@@ -37,6 +37,20 @@ registers the trigger and seeds the rubric on boot. The cursor starts at
 If (2) accumulates real instances, that fires the SEMANTICS.md trigger:
 design-reviewer pass, then the scoped veracium integration.
 
+> **Ground-truth result (2026-07-19):** the full 154-message corpus was
+> human-labeled against the seven-bucket taxonomy: **153/154 correct
+> (99.4%)**. The single miss is the known evidence-starved case (an
+> image-only email whose HTML predates `body_structure` derivation —
+> unfixable retroactively, fixed for all future mail). Verdicts reviewed
+> were produced with recall injection live and the same-day rubric
+> iterations, and the taxonomy was co-designed during the labeling
+> session — so read this as "converged after iteration," not naive
+> zero-shot accuracy. Labels: `backend/.memory/triage-ground-truth.jsonl`
+> (154 entries; the pre-taxonomy-split 73-label pass is preserved as
+> `*.pre-7bucket.jsonl`). Axis-collision tally for G11: 4 (2 resolved by
+> the precedence rule, 2 notification×review — unresolvable without the
+> attention axis).
+
 > **Status 2026-07-13:** the trigger fired (repeat-sender inconsistency + the
 > quarantine case; awaiting-reply was reclassified as a sent-mail-state gap,
 > not memory-shaped). The design review passed with conditions, and the

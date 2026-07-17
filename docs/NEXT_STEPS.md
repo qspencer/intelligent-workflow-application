@@ -183,6 +183,12 @@ beyond a handful (tally them at session end), or the label-applying
 variant goes live (actions need the attention axis more than
 classification does). Effort: **M**.
 
+**Session-end tally (2026-07-19, 154 messages):** 4 collisions — 2
+precedence-resolved (personal×urgent, personal×awaiting-reply) and 2
+notification×review (PayPal + ManifestRx receipts), which precedence
+structurally cannot resolve. The review class is the real pull; call
+is Quentin's on when to spend the M.
+
 ### G12 — Ask-the-user: clarification elicitation for classification
 
 Quentin, thinking aloud during the 2026-07-19 labeling session: the
