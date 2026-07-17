@@ -90,6 +90,20 @@ GPT-4o Mini              100%  88%    3.6   3.3   $0.002         ⚠️ Borderli
 - **On eval suite expansion:** re-run all models on the new cases
 - **In CI:** optionally gate PRs that change the scaffold prompt/catalog on a passing eval
 
+## First Calibration Measurement (2026-07-19)
+
+The judge-calibration amendment (anchor L3/L4 against a human-labeled
+subset before trusting judge scores) has its first data point, from the
+email-triage workload: over 154 human-labeled real messages, a blind
+Sonnet judge agreed with the human 90.3% of the time — while the
+production Haiku agent (iterated rubric + per-entity recall) agreed
+99.4%, and the judge missed the one genuine agent error. Two standing
+conclusions: (1) judge scores on classification task types carry ~10%
+noise — screening signal, never truth or an auto-apply gate; (2) domain
+assets beat raw model capability — the cheapest-passing-model strategy
+can outperform, not just cost less. Recalibrate per task type as
+corpora are labeled.
+
 ## Strategic Value
 
 ### Internal
