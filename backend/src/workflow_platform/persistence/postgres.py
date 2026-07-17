@@ -11,23 +11,30 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from workflow_platform.persistence.models import (
+    DEFAULT_ORG_ID,
     AuditEntry,
+    Organization,
     StepExecution,
     TriggerCursorState,
+    User,
     WorkflowInstance,
 )
 from workflow_platform.persistence.repository import (
     AuditRepo,
     DefinitionRepo,
     InstanceRepo,
+    OrganizationRepo,
     Repositories,
     StepExecutionRepo,
     TriggerCursorRepo,
+    UserRepo,
 )
 from workflow_platform.persistence.sqlalchemy_models import (
     AuditLogRow,
+    OrganizationRow,
     StepExecutionRow,
     TriggerCursorRow,
+    UserRow,
     WorkflowDefinitionRow,
     WorkflowInstanceRow,
 )
@@ -38,7 +45,13 @@ class PostgresDefinitionRepo(DefinitionRepo):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sf = session_factory
 
-    async def save(self, definition: WorkflowDefinition) -> None:
+    async def save(
+        self,
+        definition: WorkflowDefinition,
+        *,
+        org_id: str | None = None,
+        owner_user_id: str | None = None,
+    ) -> None:
         async with self._sf() as s, s.begin():
             existing = await s.get(WorkflowDefinitionRow, definition.id)
             body = definition.model_dump(by_alias=True)
@@ -49,12 +62,18 @@ class PostgresDefinitionRepo(DefinitionRepo):
                         name=definition.name,
                         description=definition.description,
                         body=body,
+                        org_id=org_id or DEFAULT_ORG_ID,
+                        owner_user_id=owner_user_id,
                     )
                 )
             else:
                 existing.name = definition.name
                 existing.description = definition.description
                 existing.body = body
+                if org_id is not None:
+                    existing.org_id = org_id
+                if owner_user_id is not None:
+                    existing.owner_user_id = owner_user_id
 
     async def get(self, definition_id: str) -> WorkflowDefinition | None:
         async with self._sf() as s:
@@ -291,6 +310,84 @@ class PostgresTriggerCursorRepo(TriggerCursorRepo):
             )
 
 
+class PostgresOrganizationRepo(OrganizationRepo):
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sf = session_factory
+
+    async def get(self, org_id: str) -> Organization | None:
+        async with self._sf() as s:
+            row = await s.get(OrganizationRow, org_id)
+            if row is None:
+                return None
+            return Organization(id=row.id, name=row.name, created_at=row.created_at)
+
+    async def save(self, org: Organization) -> Organization:
+        async with self._sf() as s, s.begin():
+            existing = await s.get(OrganizationRow, org.id)
+            if existing is None:
+                s.add(OrganizationRow(id=org.id, name=org.name, created_at=org.created_at))
+            else:
+                existing.name = org.name
+        return org
+
+
+def _row_to_user(row: UserRow) -> User:
+    return User(
+        id=row.id,
+        iss=row.iss,
+        sub=row.sub,
+        email=row.email,
+        display_name=row.display_name,
+        org_id=row.org_id,
+        created_at=row.created_at,
+        last_seen_at=row.last_seen_at,
+    )
+
+
+class PostgresUserRepo(UserRepo):
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sf = session_factory
+
+    async def get(self, user_id: str) -> User | None:
+        async with self._sf() as s:
+            row = await s.get(UserRow, user_id)
+            return _row_to_user(row) if row else None
+
+    async def get_by_identity(self, iss: str, sub: str) -> User | None:
+        async with self._sf() as s:
+            result = await s.execute(select(UserRow).where(UserRow.iss == iss, UserRow.sub == sub))
+            row = result.scalar_one_or_none()
+            return _row_to_user(row) if row else None
+
+    async def upsert_seen(self, user: User) -> User:
+        async with self._sf() as s, s.begin():
+            stmt = pg_insert(UserRow).values(
+                id=user.id,
+                iss=user.iss,
+                sub=user.sub,
+                email=user.email,
+                display_name=user.display_name,
+                org_id=user.org_id,
+                created_at=user.created_at,
+                last_seen_at=user.last_seen_at,
+            )
+            # First sight inserts; a known (iss, sub) refreshes contact fields
+            # and last_seen_at but keeps its original id/org/created_at.
+            await s.execute(
+                stmt.on_conflict_do_update(
+                    constraint="uq_users_iss_sub",
+                    set_={
+                        "email": stmt.excluded.email,
+                        "display_name": stmt.excluded.display_name,
+                        "last_seen_at": stmt.excluded.last_seen_at,
+                    },
+                )
+            )
+        stored = await self.get_by_identity(user.iss, user.sub)
+        assert stored is not None  # just upserted
+        return stored
+
+
 def postgres_repositories(session_factory: async_sessionmaker[AsyncSession]) -> Repositories:
     return Repositories(
         definitions=PostgresDefinitionRepo(session_factory),
@@ -298,6 +395,8 @@ def postgres_repositories(session_factory: async_sessionmaker[AsyncSession]) -> 
         steps=PostgresStepExecutionRepo(session_factory),
         audit=PostgresAuditRepo(session_factory),
         trigger_cursors=PostgresTriggerCursorRepo(session_factory),
+        organizations=PostgresOrganizationRepo(session_factory),
+        users=PostgresUserRepo(session_factory),
     )
 
 
@@ -308,6 +407,7 @@ def _to_instance_row(instance: WorkflowInstance) -> WorkflowInstanceRow:
     return WorkflowInstanceRow(
         id=instance.id,
         workflow_id=instance.workflow_id,
+        org_id=instance.org_id,
         state=instance.state.value,
         trigger_payload=instance.trigger_payload,
         context=instance.context,
@@ -322,6 +422,7 @@ def _from_instance_row(row: WorkflowInstanceRow) -> WorkflowInstance:
     return WorkflowInstance(
         id=row.id,
         workflow_id=row.workflow_id,
+        org_id=row.org_id,
         state=row.state,
         trigger_payload=_as_dict(row.trigger_payload),
         context=_as_dict(row.context),

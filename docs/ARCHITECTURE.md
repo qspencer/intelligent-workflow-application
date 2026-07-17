@@ -723,6 +723,17 @@ The platform must be deployable in IT-managed environments. This requires:
 - Audit trail for compliance
 - Network/data boundary controls
 
+> **Amendment (2026-07-19):** a minimal `users` + `organizations` skeleton
+> now exists (Alembic `0003`) — this does NOT revisit D4. The IdP remains
+> the sole authority for authentication and roles (nothing credential- or
+> role-shaped is persisted); the tables exist so features have a **stable
+> platform user id** to reference (resource ownership, per-user memory).
+> Users are JIT-provisioned from `(iss, sub)` on first authenticated
+> request; a single `default` org is seeded by the migration; enforcement
+> (query scoping, per-org RBAC, invitations) is deliberately absent until
+> multi-tenancy is pulled. The audit log's `actor_id` stays the raw sub
+> string by design — audit entries never dangle or mutate.
+
 ---
 
 ## Security, Permissions & IT Integration

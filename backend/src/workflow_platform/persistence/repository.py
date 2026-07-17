@@ -14,8 +14,10 @@ from datetime import datetime
 
 from workflow_platform.persistence.models import (
     AuditEntry,
+    Organization,
     StepExecution,
     TriggerCursorState,
+    User,
     WorkflowInstance,
 )
 from workflow_platform.workflow import WorkflowDefinition
@@ -23,7 +25,17 @@ from workflow_platform.workflow import WorkflowDefinition
 
 class DefinitionRepo(ABC):
     @abstractmethod
-    async def save(self, definition: WorkflowDefinition) -> None: ...
+    async def save(
+        self,
+        definition: WorkflowDefinition,
+        *,
+        org_id: str | None = None,
+        owner_user_id: str | None = None,
+    ) -> None:
+        """Persist a definition. Ownership params are optional: None keeps
+        any existing attribution (or the default org for new rows) — engine
+        and orchestrator callers don't thread users; API create paths do."""
+        ...
 
     @abstractmethod
     async def get(self, definition_id: str) -> WorkflowDefinition | None: ...
@@ -106,6 +118,29 @@ class StepExecutionRepo(ABC):
         """Recent step executions, newest first (by started_at)."""
 
 
+class OrganizationRepo(ABC):
+    @abstractmethod
+    async def get(self, org_id: str) -> Organization | None: ...
+
+    @abstractmethod
+    async def save(self, org: Organization) -> Organization: ...
+
+
+class UserRepo(ABC):
+    @abstractmethod
+    async def get(self, user_id: str) -> User | None: ...
+
+    @abstractmethod
+    async def get_by_identity(self, iss: str, sub: str) -> User | None: ...
+
+    @abstractmethod
+    async def upsert_seen(self, user: User) -> User:
+        """Create the user on first sight, or refresh email/display_name/
+        last_seen_at on an existing `(iss, sub)` row. Returns the stored user
+        (with its stable id)."""
+        ...
+
+
 class TriggerCursorRepo(ABC):
     """Poll-position persistence for polling triggers (G9). Keyed by a
     trigger identity string (e.g. `email:<workflow_id>:<account>`) so a
@@ -138,3 +173,5 @@ class Repositories:
     steps: StepExecutionRepo
     audit: AuditRepo
     trigger_cursors: TriggerCursorRepo
+    organizations: OrganizationRepo
+    users: UserRepo

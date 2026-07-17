@@ -43,6 +43,10 @@ class StepExecutionState(StrEnum):
 class WorkflowInstance(BaseModel):
     id: str = Field(default_factory=_new_id)
     workflow_id: str
+    # Tenant attribution from birth (single-org today). On the instance
+    # directly — the fastest-growing table; cost/audit queries want org
+    # attribution without joins.
+    org_id: str = "default"
     state: WorkflowInstanceState = WorkflowInstanceState.PENDING
     trigger_payload: dict[str, Any] = Field(default_factory=dict)
     context: dict[str, Any] = Field(default_factory=dict)
@@ -93,3 +97,35 @@ class TriggerCursorState(BaseModel):
     cursor: datetime
     seen_ids: list[str] = Field(default_factory=list)
     updated_at: datetime = Field(default_factory=_utcnow)
+
+
+DEFAULT_ORG_ID = "default"
+
+
+class Organization(BaseModel):
+    """A tenant boundary. Single-org today (the migration seeds `default`);
+    the column plumbing exists so features scope by org from birth instead
+    of being retrofitted."""
+
+    id: str = Field(default_factory=_new_id)
+    name: str
+    created_at: datetime = Field(default_factory=_utcnow)
+
+
+class User(BaseModel):
+    """A persisted platform user, JIT-provisioned from the IdP identity on
+    first authenticated request. `(iss, sub)` is the stable join key — sub
+    alone is not globally unique across issuers. Authn and roles stay with
+    the IdP (ARCHITECTURE D4): this row exists so features (ownership,
+    per-user memory) have a stable id to reference, never for passwords.
+    The audit log's `actor_id` remains the raw sub string by design — audit
+    entries must not dangle or mutate when users are reorganized."""
+
+    id: str = Field(default_factory=_new_id)
+    iss: str
+    sub: str
+    email: str | None = None
+    display_name: str | None = None
+    org_id: str = DEFAULT_ORG_ID
+    created_at: datetime = Field(default_factory=_utcnow)
+    last_seen_at: datetime = Field(default_factory=_utcnow)

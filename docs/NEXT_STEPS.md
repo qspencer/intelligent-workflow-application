@@ -311,6 +311,18 @@ See `CLAUDE.md`'s re-evaluation checkpoint for context.
 
 ## Landed
 
+- **Users + organizations skeleton (2026-07-19)** — built ahead of need on
+  Quentin's call (its absence was distorting user-adjacent features);
+  design-reviewer verdict "build modified", all conditions implemented.
+  `users`/`organizations` tables (Alembic `0003`, default org seeded in
+  the migration), JIT provisioning from `(iss, sub)` with TTL-throttled
+  last-seen, `GET /api/me`, `org_id` on definitions AND instances from
+  birth, `owner_user_id` set by the API create/import/scaffold paths.
+  Explicitly out: enforcement/scoping, invitations, per-org RBAC,
+  schema-per-tenant. **Follow-up decided now to avoid a second store
+  rebuild:** the veracium memory namespace migrates from raw mailbox
+  strings to `user:<user.id>` (mailbox as an attribute) in its own slice.
+
 Tracks where every closed backlog item lives. One-liner per item; chase
 the commit history for the full context.
 

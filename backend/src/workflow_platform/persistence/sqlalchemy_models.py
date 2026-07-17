@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, DateTime, ForeignKey, String, Text
+from sqlalchemy import JSON, DateTime, ForeignKey, String, Text, UniqueConstraint
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
@@ -29,12 +29,15 @@ class WorkflowDefinitionRow(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     description: Mapped[str] = mapped_column(Text, default="", nullable=False)
     body: Mapped[dict[str, Any]] = mapped_column(JsonColumn, nullable=False)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, server_default="default")
+    owner_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class WorkflowInstanceRow(Base):
     __tablename__ = "workflow_instances"
 
     id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, server_default="default")
     workflow_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
     state: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     trigger_payload: Mapped[dict[str, Any]] = mapped_column(JsonColumn, nullable=False)
@@ -89,3 +92,25 @@ class TriggerCursorRow(Base):
     cursor: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     seen_ids: Mapped[list[str]] = mapped_column(JsonColumn, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class OrganizationRow(Base):
+    __tablename__ = "organizations"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class UserRow(Base):
+    __tablename__ = "users"
+    __table_args__ = (UniqueConstraint("iss", "sub", name="uq_users_iss_sub"),)
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    iss: Mapped[str] = mapped_column(String(255), nullable=False)
+    sub: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    display_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, server_default="default")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

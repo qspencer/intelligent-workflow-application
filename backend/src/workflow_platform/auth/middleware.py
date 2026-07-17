@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 from collections.abc import Awaitable, Callable
+from typing import TYPE_CHECKING
 
 from fastapi import Request
 from fastapi.responses import JSONResponse
@@ -20,6 +21,9 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import Response
 
 from workflow_platform.auth.identity import UserIdentity
+
+if TYPE_CHECKING:
+    from workflow_platform.auth.provisioning import UserProvisioner
 from workflow_platform.auth.oidc import OidcValidator
 from workflow_platform.auth.rbac import assign_roles
 
@@ -47,9 +51,17 @@ def _dev_identity_from_headers(request: Request) -> UserIdentity | None:
 
 
 class AuthMiddleware(BaseHTTPMiddleware):
-    def __init__(self, app: Callable, validator: OidcValidator | None = None) -> None:  # type: ignore[type-arg]
+    def __init__(
+        self,
+        app: Callable,  # type: ignore[type-arg]
+        validator: OidcValidator | None = None,
+        provisioner: UserProvisioner | None = None,
+    ) -> None:
         super().__init__(app)
         self._validator = validator or OidcValidator()
+        # JIT user persistence (auth/provisioning.py). Optional so tests and
+        # embedded uses without repositories keep working.
+        self._provisioner = provisioner
 
     async def dispatch(
         self, request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -77,4 +89,6 @@ class AuthMiddleware(BaseHTTPMiddleware):
                 return JSONResponse({"detail": f"Invalid token: {exc}"}, status_code=401)
 
         request.state.user = user
+        if self._provisioner is not None:
+            await self._provisioner.provision(user)
         return await call_next(request)

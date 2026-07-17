@@ -23,6 +23,7 @@ from workflow_platform.api.dev import build_dev_router
 from workflow_platform.api.workflows import build_router
 from workflow_platform.api.ws import build_ws_router
 from workflow_platform.auth import AuthMiddleware, auth_mode
+from workflow_platform.auth.provisioning import UserProvisioner
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.connectors.email import maybe_build_gmail_connector
 from workflow_platform.engine import (
@@ -194,7 +195,7 @@ def create_app(
         version=__version__,
         lifespan=lifespan,
     )
-    app.add_middleware(AuthMiddleware)
+    app.add_middleware(AuthMiddleware, provisioner=UserProvisioner(repositories.users))
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:

@@ -11,18 +11,23 @@ from copy import deepcopy
 from datetime import UTC, datetime
 
 from workflow_platform.persistence.models import (
+    DEFAULT_ORG_ID,
     AuditEntry,
+    Organization,
     StepExecution,
     TriggerCursorState,
+    User,
     WorkflowInstance,
 )
 from workflow_platform.persistence.repository import (
     AuditRepo,
     DefinitionRepo,
     InstanceRepo,
+    OrganizationRepo,
     Repositories,
     StepExecutionRepo,
     TriggerCursorRepo,
+    UserRepo,
 )
 from workflow_platform.workflow import WorkflowDefinition
 
@@ -30,9 +35,21 @@ from workflow_platform.workflow import WorkflowDefinition
 class InMemoryDefinitionRepo(DefinitionRepo):
     def __init__(self) -> None:
         self._items: dict[str, WorkflowDefinition] = {}
+        self._ownership: dict[str, tuple[str, str | None]] = {}
 
-    async def save(self, definition: WorkflowDefinition) -> None:
+    async def save(
+        self,
+        definition: WorkflowDefinition,
+        *,
+        org_id: str | None = None,
+        owner_user_id: str | None = None,
+    ) -> None:
         self._items[definition.id] = definition
+        existing = self._ownership.get(definition.id, (DEFAULT_ORG_ID, None))
+        self._ownership[definition.id] = (
+            org_id or existing[0],
+            owner_user_id or existing[1],
+        )
 
     async def get(self, definition_id: str) -> WorkflowDefinition | None:
         return self._items.get(definition_id)
@@ -174,6 +191,47 @@ class InMemoryTriggerCursorRepo(TriggerCursorRepo):
         self._states[trigger_id] = state.model_copy(deep=True)
 
 
+class InMemoryOrganizationRepo(OrganizationRepo):
+    def __init__(self) -> None:
+        self._items: dict[str, Organization] = {
+            DEFAULT_ORG_ID: Organization(id=DEFAULT_ORG_ID, name="default")
+        }
+
+    async def get(self, org_id: str) -> Organization | None:
+        org = self._items.get(org_id)
+        return org.model_copy(deep=True) if org else None
+
+    async def save(self, org: Organization) -> Organization:
+        self._items[org.id] = org.model_copy(deep=True)
+        return org
+
+
+class InMemoryUserRepo(UserRepo):
+    def __init__(self) -> None:
+        self._items: dict[str, User] = {}
+
+    async def get(self, user_id: str) -> User | None:
+        user = self._items.get(user_id)
+        return user.model_copy(deep=True) if user else None
+
+    async def get_by_identity(self, iss: str, sub: str) -> User | None:
+        for user in self._items.values():
+            if user.iss == iss and user.sub == sub:
+                return user.model_copy(deep=True)
+        return None
+
+    async def upsert_seen(self, user: User) -> User:
+        existing = await self.get_by_identity(user.iss, user.sub)
+        if existing is None:
+            self._items[user.id] = user.model_copy(deep=True)
+            return user
+        existing.email = user.email or existing.email
+        existing.display_name = user.display_name or existing.display_name
+        existing.last_seen_at = user.last_seen_at
+        self._items[existing.id] = existing.model_copy(deep=True)
+        return existing
+
+
 def in_memory_repositories() -> Repositories:
     return Repositories(
         definitions=InMemoryDefinitionRepo(),
@@ -181,4 +239,6 @@ def in_memory_repositories() -> Repositories:
         steps=InMemoryStepExecutionRepo(),
         audit=InMemoryAuditRepo(),
         trigger_cursors=InMemoryTriggerCursorRepo(),
+        organizations=InMemoryOrganizationRepo(),
+        users=InMemoryUserRepo(),
     )

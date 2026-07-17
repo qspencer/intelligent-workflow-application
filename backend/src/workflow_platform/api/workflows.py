@@ -29,6 +29,7 @@ from pydantic import ValidationError
 
 from workflow_platform.auth import Role, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
+from workflow_platform.auth.provisioning import current_issuer
 from workflow_platform.catalog import build_catalog
 from workflow_platform.cost import CostReportService, price_for_model
 from workflow_platform.engine import ToolCatalog, WorkflowEngine, default_function_registry
@@ -185,10 +186,32 @@ def build_router(
             for t in load_templates(_templates_dir)
         ]
 
+    @router.get("/me")
+    async def whoami(
+        request: Request, user: UserIdentity = Depends(current_user)
+    ) -> dict[str, Any]:
+        """The authenticated caller: IdP identity + the persisted platform
+        user (JIT-provisioned) + org. The stable `user.id` is what features
+        (ownership, per-user memory) should reference — never the raw sub."""
+        persisted = await repositories.users.get_by_identity(current_issuer(), user.sub)
+        org = await repositories.organizations.get(persisted.org_id) if persisted else None
+        return {
+            "identity": {"sub": user.sub, "email": user.email, "roles": user.roles},
+            "user": persisted.model_dump(mode="json") if persisted else None,
+            "organization": org.model_dump(mode="json") if org else None,
+        }
+
+    async def _owner_kwargs(user: UserIdentity) -> dict[str, str]:
+        """Ownership attribution for definition-creating endpoints."""
+        persisted = await repositories.users.get_by_identity(current_issuer(), user.sub)
+        if persisted is None:
+            return {}
+        return {"org_id": persisted.org_id, "owner_user_id": persisted.id}
+
     @router.post("/workflows", response_model=WorkflowDefinition, status_code=201)
     async def create_workflow(
         request: Request,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
+        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
     ) -> WorkflowDefinition:
         """Create a new workflow definition — blank, or cloned from a template.
 
@@ -240,13 +263,13 @@ def build_router(
 
         # Cheap structural check before persisting (empty graphs are valid).
         validate_and_order(definition)
-        await repositories.definitions.save(definition)
+        await repositories.definitions.save(definition, **await _owner_kwargs(user))
         return definition
 
     @router.post("/workflows/scaffold")
     async def scaffold_workflow_endpoint(
         request: Request,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
+        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
     ) -> dict[str, Any]:
         """NL scaffold (C7.1): turn a plain-English description into a draft
         workflow and persist it as an editable starting point.
@@ -308,7 +331,7 @@ def build_router(
                 status_code=422, detail=f"Scaffolded workflow was structurally invalid: {exc}"
             ) from exc
 
-        await repositories.definitions.save(definition)
+        await repositories.definitions.save(definition, **await _owner_kwargs(user))
         findings = [f.model_dump() for f in validate_definition(definition)]
         return {
             "status": "created",
@@ -487,7 +510,7 @@ def build_router(
     @router.post("/workflows/import")
     async def import_workflow(
         request: Request,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
+        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
     ) -> dict[str, Any]:
         body = await request.body()
         text = body.decode("utf-8") if body else ""
@@ -502,7 +525,7 @@ def build_router(
                 definition = load_definition(json.loads(text))
         except (WorkflowDefinitionError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        await repositories.definitions.save(definition)
+        await repositories.definitions.save(definition, **await _owner_kwargs(user))
         return {"status": "imported", "workflow_id": definition.id}
 
     @router.post("/workflows/{workflow_id}/run")
