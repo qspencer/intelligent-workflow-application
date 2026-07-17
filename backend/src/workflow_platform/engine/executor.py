@@ -1000,6 +1000,7 @@ class WorkflowEngine:
                     event_type=obs.event_type,
                     date=date,
                     evidence_ref=evidence_ref,
+                    derived_from=obs.derived_from,
                 )
             except Exception as exc:
                 logger.exception("learned-memory observation failed")

@@ -2056,14 +2056,14 @@ wheels = [
 
 [[package]]
 name = "veracium"
-version = "0.1.6"
+version = "0.2.1"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "pydantic" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/0d/11/07b9540c93700137b29eff4b44a3a62ed59b2850110e83d79f24e36930b1/veracium-0.1.6.tar.gz", hash = "sha256:56d5756becaba3e8e8914fe856b94397deac6c8fedca682e20290d5e9d71ecbe", size = 81882, upload-time = "2026-07-13T12:07:20.871Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/9e/99/b241e3c3095a972557fcbdc963be71f5ea8fc3586745c416cabe401f4138/veracium-0.2.1.tar.gz", hash = "sha256:b2c2b5bcecdd48d43b826c16bdd3756a836cee23b72ab3a5c3d6c0e5d3326566", size = 107657, upload-time = "2026-07-16T18:24:46.503Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/e2/c5/852442b70316d56a71f52f29d75f20995f84683c320e081c6292a6d04fbf/veracium-0.1.6-py3-none-any.whl", hash = "sha256:81de0ef255c08b68d095d85257d1817b96f52a8a8d3d5184a04d60767b239a28", size = 48312, upload-time = "2026-07-13T12:07:19.966Z" },
+    { url = "https://files.pythonhosted.org/packages/27/b1/9dc6e1d2aeaaafec1a67c776694ff572b49a477eef0fc305648772226d94/veracium-0.2.1-py3-none-any.whl", hash = "sha256:0849b90b5acdde0f5e2e03736feee464c9ccb943e5172595909e7ee5cad2a7cc", size = 58181, upload-time = "2026-07-16T18:24:45.405Z" },
 ]
 
 [[package]]
@@ -2286,7 +2286,7 @@ requires-dist = [
     { name = "simpleeval", specifier = ">=1.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0.50" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.49.0" },
-    { name = "veracium", specifier = "==0.1.6" },
+    { name = "veracium", specifier = "==0.2.1" },
     { name = "watchdog", specifier = ">=5.0" },
 ]
 

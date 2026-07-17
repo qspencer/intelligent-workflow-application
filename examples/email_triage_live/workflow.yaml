@@ -111,6 +111,11 @@ learned_memory:
         (subject: "{trigger.subject}") as {steps.record.category} with confidence
         {steps.record.confidence}. Reason: {steps.record.summary}
       author: system
+      # The verdict is ours, but its text embeds third-party content (sender,
+      # subject, a summary derived from the body) — declare the mixed
+      # provenance so trust caps at third_party level (veracium >=0.1.7 fix
+      # for the system-event laundering channel found on this very workflow).
+      derived_from: third_party
       event_type: triage
       date_from: trigger.received_at
       ref_from: trigger.message_id

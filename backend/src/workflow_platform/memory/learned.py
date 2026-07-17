@@ -40,6 +40,7 @@ class LearnedObservation(BaseModel):
 
     text_hash: str
     author: str
+    derived_from: str | None = None
     event_type: str
     evidence_ref: str | None
     facts: int
@@ -137,11 +138,16 @@ class LearnedMemoryService:
         event_type: str = "chat",
         date: str | None = None,
         evidence_ref: str | None = None,
+        derived_from: str | None = None,
     ) -> LearnedObservation:
         """Ingest one event into `user_id`'s memory. `author` is the
         trust-critical input: "third_party" for received mail / external
         content, "system" for platform-derived content, "user" for the
-        user's own words."""
+        user's own words. `derived_from` declares mixed provenance (veracium
+        ≥0.1.7): a system-authored event whose *content* embeds third-party
+        text (a triage verdict quoting a subject line) passes
+        `derived_from="third_party"` so trust caps at the minimum of the two —
+        closing the system-event laundering channel we reported."""
         from veracium import EvidenceAuthor
 
         author_enum = EvidenceAuthor[author.upper()]
@@ -157,6 +163,8 @@ class LearnedMemoryService:
                 }
                 if date:
                     kwargs["date"] = date
+                if derived_from:
+                    kwargs["derived_from"] = EvidenceAuthor[derived_from.upper()]
                 result = await asyncio.to_thread(memory.remember, user_id, text, **kwargs)
             finally:
                 self._complete.loop = None
@@ -168,6 +176,7 @@ class LearnedMemoryService:
         return LearnedObservation(
             text_hash="sha256:" + hashlib.sha256(text.encode()).hexdigest()[:16],
             author=author,
+            derived_from=derived_from,
             event_type=event_type,
             evidence_ref=evidence_ref,
             facts=int(result.get("facts", 0)),

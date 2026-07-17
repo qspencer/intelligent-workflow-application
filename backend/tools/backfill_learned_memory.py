@@ -103,10 +103,11 @@ async def backfill(args: argparse.Namespace) -> int:
         print(f"instances   : {len(instances)} completed candidates\n")
 
         for instance in instances:
-            existing = await repos.audit.list_by_instance(instance.id)
-            if any(e.action == "memory_observed" for e in existing):
-                skipped_done += 1
-                continue
+            if not args.reingest:
+                existing = await repos.audit.list_by_instance(instance.id)
+                if any(e.action == "memory_observed" for e in existing):
+                    skipped_done += 1
+                    continue
 
             context = WorkflowContext(
                 instance_id=instance.id,
@@ -139,6 +140,7 @@ async def backfill(args: argparse.Namespace) -> int:
                     event_type=obs.event_type,
                     date=str(date_raw)[:10] if date_raw else None,
                     evidence_ref=str(ref_raw) if ref_raw is not None else None,
+                    derived_from=obs.derived_from,
                 )
                 await repos.audit.append(
                     AuditEntry(
@@ -185,6 +187,13 @@ def main() -> int:
         help="workflow YAML with the learned_memory block (default: email_triage_live)",
     )
     parser.add_argument("--limit", type=int, default=0, help="max instances (0 = all)")
+    parser.add_argument(
+        "--reingest",
+        action="store_true",
+        help="ignore the memory_observed idempotency marker — for rebuilding the "
+        "store from scratch (e.g. after a veracium semantics upgrade). Point "
+        "WORKFLOW_PLATFORM_LEARNED_MEMORY_DB at a FRESH db or you will duplicate.",
+    )
     parser.add_argument(
         "--dry-run",
         action="store_true",

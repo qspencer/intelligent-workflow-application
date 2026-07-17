@@ -28,7 +28,7 @@ dependencies = [
     "playwright>=1.40",
     "beautifulsoup4>=4.12",
     "json-repair>=0.59.10",
-    "veracium==0.1.6",
+    "veracium==0.2.1",
 ]
 
 [dependency-groups]

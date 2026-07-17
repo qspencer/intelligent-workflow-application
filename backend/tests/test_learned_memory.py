@@ -343,4 +343,34 @@ def test_email_triage_live_declares_learned_memory() -> None:
     authors = [o.author for o in spec.observations]
     # The mail itself is quarantined third-party content; the verdict is ours.
     assert authors == ["third_party", "system"]
+    # The verdict's TEXT embeds third-party content (subject/summary) — the
+    # mixed-provenance declaration caps its trust (laundering fix, >=0.1.7).
+    assert spec.observations[1].derived_from == "third_party"
     assert all(o.ref_from == "trigger.message_id" for o in spec.observations)
+
+
+def test_observe_derived_from_caps_disclosure(tmp_path: Path) -> None:
+    """A system-authored observation with derived_from=third_party must not
+    produce assertable (mentionable) edges — the laundering fix in veracium
+    >=0.1.7, exercised through our full write path."""
+    bedrock = FakeBedrock([_distill_response(facts=1)])
+    service = _service(tmp_path, bedrock)
+    result = asyncio.run(
+        service.observe(
+            "alice@example.com",
+            "Triage classified mail from x@y.z (subject: URGENT invoice) as spam",
+            author="system",
+            derived_from="third_party",
+            event_type="triage",
+        )
+    )
+    service.close()
+    assert result.derived_from == "third_party"
+
+    conn = sqlite3.connect(tmp_path / "learned.db")
+    rows = [json.loads(r[0]) for r in conn.execute("SELECT json FROM edges")]
+    conn.close()
+    assert rows, "expected at least one edge"
+    for edge in rows:
+        disclosure = edge["provenance"]["disclosure"]
+        assert disclosure != "mentionable", edge

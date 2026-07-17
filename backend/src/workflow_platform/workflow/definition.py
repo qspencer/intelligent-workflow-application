@@ -109,6 +109,11 @@ class ObservationSpec(BaseModel):
 
     text: str
     author: Literal["user", "third_party", "system"] = "third_party"
+    # Mixed provenance (veracium >=0.1.7): when a system/user-authored
+    # observation's TEXT embeds lower-trust content (a verdict quoting an
+    # email subject), declare the content's source here — trust caps at the
+    # minimum of author and derived_from, closing the laundering channel.
+    derived_from: Literal["user", "third_party", "system"] | None = None
     event_type: str = "chat"
     # Context paths (same dotted form as placeholders, no braces):
     date_from: str | None = None  # ISO date/datetime the event occurred
