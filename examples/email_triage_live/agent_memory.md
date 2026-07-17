@@ -125,7 +125,17 @@ and carried no information.
   not about whether mail is commercial — a real vendor's marketing is
   `promotion` even when unwanted.
 
-Tiebreakers:
+Precedence — when two categories both apply, the mail's DEMAND beats
+its SOURCE:
+
+    urgent  >  awaiting-reply  >  personal | notification | newsletter | promotion | spam
+
+An urgent email from a family member is `urgent`, not `personal`. A
+personal email explicitly waiting on a reply is `awaiting-reply`. The
+source-side fact isn't lost — capture it in the `summary` (e.g.
+"family member warns of identity spoofing — urgent, personal sender").
+
+Tiebreakers (within the source categories):
 - promotion vs newsletter: is there an offer/price/discount? →
   promotion. Pure content → newsletter.
 - notification vs promotion: about the user's OWN account/order/event →
