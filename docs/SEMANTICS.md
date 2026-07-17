@@ -198,8 +198,12 @@ injection + normalized entity keys, per the veracium dev session's
 security requirements). **Still explicitly out (each needs its own
 pull):** sent-mail observation (would make awaiting-reply decidable), the
 Postgres-backed store (decided contribute-later, triggers recorded in
-NEXT_STEPS), outcome-event emission (waiting on veracium 0.3.x merging
-the validated PR #9), and the MCP surface. Note the standing caveat from
+NEXT_STEPS), and the MCP surface. **Outcome-event
+emission went live 2026-07-19** on the `veracium==0.3.0b1` beta channel:
+act-time `unreviewed` uses per recalled edge, fork-as-correction in the
+engine, and the review-label + judge offline emitters
+(`tools/seed_outcomes.py`) — the 154-label corpus seeded as the first
+outcome events (153 confirmed / 1 corrected). Note the standing caveat from
 the knowledge-graph section: adopting an embedded typed graph *partially*
 reopens that deferral — if cross-workflow traversal queries materialize,
 re-read it.
