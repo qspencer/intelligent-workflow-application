@@ -597,3 +597,137 @@ def test_dry_run_snapshot_reads_real_store_without_writing_it(
     episodes_after = conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
     conn.close()
     assert episodes_after == episodes_before
+
+
+# --- V4 outcome integration (veracium >=0.3.0b1) ---
+
+
+def test_recall_records_act_time_uses(tmp_path: Path) -> None:
+    """Every recalled-and-injected edge gets an `unreviewed` outcome event
+    keyed by evidence_ref = instance id (act-time semantics)."""
+    repos = in_memory_repositories()
+    service, bedrock = _seeded_service(tmp_path, [text_response('{"category":"fyi"}')])
+    engine = _engine(repos, bedrock, service)
+
+    from workflow_platform.workflow import load_definition
+
+    definition = load_definition(_agentic_definition(_recall_spec()))
+    instance = asyncio.run(
+        engine.run(definition, trigger_payload={"from_address": {"address": "promo@vendor.com"}})
+    )
+    assert instance.state == WorkflowInstanceState.COMPLETED
+
+    memory = service._get_memory()
+    outcome_eps = [
+        ep
+        for ep in memory.store.episodes("alice@example.com")
+        if getattr(ep, "kind", "") == "outcome"
+    ]
+    service.close()
+    assert outcome_eps, "expected act-time outcome episodes"
+    assert all(ep.provenance.evidence_ref == instance.id for ep in outcome_eps)
+    assert all(ep.outcome.value == "unreviewed" for ep in outcome_eps)
+
+    entries = asyncio.run(repos.audit.list_by_instance(instance.id))
+    recalled = next(e for e in entries if e.action == "memory_recalled")
+    assert recalled.detail["uses_recorded"]["recorded"] >= 1
+
+
+def test_record_outcomes_batch_idempotent(tmp_path: Path) -> None:
+    service, _ = _seeded_service(tmp_path, [])
+    recalled = asyncio.run(service.recall_context("alice@example.com", "promo@vendor.com"))
+    assert recalled.edge_ids
+
+    first = asyncio.run(
+        service.record_outcomes(
+            "alice@example.com",
+            recalled.edge_ids,
+            outcome="unreviewed",
+            evidence_ref="run-1",
+            actor="system",
+        )
+    )
+    assert first["recorded"] == len(recalled.edge_ids) and first["failed"] == 0
+    # Human label upgrades the same uses; times_used must not inflate.
+    second = asyncio.run(
+        service.record_outcomes(
+            "alice@example.com",
+            recalled.edge_ids,
+            outcome="corrected",
+            evidence_ref="run-1",
+            actor="user",
+            corrected_value="promotion",
+        )
+    )
+    assert second["upgraded"] == len(recalled.edge_ids) and second["recorded"] == 0
+    memory = service._get_memory()
+    edges = {e.id: e for e in memory.store.edges("alice@example.com", active_only=False)}
+    service.close()
+    for eid in recalled.edge_ids:
+        edge = edges[eid]
+        assert edge.times_used == 1
+        assert edge.outcome_counts.get("corrected") == 1
+        assert edge.active  # edge-blind: use-level correction never supersedes
+
+
+def test_fork_records_correction_when_verdict_changes(tmp_path: Path) -> None:
+    """A fork whose verdict differs from the source upgrades the source run's
+    uses to corrected (actor=user, corrected_value = the fork's verdict)."""
+    repos = in_memory_repositories()
+    # Queue: source agent call, fork agent call. (Spec has no observations,
+    # so no distill calls beyond the seeding one inside _seeded_service.)
+    service, bedrock = _seeded_service(
+        tmp_path,
+        [
+            text_response('{"category": "spam", "confidence": 0.9, "summary": "s"}'),
+            text_response('{"category": "promotion", "confidence": 0.9, "summary": "s"}'),
+        ],
+    )
+    engine = _engine(repos, bedrock, service)
+
+    from workflow_platform.workflow import load_definition
+
+    spec = _recall_spec()
+    definition: dict[str, Any] = {
+        "id": "fork-outcome-wf",
+        "name": "fork-outcome-wf",
+        "trigger": {"type": "manual"},
+        "steps": [
+            {"id": "triage", "type": "agentic", "goal": "classify", "model": MODEL},
+            {
+                "id": "record",
+                "type": "deterministic",
+                "function": "record_email_triage",
+                "config": {"triage_from": "steps.triage.output_text"},
+            },
+        ],
+        "edges": [{"from": "triage", "to": "record"}],
+        "learned_memory": spec,
+    }
+    loaded = load_definition(definition)
+    source = asyncio.run(
+        engine.run(loaded, trigger_payload={"from_address": {"address": "promo@vendor.com"}})
+    )
+    assert source.state == WorkflowInstanceState.COMPLETED
+
+    fork = asyncio.run(engine.fork(loaded, source.id, "triage"))
+    assert fork.state == WorkflowInstanceState.COMPLETED
+
+    entries = asyncio.run(repos.audit.list_by_instance(fork.id))
+    recorded = [e for e in entries if e.action == "memory_outcome_recorded"]
+    assert len(recorded) == 1
+    detail = recorded[0].detail
+    assert detail["emitter"] == "fork"
+    assert detail["evidence_ref"] == source.id
+    assert detail["old_category"] == "spam" and detail["corrected_value"] == "promotion"
+
+    memory = service._get_memory()
+    corrected = [
+        ep
+        for ep in memory.store.episodes("alice@example.com")
+        if getattr(ep, "kind", "") == "outcome"
+        and ep.provenance.evidence_ref == source.id
+        and ep.outcome.value == "corrected"
+    ]
+    service.close()
+    assert corrected, "source run's uses should be upgraded to corrected"

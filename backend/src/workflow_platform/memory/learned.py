@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import asyncio
 import hashlib
+import logging
 import os
 from pathlib import Path
 from typing import Any
@@ -31,6 +32,8 @@ from pydantic import BaseModel
 
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.cost.pricing import cost_for_usage
+
+logger = logging.getLogger(__name__)
 
 DEFAULT_LEARNED_MEMORY_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
@@ -60,6 +63,10 @@ class RecalledMemory(BaseModel):
     edges: int
     episodes: int
     token_budget: int
+    # Ids of the recalled edges — the facts this run consulted. Act-time
+    # outcome recording (veracium >=0.3.0b1) marks each as an `unreviewed`
+    # use; later judgments upgrade those uses by evidence_ref.
+    edge_ids: list[str] = []
 
 
 class LearnedObservation(BaseModel):
@@ -238,7 +245,53 @@ class LearnedMemoryService:
             edges=len(recall.edges),
             episodes=len(recall.episodes),
             token_budget=token_budget,
+            edge_ids=[e.id for e in recall.edges],
         )
+
+    async def record_outcomes(
+        self,
+        user_id: str,
+        edge_ids: list[str],
+        *,
+        outcome: str,
+        evidence_ref: str,
+        actor: str = "system",
+        corrected_value: str | None = None,
+        context_ref: str | None = None,
+        date: str | None = None,
+    ) -> dict[str, int]:
+        """Record one use-or-judgment outcome against each edge (veracium V4).
+
+        Pure store writes — zero LLM calls. Upgrade-by-(edge_id, evidence_ref)
+        makes this idempotent: replaying the same evidence_ref upgrades in
+        place instead of inflating `times_used`, which matches the engine's
+        restart/replay semantics. Batched in a single worker-thread hop.
+        Returns {"recorded": n, "upgraded": n, "failed": n}."""
+        async with self._lock:
+            memory = self._get_memory()
+
+            def _record_all() -> dict[str, int]:
+                stats = {"recorded": 0, "upgraded": 0, "failed": 0}
+                for edge_id in edge_ids:
+                    try:
+                        result = memory.record_outcome(
+                            user_id,
+                            edge_id,
+                            outcome=outcome,
+                            evidence_ref=evidence_ref,
+                            actor=actor,
+                            corrected_value=corrected_value,
+                            context_ref=context_ref,
+                            date=date,
+                        )
+                    except Exception:
+                        logger.exception("record_outcome failed for edge %s", edge_id)
+                        stats["failed"] += 1
+                        continue
+                    stats["upgraded" if result.get("upgraded") else "recorded"] += 1
+                return stats
+
+            return await asyncio.to_thread(_record_all)
 
     def close(self) -> None:
         if self._memory is not None:

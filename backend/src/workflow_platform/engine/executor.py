@@ -311,7 +311,71 @@ class WorkflowEngine:
 
         result = await self._drive(definition, new_instance, context, already_done=preserved)
         self._record_workflow_finished(definition.id, result, started)
+        await self._record_fork_correction(definition, source_instance_id, result, context)
         return result
+
+    async def _record_fork_correction(
+        self,
+        definition: WorkflowDefinition,
+        source_instance_id: str,
+        result: WorkflowInstance,
+        context: WorkflowContext,
+    ) -> None:
+        """Fork-as-correction emitter (veracium V4): a human re-running a step
+        is an implicit judgment on the source run. When the fork's verdict
+        differs from the source's, the memory uses recorded under the SOURCE
+        instance are upgraded to `corrected` (actor=user — the fork is
+        human-initiated) with the fork's verdict as the true value. Same
+        verdict → no event (a fork that agrees is not a confirmation; the
+        human judged the process, not the fact). Best-effort throughout."""
+        spec = definition.learned_memory
+        if (
+            spec is None
+            or spec.recall is None
+            or self.learned_memory is None
+            or result.state != WorkflowInstanceState.COMPLETED
+        ):
+            return
+        try:
+            new_cat = (context.steps.get("record") or {}).get("category")
+            source_steps = await self.repositories.steps.list_by_instance(source_instance_id)
+            source_record = next((s for s in source_steps if s.step_id == "record"), None)
+            old_cat = (source_record.output or {}).get("category") if source_record else None
+            if not new_cat or not old_cat or new_cat == old_cat:
+                return
+            raw = _resolve_context_value(context, spec.recall.query_from)
+            if raw is None or not str(raw).strip():
+                return
+            entity = normalize_entity(str(raw))
+            recalled = await self.learned_memory.recall_context(
+                spec.user_id, entity, token_budget=spec.recall.token_budget
+            )
+            if not recalled.edge_ids:
+                return
+            stats = await self.learned_memory.record_outcomes(
+                spec.user_id,
+                recalled.edge_ids,
+                outcome="corrected",
+                evidence_ref=source_instance_id,
+                actor="user",
+                corrected_value=str(new_cat),
+            )
+            await self._audit(
+                "memory_outcome_recorded",
+                actor_type="engine",
+                actor_id="learned_memory",
+                instance_id=result.id,
+                detail={
+                    "emitter": "fork",
+                    "outcome": "corrected",
+                    "evidence_ref": source_instance_id,
+                    "old_category": old_cat,
+                    "corrected_value": new_cat,
+                    **stats,
+                },
+            )
+        except Exception:
+            logger.exception("fork-correction outcome emitter failed")
 
     def _record_workflow_finished(
         self,
@@ -902,7 +966,9 @@ class WorkflowEngine:
         if memory_text:
             memory_hash = "sha256:" + hashlib.sha256(memory_text.encode()).hexdigest()[:16]
 
-        recalled = await self._recall_learned_memory(context, instance_id, step.id)
+        recalled = await self._recall_learned_memory(
+            context, instance_id, step.id, context_ref=memory_hash
+        )
 
         system_prompt = step.system_prompt or step.goal
         if memory_text:
@@ -988,6 +1054,8 @@ class WorkflowEngine:
         context: WorkflowContext,
         instance_id: str,
         step_id: str,
+        *,
+        context_ref: str | None = None,
     ) -> RecalledMemory | None:
         """G10 read side: per-entity history for this run's correspondent.
 
@@ -995,7 +1063,15 @@ class WorkflowEngine:
         before querying (G10 security requirement #2 — sender-derived keys
         are attacker-chosen strings). Zero LLM calls (subgraph render). A
         recall failure audits and degrades to no-memory — it never fails the
-        step."""
+        step.
+
+        When facts are recalled, each consulted edge gets an `unreviewed`
+        outcome event (veracium V4 act-time semantics: `times_used` counts
+        recall-and-USE, and this run acts on what it recalled). Keyed by
+        evidence_ref = instance id so later judgments — review labels, judge
+        verdicts, fork corrections — upgrade these exact uses in place.
+        `context_ref` carries the rubric's memory_hash for per-rubric
+        aggregation."""
         spec = context.learned_memory_spec
         if spec is None or spec.recall is None or self.learned_memory is None:
             return None
@@ -1018,6 +1094,19 @@ class WorkflowEngine:
                 detail={"entity": entity, "error": str(exc)},
             )
             return None
+        uses: dict[str, int] | None = None
+        if recalled.edge_ids:
+            try:
+                uses = await self.learned_memory.record_outcomes(
+                    spec.user_id,
+                    recalled.edge_ids,
+                    outcome="unreviewed",
+                    evidence_ref=instance_id,
+                    actor="system",
+                    context_ref=context_ref,
+                )
+            except Exception:
+                logger.exception("act-time outcome recording failed")
         await self._audit(
             "memory_recalled",
             actor_type="engine",
@@ -1032,6 +1121,7 @@ class WorkflowEngine:
                 "episodes": recalled.episodes,
                 "token_budget": recalled.token_budget,
                 "injected": bool(recalled.edges or recalled.episodes),
+                "uses_recorded": uses,
             },
         )
         return recalled
