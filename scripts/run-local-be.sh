@@ -141,6 +141,22 @@ step "Pre-flight checks"
 command -v uv >/dev/null 2>&1 || die "'uv' not found on PATH."
 ok "uv: $(uv --version 2>/dev/null | head -1)"
 
+# Port free? The most common collision: the workflow-be systemd service is
+# already serving this port — this script and the service are two ways of
+# running the same backend. (Inside the service this check is harmless:
+# systemd stops the old instance before ExecStart, so the port is free.)
+if ss -tln 2>/dev/null | grep -q ":$PORT "; then
+  if systemctl --user is-active --quiet workflow-be 2>/dev/null; then
+    warn "port $PORT is in use and the workflow-be systemd service is active."
+    warn "The backend is already running — use it directly, or for a foreground run:"
+    warn "  systemctl --user stop workflow-be    # then re-run this script"
+    warn "(scripts/run-local-be.sh --cheatsheet lists the service commands)"
+    die "not starting a second backend on port $PORT."
+  fi
+  die "port $PORT is already in use by another process (see: ss -tlnp | grep :$PORT). Free it or set PORT=<other>."
+fi
+ok "port $PORT is free"
+
 # Gmail credentials on disk. Every complete credential dir is usable by
 # gmail_poll triggers (the orchestrator seeds each trigger's account from
 # .secrets); the send/label TOOLS bind to the single $GMAIL_ACCOUNT.
