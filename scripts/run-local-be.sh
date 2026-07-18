@@ -21,6 +21,12 @@
 #   scripts/run-local-be.sh --no-triggers  # don't auto-start triggers (no schedule/gmail
 #                                        #   Bedrock spend; fire workflows manually instead)
 #   scripts/run-local-be.sh --replay       # BEDROCK_MODE=replay (no AWS/Bedrock calls)
+#   scripts/run-local-be.sh --local-auth    # AUTH_MODE=local: first-party email+password
+#                                        #   login (docs/AUTH_PLAN.md) instead of dev
+#                                        #   headers. Wants Postgres (users live in the
+#                                        #   DB); create users with tools/create_user.py.
+#                                        #   See run-local-be-auth.sh for the one-command
+#                                        #   stop-service-and-run wrapper.
 #   scripts/run-local-be.sh --as-service   # (re)install + restart systemd --user unit
 #                                        #   `workflow-be` and tail its logs; survives
 #                                        #   RDP disconnects. One-time prereq (sudo):
@@ -51,13 +57,14 @@ die()  { printf '    %s✗%s %s\n' "$C_WARN" "$C_OFF" "$*" >&2; exit 1; }
 USE_POSTGRES=1
 START_TRIGGERS=1
 AS_SERVICE=0
+AUTH_MODE_CHOICE=dev
 PASSTHROUGH_ARGS=()
 PORT="${PORT:-8001}"
 BEDROCK_MODE="${BEDROCK_MODE:-live}"
 GMAIL_ACCOUNT="${GMAIL_ACCOUNT:-intelligent.workflow.engine@quentinspencer.com}"
 DEFAULT_DB_URL="postgresql+asyncpg://workflow:workflow@localhost:5432/workflow"
 
-usage() { sed -n '2,33p' "$0" | sed 's/^# \{0,1\}//'; }
+usage() { sed -n '2,39p' "$0" | sed 's/^# \{0,1\}//'; }
 
 cheatsheet() {
   cat <<'SHEET'
@@ -82,6 +89,7 @@ for arg in "$@"; do
     --in-memory)   USE_POSTGRES=0;   PASSTHROUGH_ARGS+=("$arg") ;;
     --no-triggers) START_TRIGGERS=0; PASSTHROUGH_ARGS+=("$arg") ;;
     --replay)      BEDROCK_MODE=replay; PASSTHROUGH_ARGS+=("$arg") ;;
+    --local-auth)  AUTH_MODE_CHOICE=local; PASSTHROUGH_ARGS+=("$arg") ;;
     --cheatsheet)  cheatsheet; exit 0 ;;
     -h|--help)     usage; exit 0 ;;
     *) echo "unknown argument: $arg (try --help)" >&2; exit 2 ;;
@@ -224,7 +232,11 @@ fi
 
 # --- runtime env --------------------------------------------------------------
 step "Configure runtime environment"
-export AUTH_MODE=dev
+export AUTH_MODE="$AUTH_MODE_CHOICE"
+if [ "$AUTH_MODE" = "local" ] && [ "$USE_POSTGRES" = 0 ]; then
+  warn "local auth with --in-memory: the user store starts empty and"
+  warn "tools/create_user.py needs Postgres — login will be impossible."
+fi
 export BEDROCK_MODE
 export WORKFLOW_DEFINITIONS_DIR="$REPO_ROOT/examples"
 export LOG_FORMAT="${LOG_FORMAT:-text}"
@@ -246,7 +258,12 @@ else
   echo "   gmail        : not configured — email-triage trigger self-disables"
 fi
 echo "   definitions  : $WORKFLOW_DEFINITIONS_DIR"
-echo "   auth         : dev  (send X-Dev-User / X-Dev-Groups; default acts as admin)"
+if [ "$AUTH_MODE" = "local" ]; then
+  echo "   auth         : local (email+password login; manage users via"
+  echo "                  backend/tools/create_user.py or the Users admin page)"
+else
+  echo "   auth         : dev  (send X-Dev-User / X-Dev-Groups; default acts as admin)"
+fi
 echo "   backend on   : http://localhost:$PORT"
 echo "   frontend     : not started — for the canvas GUI (C5-C7) run in another"
 echo "                  terminal:  cd frontend && npm run dev   (→ http://localhost:4200)"
