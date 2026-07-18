@@ -19,10 +19,12 @@ from fastapi import FastAPI
 from fastapi.responses import Response
 
 from workflow_platform import __version__
+from workflow_platform.api.auth import build_auth_router
 from workflow_platform.api.dev import build_dev_router
+from workflow_platform.api.users import build_users_router
 from workflow_platform.api.workflows import build_router
 from workflow_platform.api.ws import build_ws_router
-from workflow_platform.auth import AuthMiddleware, auth_mode
+from workflow_platform.auth import AuthMiddleware, LocalAuthService, auth_mode
 from workflow_platform.auth.provisioning import UserProvisioner
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.connectors.email import maybe_build_gmail_connector
@@ -195,7 +197,14 @@ def create_app(
         version=__version__,
         lifespan=lifespan,
     )
-    app.add_middleware(AuthMiddleware, provisioner=UserProvisioner(repositories.users))
+    local_auth = LocalAuthService(
+        repositories.users, repositories.auth_sessions, repositories.audit
+    )
+    app.add_middleware(
+        AuthMiddleware,
+        provisioner=UserProvisioner(repositories.users),
+        local_auth=local_auth,
+    )
 
     @app.get("/api/health")
     async def health() -> dict[str, str]:
@@ -214,7 +223,10 @@ def create_app(
             secret_store=secret_store,
         )
     )
-    app.include_router(build_ws_router(events))
+    app.include_router(build_ws_router(events, local_auth=local_auth))
+    app.include_router(build_users_router(repositories))
+    if auth_mode() == "local":
+        app.include_router(build_auth_router(local_auth))
 
     # Dev-only: capture ERROR logs into a ring buffer the dashboard header polls.
     # Attach the handler once per process (create_app may run many times in

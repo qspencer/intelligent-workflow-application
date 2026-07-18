@@ -1,7 +1,11 @@
 # Basic Authentication & Role System — Design
 
-Status: **proposed** (design-reviewed 2026-07-18: adopt-with-conditions;
-all review findings folded in below; not yet built).
+Status: **built** (design-reviewed 2026-07-18: adopt-with-conditions, all
+findings folded in; B1–B3 landed the same day — Alembic `0004`, `auth/local.py`
++ `auth/passwords.py`, `api/auth.py` + `api/users.py`, `tools/create_user.py`,
+login page + users admin in the frontend. All §9 criteria test-pinned in
+`backend/tests/test_auth_local.py` + `test_users_api.py`; live-verified
+end-to-end with curl against a local-mode backend.)
 Companion to `docs/ARCHITECTURE.md` D4 — this document proposes a scoped
 amendment to D4, stated explicitly in §3.
 

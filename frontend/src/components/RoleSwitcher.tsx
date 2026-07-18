@@ -1,6 +1,7 @@
-import type { ChangeEvent } from 'react';
+import { useEffect, useState, type ChangeEvent } from 'react';
 
 import { KNOWN_GROUPS } from '../lib/auth';
+import { getMe } from '../lib/me';
 
 /**
  * Dev-mode role switcher. Writes `wp.user` + `wp.groups` to localStorage so
@@ -9,6 +10,22 @@ import { KNOWN_GROUPS } from '../lib/auth';
  */
 export function RoleSwitcher() {
   const value = displayGroups();
+  // Picking your own role only exists in dev mode; in local/oidc mode the
+  // backend owns roles (docs/AUTH_PLAN.md §6). Shown until the mode is
+  // known to be non-dev, so the dev loop works even with the backend down.
+  const [hidden, setHidden] = useState(false);
+
+  useEffect(() => {
+    let ignore = false;
+    void getMe().then((me) => {
+      if (!ignore && me && me.auth_mode !== 'dev') setHidden(true);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, []);
+
+  if (hidden) return null;
 
   function onChange(event: ChangeEvent<HTMLSelectElement>): void {
     const groups = event.target.value;

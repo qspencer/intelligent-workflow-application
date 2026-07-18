@@ -14,6 +14,7 @@ from datetime import datetime
 
 from workflow_platform.persistence.models import (
     AuditEntry,
+    AuthSession,
     Organization,
     StepExecution,
     TriggerCursorState,
@@ -140,6 +141,48 @@ class UserRepo(ABC):
         (with its stable id)."""
         ...
 
+    @abstractmethod
+    async def get_by_login_email(self, email: str) -> User | None:
+        """The unique local-credentialed user for a canonical (lowercased)
+        email — only rows with a password_hash qualify. SSO-provisioned rows
+        may share an email; they are not login targets."""
+        ...
+
+    @abstractmethod
+    async def list_all(self) -> list[User]: ...
+
+    @abstractmethod
+    async def save(self, user: User) -> User:
+        """Insert or fully update by id (management writes: roles, password,
+        is_active, contact fields). Distinct from `upsert_seen`, which only
+        refreshes contact/last-seen on the `(iss, sub)` key."""
+        ...
+
+
+class AuthSessionRepo(ABC):
+    """Server-side login sessions (`AUTH_MODE=local`, docs/AUTH_PLAN.md).
+    Rows are looked up by token *hash*; deletion is revocation."""
+
+    @abstractmethod
+    async def create(self, session: AuthSession) -> AuthSession: ...
+
+    @abstractmethod
+    async def get_by_token_hash(self, token_hash: str) -> AuthSession | None: ...
+
+    @abstractmethod
+    async def update(self, session: AuthSession) -> AuthSession:
+        """Persist mutated fields (TTL-throttled last_seen_at)."""
+        ...
+
+    @abstractmethod
+    async def delete_by_token_hash(self, token_hash: str) -> bool: ...
+
+    @abstractmethod
+    async def delete_by_user(self, user_id: str) -> int:
+        """Revoke every session for a user (deactivation, role change).
+        Returns the number deleted."""
+        ...
+
 
 class TriggerCursorRepo(ABC):
     """Poll-position persistence for polling triggers (G9). Keyed by a
@@ -175,3 +218,4 @@ class Repositories:
     trigger_cursors: TriggerCursorRepo
     organizations: OrganizationRepo
     users: UserRepo
+    auth_sessions: AuthSessionRepo

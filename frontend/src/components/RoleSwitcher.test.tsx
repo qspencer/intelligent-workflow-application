@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { api } from '../api/client';
+import { resetMe } from '../lib/me';
 import { RoleSwitcher } from './RoleSwitcher';
 
 describe('RoleSwitcher', () => {
@@ -13,7 +15,11 @@ describe('RoleSwitcher', () => {
     });
   });
 
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+    resetMe();
+  });
 
   function selectEl(): HTMLSelectElement {
     return screen.getByRole('combobox') as HTMLSelectElement;
@@ -50,5 +56,16 @@ describe('RoleSwitcher', () => {
     fireEvent.change(selectEl(), { target: { value: 'auditors' } });
     expect(localStorage.getItem('wp.user')).toBe('alice');
     expect(localStorage.getItem('wp.groups')).toBe('auditors');
+  });
+
+  it('hides itself when the backend reports a non-dev auth mode', async () => {
+    vi.spyOn(api, 'me').mockResolvedValue({
+      auth_mode: 'local',
+      identity: { sub: 'u1', email: null, roles: ['Admin'] },
+      user: null,
+      organization: null,
+    });
+    const { container } = render(<RoleSwitcher />);
+    await vi.waitFor(() => expect(container).toBeEmptyDOMElement());
   });
 });

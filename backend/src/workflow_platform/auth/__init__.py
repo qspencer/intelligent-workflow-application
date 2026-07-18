@@ -1,4 +1,5 @@
 from workflow_platform.auth.identity import UserIdentity
+from workflow_platform.auth.local import LocalAuthService, LoginRateLimiter
 from workflow_platform.auth.middleware import AuthMiddleware, auth_mode
 from workflow_platform.auth.oidc import OidcConfig, OidcValidator
 from workflow_platform.auth.rbac import (
@@ -11,6 +12,8 @@ from workflow_platform.auth.rbac import (
 
 __all__ = [
     "AuthMiddleware",
+    "LocalAuthService",
+    "LoginRateLimiter",
     "OidcConfig",
     "OidcValidator",
     "Role",

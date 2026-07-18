@@ -29,6 +29,7 @@ dependencies = [
     "beautifulsoup4>=4.12",
     "json-repair>=0.59.10",
     "veracium==0.3.0b1",
+    "argon2-cffi>=25.1.0",
 ]
 
 [dependency-groups]

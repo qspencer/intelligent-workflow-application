@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 
 import { api } from '../api/client';
+import { getMe } from '../lib/me';
 import type { Me } from '../types';
 
 /** Header chip showing who the platform thinks you are: the JIT-persisted
@@ -11,14 +12,9 @@ export function UserChip() {
 
   useEffect(() => {
     let ignore = false;
-    api
-      .me()
-      .then((data) => {
-        if (!ignore) setMe(data);
-      })
-      .catch(() => {
-        /* unauthenticated or API down — the chip just stays hidden */
-      });
+    void getMe().then((data) => {
+      if (!ignore && data) setMe(data);
+    });
     return () => {
       ignore = true;
     };
@@ -28,10 +24,20 @@ export function UserChip() {
   const name = me.user?.display_name || me.user?.email || me.identity.sub;
   const org = me.organization?.name;
   const roles = me.identity.roles.join(', ');
+  async function signOut(): Promise<void> {
+    await api.logout().catch(() => undefined);
+    window.location.reload();
+  }
+
   return (
     <span className="user-chip" title={`Roles: ${roles || 'none'}`}>
       <span className="user-chip-name">{name}</span>
       {org && <span className="user-chip-org">@ {org}</span>}
+      {me.auth_mode === 'local' && (
+        <button className="sign-out" onClick={() => void signOut()}>
+          Sign out
+        </button>
+      )}
     </span>
   );
 }

@@ -6,7 +6,11 @@ is mirrored as a JSON event the dashboard renders in real time.
 Auth: WebSocket connections cannot use the user-auth middleware. In dev mode,
 the client sends `?user=...&groups=...` as query params; in oidc mode, a
 `?token=...` query param carries the Bearer JWT, which is validated using the
-same `OidcValidator` HTTP requests use.
+same `OidcValidator` HTTP requests use. In local mode the browser sends the
+session cookie on the upgrade request — no token-in-query-string (query
+strings leak into logs). The upgrade is a GET, so the middleware's non-GET
+CSRF rule never fires for it: the accept path enforces its own Origin check
+(cross-site WebSocket hijacking defense, docs/AUTH_PLAN.md §9.7).
 """
 
 from __future__ import annotations
@@ -18,6 +22,8 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
 from workflow_platform.auth import OidcValidator, UserIdentity, assign_roles, auth_mode
+from workflow_platform.auth.local import SESSION_COOKIE, LocalAuthService
+from workflow_platform.auth.middleware import origin_allowed
 from workflow_platform.events import EventBus
 
 
@@ -40,14 +46,28 @@ async def _oidc_user_from_query(ws: WebSocket, validator: OidcValidator) -> User
         return None
 
 
-def build_ws_router(events: EventBus, validator: OidcValidator | None = None) -> APIRouter:
+def build_ws_router(
+    events: EventBus,
+    validator: OidcValidator | None = None,
+    local_auth: LocalAuthService | None = None,
+) -> APIRouter:
     router = APIRouter()
     ws_validator = validator or OidcValidator()
 
     @router.websocket("/ws/events")
     async def events_socket(ws: WebSocket) -> None:
-        if auth_mode() == "dev":
+        mode = auth_mode()
+        if mode == "dev":
             user = _dev_user_from_query(ws)
+        elif mode == "local":
+            user = None
+            token = ws.cookies.get(SESSION_COOKIE)
+            if token and local_auth is not None:
+                user = await local_auth.authenticate(token)
+            if user is not None and not origin_allowed(
+                ws.headers.get("origin"), ws.headers.get("host")
+            ):
+                user = None
         else:
             user = await _oidc_user_from_query(ws, ws_validator)
         if user is None:

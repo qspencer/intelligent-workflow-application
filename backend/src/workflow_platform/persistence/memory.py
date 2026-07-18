@@ -13,6 +13,7 @@ from datetime import UTC, datetime
 from workflow_platform.persistence.models import (
     DEFAULT_ORG_ID,
     AuditEntry,
+    AuthSession,
     Organization,
     StepExecution,
     TriggerCursorState,
@@ -21,6 +22,7 @@ from workflow_platform.persistence.models import (
 )
 from workflow_platform.persistence.repository import (
     AuditRepo,
+    AuthSessionRepo,
     DefinitionRepo,
     InstanceRepo,
     OrganizationRepo,
@@ -231,6 +233,52 @@ class InMemoryUserRepo(UserRepo):
         self._items[existing.id] = existing.model_copy(deep=True)
         return existing
 
+    async def get_by_login_email(self, email: str) -> User | None:
+        canonical = email.strip().lower()
+        for user in self._items.values():
+            if user.password_hash and (user.email or "").lower() == canonical:
+                return user.model_copy(deep=True)
+        return None
+
+    async def list_all(self) -> list[User]:
+        return [u.model_copy(deep=True) for u in self._items.values()]
+
+    async def save(self, user: User) -> User:
+        self._items[user.id] = user.model_copy(deep=True)
+        return user
+
+
+class InMemoryAuthSessionRepo(AuthSessionRepo):
+    def __init__(self) -> None:
+        self._items: dict[str, AuthSession] = {}
+
+    async def create(self, session: AuthSession) -> AuthSession:
+        self._items[session.id] = session.model_copy(deep=True)
+        return session
+
+    async def get_by_token_hash(self, token_hash: str) -> AuthSession | None:
+        for session in self._items.values():
+            if session.token_hash == token_hash:
+                return session.model_copy(deep=True)
+        return None
+
+    async def update(self, session: AuthSession) -> AuthSession:
+        self._items[session.id] = session.model_copy(deep=True)
+        return session
+
+    async def delete_by_token_hash(self, token_hash: str) -> bool:
+        for sid, session in list(self._items.items()):
+            if session.token_hash == token_hash:
+                del self._items[sid]
+                return True
+        return False
+
+    async def delete_by_user(self, user_id: str) -> int:
+        doomed = [sid for sid, s in self._items.items() if s.user_id == user_id]
+        for sid in doomed:
+            del self._items[sid]
+        return len(doomed)
+
 
 def in_memory_repositories() -> Repositories:
     return Repositories(
@@ -241,4 +289,5 @@ def in_memory_repositories() -> Repositories:
         trigger_cursors=InMemoryTriggerCursorRepo(),
         organizations=InMemoryOrganizationRepo(),
         users=InMemoryUserRepo(),
+        auth_sessions=InMemoryAuthSessionRepo(),
     )

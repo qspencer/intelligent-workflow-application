@@ -1,7 +1,9 @@
 from workflow_platform.persistence.memory import in_memory_repositories
 from workflow_platform.persistence.models import (
     DEFAULT_ORG_ID,
+    LOCAL_ISSUER,
     AuditEntry,
+    AuthSession,
     Organization,
     StepExecution,
     StepExecutionState,
@@ -12,6 +14,7 @@ from workflow_platform.persistence.models import (
 )
 from workflow_platform.persistence.repository import (
     AuditRepo,
+    AuthSessionRepo,
     DefinitionRepo,
     InstanceRepo,
     OrganizationRepo,
@@ -23,8 +26,11 @@ from workflow_platform.persistence.repository import (
 
 __all__ = [
     "DEFAULT_ORG_ID",
+    "LOCAL_ISSUER",
     "AuditEntry",
     "AuditRepo",
+    "AuthSession",
+    "AuthSessionRepo",
     "DefinitionRepo",
     "InstanceRepo",
     "Organization",

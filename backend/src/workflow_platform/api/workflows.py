@@ -27,7 +27,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
 
-from workflow_platform.auth import Role, current_user, require_roles
+from workflow_platform.auth import Role, auth_mode, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.auth.provisioning import current_issuer
 from workflow_platform.catalog import build_catalog
@@ -195,9 +195,13 @@ def build_router(
         (ownership, per-user memory) should reference — never the raw sub."""
         persisted = await repositories.users.get_by_identity(current_issuer(), user.sub)
         org = await repositories.organizations.get(persisted.org_id) if persisted else None
+        persisted_out = (
+            persisted.model_dump(mode="json", exclude={"password_hash"}) if persisted else None
+        )
         return {
+            "auth_mode": auth_mode(),
             "identity": {"sub": user.sub, "email": user.email, "roles": user.roles},
-            "user": persisted.model_dump(mode="json") if persisted else None,
+            "user": persisted_out,
             "organization": org.model_dump(mode="json") if org else None,
         }
 

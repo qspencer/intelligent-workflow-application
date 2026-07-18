@@ -1,6 +1,7 @@
 import { authHeaders } from '../lib/auth';
 import type {
   Me,
+  PlatformUser,
   AuditEntry,
   BatchRunResult,
   CapabilityReport,
@@ -81,6 +82,11 @@ async function request<T>(
     headers: { ...authHeaders(), ...(opts.headers ?? {}) },
     body: opts.body,
   });
+  if (res.status === 401 && path !== '/auth/login') {
+    // Local-mode session expired/absent — App listens and shows the login
+    // page. Harmless in dev mode (dev headers rarely 401).
+    window.dispatchEvent(new CustomEvent('wp:unauthorized'));
+  }
   if (!res.ok) throw await toApiError(res);
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -157,6 +163,42 @@ export const api = {
 
   instanceAudit(id: string): Promise<AuditEntry[]> {
     return request('GET', `/workflow-instances/${id}/audit`);
+  },
+
+  login(email: string, password: string): Promise<{ ok: boolean }> {
+    return postJson('/auth/login', { email, password });
+  },
+
+  logout(): Promise<{ ok: boolean }> {
+    return postJson('/auth/logout', {});
+  },
+
+  listUsers(): Promise<PlatformUser[]> {
+    return request('GET', '/users');
+  },
+
+  createUser(payload: {
+    email: string;
+    password: string;
+    roles: string[];
+    display_name?: string;
+  }): Promise<PlatformUser> {
+    return postJson('/users', payload);
+  },
+
+  updateUser(
+    id: string,
+    payload: {
+      roles?: string[];
+      is_active?: boolean;
+      display_name?: string;
+      password?: string;
+    },
+  ): Promise<PlatformUser> {
+    return request('PATCH', `/users/${id}`, {
+      body: JSON.stringify(payload),
+      headers: { 'Content-Type': 'application/json' },
+    });
   },
 
   me(): Promise<Me> {

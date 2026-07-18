@@ -718,7 +718,8 @@ What happens at each limit is configurable per workflow and globally:
 ### D4: Enterprise security and permissions
 
 The platform must be deployable in IT-managed environments. This requires:
-- Integration with existing identity providers (not a custom user database)
+- Integration with existing identity providers (not a custom user database;
+  scoped exception for `AUTH_MODE=local` — see the 2026-07-18 amendment)
 - Granular permissions for both humans and agents
 - Audit trail for compliance
 - Network/data boundary controls
@@ -733,6 +734,20 @@ The platform must be deployable in IT-managed environments. This requires:
 > (query scoping, per-org RBAC, invitations) is deliberately absent until
 > multi-tenancy is pulled. The audit log's `actor_id` stays the raw sub
 > string by design — audit entries never dangle or mutate.
+>
+> **Amendment (2026-07-18, `docs/AUTH_PLAN.md`):** `AUTH_MODE=local` adds
+> first-party email + password authentication for self-hosted and
+> small-team deployments. This narrows, but does not reverse, the
+> delegation posture: **in `oidc` mode the IdP remains the sole authority**
+> for authentication and roles, and enterprise deployments should use it.
+> Local mode exists so the base tier is deployable without corporate
+> identity infrastructure. Credential storage is limited to an Argon2id
+> hash on the `users` row (nullable — SSO-provisioned users never gain
+> one); the `auth_sessions` store holds only hashed opaque tokens; local
+> users carry DB-assigned `roles`. Per-mode role authority is exclusive:
+> IdP groups in `oidc`, `users.roles` in `local`, headers in `dev` — never
+> merged. The earlier "nothing credential- or role-shaped is persisted"
+> statement is superseded for local-issuer rows only.
 
 ---
 
@@ -747,7 +762,10 @@ The platform must be deployable in IT-managed environments. This requires:
 | API keys | Service-to-service, CI/CD, webhook triggers |
 | mTLS | Agent-to-agent communication (internal) |
 
-The platform does NOT manage passwords. It delegates authentication entirely to the configured IdP.
+In `oidc` mode the platform does NOT manage passwords — authentication is
+delegated entirely to the configured IdP. `AUTH_MODE=local` (self-hosted /
+base tier, `docs/AUTH_PLAN.md`) is the scoped exception: Argon2id-hashed
+local credentials and server-side sessions, per the D4 amendment above.
 
 ### Human Permissions (RBAC)
 
@@ -759,7 +777,10 @@ The platform does NOT manage passwords. It delegates authentication entirely to 
 | **Viewer** | Read-only dashboard access, view workflow history and logs |
 | **Auditor** | Read-only access to full audit trail, agent reasoning logs, cost reports |
 
-Roles map to IdP groups. No local role assignment needed if groups are configured in the IdP.
+In `oidc` mode, roles map to IdP groups — no local role assignment needed
+when groups are configured in the IdP. In `AUTH_MODE=local`, roles are
+DB-assigned per user and Admin-managed via `/api/users` (exclusive per-mode
+authority; never merged).
 
 ### Agent Permissions (Capability-Based)
 

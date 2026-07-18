@@ -1830,3 +1830,52 @@ table.compare td.diff { background: #fff8e6; }
     flex-wrap: wrap;
   }
 }
+
+/* --- Local auth: login page + users admin --- */
+.login-page {
+  min-height: 60vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.login-card {
+  background: var(--panel);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 24px 28px;
+  width: 340px;
+  max-width: 90vw;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.login-card h2 {
+  margin: 0 0 8px;
+}
+.login-card input {
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+}
+.login-card button[type='submit'] {
+  margin-top: 12px;
+  padding: 8px;
+}
+.user-chip .sign-out {
+  margin-left: 8px;
+  font-size: 12px;
+  padding: 2px 8px;
+}
+.role-checklist {
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.role-checklist label {
+  font-size: 14px;
+}

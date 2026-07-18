@@ -324,8 +324,24 @@ export interface DevErrorsResponse {
 }
 
 
+/** A row from GET /api/users (password hash never leaves the backend). */
+export interface PlatformUser {
+  id: string;
+  iss: string;
+  sub: string;
+  email: string | null;
+  display_name: string | null;
+  org_id: string;
+  roles: string[];
+  is_active: boolean;
+  has_password: boolean;
+  created_at: string;
+  last_seen_at: string;
+}
+
 /** GET /api/me — IdP identity + JIT-persisted platform user + org. */
 export interface Me {
+  auth_mode: string;
   identity: { sub: string; email: string | null; roles: string[] };
   user: {
     id: string;

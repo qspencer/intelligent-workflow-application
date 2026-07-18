@@ -1,7 +1,9 @@
 """JIT user provisioning: persist IdP identities on first authenticated sight.
 
-Per ARCHITECTURE D4 the IdP owns authentication and roles — this module never
-stores credentials and never persists roles. It exists so features (resource
+Per ARCHITECTURE D4 the IdP owns authentication and roles in `oidc` mode —
+this module never stores credentials and never persists roles. (`AUTH_MODE=
+local` users are the carve-out: admin-created rows with local credentials
+and DB roles, docs/AUTH_PLAN.md — they never pass through this module.) It exists so features (resource
 ownership, per-user memory) have a **stable platform user id** to reference:
 on any authenticated request the identity is upserted into the `users` table,
 keyed by `(iss, sub)` (sub alone is not globally unique across issuers).
@@ -22,7 +24,12 @@ import os
 import time
 
 from workflow_platform.auth.identity import UserIdentity
-from workflow_platform.persistence.models import DEFAULT_ORG_ID, User, _utcnow
+from workflow_platform.persistence.models import (
+    DEFAULT_ORG_ID,
+    LOCAL_ISSUER,
+    User,
+    _utcnow,
+)
 from workflow_platform.persistence.repository import UserRepo
 
 logger = logging.getLogger(__name__)
@@ -32,11 +39,16 @@ _DEFAULT_TTL_SECONDS = 300.0
 
 def current_issuer() -> str:
     """The identity namespace for `(iss, sub)` keys. Single-IdP assumption:
-    dev mode uses the literal "dev"; OIDC mode uses the configured issuer."""
+    dev mode uses the literal "dev"; local mode the literal "local" (rows
+    are admin-created, never JIT-provisioned — see AuthMiddleware); OIDC
+    mode uses the configured issuer."""
     from workflow_platform.auth.middleware import auth_mode
 
-    if auth_mode() == "dev":
+    mode = auth_mode()
+    if mode == "dev":
         return "dev"
+    if mode == "local":
+        return LOCAL_ISSUER
     return os.environ.get("OIDC_ISSUER", "oidc")
 
 

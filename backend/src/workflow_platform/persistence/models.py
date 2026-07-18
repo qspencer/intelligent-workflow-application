@@ -112,12 +112,20 @@ class Organization(BaseModel):
     created_at: datetime = Field(default_factory=_utcnow)
 
 
+LOCAL_ISSUER = "local"
+
+
 class User(BaseModel):
-    """A persisted platform user, JIT-provisioned from the IdP identity on
-    first authenticated request. `(iss, sub)` is the stable join key — sub
-    alone is not globally unique across issuers. Authn and roles stay with
-    the IdP (ARCHITECTURE D4): this row exists so features (ownership,
-    per-user memory) have a stable id to reference, never for passwords.
+    """A persisted platform user. `(iss, sub)` is the stable join key — sub
+    alone is not globally unique across issuers. Two origins share the row
+    shape (docs/AUTH_PLAN.md):
+
+    - JIT-provisioned from the IdP identity on first authenticated request
+      (`oidc`/`dev` modes). Authn and roles stay with the IdP per
+      ARCHITECTURE D4; `password_hash` stays None and `roles` stays [].
+    - Admin-created local users (`AUTH_MODE=local`): `iss="local"`,
+      `sub=<row id>`, an Argon2id `password_hash`, and DB-assigned `roles`.
+
     The audit log's `actor_id` remains the raw sub string by design — audit
     entries must not dangle or mutate when users are reorganized."""
 
@@ -127,5 +135,21 @@ class User(BaseModel):
     email: str | None = None
     display_name: str | None = None
     org_id: str = DEFAULT_ORG_ID
+    password_hash: str | None = None
+    roles: list[str] = Field(default_factory=list)
+    is_active: bool = True
     created_at: datetime = Field(default_factory=_utcnow)
+    last_seen_at: datetime = Field(default_factory=_utcnow)
+
+
+class AuthSession(BaseModel):
+    """A server-side login session (`AUTH_MODE=local`). The opaque token
+    lives only in the user's cookie; this row stores its sha256 — a DB read
+    never yields a usable credential. Deleting the row is revocation."""
+
+    id: str = Field(default_factory=_new_id)
+    user_id: str
+    token_hash: str
+    created_at: datetime = Field(default_factory=_utcnow)
+    expires_at: datetime
     last_seen_at: datetime = Field(default_factory=_utcnow)

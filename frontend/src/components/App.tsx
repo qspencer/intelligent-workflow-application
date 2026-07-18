@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { NavLink, Route, Routes } from 'react-router-dom';
 
 import { advancedEnabled, setAdvanced } from '../lib/advanced';
@@ -7,10 +7,12 @@ import { CostDashboard } from './CostDashboard';
 import { ErrorBadge } from './ErrorBadge';
 import { InstanceDetail } from './InstanceDetail';
 import { InstancesList } from './InstancesList';
+import { LoginPage } from './LoginPage';
 import { RoleSwitcher } from './RoleSwitcher';
 import { UserChip } from './UserChip';
 import { CompareRuns } from './CompareRuns';
 import { TemplatesGallery } from './TemplatesGallery';
+import { UsersAdmin } from './UsersAdmin';
 import { WorkflowsList } from './WorkflowsList';
 import { WorkflowCanvas } from './canvas/WorkflowCanvas';
 
@@ -20,12 +22,23 @@ function navClass({ isActive }: { isActive: boolean }): string {
 
 export function App() {
   const [advanced, setAdvancedState] = useState(advancedEnabled());
+  const [needsLogin, setNeedsLogin] = useState(false);
+
+  // Local-mode session absent/expired: any API 401 flips the whole shell to
+  // the login page (the API client dispatches this; docs/AUTH_PLAN.md §6).
+  useEffect(() => {
+    const onUnauthorized = (): void => setNeedsLogin(true);
+    window.addEventListener('wp:unauthorized', onUnauthorized);
+    return () => window.removeEventListener('wp:unauthorized', onUnauthorized);
+  }, []);
 
   function toggleAdvanced(): void {
     const next = !advanced;
     setAdvanced(next);
     setAdvancedState(next);
   }
+
+  if (needsLogin) return <LoginPage />;
 
   return (
     <>
@@ -48,6 +61,9 @@ export function App() {
               </NavLink>
               <NavLink to="/cost" className={navClass}>
                 Cost
+              </NavLink>
+              <NavLink to="/users" className={navClass}>
+                Users
               </NavLink>
             </>
           )}
@@ -76,6 +92,7 @@ export function App() {
           <Route path="/instances/:id" element={<InstanceDetail />} />
           <Route path="/compare/:a/:b" element={<CompareRuns />} />
           <Route path="/cost" element={<CostDashboard />} />
+          <Route path="/users" element={<UsersAdmin />} />
         </Routes>
       </main>
     </>

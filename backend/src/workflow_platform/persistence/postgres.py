@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from workflow_platform.persistence.models import (
     DEFAULT_ORG_ID,
     AuditEntry,
+    AuthSession,
     Organization,
     StepExecution,
     TriggerCursorState,
@@ -21,6 +22,7 @@ from workflow_platform.persistence.models import (
 )
 from workflow_platform.persistence.repository import (
     AuditRepo,
+    AuthSessionRepo,
     DefinitionRepo,
     InstanceRepo,
     OrganizationRepo,
@@ -31,6 +33,7 @@ from workflow_platform.persistence.repository import (
 )
 from workflow_platform.persistence.sqlalchemy_models import (
     AuditLogRow,
+    AuthSessionRow,
     OrganizationRow,
     StepExecutionRow,
     TriggerCursorRow,
@@ -339,7 +342,21 @@ def _row_to_user(row: UserRow) -> User:
         email=row.email,
         display_name=row.display_name,
         org_id=row.org_id,
+        password_hash=row.password_hash,
+        roles=list(row.roles or []),
+        is_active=row.is_active,
         created_at=row.created_at,
+        last_seen_at=row.last_seen_at,
+    )
+
+
+def _row_to_auth_session(row: AuthSessionRow) -> AuthSession:
+    return AuthSession(
+        id=row.id,
+        user_id=row.user_id,
+        token_hash=row.token_hash,
+        created_at=row.created_at,
+        expires_at=row.expires_at,
         last_seen_at=row.last_seen_at,
     )
 
@@ -387,6 +404,92 @@ class PostgresUserRepo(UserRepo):
         assert stored is not None  # just upserted
         return stored
 
+    async def get_by_login_email(self, email: str) -> User | None:
+        canonical = email.strip().lower()
+        async with self._sf() as s:
+            result = await s.execute(
+                select(UserRow).where(
+                    func.lower(UserRow.email) == canonical,
+                    UserRow.password_hash.is_not(None),
+                )
+            )
+            row = result.scalar_one_or_none()
+            return _row_to_user(row) if row else None
+
+    async def list_all(self) -> list[User]:
+        async with self._sf() as s:
+            result = await s.execute(select(UserRow).order_by(UserRow.created_at))
+            return [_row_to_user(r) for r in result.scalars()]
+
+    async def save(self, user: User) -> User:
+        async with self._sf() as s, s.begin():
+            row = await s.get(UserRow, user.id)
+            if row is None:
+                row = UserRow(id=user.id)
+                s.add(row)
+            row.iss = user.iss
+            row.sub = user.sub
+            row.email = user.email
+            row.display_name = user.display_name
+            row.org_id = user.org_id
+            row.password_hash = user.password_hash
+            row.roles = list(user.roles)
+            row.is_active = user.is_active
+            row.created_at = user.created_at
+            row.last_seen_at = user.last_seen_at
+        return user
+
+
+class PostgresAuthSessionRepo(AuthSessionRepo):
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sf = session_factory
+
+    async def create(self, session: AuthSession) -> AuthSession:
+        async with self._sf() as s, s.begin():
+            s.add(
+                AuthSessionRow(
+                    id=session.id,
+                    user_id=session.user_id,
+                    token_hash=session.token_hash,
+                    created_at=session.created_at,
+                    expires_at=session.expires_at,
+                    last_seen_at=session.last_seen_at,
+                )
+            )
+        return session
+
+    async def get_by_token_hash(self, token_hash: str) -> AuthSession | None:
+        async with self._sf() as s:
+            result = await s.execute(
+                select(AuthSessionRow).where(AuthSessionRow.token_hash == token_hash)
+            )
+            row = result.scalar_one_or_none()
+            return _row_to_auth_session(row) if row else None
+
+    async def update(self, session: AuthSession) -> AuthSession:
+        async with self._sf() as s, s.begin():
+            row = await s.get(AuthSessionRow, session.id)
+            if row is not None:
+                row.expires_at = session.expires_at
+                row.last_seen_at = session.last_seen_at
+        return session
+
+    async def delete_by_token_hash(self, token_hash: str) -> bool:
+        async with self._sf() as s, s.begin():
+            result = await s.execute(
+                sql_delete(AuthSessionRow).where(AuthSessionRow.token_hash == token_hash)
+            )
+        rowcount: int = getattr(result, "rowcount", 0) or 0
+        return rowcount > 0
+
+    async def delete_by_user(self, user_id: str) -> int:
+        async with self._sf() as s, s.begin():
+            result = await s.execute(
+                sql_delete(AuthSessionRow).where(AuthSessionRow.user_id == user_id)
+            )
+        rowcount: int = getattr(result, "rowcount", 0) or 0
+        return rowcount
+
 
 def postgres_repositories(session_factory: async_sessionmaker[AsyncSession]) -> Repositories:
     return Repositories(
@@ -397,6 +500,7 @@ def postgres_repositories(session_factory: async_sessionmaker[AsyncSession]) -> 
         trigger_cursors=PostgresTriggerCursorRepo(session_factory),
         organizations=PostgresOrganizationRepo(session_factory),
         users=PostgresUserRepo(session_factory),
+        auth_sessions=PostgresAuthSessionRepo(session_factory),
     )
 
 

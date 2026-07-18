@@ -78,6 +78,40 @@ describe('api URL + method construction', () => {
     expect(init.method).toBe('POST');
   });
 
+  it('login/logout hit the auth endpoints', async () => {
+    await api.login('a@b.c', 'pw');
+    let [url, init] = lastCall();
+    expect(url).toBe('/api/auth/login');
+    expect(JSON.parse(String(init.body))).toEqual({ email: 'a@b.c', password: 'pw' });
+    await api.logout();
+    [url, init] = lastCall();
+    expect(url).toBe('/api/auth/logout');
+    expect(init.method).toBe('POST');
+  });
+
+  it('user management endpoints build the right requests', async () => {
+    await api.listUsers();
+    expect(lastCall()[0]).toBe('/api/users');
+    await api.updateUser('u1', { is_active: false });
+    const [url, init] = lastCall();
+    expect(url).toBe('/api/users/u1');
+    expect(init.method).toBe('PATCH');
+  });
+
+  it('a 401 dispatches wp:unauthorized (except for the login call itself)', async () => {
+    const events: string[] = [];
+    const listener = (): void => {
+      events.push('unauthorized');
+    };
+    window.addEventListener('wp:unauthorized', listener);
+    fetchMock.mockResolvedValue(errJson(401, { detail: 'Authentication required' }));
+    await expect(api.listWorkflows()).rejects.toBeInstanceOf(ApiError);
+    expect(events).toHaveLength(1);
+    await expect(api.login('a@b.c', 'bad')).rejects.toBeInstanceOf(ApiError);
+    expect(events).toHaveLength(1); // login 401 is an inline form error, not a redirect
+    window.removeEventListener('wp:unauthorized', listener);
+  });
+
   it('importWorkflow sends YAML with the right content-type', async () => {
     await api.importWorkflow('id: x\nname: X', 'yaml');
     const [url, init] = lastCall();
