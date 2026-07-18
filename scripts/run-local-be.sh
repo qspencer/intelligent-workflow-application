@@ -122,6 +122,7 @@ ExecStart=$EXEC_LINE
 Restart=on-failure
 RestartSec=5
 Environment=PATH=$HOME/.local/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+EnvironmentFile=-%h/.config/workflow-be.env
 StandardOutput=journal
 StandardError=journal
 
