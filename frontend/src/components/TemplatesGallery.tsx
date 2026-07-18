@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, errorMessage } from '../api/client';
 import { hasRole } from '../lib/auth';
 import type { WorkflowTemplate } from '../types';
+import { Skeleton } from './Skeleton';
 
 const TRIGGER_LABEL: Record<string, string> = {
   filesystem: 'On a new file',
@@ -69,7 +70,7 @@ export function TemplatesGallery() {
       <p className="muted">Start from a ready-made workflow and tailor it to your needs.</p>
 
       {loading ? (
-        <p>Loading…</p>
+        <Skeleton variant="cards" count={6} />
       ) : error ? (
         <p className="error">{error}</p>
       ) : templates.length === 0 ? (

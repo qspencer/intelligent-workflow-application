@@ -12,6 +12,7 @@ import {
   usageTooltip,
 } from '../lib/usage';
 import { useEvents } from '../hooks/useEvents';
+import { Skeleton } from './Skeleton';
 import type {
   AuditEntry,
   StepExecution,
@@ -145,7 +146,7 @@ export function InstanceDetail() {
       </p>
 
       {loading ? (
-        <p>Loading…</p>
+        <Skeleton variant="detail" count={5} />
       ) : error ? (
         <p className="error">{error}</p>
       ) : instance ? (

@@ -204,7 +204,7 @@ misconfigured before they run it.
 | Item | Scope | Effort | Backend? |
 |---|---|---|---|
 | **C8.1 Batch run from the GUI** ✅ | CSV/JSON upload in the Run dialog → fires N instances; footer cycles instance ids. Surfaces the batch pattern we've proven in shell scripts (50-paper, PR batches). | M | `POST /api/workflows/{id}/run-batch` (bounded `asyncio.gather`) |
-| **C8.2 Polish / a11y / responsive** ✅ *(a11y baseline + harness; cosmetic polish continuous)* | Empty states, loading skeletons, focus management, ARIA on custom nodes, a responsive breakpoint. Design tokens (CSS vars) already exist. | M, continuous | No |
+| **C8.2 Polish / a11y / responsive** ✅ *(a11y baseline + harness; skeletons + responsive breakpoint landed 2026-07-19; cosmetic polish continuous)* | Empty states, loading skeletons ✅ (shared `Skeleton`, reduced-motion-aware live region), focus management, ARIA on custom nodes, a responsive breakpoint ✅ (720px: header wrap, self-scrolling tables). Design tokens (CSS vars) already exist. | M, continuous | No |
 
 **Exit criterion:** an operator uploads a CSV of 50 rows and watches the batch run; a keyboard-only
 user can navigate the canvas; the app doesn't look like a prototype.

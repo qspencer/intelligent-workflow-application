@@ -7,6 +7,7 @@ import { categoryClass } from '../lib/memory';
 import { fmtMedium } from '../lib/format';
 import { formatUsage } from '../lib/usage';
 import type { StepExecution, WorkflowInstance } from '../types';
+import { Skeleton } from './Skeleton';
 
 function short(id: string): string {
   return id.slice(0, 8);
@@ -99,7 +100,7 @@ export function CompareRuns() {
   }, [a, b]);
 
   if (error) return <p className="error">{error}</p>;
-  if (!runA || !runB) return <p>Loading…</p>;
+  if (!runA || !runB) return <Skeleton variant="detail" count={4} />;
 
   const rows: CompareRow[] = compareRuns(runA.steps, runB.steps);
   const crossWorkflow = runA.instance.workflow_id !== runB.instance.workflow_id;

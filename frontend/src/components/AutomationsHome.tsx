@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, errorMessage } from '../api/client';
 import { hasRole } from '../lib/auth';
 import type { WorkflowDefinition, WorkflowState } from '../types';
+import { Skeleton } from './Skeleton';
 
 /** Strip markdown noise from a description so it reads cleanly on a card. */
 function describe(raw: string | undefined): string {
@@ -181,7 +182,7 @@ export function AutomationsHome() {
       </div>
 
       {loading ? (
-        <p>Loading…</p>
+        <Skeleton variant="cards" count={3} />
       ) : error ? (
         <p className="error">{error}</p>
       ) : definitions.length === 0 ? (

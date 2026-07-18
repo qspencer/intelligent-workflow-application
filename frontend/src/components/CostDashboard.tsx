@@ -75,7 +75,7 @@ export function CostDashboard() {
           <option value="30d">Last 30 days</option>
         </select>
         {loading ? (
-          <span className="muted">Loading…</span>
+          <span className="muted" role="status">Loading…</span>
         ) : error ? (
           <span className="error">{error}</span>
         ) : (

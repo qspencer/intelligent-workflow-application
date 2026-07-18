@@ -39,6 +39,7 @@ import { Inspector } from './Inspector';
 import { RunDialog } from './RunDialog';
 import { ValidationPanel } from './ValidationPanel';
 import { nodeTypes, type FlowNode } from './CanvasNodes';
+import { Skeleton } from '../Skeleton';
 
 export function WorkflowCanvas() {
   const { id = '' } = useParams<{ id: string }>();
@@ -420,7 +421,7 @@ export function WorkflowCanvas() {
       {editing && <ValidationPanel findings={findings} onSelect={setSelectedId} />}
 
       {loading ? (
-        <p>Loading…</p>
+        <Skeleton variant="detail" count={4} />
       ) : error ? (
         <p className="error">{error}</p>
       ) : (

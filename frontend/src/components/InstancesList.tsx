@@ -7,6 +7,7 @@ import { instanceSummary } from '../lib/instance-summary';
 import { categoryClass } from '../lib/memory';
 import { useEvents } from '../hooks/useEvents';
 import type { WorkflowInstance } from '../types';
+import { Skeleton } from './Skeleton';
 
 type RowAction = 'pause' | 'resume' | 'kill' | 'retry';
 
@@ -151,7 +152,7 @@ export function InstancesList() {
       </div>
 
       {loading ? (
-        <p>Loading…</p>
+        <Skeleton count={6} />
       ) : error ? (
         <p className="error">{error}</p>
       ) : instances.length === 0 ? (

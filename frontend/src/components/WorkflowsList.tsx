@@ -4,6 +4,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { api, errorMessage } from '../api/client';
 import { hasRole } from '../lib/auth';
 import type { WorkflowDefinition } from '../types';
+import { Skeleton } from './Skeleton';
 
 interface BatchProgress {
   done: number;
@@ -231,7 +232,7 @@ export function WorkflowsList() {
       </div>
 
       {loading ? (
-        <p>Loading…</p>
+        <Skeleton count={5} />
       ) : error ? (
         <p className="error">{error}</p>
       ) : definitions.length === 0 ? (
