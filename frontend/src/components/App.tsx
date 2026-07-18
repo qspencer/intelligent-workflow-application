@@ -9,6 +9,7 @@ import { InstanceDetail } from './InstanceDetail';
 import { InstancesList } from './InstancesList';
 import { RoleSwitcher } from './RoleSwitcher';
 import { UserChip } from './UserChip';
+import { CompareRuns } from './CompareRuns';
 import { TemplatesGallery } from './TemplatesGallery';
 import { WorkflowsList } from './WorkflowsList';
 import { WorkflowCanvas } from './canvas/WorkflowCanvas';
@@ -73,6 +74,7 @@ export function App() {
           <Route path="/canvas/:id" element={<WorkflowCanvas />} />
           <Route path="/instances" element={<InstancesList />} />
           <Route path="/instances/:id" element={<InstanceDetail />} />
+          <Route path="/compare/:a/:b" element={<CompareRuns />} />
           <Route path="/cost" element={<CostDashboard />} />
         </Routes>
       </main>

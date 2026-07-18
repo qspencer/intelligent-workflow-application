@@ -42,6 +42,7 @@ export function InstanceDetail() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [forking, setForking] = useState(false);
+  const [siblings, setSiblings] = useState<WorkflowInstance[]>([]);
 
   const refresh = useCallback(async (): Promise<void> => {
     try {
@@ -117,6 +118,23 @@ export function InstanceDetail() {
     }
   }
 
+  // Sibling runs of the same workflow, for the Compare picker (G5).
+  useEffect(() => {
+    if (!instance) return;
+    let ignore = false;
+    api
+      .listInstances({ workflow_id: instance.workflow_id, limit: 20 })
+      .then((list) => {
+        if (!ignore) setSiblings(list.filter((i) => i.id !== instance.id));
+      })
+      .catch(() => {
+        /* picker just stays empty */
+      });
+    return () => {
+      ignore = true;
+    };
+  }, [instance]);
+
   const evaluations = extractEvaluations(steps);
   const memory = summarizeMemory(auditEntries);
 
@@ -183,6 +201,24 @@ export function InstanceDetail() {
             )}
             {instance.state === 'failed' && (
               <button onClick={() => void action('retry')}>Retry</button>
+            )}
+            {siblings.length > 0 && (
+              <label className="compare-picker">
+                Compare with{' '}
+                <select
+                  value=""
+                  onChange={(e) => {
+                    if (e.target.value) navigate(`/compare/${instance.id}/${e.target.value}`);
+                  }}
+                >
+                  <option value="">— pick a run —</option>
+                  {siblings.map((s) => (
+                    <option key={s.id} value={s.id}>
+                      {short(s.id)} · {s.state} · {fmtShort(s.started_at ?? s.created_at)}
+                    </option>
+                  ))}
+                </select>
+              </label>
             )}
           </div>
 

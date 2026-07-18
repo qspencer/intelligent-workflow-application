@@ -94,17 +94,19 @@ instances list subscribes to the same `useEvents` stream as the detail
 page and refreshes immediately on `workflow_started` /
 `workflow_completed` instead of waiting up to 5s for the poll.
 
-### G5 — Memory-hash diff view
+### G5 — Memory-hash diff view — **Done**
 
-`memory_hash` is now visible per agent step (P1.6). The natural follow-up
-is a small "Compare runs" affordance: pick two instances of the same
-workflow, show a side-by-side of their step outputs grouped by which
-memory hash each saw. Useful when investigating "why did this run behave
-differently from yesterday's?" — exactly the question memory versioning
-was added to answer.
-
-Effort: **M**. Mostly frontend; one new `/api/workflow-instances?...`
-filter is probably enough on the backend.
+Landed 2026-07-19: a "Compare with…" picker on the instance-detail
+actions row (siblings of the same workflow) navigates to
+`/compare/:a/:b` — a side-by-side per-step table showing each run's
+state, seven-bucket category badge, memory hash (rubric version),
+recall (edges·episodes consulted), usage, and a verdict-summary signal,
+with "rubric changed" / "verdict changed" flags and row highlighting on
+differences. Cross-workflow comparisons warn; a same-rubric banner
+notes that differences must come from inputs or recalled memory. Zero
+backend change (two `getInstance` calls + the existing sibling list).
+Pure helpers in `lib/compare.ts` with unit tests (alignment across
+missing steps, no-diff-when-facet-absent).
 
 ### G6 — Auto-load `agent_memory.md` adjacent to a workflow YAML — **Done**
 

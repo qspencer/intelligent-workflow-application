@@ -1720,3 +1720,27 @@ a.button:hover {
 .memory-kind.outcome { color: var(--warn); }
 .memory-kind.failed { color: var(--err); }
 code.recall { font-size: 0.8rem; }
+
+/* --- G5: compare-runs view --- */
+table.compare { table-layout: fixed; }
+table.compare th:first-child { width: 9rem; }
+table.compare td.diff { background: #fff8e6; }
+.facet-line { display: flex; gap: 0.4rem; align-items: baseline; flex-wrap: wrap; }
+.facet-tech { margin-top: 0.2rem; font-size: 0.8rem; }
+.facet-signal {
+  margin-top: 0.25rem;
+  font-size: 0.8rem;
+  color: var(--muted);
+  overflow-wrap: anywhere;
+}
+.diff-flags { margin-top: 0.25rem; display: flex; flex-direction: column; gap: 0.15rem; }
+.diff-flag {
+  font-size: 0.68rem;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  color: var(--warn);
+  font-weight: 600;
+}
+.run-meta { font-weight: 400; font-size: 0.78rem; }
+.compare-picker { font-size: 0.85rem; }
+.compare-picker select { margin-left: 0.3rem; }
