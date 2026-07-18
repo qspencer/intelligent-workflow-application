@@ -1879,3 +1879,27 @@ table.compare td.diff { background: #fff8e6; }
 .role-checklist label {
   font-size: 14px;
 }
+
+/* --- S3: org management --- */
+.page-users .header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+.page-users .header-actions {
+  display: flex;
+  gap: 8px;
+}
+.org-create {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+.org-create input {
+  flex: 1;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font: inherit;
+}

@@ -45,6 +45,7 @@ class UpdateUserRequest(BaseModel):
     is_active: bool | None = None
     display_name: str | None = None
     password: str | None = None
+    org_id: str | None = None  # move between orgs — Administrators only (S3)
 
 
 class ActorScope(BaseModel):
@@ -196,6 +197,20 @@ def build_users_router(repositories: Repositories) -> APIRouter:
         revoke = False
         was_active_administrator = user.is_active and Role.ADMINISTRATOR.value in user.roles
         was_active_org_admin = user.is_active and Role.ORG_ADMIN.value in user.roles
+        old_org = user.org_id
+
+        if body.org_id is not None and body.org_id != user.org_id:
+            # Moving a user between orgs changes what they can see — that's
+            # a platform decision, not a tenant one.
+            if not scope.is_administrator:
+                raise HTTPException(
+                    status_code=403, detail="Only an Administrator can move users between orgs"
+                )
+            if await repositories.organizations.get(body.org_id) is None:
+                raise HTTPException(status_code=400, detail=f"No such organization: {body.org_id}")
+            user.org_id = body.org_id
+            changed.append("org_id")
+            revoke = True
 
         if body.roles is not None:
             _check_roles(body.roles)
@@ -229,11 +244,10 @@ def build_users_router(repositories: Repositories) -> APIRouter:
             )
         # …and never leave an org without one (ROLES_PLAN §2.2). Applies to
         # Administrator actors too: promote a replacement first.
-        if (
-            was_active_org_admin
-            and not (user.is_active and Role.ORG_ADMIN.value in user.roles)
-            and await _other_active_org_admins(user.org_id, user.id) == 0
-        ):
+        org_admin_lost_for_old_org = was_active_org_admin and (
+            not (user.is_active and Role.ORG_ADMIN.value in user.roles) or user.org_id != old_org
+        )
+        if org_admin_lost_for_old_org and await _other_active_org_admins(old_org, user.id) == 0:
             raise HTTPException(
                 status_code=409,
                 detail="Refusing to remove this organization's last active "

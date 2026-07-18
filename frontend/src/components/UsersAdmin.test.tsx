@@ -2,13 +2,29 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 
 import { api } from '../api/client';
+import { resetMe } from '../lib/me';
 import { UsersAdmin } from './UsersAdmin';
-import type { PlatformUser } from '../types';
+import type { Organization, PlatformUser } from '../types';
 
 afterEach(() => {
   cleanup();
   vi.restoreAllMocks();
+  resetMe();
 });
+
+function org(id: string, name?: string): Organization {
+  return { id, name: name ?? id, created_at: '2026-07-18T00:00:00Z' };
+}
+
+function mockAdmin(orgs: Organization[]): void {
+  vi.spyOn(api, 'listOrganizations').mockResolvedValue(orgs);
+  vi.spyOn(api, 'me').mockResolvedValue({
+    auth_mode: 'dev',
+    identity: { sub: 'root', email: null, roles: ['Administrator'] },
+    user: null,
+    organization: null,
+  });
+}
 
 function user(overrides: Partial<PlatformUser>): PlatformUser {
   return {
@@ -29,6 +45,7 @@ function user(overrides: Partial<PlatformUser>): PlatformUser {
 
 describe('UsersAdmin', () => {
   it('lists users; SSO rows get no edit affordance', async () => {
+    mockAdmin([org('default')]);
     vi.spyOn(api, 'listUsers').mockResolvedValue([
       user({}),
       user({ id: 'u2', sub: 'quentin', iss: 'dev', email: 'q@y.z', has_password: false }),
@@ -41,6 +58,7 @@ describe('UsersAdmin', () => {
   });
 
   it('creates a user through the dialog', async () => {
+    mockAdmin([org('default')]);
     vi.spyOn(api, 'listUsers').mockResolvedValue([]);
     const create = vi.spyOn(api, 'createUser').mockResolvedValue(user({}));
     render(<UsersAdmin />);
@@ -63,10 +81,47 @@ describe('UsersAdmin', () => {
   });
 
   it('deactivation goes through updateUser', async () => {
+    mockAdmin([org('default')]);
     vi.spyOn(api, 'listUsers').mockResolvedValue([user({})]);
     const update = vi.spyOn(api, 'updateUser').mockResolvedValue(user({ is_active: false }));
     render(<UsersAdmin />);
     fireEvent.click(await screen.findByRole('button', { name: 'Disable' }));
     await waitFor(() => expect(update).toHaveBeenCalledWith('u1', { is_active: false }));
+  });
+
+  it('shows the org column and an org picker when multiple orgs exist', async () => {
+    mockAdmin([org('default'), org('acme', 'Acme Inc')]);
+    vi.spyOn(api, 'listUsers').mockResolvedValue([user({ org_id: 'acme' })]);
+    render(<UsersAdmin />);
+    expect(await screen.findByText('Acme Inc')).toBeInTheDocument(); // column shows org name
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(screen.getByLabelText('Organization')).toBeInTheDocument();
+  });
+
+  it('creates an organization through the Organizations dialog', async () => {
+    mockAdmin([org('default')]);
+    vi.spyOn(api, 'listUsers').mockResolvedValue([]);
+    const create = vi.spyOn(api, 'createOrganization').mockResolvedValue(org('acme'));
+    render(<UsersAdmin />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Organizations' }));
+    fireEvent.change(screen.getByLabelText('New organization'), {
+      target: { value: 'Acme' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }));
+    await waitFor(() => expect(create).toHaveBeenCalledWith('Acme'));
+  });
+
+  it('hides org affordances for non-Administrators', async () => {
+    vi.spyOn(api, 'listOrganizations').mockRejectedValue(new Error('403'));
+    vi.spyOn(api, 'me').mockResolvedValue({
+      auth_mode: 'dev',
+      identity: { sub: 'oa', email: null, roles: ['Organization Administrator'] },
+      user: null,
+      organization: null,
+    });
+    vi.spyOn(api, 'listUsers').mockResolvedValue([user({})]);
+    render(<UsersAdmin />);
+    await screen.findByText('alice@example.com');
+    expect(screen.queryByRole('button', { name: 'Organizations' })).toBeNull();
   });
 });

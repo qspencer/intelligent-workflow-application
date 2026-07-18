@@ -98,6 +98,19 @@ describe('api URL + method construction', () => {
     expect(init.method).toBe('PATCH');
   });
 
+  it('organization endpoints build the right requests', async () => {
+    await api.listOrganizations();
+    expect(lastCall()[0]).toBe('/api/organizations');
+    await api.createOrganization('Acme');
+    let [url, init] = lastCall();
+    expect(url).toBe('/api/organizations');
+    expect(JSON.parse(String(init.body))).toEqual({ name: 'Acme' });
+    await api.renameOrganization('acme', 'Acme Inc');
+    [url, init] = lastCall();
+    expect(url).toBe('/api/organizations/acme');
+    expect(init.method).toBe('PATCH');
+  });
+
   it('a 401 dispatches wp:unauthorized (except for the login call itself)', async () => {
     const events: string[] = [];
     const listener = (): void => {

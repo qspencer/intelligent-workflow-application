@@ -1,6 +1,7 @@
 import { authHeaders } from '../lib/auth';
 import type {
   Me,
+  Organization,
   PlatformUser,
   AuditEntry,
   BatchRunResult,
@@ -186,6 +187,21 @@ export const api = {
     return postJson('/users', payload);
   },
 
+  listOrganizations(): Promise<Organization[]> {
+    return request('GET', '/organizations');
+  },
+
+  createOrganization(name: string): Promise<Organization> {
+    return postJson('/organizations', { name });
+  },
+
+  renameOrganization(id: string, name: string): Promise<Organization> {
+    return request('PATCH', `/organizations/${id}`, {
+      body: JSON.stringify({ name }),
+      headers: { 'Content-Type': 'application/json' },
+    });
+  },
+
   updateUser(
     id: string,
     payload: {
@@ -193,6 +209,7 @@ export const api = {
       is_active?: boolean;
       display_name?: string;
       password?: string;
+      org_id?: string;
     },
   ): Promise<PlatformUser> {
     return request('PATCH', `/users/${id}`, {

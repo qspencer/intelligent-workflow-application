@@ -136,6 +136,9 @@ class OrganizationRepo(ABC):
     @abstractmethod
     async def save(self, org: Organization) -> Organization: ...
 
+    @abstractmethod
+    async def list_all(self) -> list[Organization]: ...
+
 
 class UserRepo(ABC):
     @abstractmethod

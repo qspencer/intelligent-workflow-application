@@ -324,6 +324,13 @@ export interface DevErrorsResponse {
 }
 
 
+/** GET /api/organizations. */
+export interface Organization {
+  id: string;
+  name: string;
+  created_at: string;
+}
+
 /** A row from GET /api/users (password hash never leaves the backend). */
 export interface PlatformUser {
   id: string;

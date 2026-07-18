@@ -256,6 +256,12 @@ class InMemoryOrganizationRepo(OrganizationRepo):
         self._items[org.id] = org.model_copy(deep=True)
         return org
 
+    async def list_all(self) -> list[Organization]:
+        return [
+            o.model_copy(deep=True)
+            for o in sorted(self._items.values(), key=lambda o: o.created_at)
+        ]
+
 
 class InMemoryUserRepo(UserRepo):
     def __init__(self) -> None:

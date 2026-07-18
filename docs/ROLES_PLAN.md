@@ -1,7 +1,16 @@
 # Tenant-Scoped Roles — Design
 
-Status: **S1 + S2 shipped** (both 2026-07-18, same day as the design
-review; S3 org lifecycle not started). S2 delivered resource scoping end to
+Status: **S1 + S2 + S3 shipped** (all 2026-07-18, same day as the design
+review — the plan is fully executed; §8's deferrals are what remains, each
+behind its named trigger). S3 delivered the org lifecycle:
+`GET/POST/PATCH /api/organizations` (Administrator-gated writes, slugified
+ids, `org_created`/`org_renamed` audit; **no DELETE** — orgs are rename-only
+per §8, pinned by test), Administrator user-moves between orgs via
+`PATCH /api/users/{id}` (`org_id`; sessions revoked, target org validated,
+and the last-org-admin guard protects the *old* org on the way out), and the
+Users admin page grew an Org column, org pickers in the create/edit dialogs,
+and an Organizations dialog (create + rename) — all Administrator-only
+affordances that stay hidden for other roles. S2 delivered resource scoping end to
 end: `OrgScope` resolution on every §4-table endpoint (cross-org reads AND
 mutations 404 — no existence leaks), the §4b joins for audit/steps/cost
 (instance-less audit entries are Administrator-only), escalations scoped

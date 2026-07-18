@@ -366,6 +366,14 @@ class PostgresOrganizationRepo(OrganizationRepo):
                 existing.name = org.name
         return org
 
+    async def list_all(self) -> list[Organization]:
+        async with self._sf() as s:
+            result = await s.execute(select(OrganizationRow).order_by(OrganizationRow.created_at))
+            return [
+                Organization(id=r.id, name=r.name, created_at=r.created_at)
+                for r in result.scalars()
+            ]
+
 
 def _row_to_user(row: UserRow) -> User:
     return User(
