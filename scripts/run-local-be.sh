@@ -233,9 +233,10 @@ fi
 # --- runtime env --------------------------------------------------------------
 step "Configure runtime environment"
 export AUTH_MODE="$AUTH_MODE_CHOICE"
-if [ "$AUTH_MODE" = "local" ] && [ "$USE_POSTGRES" = 0 ]; then
-  warn "local auth with --in-memory: the user store starts empty and"
-  warn "tools/create_user.py needs Postgres — login will be impossible."
+if [ "$AUTH_MODE" = "local" ]; then
+  # Local-loop convenience: seed the per-role test accounts on boot
+  # (known credentials — never set this on a network-reachable deploy).
+  export WORKFLOW_PLATFORM_SEED_TEST_USERS="${WORKFLOW_PLATFORM_SEED_TEST_USERS:-1}"
 fi
 export BEDROCK_MODE
 export WORKFLOW_DEFINITIONS_DIR="$REPO_ROOT/examples"
@@ -261,6 +262,10 @@ echo "   definitions  : $WORKFLOW_DEFINITIONS_DIR"
 if [ "$AUTH_MODE" = "local" ]; then
   echo "   auth         : local (email+password login; manage users via"
   echo "                  backend/tools/create_user.py or the Users admin page)"
+  echo "                  test accounts seeded on boot: admin@test.local /"
+  echo "                  org-admin@ / org-user@ / org-viewer@test.local"
+  echo "                  (password: test-password). Permanent admin: set"
+  echo "                  WORKFLOW_PLATFORM_ADMIN_EMAIL + _ADMIN_PASSWORD."
 else
   echo "   auth         : dev  (send X-Dev-User / X-Dev-Groups; default acts as admin)"
 fi

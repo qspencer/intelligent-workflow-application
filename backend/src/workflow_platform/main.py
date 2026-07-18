@@ -26,6 +26,7 @@ from workflow_platform.api.users import build_users_router
 from workflow_platform.api.workflows import build_router
 from workflow_platform.api.ws import build_ws_router
 from workflow_platform.auth import AuthMiddleware, LocalAuthService, auth_mode
+from workflow_platform.auth.bootstrap import ensure_seed_users
 from workflow_platform.auth.provisioning import UserProvisioner
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.connectors.email import maybe_build_gmail_connector
@@ -192,6 +193,7 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+        await ensure_seed_users(repositories)
         if start_triggers:
             await orchestrator.start()
         try:

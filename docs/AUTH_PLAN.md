@@ -267,6 +267,26 @@ deliberate, auditable operator action instead.
   `auth_mode: "dev"` (add the mode to `/api/me`), because in local mode
   picking your own role must be impossible.
 
+## 6b. Startup seeding (added 2026-07-18, post-S3)
+
+`auth/bootstrap.py`, run in the app lifespan on every boot; both pieces
+idempotent, both no-ops unless configured:
+
+- **Permanent Administrator**: `WORKFLOW_PLATFORM_ADMIN_EMAIL` +
+  `WORKFLOW_PLATFORM_ADMIN_PASSWORD` ensure the account exists on every
+  boot — created if missing, **never modified** if present (a rotated
+  password is not reset by a restart). With the last-active-Administrator
+  guard this makes it permanent: undeletable via the API, self-restoring
+  if the table is wiped. Deliberately *not* an Alembic migration: a
+  password hash must never live in the repo, and every deployment needs
+  its own credential.
+- **Per-role test accounts**: `WORKFLOW_PLATFORM_SEED_TEST_USERS=1` seeds
+  `admin@` / `org-admin@` / `org-user@` / `org-viewer@test.local`
+  (password `test-password`, override via
+  `WORKFLOW_PLATFORM_TEST_USER_PASSWORD`). Known credentials → explicit
+  opt-in only; `run-local-be.sh --local-auth` sets it for the local loop
+  and it must never be set on a network-reachable deployment.
+
 ## 7. Explicitly out of scope (deferred, with triggers)
 
 | Deferred | Trigger to build |
