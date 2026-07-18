@@ -27,9 +27,10 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
 
-from workflow_platform.auth import Role, auth_mode, current_user, require_roles
+from workflow_platform.auth import auth_mode, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.auth.provisioning import current_issuer
+from workflow_platform.auth.rbac import ANY_ROLE, ORG_WRITE_ROLES
 from workflow_platform.catalog import build_catalog
 from workflow_platform.cost import CostReportService, price_for_model
 from workflow_platform.engine import ToolCatalog, WorkflowEngine, default_function_registry
@@ -215,7 +216,7 @@ def build_router(
     @router.post("/workflows", response_model=WorkflowDefinition, status_code=201)
     async def create_workflow(
         request: Request,
-        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
+        user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> WorkflowDefinition:
         """Create a new workflow definition — blank, or cloned from a template.
 
@@ -273,7 +274,7 @@ def build_router(
     @router.post("/workflows/scaffold")
     async def scaffold_workflow_endpoint(
         request: Request,
-        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
+        user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, Any]:
         """NL scaffold (C7.1): turn a plain-English description into a draft
         workflow and persist it as an editable starting point.
@@ -427,7 +428,7 @@ def build_router(
     @router.delete("/workflows/{workflow_id}")
     async def delete_workflow(
         workflow_id: str,
-        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
+        user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, Any]:
         """Hard-delete a workflow definition and cascade to its run history
         (instances + their step_executions). Admin/Designer only.
@@ -514,7 +515,7 @@ def build_router(
     @router.post("/workflows/import")
     async def import_workflow(
         request: Request,
-        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.DESIGNER)),
+        user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, Any]:
         body = await request.body()
         text = body.decode("utf-8") if body else ""
@@ -536,7 +537,7 @@ def build_router(
     async def run_workflow(
         workflow_id: str,
         request: Request,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+        _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, Any]:
         """Manually fire a workflow once with a caller-supplied trigger payload.
 
@@ -571,7 +572,7 @@ def build_router(
     async def run_workflow_batch(
         workflow_id: str,
         request: Request,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+        _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, Any]:
         """Fire a workflow once per row of a batch (C8.1).
 
@@ -641,7 +642,7 @@ def build_router(
     async def dry_run_workflow(
         workflow_id: str,
         request: Request,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR, Role.DESIGNER)),
+        _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, Any]:
         """Run a workflow once in a sandbox (C6.1): a `MockWorld` (no real file /
         database / messaging side effects) and a tool catalog with the external
@@ -765,7 +766,7 @@ def build_router(
     @router.post("/workflow-instances/{instance_id}/pause")
     async def pause_instance(
         instance_id: str,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+        _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, Any]:
         instance = await repositories.instances.get(instance_id)
         if instance is None:
@@ -782,7 +783,7 @@ def build_router(
     @router.post("/workflow-instances/{instance_id}/resume")
     async def resume_instance(
         instance_id: str,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+        _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, Any]:
         if engine is None:
             raise HTTPException(
@@ -811,7 +812,7 @@ def build_router(
     @router.post("/workflow-instances/{instance_id}/retry")
     async def retry_instance(
         instance_id: str,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+        _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, Any]:
         if engine is None:
             raise HTTPException(
@@ -844,7 +845,7 @@ def build_router(
     async def fork_instance(
         instance_id: str,
         request: Request,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+        _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, Any]:
         """Fork a prior instance at a specific step.
 
@@ -891,7 +892,7 @@ def build_router(
     @router.post("/workflow-instances/{instance_id}/kill")
     async def kill_instance(
         instance_id: str,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+        _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, Any]:
         instance = await repositories.instances.get(instance_id)
         if instance is None:
@@ -912,7 +913,7 @@ def build_router(
     @router.delete("/workflow-instances/{instance_id}", status_code=204)
     async def delete_instance(
         instance_id: str,
-        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+        user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> Response:
         """Hard-delete a terminal instance + its step_executions.
 
@@ -953,7 +954,7 @@ def build_router(
     async def delete_instances_bulk(
         state: list[str] = Query(default=...),
         workflow_id: str | None = Query(default=None),
-        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+        user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, int]:
         """Bulk hard-delete every instance whose state is in `state` (one
         or more `?state=` query params). Cascades to step_executions.
@@ -1008,7 +1009,7 @@ def build_router(
     )
     async def list_instance_audit(
         instance_id: str,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.AUDITOR)),
+        _: UserIdentity = Depends(require_roles(*ANY_ROLE)),
     ) -> list[AuditEntry]:
         return await repositories.audit.list_by_instance(instance_id)
 
@@ -1016,7 +1017,7 @@ def build_router(
     async def list_recent_audit(
         limit: int = 100,
         instance_id: str | None = None,
-        _: UserIdentity = Depends(require_roles(Role.ADMIN, Role.AUDITOR)),
+        _: UserIdentity = Depends(require_roles(*ANY_ROLE)),
     ) -> list[AuditEntry]:
         """Recent audit entries, optionally scoped to one instance. Before
         `instance_id` was accepted here, passing it was silently ignored and
@@ -1116,7 +1117,7 @@ def build_router(
     async def resolve_escalation(
         escalation_id: str,
         body: dict[str, Any],
-        user: UserIdentity = Depends(require_roles(Role.ADMIN, Role.OPERATOR)),
+        user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
     ) -> dict[str, Any]:
         from workflow_platform.persistence.models import (
             AuditEntry as _AuditEntry,

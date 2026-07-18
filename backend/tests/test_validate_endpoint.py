@@ -72,7 +72,7 @@ def _client() -> TestClient:
     return TestClient(create_app(repositories=in_memory_repositories()))
 
 
-_H = {"X-Dev-User": "a", "X-Dev-Groups": "viewers"}
+_H = {"X-Dev-User": "a", "X-Dev-Groups": "org-viewers"}
 
 
 def test_validate_endpoint_valid(monkeypatch: pytest.MonkeyPatch) -> None:

@@ -71,7 +71,7 @@ export function WorkflowCanvas() {
   const editing = draft !== null;
   // Edit is a definition-view, Designer/Admin affordance — not while
   // following a run, and not for read-only roles.
-  const canEdit = !following && hasRole(['admins', 'designers']);
+  const canEdit = !following && hasRole(['admins', 'org-admins', 'org-users']);
   const dirty = editing && def !== null && JSON.stringify(draft) !== JSON.stringify(def);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<FlowNode>([]);

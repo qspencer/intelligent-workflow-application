@@ -17,7 +17,7 @@ from workflow_platform.persistence.models import StepExecution, WorkflowInstance
 from workflow_platform.workflow import load_definition
 
 _ADMIN = {"X-Dev-User": "a", "X-Dev-Groups": "admins"}
-_VIEWER = {"X-Dev-User": "v", "X-Dev-Groups": "viewers"}
+_VIEWER = {"X-Dev-User": "v", "X-Dev-Groups": "org-viewers"}
 
 _WF = {
     "id": "to-delete",

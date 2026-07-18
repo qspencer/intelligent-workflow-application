@@ -105,7 +105,7 @@ def test_criterion_1_operator_can_start_observe_retry_kill(
 
     app = create_app(repositories=repos, engine=engine, webhook_registry=bus_registry)
     client = TestClient(app)
-    operator = {"X-Dev-User": "alice", "X-Dev-Groups": "operators"}
+    operator = {"X-Dev-User": "alice", "X-Dev-Groups": "org-users"}
 
     # 1. Start: operator-equivalent triggers a workflow via webhook.
     r = client.post("/api/triggers/webhook/ops-demo", json={"src": "ui-test"})

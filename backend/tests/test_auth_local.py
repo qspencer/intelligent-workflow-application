@@ -46,7 +46,7 @@ def _make_user(
         sub="",
         email=email,
         password_hash=hash_password(password),
-        roles=roles if roles is not None else ["Admin"],
+        roles=roles if roles is not None else ["Administrator"],
         is_active=active,
     )
     user.sub = user.id
@@ -94,7 +94,7 @@ def test_login_email_lookup_is_canonical(monkeypatch: pytest.MonkeyPatch) -> Non
 
 def test_login_sets_cookie_and_authenticates(monkeypatch: pytest.MonkeyPatch) -> None:
     client, repos = _local_app(monkeypatch)
-    user = _make_user(repos, roles=["Operator"])
+    user = _make_user(repos, roles=["Organization User"])
     response = _login(client)
     assert response.status_code == 200
     assert SESSION_COOKIE in response.cookies
@@ -103,7 +103,7 @@ def test_login_sets_cookie_and_authenticates(monkeypatch: pytest.MonkeyPatch) ->
     assert me.status_code == 200
     body = me.json()
     assert body["auth_mode"] == "local"
-    assert body["identity"]["roles"] == ["Operator"]
+    assert body["identity"]["roles"] == ["Organization User"]
     assert body["user"]["id"] == user.id
     assert "password_hash" not in body["user"]
 

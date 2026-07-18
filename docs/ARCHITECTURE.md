@@ -769,13 +769,20 @@ local credentials and server-side sessions, per the D4 amendment above.
 
 ### Human Permissions (RBAC)
 
-| Role | Can do |
-|------|--------|
-| **Admin** | Everything. Manage users, configure IdP, set system policies, view all workflows |
-| **Workflow Designer** | Create/edit/delete workflow definitions, configure triggers, set step policies |
-| **Operator** | Start workflows manually, view status, approve/reject human-in-the-loop steps, retry failed steps |
-| **Viewer** | Read-only dashboard access, view workflow history and logs |
-| **Auditor** | Read-only access to full audit trail, agent reasoning logs, cost reports |
+*(Revised 2026-07-18 by `docs/ROLES_PLAN.md` — tenant-scoped roles, S1
+shipped. The original five global roles map per its §3 table; the
+Designer/Operator and Viewer/Auditor distinctions were retired as accepted
+expansions with return-triggers logged in its §8.)*
+
+| Role | Scope | Can do |
+|------|-------|--------|
+| **Administrator** | Platform | Everything, across all organizations. Creates orgs; only role that can grant Administrator. |
+| **Organization Administrator** | One org | Everything in their org: workflows, runs, audit, cost, and its users (never Administrators). |
+| **Organization User** | One org | Create/edit/run workflows; read runs, audit, cost. No user management. |
+| **Organization Viewer** | One org | Read-only. Run and dry-run are spend actions and stay denied. |
+
+Until ROLES_PLAN S2 lands, org scoping is enforced on user management only;
+resource endpoints check the role but not yet the org.
 
 In `oidc` mode, roles map to IdP groups — no local role assignment needed
 when groups are configured in the IdP. In `AUTH_MODE=local`, roles are

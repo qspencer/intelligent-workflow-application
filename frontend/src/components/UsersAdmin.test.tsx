@@ -56,7 +56,7 @@ describe('UsersAdmin', () => {
       expect(create).toHaveBeenCalledWith({
         email: 'new@example.com',
         password: 'longenough',
-        roles: ['Viewer'],
+        roles: ['Organization Viewer'],
         display_name: undefined,
       }),
     );

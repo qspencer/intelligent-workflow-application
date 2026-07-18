@@ -288,7 +288,7 @@ export function WorkflowsList() {
               {runBatchMode
                 ? 'JSON array — fires one workflow instance per array element.'
                 : 'JSON object passed verbatim as the trigger payload.'}
-              {!hasRole(['admins', 'operators']) && (
+              {!hasRole(['admins', 'org-admins', 'org-users']) && (
                 <span> Operator or Admin role required.</span>
               )}
             </p>
@@ -360,7 +360,7 @@ export function WorkflowsList() {
             <h3>Import workflow</h3>
             <p className="muted">
               Paste a YAML or JSON workflow definition.
-              {!hasRole(['admins', 'designers']) && (
+              {!hasRole(['admins', 'org-admins', 'org-users']) && (
                 <span> Designer or Admin role required.</span>
               )}
             </p>

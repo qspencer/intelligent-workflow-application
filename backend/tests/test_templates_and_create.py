@@ -96,11 +96,11 @@ def client(examples_dir: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
 
 
 def _designer() -> dict[str, str]:
-    return {"X-Dev-User": "dana", "X-Dev-Groups": "designers"}
+    return {"X-Dev-User": "dana", "X-Dev-Groups": "org-users"}
 
 
 def _viewer() -> dict[str, str]:
-    return {"X-Dev-User": "val", "X-Dev-Groups": "viewers"}
+    return {"X-Dev-User": "val", "X-Dev-Groups": "org-viewers"}
 
 
 # --- unit: discovery + slug helpers ---

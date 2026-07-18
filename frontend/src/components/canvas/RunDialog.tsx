@@ -186,7 +186,7 @@ export function RunDialog({
         <p className="muted">
           Fill in the trigger details and {dryRun ? 'test' : 'run'}. The canvas will switch to
           a live view of the {dryRun ? 'test' : 'run'}.
-          {!hasRole(dryRun ? ['admins', 'operators', 'designers'] : ['admins', 'operators']) && (
+          {!hasRole(['admins', 'org-admins', 'org-users']) && (
             <span> {dryRun ? 'Designer, Operator or Admin' : 'Operator or Admin'} role required.</span>
           )}
         </p>

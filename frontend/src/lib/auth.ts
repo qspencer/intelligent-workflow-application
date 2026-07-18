@@ -6,10 +6,9 @@
 
 export const KNOWN_GROUPS = [
   'admins',
-  'designers',
-  'operators',
-  'viewers',
-  'auditors',
+  'org-admins',
+  'org-users',
+  'org-viewers',
 ] as const;
 
 export function currentUser(): string {

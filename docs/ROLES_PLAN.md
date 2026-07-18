@@ -1,8 +1,13 @@
 # Tenant-Scoped Roles — Design
 
-Status: **proposed** (drafted 2026-07-18 from a role proposal by the project
-owner; design-reviewed same day: adopt-with-conditions, all findings folded
-in below; not yet built). Companion to `docs/AUTH_PLAN.md` (which built
+Status: **S1 shipped** (2026-07-18, same day as the design review; S2/S3
+not started). S1 delivered: the four-role vocabulary end to end (enum, group
+map, RoleSwitcher, Users admin, `create_user.py`), Alembic `0005` data
+migration, the §4-table translation of every `require_roles` call site with
+the §4c expansions test-pinned, and org-scoped `/api/users` (Org Admins
+manage their org only, cannot grant/touch Administrator, cross-org targets
+404, last-org-admin guard live). D4's Human Permissions table revised in
+place. Companion to `docs/AUTH_PLAN.md` (which built
 the authentication + role *machinery*) — this document changes the role
 *model* and starts the multi-tenancy enforcement work deferred by the `0003`
 users/orgs skeleton. Revises D4's "Human Permissions" table in

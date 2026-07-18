@@ -29,7 +29,7 @@ export function TemplatesGallery() {
   const [error, setError] = useState<string | null>(null);
   const [usingId, setUsingId] = useState<string | null>(null);
 
-  const canUse = hasRole(['admins', 'designers']);
+  const canUse = hasRole(['admins', 'org-admins', 'org-users']);
 
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true);

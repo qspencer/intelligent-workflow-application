@@ -16,7 +16,7 @@ function inst(over: Partial<WorkflowInstance>): WorkflowInstance {
 describe('AutomationsHome', () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem('wp.groups', 'designers');
+    localStorage.setItem('wp.groups', 'org-users');
     vi.spyOn(api, 'workflowInstanceCounts').mockResolvedValue({ wf1: 3 });
     vi.spyOn(api, 'listInstances').mockResolvedValue([inst({})]);
     vi.spyOn(api, 'listTemplates').mockResolvedValue([]);

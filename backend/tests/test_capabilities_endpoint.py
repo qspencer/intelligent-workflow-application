@@ -62,7 +62,7 @@ def _client(repos: object, engine: WorkflowEngine) -> TestClient:
     return TestClient(create_app(repositories=repos, engine=engine))  # type: ignore[arg-type]
 
 
-_H = {"X-Dev-User": "a", "X-Dev-Groups": "viewers"}
+_H = {"X-Dev-User": "a", "X-Dev-Groups": "org-viewers"}
 
 
 def test_capabilities_report(monkeypatch: pytest.MonkeyPatch) -> None:

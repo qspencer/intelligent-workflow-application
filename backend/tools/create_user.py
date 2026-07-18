@@ -79,7 +79,9 @@ async def run(args: argparse.Namespace) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("email")
-    parser.add_argument("--roles", nargs="+", default=["Viewer"], help="one or more role names")
+    parser.add_argument(
+        "--roles", nargs="+", default=["Organization Viewer"], help="one or more role names"
+    )
     parser.add_argument("--display-name")
     parser.add_argument("--password", help="omit to be prompted (preferred)")
     parser.add_argument("--inactive", action="store_true")

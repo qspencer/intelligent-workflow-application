@@ -97,7 +97,7 @@ def test_cost_estimate_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     client = TestClient(create_app(repositories=repos))
     body = client.get(
         "/api/workflows/est-wf/cost-estimate",
-        headers={"X-Dev-User": "a", "X-Dev-Groups": "viewers"},
+        headers={"X-Dev-User": "a", "X-Dev-Groups": "org-viewers"},
     ).json()
 
     assert body["max_total_tokens"] == 5000
@@ -126,7 +126,7 @@ def test_cost_estimate_no_history_has_null_avg(monkeypatch: pytest.MonkeyPatch) 
     client = TestClient(create_app(repositories=repos))
     body = client.get(
         "/api/workflows/est-wf/cost-estimate",
-        headers={"X-Dev-User": "a", "X-Dev-Groups": "viewers"},
+        headers={"X-Dev-User": "a", "X-Dev-Groups": "org-viewers"},
     ).json()
     assert body["run_count"] == 0
     assert body["avg_cost_usd"] is None
@@ -140,6 +140,6 @@ def test_cost_estimate_unknown_workflow_404(monkeypatch: pytest.MonkeyPatch) -> 
     client = TestClient(create_app(repositories=in_memory_repositories()))
     r = client.get(
         "/api/workflows/ghost/cost-estimate",
-        headers={"X-Dev-User": "a", "X-Dev-Groups": "viewers"},
+        headers={"X-Dev-User": "a", "X-Dev-Groups": "org-viewers"},
     )
     assert r.status_code == 404

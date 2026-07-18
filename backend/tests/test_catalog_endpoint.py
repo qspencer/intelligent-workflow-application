@@ -11,7 +11,7 @@ from workflow_platform.main import create_app
 from workflow_platform.persistence import in_memory_repositories
 from workflow_platform.tools import FileReadTool, FileWriteTool
 
-_H = {"X-Dev-User": "a", "X-Dev-Groups": "viewers"}
+_H = {"X-Dev-User": "a", "X-Dev-Groups": "org-viewers"}
 
 
 def test_build_catalog_functions_have_descriptions() -> None:

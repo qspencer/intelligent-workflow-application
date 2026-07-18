@@ -387,7 +387,7 @@ def test_cost_by_workflow_endpoint(monkeypatch: pytest.MonkeyPatch) -> None:
     client = TestClient(app)
     r = client.get(
         "/api/cost/by-workflow",
-        headers={"X-Dev-User": "alice", "X-Dev-Groups": "viewers"},
+        headers={"X-Dev-User": "alice", "X-Dev-Groups": "org-viewers"},
     )
     assert r.status_code == 200
     data = r.json()
@@ -411,6 +411,6 @@ def test_cost_endpoint_rejects_bad_since(monkeypatch: pytest.MonkeyPatch) -> Non
     client = TestClient(app)
     r = client.get(
         "/api/cost/by-workflow?since=not-a-date",
-        headers={"X-Dev-User": "alice", "X-Dev-Groups": "viewers"},
+        headers={"X-Dev-User": "alice", "X-Dev-Groups": "org-viewers"},
     )
     assert r.status_code == 400

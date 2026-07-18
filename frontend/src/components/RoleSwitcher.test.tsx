@@ -37,15 +37,15 @@ describe('RoleSwitcher', () => {
   });
 
   it('reads a known role from localStorage', () => {
-    localStorage.setItem('wp.groups', 'viewers');
+    localStorage.setItem('wp.groups', 'org-viewers');
     render(<RoleSwitcher />);
-    expect(selectEl().value).toBe('viewers');
+    expect(selectEl().value).toBe('org-viewers');
   });
 
   it('onChange writes localStorage, sets default user, and reloads', () => {
     render(<RoleSwitcher />);
-    fireEvent.change(selectEl(), { target: { value: 'operators' } });
-    expect(localStorage.getItem('wp.groups')).toBe('operators');
+    fireEvent.change(selectEl(), { target: { value: 'org-users' } });
+    expect(localStorage.getItem('wp.groups')).toBe('org-users');
     expect(localStorage.getItem('wp.user')).toBe('dev-user');
     expect(window.location.reload).toHaveBeenCalledTimes(1);
   });
@@ -53,9 +53,9 @@ describe('RoleSwitcher', () => {
   it('preserves a pre-existing username', () => {
     localStorage.setItem('wp.user', 'alice');
     render(<RoleSwitcher />);
-    fireEvent.change(selectEl(), { target: { value: 'auditors' } });
+    fireEvent.change(selectEl(), { target: { value: 'org-admins' } });
     expect(localStorage.getItem('wp.user')).toBe('alice');
-    expect(localStorage.getItem('wp.groups')).toBe('auditors');
+    expect(localStorage.getItem('wp.groups')).toBe('org-admins');
   });
 
   it('hides itself when the backend reports a non-dev auth mode', async () => {

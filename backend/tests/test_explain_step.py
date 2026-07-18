@@ -38,7 +38,7 @@ _WF = {
     "edges": [{"from": "classify", "to": "route"}],
 }
 
-_H = {"X-Dev-User": "a", "X-Dev-Groups": "viewers"}
+_H = {"X-Dev-User": "a", "X-Dev-Groups": "org-viewers"}
 
 
 def _seed(repos: Any) -> str:

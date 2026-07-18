@@ -33,13 +33,13 @@ from workflow_platform.workflow import load_definition
 
 def test_default_group_to_role_map() -> None:
     mapping = load_group_to_role_map()
-    assert mapping["admins"] == Role.ADMIN.value
-    assert mapping["operators"] == Role.OPERATOR.value
+    assert mapping["admins"] == Role.ADMINISTRATOR.value
+    assert mapping["org-users"] == Role.ORG_USER.value
 
 
 def test_assign_roles_uses_mapping(monkeypatch: pytest.MonkeyPatch) -> None:
-    monkeypatch.setenv("OIDC_GROUP_TO_ROLE", '{"finance-leads": "Admin"}')
-    assert assign_roles(["finance-leads", "unknown"]) == ["Admin"]
+    monkeypatch.setenv("OIDC_GROUP_TO_ROLE", '{"finance-leads": "Administrator"}')
+    assert assign_roles(["finance-leads", "unknown"]) == ["Administrator"]
 
 
 def test_assign_roles_drops_unmapped() -> None:
@@ -79,7 +79,7 @@ def signed_token_factory(monkeypatch: pytest.MonkeyPatch) -> Any:
             "exp": int((now + dt.timedelta(minutes=5)).timestamp()),
             "email": "alice@example.com",
             "name": "Alice",
-            "groups": ["operators"],
+            "groups": ["org-users"],
         }
         claims.update(claims_overrides or {})
         token = pyjwt.encode(claims, private_pem, algorithm="RS256")
@@ -102,8 +102,8 @@ async def test_oidc_validator_accepts_valid_token(signed_token_factory: Any) -> 
     assert isinstance(user, UserIdentity)
     assert user.sub == "user-123"
     assert user.email == "alice@example.com"
-    assert user.groups == ["operators"]
-    assert user.roles == [Role.OPERATOR.value]
+    assert user.groups == ["org-users"]
+    assert user.roles == [Role.ORG_USER.value]
 
 
 async def test_oidc_validator_rejects_expired_token(signed_token_factory: Any) -> None:
@@ -186,14 +186,17 @@ def test_protected_endpoint_requires_dev_user(dev_app: TestClient) -> None:
 
 def test_protected_endpoint_with_dev_user(dev_app: TestClient) -> None:
     response = dev_app.get(
-        "/api/workflows", headers={"X-Dev-User": "alice", "X-Dev-Groups": "viewers"}
+        "/api/workflows", headers={"X-Dev-User": "alice", "X-Dev-Groups": "org-viewers"}
     )
     assert response.status_code == 200
     assert response.json()[0]["id"] == "wf-1"
 
 
-def test_audit_endpoint_forbidden_to_viewer(dev_app: TestClient) -> None:
-    response = dev_app.get("/api/audit", headers={"X-Dev-User": "alice", "X-Dev-Groups": "viewers"})
+def test_audit_endpoint_forbidden_without_a_role(dev_app: TestClient) -> None:
+    # Authenticated but role-less (unmapped group): reads still need a role.
+    response = dev_app.get(
+        "/api/audit", headers={"X-Dev-User": "alice", "X-Dev-Groups": "contractors"}
+    )
     assert response.status_code == 403
 
 
@@ -202,9 +205,11 @@ def test_audit_endpoint_allowed_for_admin(dev_app: TestClient) -> None:
     assert response.status_code == 200
 
 
-def test_audit_endpoint_allowed_for_auditor(dev_app: TestClient) -> None:
+def test_audit_endpoint_allowed_for_org_viewer(dev_app: TestClient) -> None:
+    # ROLES_PLAN §4c accepted expansion: read-only users see the audit log
+    # (org-scoped from S2) — the trust wedge's transparency surface.
     response = dev_app.get(
-        "/api/audit", headers={"X-Dev-User": "audit", "X-Dev-Groups": "auditors"}
+        "/api/audit", headers={"X-Dev-User": "vera", "X-Dev-Groups": "org-viewers"}
     )
     assert response.status_code == 200
 

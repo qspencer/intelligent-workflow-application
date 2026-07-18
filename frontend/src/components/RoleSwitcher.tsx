@@ -41,11 +41,10 @@ export function RoleSwitcher() {
       <label>
         <span className="label">Acting as</span>
         <select value={value} onChange={onChange}>
-          <option value="admins">Admin</option>
-          <option value="designers">Workflow Designer</option>
-          <option value="operators">Operator</option>
-          <option value="viewers">Viewer</option>
-          <option value="auditors">Auditor</option>
+          <option value="admins">Administrator</option>
+          <option value="org-admins">Organization Administrator</option>
+          <option value="org-users">Organization User</option>
+          <option value="org-viewers">Organization Viewer</option>
         </select>
       </label>
     </div>

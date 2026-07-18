@@ -24,16 +24,16 @@ describe('auth', () => {
   });
 
   it('falls back to default user but keeps custom groups', () => {
-    localStorage.setItem('wp.groups', 'operators');
+    localStorage.setItem('wp.groups', 'org-users');
     expect(currentUser()).toBe('dev-user');
-    expect(currentGroups()).toBe('operators');
+    expect(currentGroups()).toBe('org-users');
   });
 
   it('hasRole matches the effective group (admins when unset)', () => {
     expect(hasRole(['admins'])).toBe(true);
-    expect(hasRole(['operators'])).toBe(false);
-    localStorage.setItem('wp.groups', 'operators');
-    expect(hasRole(['admins', 'operators'])).toBe(true);
-    expect(hasRole(['designers'])).toBe(false);
+    expect(hasRole(['org-users'])).toBe(false);
+    localStorage.setItem('wp.groups', 'org-users');
+    expect(hasRole(['admins', 'org-users'])).toBe(true);
+    expect(hasRole(['org-viewers'])).toBe(false);
   });
 });

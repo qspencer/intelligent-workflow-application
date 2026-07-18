@@ -96,11 +96,11 @@ def _seed_escalation(repos: Any, *, instance_id: str = "i-1") -> str:
 
 
 def _operator() -> dict[str, str]:
-    return {"X-Dev-User": "alice", "X-Dev-Groups": "operators"}
+    return {"X-Dev-User": "alice", "X-Dev-Groups": "org-users"}
 
 
 def _viewer() -> dict[str, str]:
-    return {"X-Dev-User": "bob", "X-Dev-Groups": "viewers"}
+    return {"X-Dev-User": "bob", "X-Dev-Groups": "org-viewers"}
 
 
 @pytest.fixture

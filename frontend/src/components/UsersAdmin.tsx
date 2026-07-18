@@ -5,7 +5,12 @@ import { fmtShort } from '../lib/format';
 import { Skeleton } from './Skeleton';
 import type { PlatformUser } from '../types';
 
-const ALL_ROLES = ['Admin', 'Workflow Designer', 'Operator', 'Viewer', 'Auditor'];
+const ALL_ROLES = [
+  'Administrator',
+  'Organization Administrator',
+  'Organization User',
+  'Organization Viewer',
+];
 
 interface EditState {
   user: PlatformUser;
@@ -164,7 +169,7 @@ function CreateUserDialog({
   const [email, setEmail] = useState('');
   const [displayName, setDisplayName] = useState('');
   const [password, setPassword] = useState('');
-  const [roles, setRoles] = useState<string[]>(['Viewer']);
+  const [roles, setRoles] = useState<string[]>(['Organization Viewer']);
   const [error, setError] = useState<string | null>(null);
 
   async function onSubmit(event: FormEvent): Promise<void> {

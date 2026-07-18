@@ -15,7 +15,7 @@ from workflow_platform.workflow import load_definition
 from workflow_platform.world import mock_world
 
 _ADMIN = {"X-Dev-User": "a", "X-Dev-Groups": "admins"}
-_VIEWER = {"X-Dev-User": "v", "X-Dev-Groups": "viewers"}
+_VIEWER = {"X-Dev-User": "v", "X-Dev-Groups": "org-viewers"}
 
 # A deterministic noop workflow runs to completion with no Bedrock calls.
 _WF = {

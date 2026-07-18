@@ -86,11 +86,11 @@ def test_yaml_loader_rejects_non_mapping() -> None:
 
 
 def _designer() -> dict[str, str]:
-    return {"X-Dev-User": "alice", "X-Dev-Groups": "designers"}
+    return {"X-Dev-User": "alice", "X-Dev-Groups": "org-users"}
 
 
 def _viewer() -> dict[str, str]:
-    return {"X-Dev-User": "bob", "X-Dev-Groups": "viewers"}
+    return {"X-Dev-User": "bob", "X-Dev-Groups": "org-viewers"}
 
 
 @pytest.fixture

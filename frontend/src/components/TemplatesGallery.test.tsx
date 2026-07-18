@@ -19,7 +19,7 @@ const TEMPLATES: WorkflowTemplate[] = [
 describe('TemplatesGallery', () => {
   beforeEach(() => {
     localStorage.clear();
-    localStorage.setItem('wp.groups', 'designers');
+    localStorage.setItem('wp.groups', 'org-users');
     vi.spyOn(api, 'listTemplates').mockResolvedValue(TEMPLATES);
   });
   afterEach(() => {

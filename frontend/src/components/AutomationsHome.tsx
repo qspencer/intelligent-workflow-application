@@ -55,7 +55,7 @@ export function AutomationsHome() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
-  const canCreate = hasRole(['admins', 'designers']);
+  const canCreate = hasRole(['admins', 'org-admins', 'org-users']);
 
   const refresh = useCallback(async (): Promise<void> => {
     setLoading(true);

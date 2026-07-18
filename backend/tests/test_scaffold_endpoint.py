@@ -132,7 +132,7 @@ def test_scaffold_role_gated(monkeypatch: pytest.MonkeyPatch) -> None:
     r = _client(repos, _engine(repos, json.dumps(_GOOD_WORKFLOW))).post(
         "/api/workflows/scaffold",
         json={"description": "x"},
-        headers={"X-Dev-User": "v", "X-Dev-Groups": "viewers"},
+        headers={"X-Dev-User": "v", "X-Dev-Groups": "org-viewers"},
     )
     assert r.status_code == 403
 

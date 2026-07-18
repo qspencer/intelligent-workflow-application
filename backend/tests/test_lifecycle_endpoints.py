@@ -79,7 +79,7 @@ def _admin() -> dict[str, str]:
 
 
 def _viewer() -> dict[str, str]:
-    return {"X-Dev-User": "bob", "X-Dev-Groups": "viewers"}
+    return {"X-Dev-User": "bob", "X-Dev-Groups": "org-viewers"}
 
 
 def test_list_instances_returns_seeded(dev_app: tuple[TestClient, Any, WorkflowEngine]) -> None:

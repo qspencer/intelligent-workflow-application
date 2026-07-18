@@ -173,7 +173,7 @@ calls.
 endpoint → frontend. Auto-tests cover each leg in isolation.
 
 ```bash
-# Designer or Admin role required.
+# A write role (Administrator / Org Admin / Org User) required.
 curl -s -X POST \
   -H 'X-Dev-User: alice' \
   -H 'X-Dev-Groups: admins' \
@@ -234,7 +234,7 @@ edges: []
 policies: {}
 ```
 
-Open its canvas → click **Run** (Admin/Operator) → a **form** generated from
+Open its canvas → click **Run** (any write role) → a **form** generated from
 `example_payload` opens (a `note` field — no JSON). Click Run → the canvas
 flips to a **live view** (`?instance=…`): the node colors to "✓ Done" and a
 footer shows the instance state + "N of M steps". For a real agentic run, do
@@ -242,9 +242,9 @@ the same on `pdf-classifier` with live Bedrock (section 5) and watch nodes go
 "Running…" → "Done". The **"View on canvas"** link on any `/instances/:id`
 page opens this same live view.
 
-**C4 — edit mode (no AWS), Admin/Designer only:**
-- Click **Edit** on a workflow's canvas — the button only appears for Admin /
-  Designer (flip "Acting as" to Operator and confirm it disappears). Header
+**C4 — edit mode (no AWS), write roles only:**
+- Click **Edit** on a workflow's canvas — the button only appears for write
+  roles (flip "Acting as" to Organization Viewer and confirm it disappears). Header
   pill: **"Editing"**, with Save / Discard.
 - Select the agentic step → change **model** or **max_total_tokens**. Save is
   disabled until something changes.
@@ -266,7 +266,7 @@ page opens this same live view.
 
 **Pass when:** the graph renders correctly; the Run form generates from the
 example payload; a deterministic run shows live "Done" status; an edit saves +
-persists; and the Edit button is hidden for non-Designer roles.
+persists; and the Edit button is hidden for Organization Viewer.
 
 > **The trust-wedge (C6) and authoring (C7) surfaces — Test/dry-run, cost
 > estimate, capability boundaries, explain-this-run, the catalog pickers,
@@ -646,8 +646,8 @@ role gates on audit / lifecycle / import endpoints work as advertised.
 entry; manual is for "did I configure the right roles for what I'm doing?"
 
 ```bash
-# Viewer can read but not retry
-curl -i -s -X POST -H 'X-Dev-User: bob' -H 'X-Dev-Groups: viewers' \
+# Organization Viewer can read but not retry (run is a spend action)
+curl -i -s -X POST -H 'X-Dev-User: bob' -H 'X-Dev-Groups: org-viewers' \
   http://localhost:8001/api/workflow-instances/no-such-id/retry | head -3
 # → HTTP/1.1 403 Forbidden  (or 404 if you flip the header to admins, since
 #    the instance id doesn't exist)
@@ -657,19 +657,21 @@ curl -i -s -X POST -H 'X-Dev-User: alice' -H 'X-Dev-Groups: admins' \
   http://localhost:8001/api/workflow-instances/no-such-id/retry | head -3
 # → HTTP/1.1 404 Not Found
 
-# Auditor can read /api/audit, viewer cannot
+# Any role can read /api/audit (ROLES_PLAN §4c: org-scoped audit is the
+# trust wedge's transparency surface); a role-less identity cannot.
 curl -s -o /dev/null -w '%{http_code}\n' \
-  -H 'X-Dev-User: a' -H 'X-Dev-Groups: auditors' \
+  -H 'X-Dev-User: a' -H 'X-Dev-Groups: org-viewers' \
   http://localhost:8001/api/audit
 # → 200
 
 curl -s -o /dev/null -w '%{http_code}\n' \
-  -H 'X-Dev-User: b' -H 'X-Dev-Groups: viewers' \
+  -H 'X-Dev-User: b' -H 'X-Dev-Groups: contractors' \
   http://localhost:8001/api/audit
 # → 403
 ```
 
-The five roles (Admin, Workflow Designer, Operator, Viewer, Auditor) and the
+The four roles (Administrator, Organization Administrator, Organization User,
+Organization Viewer — `docs/ROLES_PLAN.md`) and the
 group-name → role mapping are in `backend/src/workflow_platform/auth/rbac.py`.
 
 **Pass when:** the four expected status codes match (403 / 404 / 200 / 403).
@@ -949,7 +951,7 @@ the moment.
 
 1. **Dashboard "Run" button.** Workflows page → each row has a Run
    button that opens a JSON-payload dialog → `POST
-   /api/workflows/{id}/run` (Admin/Operator). The dashboard navigates
+   /api/workflows/{id}/run` (write roles). The dashboard navigates
    straight to the new instance's detail view on success. Same page
    also has an "Import workflow" dialog wired to
    `POST /api/workflows/import`. A workflow's **canvas** (section 3b)
