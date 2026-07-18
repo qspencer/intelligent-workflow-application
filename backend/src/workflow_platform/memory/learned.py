@@ -38,6 +38,15 @@ logger = logging.getLogger(__name__)
 DEFAULT_LEARNED_MEMORY_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
 
 
+def memory_namespace(org_id: str, user_key: str) -> str:
+    """Tenant-scoped store partition key (ROLES_PLAN §9): the org is part of
+    the key, so learned memory can never leak across tenants. `user_key` is
+    the workflow's logical memory owner (e.g. a mailbox address) — the
+    org:<id>:user:<key> shape was pre-announced to the veracium side
+    (COORDINATION.md 2026-07-18) so 0.3.x never assumes flat keys."""
+    return f"org:{org_id}:user:{user_key}"
+
+
 def normalize_entity(value: str) -> str:
     """Normalize an entity key before it touches recall (G10 security
     requirement #2: sender-derived keys are attacker-chosen strings).

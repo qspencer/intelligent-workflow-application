@@ -34,7 +34,7 @@ from workflow_platform.engine import (
 from workflow_platform.engine.context import WorkflowContext
 from workflow_platform.engine.executor import _render_observation_template
 from workflow_platform.main import create_app
-from workflow_platform.memory import LearnedMemoryService
+from workflow_platform.memory import LearnedMemoryService, memory_namespace
 from workflow_platform.persistence import (
     WorkflowInstanceState,
     in_memory_repositories,
@@ -186,7 +186,7 @@ def test_engine_observes_after_completed_run(tmp_path: Path) -> None:
     observed = [e for e in entries if e.action == "memory_observed"]
     assert len(observed) == 2
     assert observed[0].actor_type == "engine"
-    assert observed[0].detail["user_id"] == "alice@example.com"
+    assert observed[0].detail["user_id"] == memory_namespace("default", "alice@example.com")
     assert observed[0].detail["evidence_ref"] == "m-1"
     assert observed[0].detail["text_hash"].startswith("sha256:")
     assert observed[1].detail["evidence_ref"] is None
@@ -408,9 +408,13 @@ def test_normalize_entity() -> None:
 
 
 def _seeded_service(
-    tmp_path: Path, extra_responses: list[dict[str, Any]]
+    tmp_path: Path,
+    extra_responses: list[dict[str, Any]],
+    user_id: str = "alice@example.com",
 ) -> tuple[LearnedMemoryService, FakeBedrock]:
-    """Store with one quarantined claim + one fact about promo@vendor.com."""
+    """Store with one quarantined claim + one fact about promo@vendor.com.
+    Engine-path tests seed under the org-namespaced key (ROLES_PLAN §9);
+    service-level tests use the raw key they query with."""
     seed = text_response(
         json.dumps(
             {
@@ -437,7 +441,7 @@ def _seeded_service(
     service = _service(tmp_path, bedrock)
     asyncio.run(
         service.observe(
-            "alice@example.com",
+            user_id,
             "Triage classified mail from promo@vendor.com as fyi",
             author="system",
             derived_from="third_party",
@@ -462,7 +466,11 @@ def test_engine_injects_recall_verbatim_with_fence(tmp_path: Path) -> None:
     VERBATIM — never-assert fence intact — and the entity key is normalized
     (raw trigger has case + plus-addressing; the store key does not)."""
     repos = in_memory_repositories()
-    service, bedrock = _seeded_service(tmp_path, [text_response('{"category":"fyi"}')])
+    service, bedrock = _seeded_service(
+        tmp_path,
+        user_id=memory_namespace("default", "alice@example.com"),
+        extra_responses=[text_response('{"category":"fyi"}')],
+    )
     engine = _engine(repos, bedrock, service)
 
     from workflow_platform.workflow import load_definition
@@ -567,6 +575,7 @@ def test_dry_run_snapshot_reads_real_store_without_writing_it(
             text_response('{"category":"fyi"}'),  # dry-run agent call
             _distill_response(),  # dry-run post-run observe (goes to the copy)
         ],
+        user_id=memory_namespace("default", "alice@example.com"),
     )
     conn = sqlite3.connect(tmp_path / "learned.db")
     episodes_before = conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
@@ -606,7 +615,11 @@ def test_recall_records_act_time_uses(tmp_path: Path) -> None:
     """Every recalled-and-injected edge gets an `unreviewed` outcome event
     keyed by evidence_ref = instance id (act-time semantics)."""
     repos = in_memory_repositories()
-    service, bedrock = _seeded_service(tmp_path, [text_response('{"category":"fyi"}')])
+    service, bedrock = _seeded_service(
+        tmp_path,
+        user_id=memory_namespace("default", "alice@example.com"),
+        extra_responses=[text_response('{"category":"fyi"}')],
+    )
     engine = _engine(repos, bedrock, service)
 
     from workflow_platform.workflow import load_definition
@@ -620,7 +633,7 @@ def test_recall_records_act_time_uses(tmp_path: Path) -> None:
     memory = service._get_memory()
     outcome_eps = [
         ep
-        for ep in memory.store.episodes("alice@example.com")
+        for ep in memory.store.episodes(memory_namespace("default", "alice@example.com"))
         if getattr(ep, "kind", "") == "outcome"
     ]
     service.close()
@@ -682,6 +695,7 @@ def test_fork_records_correction_when_verdict_changes(tmp_path: Path) -> None:
             text_response('{"category": "spam", "confidence": 0.9, "summary": "s"}'),
             text_response('{"category": "promotion", "confidence": 0.9, "summary": "s"}'),
         ],
+        user_id=memory_namespace("default", "alice@example.com"),
     )
     engine = _engine(repos, bedrock, service)
 
@@ -724,7 +738,7 @@ def test_fork_records_correction_when_verdict_changes(tmp_path: Path) -> None:
     memory = service._get_memory()
     corrected = [
         ep
-        for ep in memory.store.episodes("alice@example.com")
+        for ep in memory.store.episodes(memory_namespace("default", "alice@example.com"))
         if getattr(ep, "kind", "") == "outcome"
         and ep.provenance.evidence_ref == source.id
         and ep.outcome.value == "corrected"

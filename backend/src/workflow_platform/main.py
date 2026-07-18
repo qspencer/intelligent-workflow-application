@@ -143,6 +143,11 @@ def _dev_error_buffer() -> ErrorBuffer:
     return _DEV_ERROR_BUFFER
 
 
+async def _instance_org(repositories: Repositories, instance_id: str) -> str | None:
+    instance = await repositories.instances.get(instance_id)
+    return instance.org_id if instance else None
+
+
 def create_app(
     repositories: Repositories | None = None,
     *,
@@ -161,6 +166,9 @@ def create_app(
     metrics = metrics or PrometheusMetrics()
     webhook_registry = webhook_registry or WebhookRegistry()
     events = events or EventBus()
+    # ROLES_PLAN §4b: stamp events with their instance's org at emit time so
+    # the WS filter is a plain field compare.
+    events.set_org_resolver(lambda iid: _instance_org(repositories, iid))
     memory_dir = os.environ.get("WORKFLOW_PLATFORM_MEMORY_DIR", ".memory")
     memory = MemoryManager(memory_dir)
     secret_store = secret_store or _default_secret_store()
@@ -223,7 +231,7 @@ def create_app(
             secret_store=secret_store,
         )
     )
-    app.include_router(build_ws_router(events, local_auth=local_auth))
+    app.include_router(build_ws_router(events, local_auth=local_auth, repositories=repositories))
     app.include_router(build_users_router(repositories))
     if auth_mode() == "local":
         app.include_router(build_auth_router(local_auth))

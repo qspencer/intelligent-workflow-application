@@ -59,11 +59,15 @@ class CostReportService:
         self.repositories = repositories
         self.sample_limit = sample_limit
 
-    async def _sample(self, since: datetime | None) -> list[tuple[str, dict[str, Any], bool]]:
+    async def _sample(
+        self, since: datetime | None, org_id: str | None = None
+    ) -> list[tuple[str, dict[str, Any], bool]]:
         """Return (workflow_id, output_dict, is_dry_run) tuples for recent
         COMPLETED steps that have a `cost_usd` field. Skips deterministic /
         failed / skipped steps and steps without usage."""
-        executions = await self.repositories.steps.list_recent(limit=self.sample_limit, since=since)
+        executions = await self.repositories.steps.list_recent(
+            limit=self.sample_limit, since=since, org_id=org_id
+        )
         sampled: list[tuple[str, dict[str, Any], bool]] = []
         instance_info: dict[str, tuple[str, bool]] = {}
         for exe in executions:
@@ -82,11 +86,13 @@ class CostReportService:
             sampled.append((info[0], output, info[1]))
         return sampled
 
-    async def by_workflow(self, since: datetime | None = None) -> list[CostRow]:
+    async def by_workflow(
+        self, since: datetime | None = None, org_id: str | None = None
+    ) -> list[CostRow]:
         return _group(
             [
                 (f"{workflow_id} (dry-run)" if dry else workflow_id, output)
-                for workflow_id, output, dry in await self._sample(since)
+                for workflow_id, output, dry in await self._sample(since, org_id)
             ]
         )
 
@@ -128,21 +134,27 @@ class CostReportService:
             total_tokens=total_tokens,
         )
 
-    async def by_model(self, since: datetime | None = None) -> list[CostRow]:
+    async def by_model(
+        self, since: datetime | None = None, org_id: str | None = None
+    ) -> list[CostRow]:
         # Spend view: dry-run tokens are real Bedrock spend, so include them.
         return _group(
             [
                 (str(output.get("model", "<unknown>")), output)
-                for _, output, _dry in await self._sample(since)
+                for _, output, _dry in await self._sample(since, org_id)
             ]
         )
 
-    async def by_day(self, since: datetime | None = None) -> list[CostRow]:
+    async def by_day(
+        self, since: datetime | None = None, org_id: str | None = None
+    ) -> list[CostRow]:
         # Use the started_at of the step execution; for week 8 we approximate
         # by re-fetching in a second pass. Keep this O(N) — listed step
         # executions already include started_at, so reuse rather than
         # re-querying.
-        executions = await self.repositories.steps.list_recent(limit=self.sample_limit, since=since)
+        executions = await self.repositories.steps.list_recent(
+            limit=self.sample_limit, since=since, org_id=org_id
+        )
         groups: dict[str, list[dict[str, Any]]] = defaultdict(list)
         for exe in executions:
             if exe.state != StepExecutionState.COMPLETED:

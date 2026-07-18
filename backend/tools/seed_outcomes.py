@@ -36,7 +36,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from workflow_platform.bedrock import BedrockClient
-from workflow_platform.memory import LearnedMemoryService, normalize_entity
+from workflow_platform.memory import LearnedMemoryService, memory_namespace, normalize_entity
 from workflow_platform.persistence import Repositories, WorkflowInstanceState
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
@@ -117,6 +117,9 @@ async def run(args: argparse.Namespace) -> int:
                 }
             )
     print(f"events to record: {len(events)} (judge first, then human labels)")
+    # Offline seeder for the (single-org) email-triage store: every source run
+    # lives in the default org. Resolve per-instance if that ever changes.
+    namespace = memory_namespace("default", spec.user_id)
 
     stats: Counter[str] = Counter()
     recall_cache: dict[str, list[str]] = {}
@@ -128,7 +131,7 @@ async def run(args: argparse.Namespace) -> int:
         instance_id, sender, mem_hash = run_info
         entity = normalize_entity(sender)
         if entity not in recall_cache:
-            recalled = await service.recall_context(spec.user_id, entity, token_budget=600)
+            recalled = await service.recall_context(namespace, entity, token_budget=600)
             recall_cache[entity] = recalled.edge_ids
         edge_ids = recall_cache[entity]
         if not edge_ids:
@@ -138,7 +141,7 @@ async def run(args: argparse.Namespace) -> int:
             stats[f"would_{ev['outcome']}"] += 1
             continue
         result = await service.record_outcomes(
-            spec.user_id,
+            namespace,
             edge_ids,
             outcome=str(ev["outcome"]),
             evidence_ref=instance_id,

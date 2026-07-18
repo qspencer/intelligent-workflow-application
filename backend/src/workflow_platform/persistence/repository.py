@@ -42,7 +42,13 @@ class DefinitionRepo(ABC):
     async def get(self, definition_id: str) -> WorkflowDefinition | None: ...
 
     @abstractmethod
-    async def list_all(self) -> list[WorkflowDefinition]: ...
+    async def list_all(self, org_id: str | None = None) -> list[WorkflowDefinition]:
+        """All definitions, optionally scoped to one org (ROLES_PLAN S2)."""
+
+    @abstractmethod
+    async def org_of(self, definition_id: str) -> str | None:
+        """The owning org of a definition, or None if it doesn't exist.
+        Definitions' org lives on the row, not the YAML-shaped model."""
 
     @abstractmethod
     async def delete(self, definition_id: str) -> bool:
@@ -68,24 +74,27 @@ class InstanceRepo(ABC):
 
     @abstractmethod
     async def delete_by_states(
-        self, states: list[str], workflow_id: str | None = None
+        self, states: list[str], workflow_id: str | None = None, org_id: str | None = None
     ) -> list[str]:
         """Bulk hard-delete instances in any of the given states. Optionally
-        scope to one workflow_id. Returns the deleted instance IDs so
+        scope to one workflow_id and/or one org. Returns the deleted instance IDs so
         callers can cascade step_execution deletes. Audit entries left
         intact, same as single-instance delete."""
 
     @abstractmethod
-    async def list_by_workflow(self, workflow_id: str) -> list[WorkflowInstance]: ...
+    async def list_by_workflow(
+        self, workflow_id: str, org_id: str | None = None
+    ) -> list[WorkflowInstance]: ...
 
     @abstractmethod
     async def list_recent(
-        self, limit: int = 1000, since: datetime | None = None
+        self, limit: int = 1000, since: datetime | None = None, org_id: str | None = None
     ) -> list[WorkflowInstance]:
-        """System-wide list of instances ordered by created_at DESC."""
+        """System-wide list of instances ordered by created_at DESC,
+        optionally scoped to one org."""
 
     @abstractmethod
-    async def count_by_workflow(self) -> dict[str, int]:
+    async def count_by_workflow(self, org_id: str | None = None) -> dict[str, int]:
         """Return a `{workflow_id: instance_count}` map across all instances.
         Used by the workflows list page to show how many runs each
         definition has accumulated."""
@@ -114,9 +123,10 @@ class StepExecutionRepo(ABC):
 
     @abstractmethod
     async def list_recent(
-        self, limit: int = 1000, since: datetime | None = None
+        self, limit: int = 1000, since: datetime | None = None, org_id: str | None = None
     ) -> list[StepExecution]:
-        """Recent step executions, newest first (by started_at)."""
+        """Recent step executions, newest first (by started_at). `org_id`
+        scopes via the owning instance (ROLES_PLAN §4b join)."""
 
 
 class OrganizationRepo(ABC):
@@ -201,7 +211,10 @@ class AuditRepo(ABC):
     async def append(self, entry: AuditEntry) -> AuditEntry: ...
 
     @abstractmethod
-    async def list_recent(self, limit: int = 100) -> list[AuditEntry]: ...
+    async def list_recent(self, limit: int = 100, org_id: str | None = None) -> list[AuditEntry]:
+        """Recent entries, newest first. With `org_id`: only entries whose
+        instance belongs to that org — instance-less (system) entries are
+        excluded; they are platform-operator data (ROLES_PLAN §4b)."""
 
     @abstractmethod
     async def list_by_instance(self, instance_id: str) -> list[AuditEntry]: ...

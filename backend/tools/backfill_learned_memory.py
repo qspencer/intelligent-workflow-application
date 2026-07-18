@@ -38,7 +38,7 @@ from workflow_platform.engine.executor import (
     _render_observation_template,
     _resolve_context_value,
 )
-from workflow_platform.memory import LearnedMemoryService
+from workflow_platform.memory import LearnedMemoryService, memory_namespace
 from workflow_platform.persistence import (
     AuditEntry,
     Repositories,
@@ -84,7 +84,7 @@ async def backfill(args: argparse.Namespace) -> int:
     learned_db = os.environ.get("WORKFLOW_PLATFORM_LEARNED_MEMORY_DB", str(DEFAULT_LEARNED_DB))
     service = LearnedMemoryService(bedrock, learned_db)
     print(f"workflow    : {definition.id}")
-    print(f"memory user : {spec.user_id}")
+    print(f"memory user : {spec.user_id} (namespaced per instance org, ROLES_PLAN §9)")
     print(f"store       : {learned_db}")
     print(f"bedrock     : mode={bedrock.mode.value} model={service.model_id}")
 
@@ -134,7 +134,7 @@ async def backfill(args: argparse.Namespace) -> int:
                 date_raw = _resolve_context_value(context, obs.date_from)
                 ref_raw = _resolve_context_value(context, obs.ref_from)
                 result = await service.observe(
-                    spec.user_id,
+                    memory_namespace(instance.org_id, spec.user_id),
                     text,
                     author=obs.author,
                     event_type=obs.event_type,
@@ -149,7 +149,7 @@ async def backfill(args: argparse.Namespace) -> int:
                         action="memory_observed",
                         workflow_instance_id=instance.id,
                         detail={
-                            "user_id": spec.user_id,
+                            "user_id": memory_namespace(instance.org_id, spec.user_id),
                             "observation": index,
                             "backfill": True,
                             **result.model_dump(),

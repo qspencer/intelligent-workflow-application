@@ -83,11 +83,24 @@ class PostgresDefinitionRepo(DefinitionRepo):
             row = await s.get(WorkflowDefinitionRow, definition_id)
         return WorkflowDefinition.model_validate(row.body) if row else None
 
-    async def list_all(self) -> list[WorkflowDefinition]:
+    async def list_all(self, org_id: str | None = None) -> list[WorkflowDefinition]:
         async with self._sf() as s:
-            result = await s.execute(select(WorkflowDefinitionRow))
+            stmt = select(WorkflowDefinitionRow)
+            if org_id is not None:
+                stmt = stmt.where(WorkflowDefinitionRow.org_id == org_id)
+            result = await s.execute(stmt)
             rows = result.scalars().all()
         return [WorkflowDefinition.model_validate(r.body) for r in rows]
+
+    async def org_of(self, definition_id: str) -> str | None:
+        async with self._sf() as s:
+            result = await s.execute(
+                select(WorkflowDefinitionRow.org_id).where(
+                    WorkflowDefinitionRow.id == definition_id
+                )
+            )
+            row = result.first()
+            return row[0] if row else None
 
     async def delete(self, definition_id: str) -> bool:
         async with self._sf() as s, s.begin():
@@ -134,12 +147,14 @@ class PostgresInstanceRepo(InstanceRepo):
         return True
 
     async def delete_by_states(
-        self, states: list[str], workflow_id: str | None = None
+        self, states: list[str], workflow_id: str | None = None, org_id: str | None = None
     ) -> list[str]:
         async with self._sf() as s, s.begin():
             id_stmt = select(WorkflowInstanceRow.id).where(WorkflowInstanceRow.state.in_(states))
             if workflow_id is not None:
                 id_stmt = id_stmt.where(WorkflowInstanceRow.workflow_id == workflow_id)
+            if org_id is not None:
+                id_stmt = id_stmt.where(WorkflowInstanceRow.org_id == org_id)
             result = await s.execute(id_stmt)
             ids = [row[0] for row in result.all()]
             if ids:
@@ -148,31 +163,38 @@ class PostgresInstanceRepo(InstanceRepo):
                 )
         return ids
 
-    async def list_by_workflow(self, workflow_id: str) -> list[WorkflowInstance]:
+    async def list_by_workflow(
+        self, workflow_id: str, org_id: str | None = None
+    ) -> list[WorkflowInstance]:
         async with self._sf() as s:
-            result = await s.execute(
-                select(WorkflowInstanceRow).where(WorkflowInstanceRow.workflow_id == workflow_id)
-            )
+            stmt = select(WorkflowInstanceRow).where(WorkflowInstanceRow.workflow_id == workflow_id)
+            if org_id is not None:
+                stmt = stmt.where(WorkflowInstanceRow.org_id == org_id)
+            result = await s.execute(stmt)
             rows = result.scalars().all()
         return [_from_instance_row(r) for r in rows]
 
     async def list_recent(
-        self, limit: int = 1000, since: datetime | None = None
+        self, limit: int = 1000, since: datetime | None = None, org_id: str | None = None
     ) -> list[WorkflowInstance]:
         async with self._sf() as s:
             stmt = select(WorkflowInstanceRow).order_by(WorkflowInstanceRow.created_at.desc())
             if since is not None:
                 stmt = stmt.where(WorkflowInstanceRow.created_at >= since)
+            if org_id is not None:
+                stmt = stmt.where(WorkflowInstanceRow.org_id == org_id)
             stmt = stmt.limit(max(0, limit))
             result = await s.execute(stmt)
             rows = result.scalars().all()
         return [_from_instance_row(r) for r in rows]
 
-    async def count_by_workflow(self) -> dict[str, int]:
+    async def count_by_workflow(self, org_id: str | None = None) -> dict[str, int]:
         async with self._sf() as s:
             stmt = select(
                 WorkflowInstanceRow.workflow_id, func.count(WorkflowInstanceRow.id)
             ).group_by(WorkflowInstanceRow.workflow_id)
+            if org_id is not None:
+                stmt = stmt.where(WorkflowInstanceRow.org_id == org_id)
             result = await s.execute(stmt)
             return {row[0]: int(row[1]) for row in result.all()}
 
@@ -229,12 +251,17 @@ class PostgresStepExecutionRepo(StepExecutionRepo):
         return [_from_step_row(r) for r in rows]
 
     async def list_recent(
-        self, limit: int = 1000, since: datetime | None = None
+        self, limit: int = 1000, since: datetime | None = None, org_id: str | None = None
     ) -> list[StepExecution]:
         async with self._sf() as s:
             stmt = select(StepExecutionRow).order_by(StepExecutionRow.started_at.desc().nullslast())
             if since is not None:
                 stmt = stmt.where(StepExecutionRow.started_at >= since)
+            if org_id is not None:
+                # ROLES_PLAN §4b: steps carry no org; join through the instance.
+                stmt = stmt.join(
+                    WorkflowInstanceRow, StepExecutionRow.instance_id == WorkflowInstanceRow.id
+                ).where(WorkflowInstanceRow.org_id == org_id)
             stmt = stmt.limit(max(0, limit))
             result = await s.execute(stmt)
             rows = result.scalars().all()
@@ -261,11 +288,17 @@ class PostgresAuditRepo(AuditRepo):
             )
         return entry
 
-    async def list_recent(self, limit: int = 100) -> list[AuditEntry]:
+    async def list_recent(self, limit: int = 100, org_id: str | None = None) -> list[AuditEntry]:
         async with self._sf() as s:
-            result = await s.execute(
-                select(AuditLogRow).order_by(AuditLogRow.timestamp.desc()).limit(limit)
-            )
+            stmt = select(AuditLogRow).order_by(AuditLogRow.timestamp.desc())
+            if org_id is not None:
+                # ROLES_PLAN §4b: org-scope via the instance join; instance-less
+                # (system) entries are platform-operator data and drop out here.
+                stmt = stmt.join(
+                    WorkflowInstanceRow,
+                    AuditLogRow.workflow_instance_id == WorkflowInstanceRow.id,
+                ).where(WorkflowInstanceRow.org_id == org_id)
+            result = await s.execute(stmt.limit(limit))
             rows = list(result.scalars().all())
         return list(reversed([_from_audit_row(r) for r in rows]))
 

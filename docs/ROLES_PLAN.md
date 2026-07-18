@@ -1,7 +1,19 @@
 # Tenant-Scoped Roles — Design
 
-Status: **S1 shipped** (2026-07-18, same day as the design review; S2/S3
-not started). S1 delivered: the four-role vocabulary end to end (enum, group
+Status: **S1 + S2 shipped** (both 2026-07-18, same day as the design
+review; S3 org lifecycle not started). S2 delivered resource scoping end to
+end: `OrgScope` resolution on every §4-table endpoint (cross-org reads AND
+mutations 404 — no existence leaks), the §4b joins for audit/steps/cost
+(instance-less audit entries are Administrator-only), escalations scoped
+through their instance, bulk-delete org-bounded, `org_bypass` audited on
+Administrator cross-org mutations, event `org_id` enrichment at emit time +
+WS delivery filtering (system events to Administrators only), instances now
+inherit their definition's org at run/fork time, and the org-aware veracium
+namespace (`org:<org>:user:<key>`) live — engine + offline tools composed,
+the production store's 7,981 rows migrated (`tools/
+migrate_learned_namespace.py`), recall verified intact under the new keys.
+All seven §7 isolation criteria are test-pinned in
+`backend/tests/test_org_isolation.py`. S1 delivered: the four-role vocabulary end to end (enum, group
 map, RoleSwitcher, Users admin, `create_user.py`), Alembic `0005` data
 migration, the §4-table translation of every `require_roles` call site with
 the §4c expansions test-pinned, and org-scoped `/api/users` (Org Admins

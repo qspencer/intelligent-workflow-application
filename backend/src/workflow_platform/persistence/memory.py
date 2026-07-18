@@ -56,8 +56,19 @@ class InMemoryDefinitionRepo(DefinitionRepo):
     async def get(self, definition_id: str) -> WorkflowDefinition | None:
         return self._items.get(definition_id)
 
-    async def list_all(self) -> list[WorkflowDefinition]:
-        return list(self._items.values())
+    async def list_all(self, org_id: str | None = None) -> list[WorkflowDefinition]:
+        if org_id is None:
+            return list(self._items.values())
+        return [
+            d
+            for d in self._items.values()
+            if self._ownership.get(d.id, (DEFAULT_ORG_ID, None))[0] == org_id
+        ]
+
+    async def org_of(self, definition_id: str) -> str | None:
+        if definition_id not in self._items:
+            return None
+        return self._ownership.get(definition_id, (DEFAULT_ORG_ID, None))[0]
 
     async def delete(self, definition_id: str) -> bool:
         return self._items.pop(definition_id, None) is not None
@@ -87,42 +98,61 @@ class InMemoryInstanceRepo(InstanceRepo):
         return self._items.pop(instance_id, None) is not None
 
     async def delete_by_states(
-        self, states: list[str], workflow_id: str | None = None
+        self, states: list[str], workflow_id: str | None = None, org_id: str | None = None
     ) -> list[str]:
         state_set = set(states)
         to_delete = [
             i.id
             for i in self._items.values()
-            if i.state.value in state_set and (workflow_id is None or i.workflow_id == workflow_id)
+            if i.state.value in state_set
+            and (workflow_id is None or i.workflow_id == workflow_id)
+            and (org_id is None or i.org_id == org_id)
         ]
         for iid in to_delete:
             del self._items[iid]
         return to_delete
 
-    async def list_by_workflow(self, workflow_id: str) -> list[WorkflowInstance]:
+    async def list_by_workflow(
+        self, workflow_id: str, org_id: str | None = None
+    ) -> list[WorkflowInstance]:
         return [
-            i.model_copy(deep=True) for i in self._items.values() if i.workflow_id == workflow_id
+            i.model_copy(deep=True)
+            for i in self._items.values()
+            if i.workflow_id == workflow_id and (org_id is None or i.org_id == org_id)
         ]
 
     async def list_recent(
-        self, limit: int = 1000, since: datetime | None = None
+        self, limit: int = 1000, since: datetime | None = None, org_id: str | None = None
     ) -> list[WorkflowInstance]:
         items = list(self._items.values())
         if since is not None:
             items = [i for i in items if i.created_at >= since]
+        if org_id is not None:
+            items = [i for i in items if i.org_id == org_id]
         items.sort(key=lambda i: i.created_at, reverse=True)
         return [i.model_copy(deep=True) for i in items[: max(0, limit)]]
 
-    async def count_by_workflow(self) -> dict[str, int]:
+    async def count_by_workflow(self, org_id: str | None = None) -> dict[str, int]:
         out: dict[str, int] = {}
         for inst in self._items.values():
+            if org_id is not None and inst.org_id != org_id:
+                continue
             out[inst.workflow_id] = out.get(inst.workflow_id, 0) + 1
         return out
 
 
 class InMemoryStepExecutionRepo(StepExecutionRepo):
-    def __init__(self) -> None:
+    def __init__(self, instances: InMemoryInstanceRepo | None = None) -> None:
         self._items: dict[str, StepExecution] = {}
+        # For org scoping (ROLES_PLAN §4b join): steps carry no org; their
+        # instance does.
+        self._instances = instances
+
+    def _org_of_instance(self, instance_id: str) -> str | None:
+        if self._instances is None:
+            return None
+        item = self._instances._items.get(instance_id)
+        return item.org_id if item else None
 
     async def create(self, execution: StepExecution) -> StepExecution:
         if execution.id in self._items:
@@ -157,25 +187,44 @@ class InMemoryStepExecutionRepo(StepExecutionRepo):
         ]
 
     async def list_recent(
-        self, limit: int = 1000, since: datetime | None = None
+        self, limit: int = 1000, since: datetime | None = None, org_id: str | None = None
     ) -> list[StepExecution]:
         items = list(self._items.values())
         if since is not None:
             items = [e for e in items if e.started_at is not None and e.started_at >= since]
+        if org_id is not None:
+            items = [e for e in items if self._org_of_instance(e.instance_id) == org_id]
         items.sort(key=lambda e: e.started_at or datetime.min.replace(tzinfo=UTC), reverse=True)
         return [e.model_copy(deep=True) for e in items[: max(0, limit)]]
 
 
 class InMemoryAuditRepo(AuditRepo):
-    def __init__(self) -> None:
+    def __init__(self, instances: InMemoryInstanceRepo | None = None) -> None:
         self._entries: list[AuditEntry] = []
+        self._instances = instances
+
+    def _org_of_instance(self, instance_id: str) -> str | None:
+        if self._instances is None:
+            return None
+        item = self._instances._items.get(instance_id)
+        return item.org_id if item else None
 
     async def append(self, entry: AuditEntry) -> AuditEntry:
         self._entries.append(entry.model_copy(deep=True))
         return self._entries[-1]
 
-    async def list_recent(self, limit: int = 100) -> list[AuditEntry]:
-        return [deepcopy(e) for e in self._entries[-limit:]]
+    async def list_recent(self, limit: int = 100, org_id: str | None = None) -> list[AuditEntry]:
+        entries = self._entries
+        if org_id is not None:
+            # Instance-less (system) entries are platform-operator data —
+            # excluded from org-scoped listings (ROLES_PLAN §4b).
+            entries = [
+                e
+                for e in entries
+                if e.workflow_instance_id is not None
+                and self._org_of_instance(e.workflow_instance_id) == org_id
+            ]
+        return [deepcopy(e) for e in entries[-limit:]]
 
     async def list_by_instance(self, instance_id: str) -> list[AuditEntry]:
         return [deepcopy(e) for e in self._entries if e.workflow_instance_id == instance_id]
@@ -281,11 +330,12 @@ class InMemoryAuthSessionRepo(AuthSessionRepo):
 
 
 def in_memory_repositories() -> Repositories:
+    instances = InMemoryInstanceRepo()
     return Repositories(
         definitions=InMemoryDefinitionRepo(),
-        instances=InMemoryInstanceRepo(),
-        steps=InMemoryStepExecutionRepo(),
-        audit=InMemoryAuditRepo(),
+        instances=instances,
+        steps=InMemoryStepExecutionRepo(instances),
+        audit=InMemoryAuditRepo(instances),
         trigger_cursors=InMemoryTriggerCursorRepo(),
         organizations=InMemoryOrganizationRepo(),
         users=InMemoryUserRepo(),

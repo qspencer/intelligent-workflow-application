@@ -39,6 +39,7 @@ from workflow_platform.memory import (
     LearnedMemoryService,
     MemoryManager,
     RecalledMemory,
+    memory_namespace,
     normalize_entity,
 )
 from workflow_platform.observability import Metrics, NoopMetrics
@@ -168,8 +169,13 @@ class WorkflowEngine:
         validate_and_order(definition)
 
         started = _utcnow()
+        # Instances inherit their definition's org (ROLES_PLAN §2.6) — the
+        # engine stays org-blind; it just copies attribution forward so
+        # trigger-fired runs scope correctly too.
+        org_id = await self.repositories.definitions.org_of(definition.id) or "default"
         instance = WorkflowInstance(
             workflow_id=definition.id,
+            org_id=org_id,
             state=WorkflowInstanceState.RUNNING,
             trigger_payload=dict(trigger_payload or {}),
             started_at=started,
@@ -270,6 +276,7 @@ class WorkflowEngine:
         started = _utcnow()
         new_instance = WorkflowInstance(
             workflow_id=definition.id,
+            org_id=source.org_id,
             state=WorkflowInstanceState.RUNNING,
             trigger_payload=dict(source.trigger_payload),
             started_at=started,
@@ -347,13 +354,14 @@ class WorkflowEngine:
             if raw is None or not str(raw).strip():
                 return
             entity = normalize_entity(str(raw))
+            namespace = memory_namespace(result.org_id, spec.user_id)
             recalled = await self.learned_memory.recall_context(
-                spec.user_id, entity, token_budget=spec.recall.token_budget
+                namespace, entity, token_budget=spec.recall.token_budget
             )
             if not recalled.edge_ids:
                 return
             stats = await self.learned_memory.record_outcomes(
-                spec.user_id,
+                namespace,
                 recalled.edge_ids,
                 outcome="corrected",
                 evidence_ref=source_instance_id,
@@ -1079,9 +1087,11 @@ class WorkflowEngine:
         if raw is None or not str(raw).strip():
             return None
         entity = normalize_entity(str(raw))
+        instance = await self.repositories.instances.get(instance_id)
+        namespace = memory_namespace(instance.org_id if instance else "default", spec.user_id)
         try:
             recalled = await self.learned_memory.recall_context(
-                spec.user_id, entity, token_budget=spec.recall.token_budget
+                namespace, entity, token_budget=spec.recall.token_budget
             )
         except Exception as exc:
             logger.exception("learned-memory recall failed")
@@ -1098,7 +1108,7 @@ class WorkflowEngine:
         if recalled.edge_ids:
             try:
                 uses = await self.learned_memory.record_outcomes(
-                    spec.user_id,
+                    namespace,
                     recalled.edge_ids,
                     outcome="unreviewed",
                     evidence_ref=instance_id,
@@ -1114,7 +1124,7 @@ class WorkflowEngine:
             instance_id=instance_id,
             step_id=step_id,
             detail={
-                "user_id": spec.user_id,
+                "user_id": namespace,
                 "query": recalled.query,
                 "context_hash": recalled.context_hash,
                 "edges": recalled.edges,
@@ -1143,6 +1153,8 @@ class WorkflowEngine:
         spec = definition.learned_memory
         if spec is None:
             return
+        instance = await self.repositories.instances.get(instance_id)
+        namespace = memory_namespace(instance.org_id if instance else "default", spec.user_id)
         if self.learned_memory is None:
             await self._audit(
                 "memory_observe_skipped",
@@ -1169,7 +1181,7 @@ class WorkflowEngine:
             evidence_ref = str(ref_raw) if ref_raw is not None else None
             try:
                 result = await self.learned_memory.observe(
-                    spec.user_id,
+                    namespace,
                     text,
                     author=obs.author,
                     event_type=obs.event_type,
@@ -1196,7 +1208,7 @@ class WorkflowEngine:
                 actor_type="engine",
                 actor_id="learned_memory",
                 instance_id=instance_id,
-                detail={"user_id": spec.user_id, "observation": index, **result.model_dump()},
+                detail={"user_id": namespace, "observation": index, **result.model_dump()},
             )
 
     # --- repository helpers ---

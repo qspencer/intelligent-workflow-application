@@ -24,7 +24,10 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from workflow_platform.auth import OidcValidator, UserIdentity, assign_roles, auth_mode
 from workflow_platform.auth.local import SESSION_COOKIE, LocalAuthService
 from workflow_platform.auth.middleware import origin_allowed
+from workflow_platform.auth.provisioning import current_issuer
+from workflow_platform.auth.rbac import Role
 from workflow_platform.events import EventBus
+from workflow_platform.persistence import Repositories
 
 
 def _dev_user_from_query(ws: WebSocket) -> UserIdentity | None:
@@ -50,9 +53,27 @@ def build_ws_router(
     events: EventBus,
     validator: OidcValidator | None = None,
     local_auth: LocalAuthService | None = None,
+    repositories: Repositories | None = None,
 ) -> APIRouter:
     router = APIRouter()
     ws_validator = validator or OidcValidator()
+
+    async def _subscriber_org(user: UserIdentity) -> str | None:
+        """The org this subscriber's events are filtered to. None =
+        unscoped (Administrator). ROLES_PLAN §7.6: an org A subscriber never
+        receives an org B event; instance-less (org-less) system events go
+        to Administrators only."""
+        if Role.ADMINISTRATOR.value in user.roles:
+            return None
+        if repositories is None:
+            return "default"
+        row = await repositories.users.get_by_identity(current_issuer(), user.sub)
+        return row.org_id if row else "default"
+
+    def _deliver(event: dict[str, Any], subscriber_org: str | None) -> bool:
+        if subscriber_org is None:
+            return True
+        return event.get("org_id") == subscriber_org
 
     @router.websocket("/ws/events")
     async def events_socket(ws: WebSocket) -> None:
@@ -74,6 +95,7 @@ def build_ws_router(
             await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="auth required")
             return
 
+        subscriber_org = await _subscriber_org(user)
         await ws.accept()
         queue = events.subscribe()
         # Race the event queue against ws.receive(): receive() is how we
@@ -100,7 +122,8 @@ def build_ws_router(
                 if get_task in done:
                     event = get_task.result()
                     get_task = None
-                    await ws.send_json(event)
+                    if _deliver(event, subscriber_org):
+                        await ws.send_json(event)
         except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
             pass
         finally:

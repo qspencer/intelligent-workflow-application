@@ -31,6 +31,7 @@ from workflow_platform.auth import auth_mode, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.auth.provisioning import current_issuer
 from workflow_platform.auth.rbac import ANY_ROLE, ORG_WRITE_ROLES
+from workflow_platform.auth.scope import OrgScope, resolve_org_scope
 from workflow_platform.catalog import build_catalog
 from workflow_platform.cost import CostReportService, price_for_model
 from workflow_platform.engine import ToolCatalog, WorkflowEngine, default_function_registry
@@ -165,9 +166,71 @@ def build_router(
             )
         )
 
+    async def _org_scope(user: UserIdentity = Depends(current_user)) -> OrgScope:
+        return await resolve_org_scope(repositories, user)
+
+    async def _visible_definition(workflow_id: str, scope: OrgScope) -> None:
+        """404 when the definition belongs to another org (ROLES_PLAN §7.1:
+        cross-org resources are invisible, not forbidden)."""
+        if scope.org_id is None:
+            return
+        org = await repositories.definitions.org_of(workflow_id)
+        if org is not None and org != scope.org_id:
+            raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
+
+    async def _visible_instance(instance_id: str, scope: OrgScope) -> WorkflowInstance:
+        instance = await repositories.instances.get(instance_id)
+        if instance is None or (scope.org_id is not None and instance.org_id != scope.org_id):
+            raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
+        return instance
+
+    def _bypass(scope: OrgScope, resource_org: str) -> dict[str, Any]:
+        """ROLES_PLAN §2.4: an Administrator acting outside their own org is
+        an explicit, audited bypass — never a missing filter."""
+        if scope.is_administrator and resource_org != scope.home_org_id:
+            return {"org_bypass": True}
+        return {}
+
+    async def _note_bypass(
+        scope: OrgScope, resource_org: str, action: str, instance_id: str | None = None
+    ) -> None:
+        """Audit trace for cross-org mutations that otherwise write no
+        API-side audit entry (lifecycle ops — the engine audits the effect,
+        this records who reached across orgs to cause it)."""
+        detail = _bypass(scope, resource_org)
+        if detail:
+            await repositories.audit.append(
+                AuditEntry(
+                    actor_type="human",
+                    actor_id=scope.sub,
+                    action=action,
+                    workflow_instance_id=instance_id,
+                    detail=detail,
+                )
+            )
+
+    async def _attribution(
+        user: UserIdentity, scope: OrgScope, explicit_org: str | None
+    ) -> dict[str, str]:
+        """Definition-create attribution. Administrators may target an
+        explicit org (§2.6); everyone else creates in their own."""
+        kwargs = await _owner_kwargs(user)
+        if explicit_org is not None:
+            if not scope.is_administrator:
+                if explicit_org != scope.org_id:
+                    raise HTTPException(
+                        status_code=403, detail="Cannot create in another organization"
+                    )
+            elif await repositories.organizations.get(explicit_org) is None:
+                raise HTTPException(status_code=400, detail=f"No such organization: {explicit_org}")
+            kwargs["org_id"] = explicit_org
+        return kwargs
+
     @router.get("/workflows", response_model=list[WorkflowDefinition])
-    async def list_workflows(_: UserIdentity = Depends(current_user)) -> list[WorkflowDefinition]:
-        return await repositories.definitions.list_all()
+    async def list_workflows(
+        scope: OrgScope = Depends(_org_scope),
+    ) -> list[WorkflowDefinition]:
+        return await repositories.definitions.list_all(org_id=scope.org_id)
 
     @router.get("/templates")
     async def list_templates(_: UserIdentity = Depends(current_user)) -> list[dict[str, Any]]:
@@ -216,7 +279,9 @@ def build_router(
     @router.post("/workflows", response_model=WorkflowDefinition, status_code=201)
     async def create_workflow(
         request: Request,
+        org_id: str | None = Query(default=None),
         user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> WorkflowDefinition:
         """Create a new workflow definition — blank, or cloned from a template.
 
@@ -268,13 +333,15 @@ def build_router(
 
         # Cheap structural check before persisting (empty graphs are valid).
         validate_and_order(definition)
-        await repositories.definitions.save(definition, **await _owner_kwargs(user))
+        await repositories.definitions.save(definition, **await _attribution(user, scope, org_id))
         return definition
 
     @router.post("/workflows/scaffold")
     async def scaffold_workflow_endpoint(
         request: Request,
         user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        org_id: str | None = Query(default=None),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         """NL scaffold (C7.1): turn a plain-English description into a draft
         workflow and persist it as an editable starting point.
@@ -336,7 +403,7 @@ def build_router(
                 status_code=422, detail=f"Scaffolded workflow was structurally invalid: {exc}"
             ) from exc
 
-        await repositories.definitions.save(definition, **await _owner_kwargs(user))
+        await repositories.definitions.save(definition, **await _attribution(user, scope, org_id))
         findings = [f.model_dump() for f in validate_definition(definition)]
         return {
             "status": "created",
@@ -408,18 +475,19 @@ def build_router(
 
     @router.get("/workflows/instance-counts")
     async def workflows_instance_counts(
-        _: UserIdentity = Depends(current_user),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, int]:
         """Map of `workflow_id → instance count` across all instances ever
         recorded. Used by the workflows list page to show a count per row.
         Separate from `/api/workflows` so the (heavier) count query only
         runs when the count is actually wanted."""
-        return await repositories.instances.count_by_workflow()
+        return await repositories.instances.count_by_workflow(org_id=scope.org_id)
 
     @router.get("/workflows/{workflow_id}", response_model=WorkflowDefinition)
     async def get_workflow(
-        workflow_id: str, _: UserIdentity = Depends(current_user)
+        workflow_id: str, scope: OrgScope = Depends(_org_scope)
     ) -> WorkflowDefinition:
+        await _visible_definition(workflow_id, scope)
         definition = await repositories.definitions.get(workflow_id)
         if definition is None:
             raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
@@ -429,6 +497,7 @@ def build_router(
     async def delete_workflow(
         workflow_id: str,
         user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         """Hard-delete a workflow definition and cascade to its run history
         (instances + their step_executions). Admin/Designer only.
@@ -443,6 +512,8 @@ def build_router(
         the workflow (filesystem / schedule / webhook / email) — restart the
         server to fully clear it. Bundled examples are re-seeded on restart by the
         trigger orchestrator, so deleting one only clears it until the next boot."""
+        await _visible_definition(workflow_id, scope)
+        definition_org = await repositories.definitions.org_of(workflow_id)
         if await repositories.definitions.get(workflow_id) is None:
             raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
 
@@ -482,6 +553,7 @@ def build_router(
                 "workflow_id": workflow_id,
                 "deleted_instances": deleted_instances,
                 "deleted_steps": deleted_steps,
+                **_bypass(scope, definition_org or "default"),
             },
         )
         return {
@@ -494,8 +566,9 @@ def build_router(
     async def export_workflow(
         workflow_id: str,
         format: str = "json",
-        _: UserIdentity = Depends(current_user),
+        scope: OrgScope = Depends(_org_scope),
     ) -> Response:
+        await _visible_definition(workflow_id, scope)
         definition = await repositories.definitions.get(workflow_id)
         if definition is None:
             raise HTTPException(status_code=404, detail=f"Workflow {workflow_id} not found")
@@ -515,7 +588,9 @@ def build_router(
     @router.post("/workflows/import")
     async def import_workflow(
         request: Request,
+        org_id: str | None = Query(default=None),
         user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         body = await request.body()
         text = body.decode("utf-8") if body else ""
@@ -530,7 +605,7 @@ def build_router(
                 definition = load_definition(json.loads(text))
         except (WorkflowDefinitionError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
-        await repositories.definitions.save(definition, **await _owner_kwargs(user))
+        await repositories.definitions.save(definition, **await _attribution(user, scope, org_id))
         return {"status": "imported", "workflow_id": definition.id}
 
     @router.post("/workflows/{workflow_id}/run")
@@ -538,7 +613,9 @@ def build_router(
         workflow_id: str,
         request: Request,
         _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
+        await _visible_definition(workflow_id, scope)
         """Manually fire a workflow once with a caller-supplied trigger payload.
 
         Body: JSON object accepted verbatim as the trigger payload. Empty body
@@ -573,6 +650,7 @@ def build_router(
         workflow_id: str,
         request: Request,
         _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         """Fire a workflow once per row of a batch (C8.1).
 
@@ -583,6 +661,7 @@ def build_router(
 
         Returns `{submitted, succeeded, failed, results}` where each result is
         `{index, ok, instance_id?, state?, error?}` in input order."""
+        await _visible_definition(workflow_id, scope)
         if engine is None:
             raise HTTPException(
                 status_code=503, detail="Run requires a WorkflowEngine bound to the API."
@@ -643,6 +722,7 @@ def build_router(
         workflow_id: str,
         request: Request,
         _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         """Run a workflow once in a sandbox (C6.1): a `MockWorld` (no real file /
         database / messaging side effects) and a tool catalog with the external
@@ -657,6 +737,7 @@ def build_router(
 
         Browser-automation workflows are rejected (a real browser can't be
         sandboxed yet)."""
+        await _visible_definition(workflow_id, scope)
         if engine is None:
             raise HTTPException(
                 status_code=503, detail="Dry-run requires a WorkflowEngine bound to the API."
@@ -739,15 +820,12 @@ def build_router(
         workflow_id: str | None = None,
         state: str | None = None,
         limit: int = 50,
-        _: UserIdentity = Depends(current_user),
+        scope: OrgScope = Depends(_org_scope),
     ) -> list[dict[str, Any]]:
         if workflow_id:
-            items = await repositories.instances.list_by_workflow(workflow_id)
+            items = await repositories.instances.list_by_workflow(workflow_id, org_id=scope.org_id)
         else:
-            # No global list method on the repo yet — list across known definitions.
-            items = []
-            for definition in await repositories.definitions.list_all():
-                items.extend(await repositories.instances.list_by_workflow(definition.id))
+            items = await repositories.instances.list_recent(limit=1000, org_id=scope.org_id)
         if state:
             items = [i for i in items if i.state.value == state]
         items.sort(key=lambda i: i.created_at, reverse=True)
@@ -755,11 +833,9 @@ def build_router(
 
     @router.get("/workflow-instances/{instance_id}")
     async def get_instance(
-        instance_id: str, _: UserIdentity = Depends(current_user)
+        instance_id: str, scope: OrgScope = Depends(_org_scope)
     ) -> dict[str, Any]:
-        instance = await repositories.instances.get(instance_id)
-        if instance is None:
-            raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
+        instance = await _visible_instance(instance_id, scope)
         steps = await repositories.steps.list_by_instance(instance_id)
         return {"instance": instance.model_dump(), "steps": [s.model_dump() for s in steps]}
 
@@ -767,10 +843,10 @@ def build_router(
     async def pause_instance(
         instance_id: str,
         _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
-        instance = await repositories.instances.get(instance_id)
-        if instance is None:
-            raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
+        instance = await _visible_instance(instance_id, scope)
+        await _note_bypass(scope, instance.org_id, "instance_pause_requested", instance_id)
         if instance.state != WorkflowInstanceState.RUNNING:
             raise HTTPException(
                 status_code=400,
@@ -784,14 +860,14 @@ def build_router(
     async def resume_instance(
         instance_id: str,
         _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         if engine is None:
             raise HTTPException(
                 status_code=503, detail="Resume requires a WorkflowEngine bound to the API."
             )
-        instance = await repositories.instances.get(instance_id)
-        if instance is None:
-            raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
+        instance = await _visible_instance(instance_id, scope)
+        await _note_bypass(scope, instance.org_id, "instance_resume_requested", instance_id)
         if instance.state != WorkflowInstanceState.PAUSED:
             raise HTTPException(
                 status_code=400,
@@ -813,14 +889,14 @@ def build_router(
     async def retry_instance(
         instance_id: str,
         _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         if engine is None:
             raise HTTPException(
                 status_code=503, detail="Retry requires a WorkflowEngine bound to the API."
             )
-        instance = await repositories.instances.get(instance_id)
-        if instance is None:
-            raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
+        instance = await _visible_instance(instance_id, scope)
+        await _note_bypass(scope, instance.org_id, "instance_retry_requested", instance_id)
         if instance.state != WorkflowInstanceState.FAILED:
             raise HTTPException(
                 status_code=400,
@@ -846,6 +922,7 @@ def build_router(
         instance_id: str,
         request: Request,
         _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         """Fork a prior instance at a specific step.
 
@@ -859,9 +936,8 @@ def build_router(
             raise HTTPException(
                 status_code=503, detail="Fork requires a WorkflowEngine bound to the API."
             )
-        source = await repositories.instances.get(instance_id)
-        if source is None:
-            raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
+        source = await _visible_instance(instance_id, scope)
+        await _note_bypass(scope, source.org_id, "instance_fork_requested", instance_id)
         definition = await repositories.definitions.get(source.workflow_id)
         if definition is None:
             raise HTTPException(
@@ -893,10 +969,10 @@ def build_router(
     async def kill_instance(
         instance_id: str,
         _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
-        instance = await repositories.instances.get(instance_id)
-        if instance is None:
-            raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
+        instance = await _visible_instance(instance_id, scope)
+        await _note_bypass(scope, instance.org_id, "instance_kill_requested", instance_id)
         if instance.state in (
             WorkflowInstanceState.COMPLETED,
             WorkflowInstanceState.FAILED,
@@ -914,6 +990,7 @@ def build_router(
     async def delete_instance(
         instance_id: str,
         user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> Response:
         """Hard-delete a terminal instance + its step_executions.
 
@@ -924,9 +1001,7 @@ def build_router(
         Refuses on non-terminal states (running / pending / paused) — kill
         first if the operator wants to stop a live run.
         """
-        instance = await repositories.instances.get(instance_id)
-        if instance is None:
-            raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
+        instance = await _visible_instance(instance_id, scope)
         terminal = {
             WorkflowInstanceState.COMPLETED,
             WorkflowInstanceState.FAILED,
@@ -946,7 +1021,11 @@ def build_router(
             user,
             "instance_deleted",
             instance_id=instance_id,
-            detail={"workflow_id": instance.workflow_id, "deleted_steps": deleted_steps},
+            detail={
+                "workflow_id": instance.workflow_id,
+                "deleted_steps": deleted_steps,
+                **_bypass(scope, instance.org_id),
+            },
         )
         return Response(status_code=204)
 
@@ -955,6 +1034,7 @@ def build_router(
         state: list[str] = Query(default=...),
         workflow_id: str | None = Query(default=None),
         user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, int]:
         """Bulk hard-delete every instance whose state is in `state` (one
         or more `?state=` query params). Cascades to step_executions.
@@ -985,7 +1065,7 @@ def build_router(
             raise HTTPException(status_code=400, detail="At least one ?state= parameter required.")
 
         deleted_ids = await repositories.instances.delete_by_states(
-            list(requested), workflow_id=workflow_id
+            list(requested), workflow_id=workflow_id, org_id=scope.org_id
         )
         deleted_steps = await repositories.steps.delete_by_instances(deleted_ids)
         await _audit_admin_action(
@@ -1010,7 +1090,9 @@ def build_router(
     async def list_instance_audit(
         instance_id: str,
         _: UserIdentity = Depends(require_roles(*ANY_ROLE)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> list[AuditEntry]:
+        await _visible_instance(instance_id, scope)
         return await repositories.audit.list_by_instance(instance_id)
 
     @router.get("/audit", response_model=list[AuditEntry])
@@ -1018,14 +1100,16 @@ def build_router(
         limit: int = 100,
         instance_id: str | None = None,
         _: UserIdentity = Depends(require_roles(*ANY_ROLE)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> list[AuditEntry]:
         """Recent audit entries, optionally scoped to one instance. Before
         `instance_id` was accepted here, passing it was silently ignored and
         the global list came back — misleading for audit consumers."""
         if instance_id is not None:
+            await _visible_instance(instance_id, scope)
             entries = await repositories.audit.list_by_instance(instance_id)
             return entries[: min(limit, 500)]
-        return await repositories.audit.list_recent(limit=min(limit, 500))
+        return await repositories.audit.list_recent(limit=min(limit, 500), org_id=scope.org_id)
 
     if webhook_registry is not None:
         registry = webhook_registry  # narrowed for the closure
@@ -1082,11 +1166,19 @@ def build_router(
                 )
             return {"status": "fired", "trigger_id": trigger_id}
 
+    async def _instance_org(instance_id: str | None, cache: dict[str, str | None]) -> str | None:
+        if instance_id is None:
+            return None
+        if instance_id not in cache:
+            instance = await repositories.instances.get(instance_id)
+            cache[instance_id] = instance.org_id if instance else None
+        return cache[instance_id]
+
     @router.get("/escalations")
     async def list_escalations(
         state: str = "pending",
         limit: int = 50,
-        _: UserIdentity = Depends(current_user),
+        scope: OrgScope = Depends(_org_scope),
     ) -> list[dict[str, Any]]:
         # Walk the recent audit log; pair `escalation_requested` with
         # `escalation_resolved` entries that reference them.
@@ -1099,6 +1191,15 @@ def build_router(
         requested = [e for e in audit if e.action == "escalation_requested"]
         if state == "pending":
             requested = [e for e in requested if e.id not in resolved_ids]
+        if scope.org_id is not None:
+            # ROLES_PLAN §7.6b: escalations are visible to their instance's
+            # org only; instance-less ones are platform-operator data.
+            org_cache: dict[str, str | None] = {}
+            scoped = []
+            for e in requested:
+                if await _instance_org(e.workflow_instance_id, org_cache) == scope.org_id:
+                    scoped.append(e)
+            requested = scoped
         return [
             {
                 "id": e.id,
@@ -1118,6 +1219,7 @@ def build_router(
         escalation_id: str,
         body: dict[str, Any],
         user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         from workflow_platform.persistence.models import (
             AuditEntry as _AuditEntry,
@@ -1133,6 +1235,9 @@ def build_router(
             None,
         )
         if requested is None:
+            raise HTTPException(status_code=404, detail="Escalation not found")
+        escalation_org = await _instance_org(requested.workflow_instance_id, {})
+        if scope.org_id is not None and escalation_org != scope.org_id:
             raise HTTPException(status_code=404, detail="Escalation not found")
 
         already = any(
@@ -1154,6 +1259,7 @@ def build_router(
                 detail={
                     "original_id": escalation_id,
                     "resolution": body.get("resolution", ""),
+                    **(_bypass(scope, escalation_org) if escalation_org else {}),
                 },
             )
         )
@@ -1172,9 +1278,11 @@ def build_router(
     @router.get("/cost/by-workflow")
     async def cost_by_workflow(
         since: str | None = None,
-        _: UserIdentity = Depends(current_user),
+        org_id: str | None = None,
+        scope: OrgScope = Depends(_org_scope),
     ) -> list[dict[str, Any]]:
-        rows = await cost_service.by_workflow(_parse_since(since))
+        effective_org = scope.org_id if scope.org_id is not None else org_id
+        rows = await cost_service.by_workflow(_parse_since(since), org_id=effective_org)
         return [
             {
                 "workflow_id": r.key,
@@ -1188,9 +1296,11 @@ def build_router(
     @router.get("/cost/by-model")
     async def cost_by_model(
         since: str | None = None,
-        _: UserIdentity = Depends(current_user),
+        org_id: str | None = None,
+        scope: OrgScope = Depends(_org_scope),
     ) -> list[dict[str, Any]]:
-        rows = await cost_service.by_model(_parse_since(since))
+        effective_org = scope.org_id if scope.org_id is not None else org_id
+        rows = await cost_service.by_model(_parse_since(since), org_id=effective_org)
         return [
             {
                 "model": r.key,
@@ -1204,9 +1314,11 @@ def build_router(
     @router.get("/cost/by-day")
     async def cost_by_day(
         since: str | None = None,
-        _: UserIdentity = Depends(current_user),
+        org_id: str | None = None,
+        scope: OrgScope = Depends(_org_scope),
     ) -> list[dict[str, Any]]:
-        rows = await cost_service.by_day(_parse_since(since))
+        effective_org = scope.org_id if scope.org_id is not None else org_id
+        rows = await cost_service.by_day(_parse_since(since), org_id=effective_org)
         return [
             {
                 "date": r.key,
@@ -1220,11 +1332,12 @@ def build_router(
     @router.get("/workflows/{workflow_id}/cost-estimate")
     async def workflow_cost_estimate(
         workflow_id: str,
-        _: UserIdentity = Depends(current_user),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         """Pre-run cost context for the Run dialog (C6.2): per-agentic-step model
         rates, the budget policy, and the average cost/tokens per run from
         history (null when the workflow hasn't run yet)."""
+        await _visible_definition(workflow_id, scope)
         definition = await repositories.definitions.get(workflow_id)
         if definition is None:
             raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
@@ -1254,11 +1367,12 @@ def build_router(
     @router.get("/workflows/{workflow_id}/capabilities")
     async def workflow_capabilities(
         workflow_id: str,
-        _: UserIdentity = Depends(current_user),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         """Per-agentic-step tool capability boundary (C6.3): which catalog tools
         each step can use vs is denied, and why. Uses the same layer
         intersection the engine enforces (system -> workflow -> step)."""
+        await _visible_definition(workflow_id, scope)
         definition = await repositories.definitions.get(workflow_id)
         if definition is None:
             raise HTTPException(status_code=404, detail=f"Workflow {workflow_id!r} not found")
@@ -1323,15 +1437,13 @@ def build_router(
     async def explain_step(
         instance_id: str,
         step_id: str,
-        _: UserIdentity = Depends(current_user),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         """Forensic view of one step in a run (C6.4): for an agent step, what it
         was asked, the tools it called (args + results), tokens/cost, and the
         memory hash in effect; for a deterministic step, its function + output.
         Assembled from the step execution + the step's audit slice."""
-        instance = await repositories.instances.get(instance_id)
-        if instance is None:
-            raise HTTPException(status_code=404, detail=f"Instance {instance_id!r} not found")
+        instance = await _visible_instance(instance_id, scope)
         execs = [
             e
             for e in await repositories.steps.list_by_instance(instance_id)

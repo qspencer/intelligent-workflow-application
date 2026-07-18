@@ -75,10 +75,16 @@ async def test_request_human_review_validates_reason() -> None:
 
 
 def _seed_escalation(repos: Any, *, instance_id: str = "i-1") -> str:
-    """Create a pending escalation directly via the audit repo."""
+    """Create a pending escalation directly via the audit repo. Seeds the
+    referenced instance too — escalations are org-scoped through their
+    instance (ROLES_PLAN §4b), so an instance-less one is operator-only."""
     eid = _new_id()
 
     async def _do() -> None:
+        if await repos.instances.get(instance_id) is None:
+            from workflow_platform.persistence import WorkflowInstance
+
+            await repos.instances.create(WorkflowInstance(id=instance_id, workflow_id="wf-esc"))
         await repos.audit.append(
             AuditEntry(
                 id=eid,
