@@ -295,6 +295,7 @@ the end of S2:
 | Org deletion + cascade semantics | First org that needs deleting; until then orgs are rename-only. |
 | Invitations / email verification | Email infrastructure (same trigger as AUTH_PLAN's password reset). |
 | Per-org connectors / secrets namespacing | Second org that needs a connector. |
+| Per-user memory keys on `users.id` | First USER-authored memory feature — G12 elicitation (NEXT_STEPS) or the first workflow where two humans' preferences should diverge. Today's veracium keys are `org:<org>:user:<workflow-declared key>` — the memory owner is the workflow's declared subject (e.g. the mailbox), not the logged-in user, and login sessions never touch memory. The `user:` slot takes the platform `users.id` with zero library/migration work when the trigger fires. |
 
 ## 9. Interactions
 
