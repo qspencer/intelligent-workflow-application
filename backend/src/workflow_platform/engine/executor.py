@@ -1273,10 +1273,20 @@ def _ancestors(definition: WorkflowDefinition, target_id: str) -> set[str]:
 def _build_user_message(step: AgenticStep, context: WorkflowContext) -> str:
     """Compose the user message for an agentic step.
 
-    Naive: states the goal, then dumps trigger payload + prior step outputs as
-    JSON. Smarter context selection lands with knowledge retrieval (Phase B+).
+    Default: states the goal, then dumps trigger payload + prior step outputs
+    as JSON. Smarter context selection lands with knowledge retrieval (B+).
+
+    With `step.inputs` set (EMAIL_TRIAGE_ACT_PLAN §3), the message carries
+    ONLY the named context paths — input minimization for tool-holding steps
+    that must never see attacker-influenced text. An unresolved path becomes
+    a null slot, never a crash.
     """
-    payload = {"trigger": context.trigger, "prior_steps": context.steps}
+    if step.inputs is not None:
+        payload: dict[str, Any] = {
+            path: _resolve_context_value(context, path) for path in step.inputs
+        }
+    else:
+        payload = {"trigger": context.trigger, "prior_steps": context.steps}
     return f"{step.goal}\n\nContext:\n{json.dumps(payload, indent=2, default=str)}"
 
 

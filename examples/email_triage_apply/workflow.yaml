@@ -1,0 +1,143 @@
+id: email-triage-apply
+name: Email Triage (acting — applies wf/* labels)
+description: |
+  The acting variant of email triage (docs/EMAIL_TRIAGE_ACT_PLAN.md): same
+  classifier and rubric as email-triage-live, plus a minimal second agent
+  step that applies the verdict back to the mailbox as a wf/<category>
+  Gmail label. Privilege-split: the classifier that reads mail content has
+  NO tools; the acting step holds exactly one tool and sees only the
+  validated category + message id (never the mail text).
+
+  SHIPS WITH A MANUAL TRIGGER on purpose: the orchestrator registers every
+  example's trigger at boot, and an email trigger here would double-poll
+  the mailbox alongside email-triage-live. Cutover procedure is in
+  README.md — flip this trigger to `email` and the read-only sibling to
+  `manual` in the same edit, then restart.
+
+trigger:
+  type: manual
+  example_payload:
+    provider: "gmail"
+    message_id: "example-id"
+    thread_id: "example-thread"
+    from_address:
+      address: "someone@example.com"
+      name: "Someone"
+    to:
+      - address: "qspencer@gmail.com"
+    cc: []
+    bcc: []
+    subject: "Example subject"
+    body_text: "Example body."
+    body_html: null
+    received_at: "2026-07-11T09:00:00+00:00"
+    labels: ["INBOX"]
+    in_reply_to: null
+    headers: {}
+
+steps:
+  - id: triage
+    label: "Classify the email (no tools)"
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    # The content-reading step keeps the read-only fence — test-pinned.
+    tools: []
+    capabilities:
+      tools: []
+    goal: |
+      You are triaging an inbound email — CLASSIFICATION ONLY. You have no
+      tools: never attempt to reply or label; a separate step acts on your
+      verdict. The trigger payload contains the full message: from_address,
+      to, cc, subject, body_text, received_at, labels — plus, when the
+      body is image-only (empty body_text), a `body_structure` summary of
+      the HTML (link domains, image count, alt texts) derived safely
+      without fetching anything.
+
+      Apply the rubric in your memory (above this prompt) to choose exactly
+      one `category` from the seven-bucket catalog.
+
+      Then respond with ONLY a JSON object on one line — no prose, no
+      markdown fences:
+        {"category": "<one of seven>", "confidence": <0..1>,
+         "reply_drafted": false, "labels_applied": [],
+         "summary": "<one short sentence — why this category>"}
+    policy:
+      max_iterations: 2
+      max_total_tokens: 8000
+
+  - id: record
+    label: "Record the triage result"
+    type: deterministic
+    function: record_email_triage
+    output_renderer: triage
+    config:
+      triage_from: steps.triage.output_text
+
+  - id: apply
+    label: "Apply the wf/<category> label"
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools:
+      - "email_label_apply:qspencer@gmail.com"
+    capabilities:
+      tools:
+        - "email_label_apply:qspencer@gmail.com"
+    # Input minimization (ACT_PLAN §3): this tool-holding step sees ONLY the
+    # enum-validated category and the platform-supplied message id — never
+    # subject, body, sender, or any other attacker-influenced text.
+    inputs:
+      - steps.record.category
+      - trigger.message_id
+    goal: |
+      Apply exactly one Gmail label to one message, then stop.
+
+      The context gives you `steps.record.category` (a triage category) and
+      `trigger.message_id`. Call the email_label_apply tool once with that
+      message_id and the single label "wf/<category>" (for example,
+      category "urgent" means the label "wf/urgent"). Do not apply any
+      other label. Do not call the tool more than once. After the tool
+      returns, respond with one line stating the label applied.
+    policy:
+      max_iterations: 2
+      max_total_tokens: 2000
+    runtime:
+      retries: 2
+
+edges:
+  - from: triage
+    to: record
+  - from: record
+    to: apply
+    # Only enum-valid verdicts are acted on (ACT_PLAN §3): unparseable or
+    # out-of-vocabulary categories are recorded but never reach the
+    # tool-holding step.
+    condition: steps.record.category_valid == True
+
+policies:
+  max_total_tokens: 14000
+  budget_action: pause
+
+learned_memory:
+  user_id: qspencer@gmail.com
+  recall:
+    query_from: trigger.from_address.address
+    token_budget: 600
+  observations:
+    - text: |
+        Received email from {trigger.from_address.name} <{trigger.from_address.address}>
+        Subject: {trigger.subject}
+
+        {trigger.body_text}
+      author: third_party
+      event_type: email
+      date_from: trigger.received_at
+      ref_from: trigger.message_id
+    - text: >
+        The triage agent classified the email from {trigger.from_address.address}
+        (subject: "{trigger.subject}") as {steps.record.category} with confidence
+        {steps.record.confidence}. Reason: {steps.record.summary}
+      author: system
+      derived_from: third_party
+      event_type: triage
+      date_from: trigger.received_at
+      ref_from: trigger.message_id

@@ -111,8 +111,24 @@ class EmailLabelApplyTool(Tool):
         "required": ["message_id", "labels"],
     }
 
-    def __init__(self, connector: GmailConnector) -> None:
+    def __init__(
+        self,
+        connector: GmailConnector,
+        *,
+        name: str | None = None,
+        allowed_labels: list[str] | None = None,
+    ) -> None:
         self.connector = connector
+        # Per-account catalog registration (EMAIL_TRIAGE_ACT_PLAN §4): a
+        # non-default name like "email_label_apply:<account>" makes the
+        # capability allowlist say WHICH mailbox is writable. Instance attr
+        # shadows the ClassVar; to_bedrock_tool_spec and the catalog both
+        # read `self.name`, so this composes with everything downstream.
+        if name is not None:
+            self.name = name  # type: ignore[misc]
+        # First fence of two: requests outside this list fail before any API
+        # call (Gmail's refuse-to-create resolution is the second).
+        self.allowed_labels = set(allowed_labels) if allowed_labels is not None else None
 
     async def execute(
         self, params: dict[str, Any], context: ToolContext | None = None
@@ -126,6 +142,10 @@ class EmailLabelApplyTool(Tool):
         if not all(isinstance(lbl, str) and lbl for lbl in raw_labels):
             return ToolResult(error="every label must be a non-empty string")
         labels: list[str] = list(raw_labels)
+        if self.allowed_labels is not None:
+            refused = sorted(set(labels) - self.allowed_labels)
+            if refused:
+                return ToolResult(error=f"Labels not in this tool's allowlist: {refused}")
         try:
             await self.connector.apply_labels(message_id, labels)
         except GmailLabelNotFound as exc:

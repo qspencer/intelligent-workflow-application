@@ -63,6 +63,12 @@ class AgenticStep(BaseModel):
     tools: list[str] = Field(default_factory=list)
     model: str
     system_prompt: str | None = None
+    # Input minimization (EMAIL_TRIAGE_ACT_PLAN §3): when set, the user
+    # message carries ONLY these resolved context paths (e.g.
+    # "steps.record.category", "trigger.message_id") instead of the full
+    # trigger + all prior outputs. Load-bearing for tool-holding steps that
+    # must never see attacker-influenced text. Absent = legacy behavior.
+    inputs: list[str] | None = None
     policy: AgenticStepPolicy = Field(default_factory=AgenticStepPolicy)
     outputs: list[str] = Field(default_factory=list)
     capabilities: CapabilityPolicy | None = None

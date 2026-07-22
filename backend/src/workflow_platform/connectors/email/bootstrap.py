@@ -85,3 +85,18 @@ def seed_gmail_env_from_disk(account: str) -> bool:
     os.environ[creds_key] = creds_path.read_text()
     os.environ[token_key] = token_path.read_text().strip()
     return True
+
+
+def credentialed_accounts() -> list[str]:
+    """Accounts with complete credentials under `.secrets/gmail/<account>/`.
+    Dev/EnvSecretStore surface — the same on-disk layout the per-trigger
+    seeding uses."""
+    if not _SECRETS_ROOT.is_dir():
+        return []
+    return sorted(
+        d.name
+        for d in _SECRETS_ROOT.iterdir()
+        if d.is_dir()
+        and (d / "client_credentials.json").exists()
+        and (d / "refresh_token").exists()
+    )

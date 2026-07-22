@@ -240,6 +240,19 @@ class GmailConnector(EmailConnector):
 
     # --- helpers ---
 
+    async def create_label(self, name: str) -> str:
+        """Create a user label; returns its id. Idempotent for callers that
+        check existence first (Gmail 409s on duplicates — surfaced as
+        HttpError). Operator-CLI surface (setup_triage_labels), NOT reachable
+        from EmailLabelApplyTool — the tool's refuse-to-create resolution is
+        a deliberate fence (EMAIL_TRIAGE_ACT_PLAN §4)."""
+        svc = await self._get_service()
+        resp = await self._execute(
+            svc.users().labels().create(userId=self.USER_ID, body={"name": name})
+        )
+        self._label_id_cache[name] = resp["id"]
+        return str(resp["id"])
+
     async def _resolve_label_id(self, name: str) -> str:
         # System labels (INBOX, UNREAD, ...) have id == name; Gmail accepts either.
         if name in self._label_id_cache:

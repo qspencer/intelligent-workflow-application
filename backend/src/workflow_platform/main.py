@@ -30,11 +30,13 @@ from workflow_platform.auth.bootstrap import ensure_seed_users
 from workflow_platform.auth.provisioning import UserProvisioner
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.connectors.email import maybe_build_gmail_connector
+from workflow_platform.connectors.email.bootstrap import credentialed_accounts
 from workflow_platform.engine import (
     ToolCatalog,
     WorkflowEngine,
     default_function_registry,
 )
+from workflow_platform.engine.functions import TRIAGE_CATEGORIES
 from workflow_platform.events import EventBus
 from workflow_platform.memory import LearnedMemoryService, MemoryManager
 from workflow_platform.observability import (
@@ -119,6 +121,22 @@ def _build_default_tools(secret_store: SecretStore) -> list[Tool]:
     if gmail_connector is not None:
         tools.extend([EmailSendTool(gmail_connector), EmailLabelApplyTool(gmail_connector)])
         logger.info("Wired Gmail tools (email_send, email_label_apply) for account %r.", account)
+    # Per-account label tools (EMAIL_TRIAGE_ACT_PLAN §4): every credentialed
+    # account gets `email_label_apply:<account>`, allowlisted to the wf/*
+    # triage namespace — the capability allowlist then names WHICH mailbox a
+    # step may write, and the C6 panel shows it. Add-only by construction.
+    for extra_account in credentialed_accounts():
+        connector = maybe_build_gmail_connector(account=extra_account, secret_store=secret_store)
+        if connector is None:
+            continue
+        tools.append(
+            EmailLabelApplyTool(
+                connector,
+                name=f"email_label_apply:{extra_account}",
+                allowed_labels=[f"wf/{c}" for c in TRIAGE_CATEGORIES],
+            )
+        )
+        logger.info("Wired email_label_apply:%s (wf/* labels only).", extra_account)
     return tools
 
 

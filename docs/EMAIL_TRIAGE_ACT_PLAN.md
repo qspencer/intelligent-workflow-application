@@ -1,7 +1,18 @@
 # Email Triage, Acting Variant — Design
 
-Status: **proposed** (drafted 2026-07-18; design-reviewed same day:
-adopt-with-conditions, all findings folded in below; not yet built). This is the
+Status: **built, not yet cut over** (2026-07-18, same day as design +
+review). Landed: the `inputs:` selector on `AgenticStep` + minimized
+`_build_user_message`; `category_valid` enum gate in `record_email_triage`;
+per-account `email_label_apply:<account>` tools (instance-named, `wf/*`
+allowlisted) wired at boot for every credentialed account;
+`GmailConnector.create_label` + `tools/setup_triage_labels.py` (CLI verified
+against the live account in dry-run — 7 labels pending creation);
+`examples/email_triage_apply/` (ships with a **manual trigger** so the
+orchestrator can't double-poll the mailbox beside the read-only sibling —
+README documents the one-edit cutover). All §3 security criteria + §9
+behaviors pinned in `backend/tests/test_email_triage_apply.py` (9 tests,
+incl. both injection fixtures). Remaining: run `setup_triage_labels.py` for
+real, perform the cutover, and open the §8 supervised window. This is the
 named trigger for `docs/NEXT_STEPS.md` G11 firing, and a platform first: the
 first workflow where an agent holds a **mutating external capability** in
 production (writing Gmail labels to a real mailbox). The design's job is to

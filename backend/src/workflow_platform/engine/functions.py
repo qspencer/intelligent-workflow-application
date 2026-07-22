@@ -392,7 +392,13 @@ async def record_email_triage(
         raise StepFailure(f"record_email_triage could not resolve {source!r}")
     triage = _extract_email_triage(raw)
     if triage is None:
-        return {"parse_ok": False, "raw": raw}
+        return {"parse_ok": False, "category_valid": False, "raw": raw}
+    # Enum gate (EMAIL_TRIAGE_ACT_PLAN §3): `category` is copied through as
+    # free text for observability, but only exact membership in
+    # TRIAGE_CATEGORIES marks it valid — the acting variant's apply edge
+    # conditions on this, so a steered classifier output can never carry
+    # attacker text into a tool-holding step's prompt.
+    triage["category_valid"] = triage.get("category") in TRIAGE_CATEGORIES
     return {"parse_ok": True, **triage}
 
 
