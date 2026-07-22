@@ -11,8 +11,16 @@ against the live account in dry-run — 7 labels pending creation);
 orchestrator can't double-poll the mailbox beside the read-only sibling —
 README documents the one-edit cutover). All §3 security criteria + §9
 behaviors pinned in `backend/tests/test_email_triage_apply.py` (9 tests,
-incl. both injection fixtures). Remaining: run `setup_triage_labels.py` for
-real, perform the cutover, and open the §8 supervised window. This is the
+incl. both injection fixtures). **Cutover done + §8 supervised
+window OPEN 2026-07-22:** the seven `wf/*` labels created on the live
+mailbox (`Label_137`–`143`), triggers swapped (apply = email poller, the
+read-only sibling = manual rollback artifact), tests re-pinned to the real
+invariant (the siblings must never BOTH hold email triggers —
+`test_siblings_never_both_poll_the_mailbox`), service restarted, exactly
+one poller on the mailbox confirmed in logs, and
+`email_label_apply:qspencer@gmail.com` verified in the live catalog.
+Window closes ~2026-07-25 against the §8 criteria (100% category parity,
+zero unexpected writes, apply spend ≤ ~$0.001/message). This is the
 named trigger for `docs/NEXT_STEPS.md` G11 firing, and a platform first: the
 first workflow where an agent holds a **mutating external capability** in
 production (writing Gmail labels to a real mailbox). The design's job is to

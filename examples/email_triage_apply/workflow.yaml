@@ -8,14 +8,22 @@ description: |
   NO tools; the acting step holds exactly one tool and sees only the
   validated category + message id (never the mail text).
 
-  SHIPS WITH A MANUAL TRIGGER on purpose: the orchestrator registers every
-  example's trigger at boot, and an email trigger here would double-poll
-  the mailbox alongside email-triage-live. Cutover procedure is in
-  README.md — flip this trigger to `email` and the read-only sibling to
-  `manual` in the same edit, then restart.
+  CUTOVER DONE 2026-07-18 (docs/EMAIL_TRIAGE_ACT_PLAN.md §8 supervised
+  window): this workflow now holds the email trigger; the read-only
+  sibling is the manual-triggered rollback artifact. Invariant (test-
+  pinned): the two siblings must never BOTH have email triggers — that
+  would double-poll the mailbox.
 
 trigger:
-  type: manual
+  type: email
+  config:
+    provider: gmail
+    account: qspencer@gmail.com
+    poll_interval_seconds: 120
+    label: INBOX
+    # Drop body_html + raw headers from the payload (same rationale as the
+    # read-only sibling): body_text is what triage needs.
+    slim_payload: true
   example_payload:
     provider: "gmail"
     message_id: "example-id"

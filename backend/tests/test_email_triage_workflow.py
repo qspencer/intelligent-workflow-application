@@ -97,7 +97,9 @@ def test_live_validation_workflow_is_read_only() -> None:
         WORKFLOW_PATH.parent.parent / "email_triage_live" / "workflow.yaml"
     )
     assert definition.id == "email-triage-live"
-    assert definition.trigger.type == "email"
+    # Trigger type is deployment state (manual since the 2026-07-18 cutover
+    # to the acting sibling — it is now the rollback artifact); the SAFETY
+    # pin is the fence below, which holds in either deployment state.
     triage = definition.steps[0]
     assert triage.type == "agentic"
     assert triage.tools == []

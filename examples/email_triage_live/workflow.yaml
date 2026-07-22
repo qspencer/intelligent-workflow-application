@@ -11,16 +11,13 @@ description: |
   memory library logged in docs/SEMANTICS.md ("Deferred: veracium").
 
 trigger:
-  type: email
-  config:
-    provider: gmail
-    account: qspencer@gmail.com
-    poll_interval_seconds: 120
-    label: INBOX
-    # Drop body_html + raw headers from the payload: newsletters carry 100KB+
-    # of HTML and multi-KB DKIM headers, which the agent prompt would ingest
-    # verbatim (~40k input tokens/message). body_text is what triage needs.
-    slim_payload: true
+  # ROLLBACK ARTIFACT since the 2026-07-18 cutover to email-triage-apply
+  # (docs/EMAIL_TRIAGE_ACT_PLAN.md): manual on purpose so the two siblings
+  # never double-poll the mailbox. To roll back, restore this trigger to
+  # `email` (config: provider gmail, account qspencer@gmail.com,
+  # poll_interval_seconds 120, label INBOX, slim_payload true) and set the
+  # apply sibling back to manual, then restart.
+  type: manual
   example_payload:
     provider: "gmail"
     message_id: "example-id"

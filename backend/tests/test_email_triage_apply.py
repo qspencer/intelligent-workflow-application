@@ -111,9 +111,6 @@ def _apply_tool_use(label: str) -> list[dict[str, Any]]:
 def test_classifier_fence_and_apply_shape() -> None:
     definition = load_definition_from_file(WORKFLOW_PATH)
     assert definition.id == "email-triage-apply"
-    # Ships manual on purpose — an email trigger here would double-poll the
-    # mailbox beside email_triage_live (README documents the cutover).
-    assert definition.trigger.type == "manual"
 
     triage, _record, apply = definition.steps
     assert triage.type == "agentic"
@@ -285,3 +282,17 @@ def test_inputs_selector_unresolved_path_is_null_not_crash() -> None:
     assert "m-1" in message
     assert "SECRET" not in message
     assert "steps.ghost.field" in message  # slot present, value null
+
+
+def test_siblings_never_both_poll_the_mailbox() -> None:
+    """The safety invariant behind the cutover procedure: the read-only and
+    acting triage workflows must never BOTH hold email triggers — the
+    orchestrator registers every example's trigger at boot, so two email
+    triggers here means double classification spend and double acting on
+    the same personal mailbox."""
+    apply_def = load_definition_from_file(WORKFLOW_PATH)
+    live_def = load_definition_from_file(
+        WORKFLOW_PATH.parent.parent / "email_triage_live" / "workflow.yaml"
+    )
+    email_triggered = [d.id for d in (apply_def, live_def) if d.trigger.type == "email"]
+    assert len(email_triggered) <= 1, f"double-poll: {email_triggered}"
