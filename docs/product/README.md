@@ -1,6 +1,6 @@
 # Product & go-to-market strategy layer
 
-Seven documents written in an off-site working session (2026-07-15/16, against
+Documents from an off-site working session (2026-07-15/16, against
 repo state at commit 189 / the current HEAD of that day), folded into the repo
 2026-07-16 with factual corrections (React frontend, veracium v0.2.1
 capabilities, V1/V2 already shipped upstream, first-party-not-proprietary
@@ -24,6 +24,7 @@ runner) already align with the existing backlog and need no posture change.
 | `LLM_EVAL_FRAMEWORK.md` | Eval methodology for scaffold/execution models: L1–L4 scoring ladder, pass criteria, leaderboard, cost-analyst pipeline |
 | `LLM_EVAL_TEST_SUITE.md` | The 50 scaffold test cases (simple/medium/complex/trap) with structural expectations + judge rubrics |
 | `VERACIUM_ENHANCEMENTS.md` | Intelligence-layer tiers vs veracium capabilities; verdict: recall injection needs zero veracium changes (verified against v0.2.1) |
+| `POSITIONING_AGENTS_VS_RULES.md` | Positioning note (2026-07-18): the agents-vs-rules framing sharpened against what this platform actually does — goal-directed agents *inside human-pinned goals* on a learning substrate; the 99.4% (Haiku+rubric+recall) vs 90.3% (blind Sonnet judge) evidence; three honesty guards for any copy (no goal-management promise, no codification-loop claim until built, dated evidence) |
 
 Related in-repo material: `docs/CANVAS_ROADMAP.md` (GUI-angle competitive
 analysis), `docs/NEXT_STEPS.md` §G10 (recall injection — the unanimous
