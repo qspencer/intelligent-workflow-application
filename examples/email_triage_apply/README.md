@@ -9,7 +9,7 @@ category enum gate, label allowlisting, partial-failure semantics).
 ## Prerequisites
 
 1. Credentials for the mailbox under `.secrets/gmail/<account>/` (the
-   per-account tool `email_label_apply:<account>` is wired at boot for
+   per-account tool `email_label_apply__<sanitized-account>` is wired at boot for
    every credentialed account, allowlisted to `wf/*`).
 2. The seven labels pre-created once (the tool refuses to create labels —
    deliberate fence):

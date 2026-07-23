@@ -3,7 +3,7 @@
 Status: **built, not yet cut over** (2026-07-18, same day as design +
 review). Landed: the `inputs:` selector on `AgenticStep` + minimized
 `_build_user_message`; `category_valid` enum gate in `record_email_triage`;
-per-account `email_label_apply:<account>` tools (instance-named, `wf/*`
+per-account `email_label_apply__<sanitized-account>` tools (instance-named, `wf/*`
 allowlisted) wired at boot for every credentialed account;
 `GmailConnector.create_label` + `tools/setup_triage_labels.py` (CLI verified
 against the live account in dry-run — 7 labels pending creation);
@@ -19,7 +19,27 @@ invariant (the siblings must never BOTH hold email triggers —
 `test_siblings_never_both_poll_the_mailbox`), service restarted, exactly
 one poller on the mailbox confirmed in logs, and
 `email_label_apply:qspencer@gmail.com` verified in the live catalog.
-Window closes ~2026-07-25 against the §8 criteria (100% category parity,
+**First-run finding (2026-07-23):** the very first live
+message crashed the apply step — Bedrock's `toolSpec.name` only allows
+`[a-zA-Z0-9_-]+`, so the colon/@/dot per-account name was illegal at the
+Converse call (neither the design nor its review checked the model-API
+naming constraint). Fixed with `account_label_tool_name()` (illegal chars
+→ `_`, e.g. `email_label_apply__qspencer_gmail_com`). The same failure
+exposed an engine gap: unexpected exceptions stranded the instance in
+RUNNING forever — `_drive_inner` now has a catch-all that marks FAILED
+(audited `unexpected: true`), making such runs visible and retryable.
+**Second first-run finding (same message):** the apply
+step's system prompt received the seeded rubric memory AND the per-sender
+recall block — recall carries fenced third-party text from the sender's
+prior mail, i.e. attacker-adjacent content reaching the tool-holder via a
+channel `inputs:` didn't cover (it only minimized the user message), and
+4× the projected token cost. Fixed: a step that declares `inputs:` is now
+fully minimized — no rubric memory, no recall injection (test-pinned in
+the hostile-path fixture). The first message was completed via
+kill + fork-at-apply after the naming fix: `wf/notification` applied
+successfully (tool_call SUCCESS, cursor persisted — downtime backfill
+active from here on). Window closes ~2026-07-25 (uptime-adjusted) against
+the §8 criteria (100% category parity,
 zero unexpected writes, apply spend ≤ ~$0.001/message). This is the
 named trigger for `docs/NEXT_STEPS.md` G11 firing, and a platform first: the
 first workflow where an agent holds a **mutating external capability** in
@@ -111,7 +131,7 @@ Two gaps in the current plumbing, both closed here:
   personal account, which has poll credentials on disk and no tool.
   Change: the bootstrap builds one label tool **per credentialed account**
   (reusing the dmarc-era per-account seeding), registered as
-  `email_label_apply:<account>` (bare `email_label_apply` stays aliased to
+  `email_label_apply__<sanitized-account>` (bare `email_label_apply` stays aliased to
   the tools account for back-compat). The capability allowlist then names
   *which mailbox* is writable — and the C6 capabilities panel shows it.
 - **Label allowlist, twice over.** The tool gains an optional
@@ -231,7 +251,7 @@ YAML; labels already applied stay (harmless, removable).
   example).
 - `allowed_labels` enforcement + unknown-label (`GmailLabelNotFound`)
   surfacing as a step error, not a crash.
-- Per-account registration: `email_label_apply:<account>` resolves to a
+- Per-account registration: `email_label_apply__<sanitized-account>` resolves to a
   connector bound to that account; the bare name still maps to the tools
   account.
 - `inputs:` engine unit tests: selected-paths-only message, unresolved

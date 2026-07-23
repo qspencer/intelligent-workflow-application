@@ -492,6 +492,22 @@ class WorkflowEngine:
                 detail={"error": str(exc)},
             )
             return instance
+        except Exception as exc:
+            # Anything unexpected (SDK validation errors, bugs) must still
+            # mark the instance FAILED — found live when a Bedrock
+            # ValidationException stranded a run in RUNNING forever, which is
+            # both invisible to retry and lies on the dashboard.
+            instance = await self._mark_instance(
+                instance, WorkflowInstanceState.FAILED, context, error=f"unexpected: {exc}"
+            )
+            await self._audit(
+                "workflow_failed",
+                actor_type="engine",
+                actor_id="workflow_engine",
+                instance_id=instance.id,
+                detail={"error": str(exc), "unexpected": True},
+            )
+            return instance
 
         # Learned-memory observations happen before the COMPLETED mark so their
         # token/cost spend lands in the instance totals. A failed observation
@@ -966,16 +982,27 @@ class WorkflowEngine:
             registry.register(tool)
 
         agent_id = f"steps/{context.workflow_id}/{step.id}"
+        # A step that declares `inputs:` is fully minimized (ACT_PLAN §3):
+        # no rubric memory and no learned-memory recall reach it either —
+        # recall context carries fenced third-party text from the sender's
+        # PRIOR mail, which is exactly what a tool-holding step must never
+        # see. Found live: the apply step's first run got rubric + recall
+        # injected (4x token cost, and an unminimized channel).
+        minimized = step.inputs is not None
         memory_text = ""
-        if self.memory is not None:
+        if self.memory is not None and not minimized:
             memory_text = await self.memory.load(agent_id)
 
         memory_hash: str | None = None
         if memory_text:
             memory_hash = "sha256:" + hashlib.sha256(memory_text.encode()).hexdigest()[:16]
 
-        recalled = await self._recall_learned_memory(
-            context, instance_id, step.id, context_ref=memory_hash
+        recalled = (
+            None
+            if minimized
+            else await self._recall_learned_memory(
+                context, instance_id, step.id, context_ref=memory_hash
+            )
         )
 
         system_prompt = step.system_prompt or step.goal

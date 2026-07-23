@@ -23,6 +23,7 @@ account into the platform decides.
 
 from __future__ import annotations
 
+import re
 from typing import Any, ClassVar
 
 from pydantic import ValidationError
@@ -88,6 +89,14 @@ class EmailSendTool(Tool):
         except Exception as exc:
             return ToolResult(error=f"Email send failed: {exc}")
         return ToolResult(content={"message_id": message_id})
+
+
+def account_label_tool_name(account: str) -> str:
+    """Bedrock-legal per-account tool name: `toolSpec.name` must match
+    [a-zA-Z0-9_-]+ (found live — a colon/@/dot name fails the Converse
+    call with a ValidationException). Deterministic and collision-safe for
+    real addresses: every illegal char becomes `_`."""
+    return "email_label_apply__" + re.sub(r"[^a-zA-Z0-9_-]", "_", account)
 
 
 class EmailLabelApplyTool(Tool):

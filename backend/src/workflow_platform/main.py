@@ -60,6 +60,7 @@ from workflow_platform.tools import (
     PdfExtractTool,
     Tool,
 )
+from workflow_platform.tools.email import account_label_tool_name
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.world import real_world
 
@@ -132,11 +133,11 @@ def _build_default_tools(secret_store: SecretStore) -> list[Tool]:
         tools.append(
             EmailLabelApplyTool(
                 connector,
-                name=f"email_label_apply:{extra_account}",
+                name=account_label_tool_name(extra_account),
                 allowed_labels=[f"wf/{c}" for c in TRIAGE_CATEGORIES],
             )
         )
-        logger.info("Wired email_label_apply:%s (wf/* labels only).", extra_account)
+        logger.info("Wired %s (wf/* labels only).", account_label_tool_name(extra_account))
     return tools
 
 

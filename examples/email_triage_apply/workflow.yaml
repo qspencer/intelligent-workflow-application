@@ -86,10 +86,10 @@ steps:
     type: agentic
     model: us.anthropic.claude-haiku-4-5-20251001-v1:0
     tools:
-      - "email_label_apply:qspencer@gmail.com"
+      - "email_label_apply__qspencer_gmail_com"
     capabilities:
       tools:
-        - "email_label_apply:qspencer@gmail.com"
+        - "email_label_apply__qspencer_gmail_com"
     # Input minimization (ACT_PLAN §3): this tool-holding step sees ONLY the
     # enum-validated category and the platform-supplied message id — never
     # subject, body, sender, or any other attacker-influenced text.
