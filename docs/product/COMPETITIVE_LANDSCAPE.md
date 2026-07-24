@@ -191,6 +191,34 @@ Both camps are racing toward the same destination: intelligent automation that c
 
 ---
 
+### Pegasystems (Pega Platform) *(added 2026-07-24 — post-off-site research)*
+
+| Attribute | Details |
+|-----------|---------|
+| **Positioning** | Enterprise "workflow automation and AI orchestration platform of choice" (CEO Trefler, verbatim) — case-management-heritage BPM |
+| **Integrations** | Enterprise stack (case mgmt, RPA, process mining, decisioning, low-code); MCP support added Jun 2026 so third-party agents can invoke Pega processes |
+| **Pricing** | Sales-led, opaque; trackers put it at ~$80–125/user/mo, real deployments six-to-seven figures with system-integrator engagements |
+| **Pricing model** | Per-user + modules + environments; TCO climbs steeply |
+| **AI features** | Blueprint (GenAI workflow *design* agent — their front door), "Predictable AI Agents" (five types, embedded as workflow steps: LLM creativity at design time, runtime pre-mapped/governed/audited), Agent Experience APIs |
+| **Self-hosted** | Yes (self-managed) or Pega Cloud (Cloud ACV $926M, +22% YoY; ~$2B total revenue guided for 2026) |
+| **Target** | Large regulated enterprises (U.S. Census Bureau, Aflac, Healthfirst); "mission-critical operations" |
+
+**Strengths:**
+- The only surveyed vendor marketing *directly at the governance×intelligence quadrant* — "predictable AI agents + governance" is their category language, at $2B scale
+- Design-time/runtime split is a credible governance architecture (Blueprint maps every path in advance; runtime is audited and explainable)
+- Real enterprise governance heritage: case management, compliance, decisioning for regulated industries
+- Growing, healthy business mid-cloud-transition
+
+**Weaknesses:**
+- Governance achieved by *amputating runtime intelligence*: agents traverse pre-mapped paths rather than reasoning at runtime — no visible per-LLM-action audit, per-run LLM cost metering, or dry-run-with-live-model equivalent
+- Peer reviews recur on: hard to maintain/run stably, convoluted release process (no real CD), documentation gaps, outcomes hostage to integrator quality
+- ~50× the per-seat price of the SMB automation band; months-long integrator-led implementations
+- Appian trade-secrets overhang: the overturned $2.036B verdict heads to **retrial** (Va. Supreme Court, Jan 2026); a Va. Computer Crimes Act violation against Pega is final
+
+**Relevance to us:** different buyers today (enterprise BPM vs lightweight self-hosted agentic), but they are teaching enterprise buyers our category vocabulary — validating the thesis while capturing the mindshare. Worth stealing: the per-step design-time/runtime dial (our codification-loop endpoint) and MCP exposure of workflows as an interop surface.
+
+---
+
 ## AI-Native / Agentic Platforms
 
 ### Relevance AI
@@ -325,6 +353,15 @@ Both camps are racing toward the same destination: intelligent automation that c
 ```
 
 **The empty quadrant** — top-right — is where no product fully lives: deep agentic intelligence WITH enterprise-grade governance.
+
+> **Caveat (2026-07-24, post-Pega research):** this survey covered the
+> Zapier-to-Gumloop band; enterprise BPM incumbents (Pega, and likely
+> ServiceNow/Appian) sit high on the governance axis with credible AI
+> stories and market the quadrant's language directly. The claim survives
+> in refined form: **nobody offers deep *runtime* agentic intelligence
+> with *transparent, surfaced* governance** — Pega achieves governance by
+> pre-mapping away runtime judgment, and hides the machinery behind
+> integrators; the AI-natives have the judgment and none of the surfaces.
 
 Key observations:
 
