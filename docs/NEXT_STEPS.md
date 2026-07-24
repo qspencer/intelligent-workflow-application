@@ -221,6 +221,45 @@ Trigger to start: after the two-axis split (G11) — the `attention`
 axis is where elicited context pays off — and after outcome tracking
 ships (0.3.x), so question value is measurable. Effort: **M-L**.
 
+### G13 — Codification loop, slice 1: evidence-driven sender pre-filter
+
+From the 2026-07-24 Pega research (`docs/product/COMPETITIVE_LANDSCAPE.md`
+Pega profile): the design-time/runtime split is a **dial per step**, and
+the codification loop is what moves it. First concrete slice: a
+deterministic pre-classify for email triage — senders whose veracium
+outcome history is unanimous (e.g. ≥5 recalled-and-confirmed uses, zero
+corrections) classify without the LLM; everyone else keeps runtime
+judgment. **Demotion is the differentiator vs Pega's static maps**: a
+codified sender that accrues a `corrected` outcome reverts to the LLM
+automatically (drift re-opens the map). All substrate exists — the V4
+edge counters (`times_used`, confirmed/corrected) are the evidence
+ledger, deterministic steps are free, and this absorbs the
+"deterministic connector actions" deferral in `EMAIL_TRIAGE_ACT_PLAN`
+§10. Concept home: `docs/LEARNING.md` (execution learning).
+
+Trigger to start: the ACT_PLAN §8 window closed AND an evidence
+threshold met (≈5 senders with ≥5 unanimous confirmed outcomes) — or
+mail volume making classify spend material. Not before: at ~30 msgs/day
+the classify spend is pennies, and building learning features
+mid-validation muddies the window's own data. Effort: **S–M**.
+
+### G14 — MCP exposure of workflows (external-agent interop)
+
+Expose workflow definitions as discoverable MCP tools so external
+agents can list and invoke platform workflows — governed execution
+(capabilities, audit, budgets) underneath an open interop surface. Pega
+shipped exactly this in June 2026; the `run`/`run-batch` APIs already
+carry the substance; veracium's MCP Registry listing is the in-house
+playbook. Hard prerequisite: **API keys** (`AUTH_PLAN` §7 deferral) —
+unattended external callers can't ride cookie sessions, so the triggers
+chain.
+
+Trigger to start: first external-agent consumer ask, or adopting the
+`docs/product/` GTM posture (an MCP listing becomes a distribution
+channel). Until then this is speculative horizontal surface — exactly
+what the operating principles defer. Effort: **M** (server shim + API
+keys prerequisite).
+
 ### G10 — Learned-memory recall injection (veracium slice 2) — **landed 2026-07-17**
 
 Implemented against both security acceptance criteria (below): an
