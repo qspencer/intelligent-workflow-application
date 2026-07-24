@@ -188,6 +188,18 @@ notification×review (PayPal + ManifestRx receipts), which precedence
 structurally cannot resolve. The review class is the real pull; call
 is Quentin's on when to spend the M.
 
+4. **awaiting-reply is a STATE, not a category** (2026-07-24, live:
+   a baseball-game mail from a personal correspondent, labeled
+   `wf/awaiting-reply` — correctly — but the user had already replied).
+   Source categories are stable properties; the attention axis is
+   time-varying and needs LIFECYCLE: applied when the demand is
+   detected, retired when it's satisfied (reply sent). Sharpest
+   implication for the split: category labels are permanent and safely
+   codifiable (G13); attention labels need check-then-label at apply
+   time (thread has no newer sent message) and a retirement path —
+   label *removal* stays operator/deterministic-side, never the agent
+   (the add-only fence holds).
+
 ### G12 — Ask-the-user: clarification elicitation for classification
 
 Quentin, thinking aloud during the 2026-07-19 labeling session: the
