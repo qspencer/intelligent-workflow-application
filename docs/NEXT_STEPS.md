@@ -249,11 +249,25 @@ ledger, deterministic steps are free, and this absorbs the
 "deterministic connector actions" deferral in `EMAIL_TRIAGE_ACT_PLAN`
 §10. Concept home: `docs/LEARNING.md` (execution learning).
 
+**Codification criterion, sharpened (2026-07-25, from Quentin's filter
+setup):** codify only where the SENDER determines the category — and
+outcome unanimity over many messages is exactly the statistical test
+for that (content variation never changed the verdict). Quentin's
+Gmail filters are a hand-built version of the same layer, all
+sender-based; what they couldn't filter (e.g. PayPal — receipt vs
+security alert from one address) is content-dependent and stays with
+runtime judgment forever. Corollary: the attention axis (G11) is
+content/state-dependent by nature and is NEVER codifiable. His filter
+export is candidate day-one seed evidence (pre-validated
+sender→disposition rules) — import rather than re-learn.
+
 Trigger to start: the ACT_PLAN §8 window closed AND an evidence
-threshold met (≈5 senders with ≥5 unanimous confirmed outcomes) — or
-mail volume making classify spend material. Not before: at ~30 msgs/day
-the classify spend is pennies, and building learning features
-mid-validation muddies the window's own data. Effort: **S–M**.
+threshold met (≈5 senders with ≥5 unanimous confirmed outcomes; met as
+of 2026-07-24 — 8 qualifying senders, zero corrections store-wide) —
+or mail volume making classify spend material. Note the window's
+effective volume is INBOX-residue only (~9/day; the filters pre-drain
+sender-determined mail), so weigh evidence quality over raw count when
+closing. Effort: **S–M**.
 
 ### G14 — MCP exposure of workflows (external-agent interop)
 
