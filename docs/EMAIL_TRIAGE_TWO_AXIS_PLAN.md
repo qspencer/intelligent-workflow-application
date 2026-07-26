@@ -1,6 +1,7 @@
 # Email Triage, Two-Axis (G11 phase 2) — Design
 
-Status: **proposed** (drafted 2026-07-26; design review pending). Executes
+Status: **proposed** (drafted 2026-07-26; design-reviewed same day:
+adopt-with-conditions, all findings folded in below; not yet built). Executes
 `docs/NEXT_STEPS.md` G11 with its four pinned collision examples; the
 rubric-only phase promised in `EMAIL_TRIAGE_ACT_PLAN` §7, designed against
 what the acting pipeline actually is now (input-minimized apply step,
@@ -73,14 +74,21 @@ read state already signals handled mail); their decay is a recorded
 deferral, not built.
 
 - **Check-then-label (arrival/backfill guard).** The Gmail poll trigger
-  annotates each delivered message with `already_replied: bool` — one
-  `threads.get` per message, answering "does this thread contain a
-  SENT-label message newer than this one?". For fresh mail this is almost
-  always false (cheap insurance); for **backfilled** mail — restarts, the
-  G9 catch-up path, exactly where the baseball email came from — it is
-  the fix. Sits in the trigger because that's the component that already
-  holds Gmail access; deterministic steps still can't reach connectors,
-  and the apply step stays minimized.
+  annotates each delivered message with `already_replied: bool`. This is
+  **new connector surface, named** (design-review finding — the connector
+  has no thread fetch today): `GmailConnector.thread_has_newer_sent(
+  thread_id, than_internal_date)` on `threads.get` with
+  **`format=metadata`** — labelIds + internalDate per message only. The
+  format restriction is load-bearing: a default `threads.get` would pull
+  the full bodies of every message in the thread into the trigger —
+  third-party content and cost the check doesn't need. Failure →
+  `already_replied=False` + one log line, never blocks delivery (§8);
+  quota/latency at current volume negligible. For fresh mail the answer
+  is almost always false (cheap insurance); for **backfilled** mail —
+  restarts, the G9 catch-up path, exactly where the baseball email came
+  from — it is the fix. Sits in the trigger because that's the component
+  that already holds Gmail access; deterministic steps still can't reach
+  connectors, and the apply step stays minimized.
 - **Retirement (the sweep).** `tools/retire_attention_labels.py`
   (operator CLI): list messages carrying `wf-attn/awaiting-reply`,
   thread-check each, **remove** the label where a reply now exists.
