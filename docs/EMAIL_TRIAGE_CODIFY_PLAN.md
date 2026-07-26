@@ -1,231 +1,261 @@
-# Email Triage, Codified Sender Pre-Filter (G13 slice 1) — Design
+# Email Triage, Codified Sender Pre-Filter (G13 slice 1) — Design, v2
 
-Status: **proposed** (drafted 2026-07-26; design-reviewed same day:
-adopt-with-conditions, all findings folded in below — including adopting
-the reviewer's authentication gate as a requirement; not yet built). Executes
-`docs/NEXT_STEPS.md` G13 for the email-triage workload — the first concrete
-slice of the codification loop (`docs/LEARNING.md` execution learning; the
-design-time/runtime "dial" from the Pega analysis,
-`docs/product/COMPETITIVE_LANDSCAPE.md`). **Depends on the two-axis plan
-shipping first** (`EMAIL_TRIAGE_TWO_AXIS_PLAN`): eligibility is defined
-against the 5-bucket category axis and its era filter.
+Status: **proposed** (v1 2026-07-26, internal review folded; **v2 same day
+after an external review — rework-level revision adopted in full**. The
+external review's core finding invalidated v1's architecture: the codified
+path's synthetic `attention: []` silently codified *the absence of
+attention* for unsampled messages, contradicting the plan's own
+never-codify-attention principle. v2 codifies **category only** and runs
+attention judgment on **every** message. Not yet built). Executes
+`docs/NEXT_STEPS.md` G13; **depends on the two-axis plan shipping first**.
 
-## 1. What this is
+## 1. What this is (claims stated honestly)
 
-Senders whose outcome evidence is unanimous stop paying for LLM judgment:
-a deterministic pre-filter classifies them directly (zero tokens), the
-classifier handles everyone else, and **demotion is automatic in effect**
-— evidence of drift pulls a sender back to runtime judgment. The criterion
-(G13, sharpened 2026-07-25): codify only where the **sender determines the
-category**; unanimity over many messages is the statistical test for that.
-The attention axis is never codified (content/state-dependent by nature).
+Senders with unanimous, current-schema, per-message evidence stop paying
+for **category** judgment and recall: a deterministic rule supplies the
+category; a small **attention-only classifier** still reads every message
+(the attention axis is content-dependent and is *never* bypassed). The
+rule is scoped, versioned, auditable, immediately disable-able at runtime,
+and can never feed its own applications back as promotion evidence.
 
-Honest cost note: the operator's Gmail filters already drain most
-sender-determined mail before INBOX, so absolute savings are modest — but
-the current qualifiers (Barron's 46, weather.com 2×30, …) are INBOX
-residents accounting for a large minority of historical volume. The real
-product here is the mechanism: judgment spent once, promoted to a rule,
-reversible on evidence — measured, not asserted (§8).
+**Not** "zero-LLM classification" (v1 overclaimed): the codified path
+eliminates category-classification and recall tokens and shrinks the
+prompt; one small attention call and one minimized apply call remain.
+Savings are measured in validation, not asserted.
 
-## 2. Eligibility (the promotion rule)
+## 2. Eligibility (the promotion rule, v2)
 
-A sender qualifies when, over **classifier-sourced, current-era** verdict
-evidence (both qualifiers are load-bearing — §5, §6):
+Evidence unit — **one distinct adjudicated message**, keyed
+`(org, account, workflow deployment, message_id, triage_schema_version)`:
+replays/retries/forks collapse to one; a human correction *supersedes* the
+classifier verdict for its message. The artifact reports
+`distinct_messages` and `verdict_events_seen`; only the former drives
+promotion.
 
-1. **≥ 5 confirmed** outcome events, **zero corrected** — the existing
-   G13 threshold, already met by 8 senders (2026-07-24 check).
-2. **Category-unanimous**: every counted verdict names the same 5-bucket
-   category. (Era filter per the two-axis plan: only verdicts whose
-   category ∈ current vocabulary count; old `urgent`/`awaiting-reply`
-   edges are excluded, not disqualifying.)
-3. **Attention-clean**: zero verdicts with a non-empty attention list
-   in current-era evidence (attention is multi-valued per the two-axis
-   plan's external review). A sender that *ever* demanded attention is not
-   boring enough to codify. (Vacuously true at cutover — the new era
-   starts empty; condition binds as two-axis evidence accrues. The
-   residual risk that an old-era sender occasionally deserved `review`
-   is accepted and covered by sampling, §4.)
-4. **Entity-shape filter (design-review finding — the evidence store
-   contains non-sender entities):** the key must parse as an email
-   address, be a fixpoint of `normalize_entity`, and not be the mailbox
-   owner. Keys like `user|person:…` or `org:…` from the store can never
-   qualify; §2.4 is a query predicate, not an output description.
-5. **Era filter: `triage_schema_version` where stamped, value-based for
-   legacy rows** (the two-axis plan's external review introduced the
-   schema-version stamp — the clean discriminator; pre-stamp history
-   filters by value-compatibility, which keeps the 8 current
-   qualifiers' stable-bucket evidence).
+A sender qualifies when ALL hold:
 
-## 3. The codified list: materialized, auditable, operator-generated
+1. **Current-schema floor**: ≥ 5 distinct schema-2 messages, unanimous
+   category, **all with empty attention**, zero corrections. Legacy
+   (pre-schema-2) evidence may *support category stability* on top of
+   this floor but can never satisfy the attention condition (v1's
+   vacuously-true-at-cutover rule was unsafe and is withdrawn).
+2. **Diversity + recency**: the qualifying messages span > 1 day (five
+   identical messages from one delivery batch prove little), and ≥ 1
+   classifier judgment is recent (≤ the rule TTL, §3).
+3. **Category allowlist for the first release**: only `newsletter`,
+   `promotion`, `notification`. `personal` and `spam` are excluded until
+   a compelling case exists.
+4. **Entity shape**: key parses as an email address, is a
+   `normalize_entity` fixpoint, and is not the mailbox owner
+   (store keys like `user|person:…` / `org:…` can never qualify).
+5. **Disqualifiers, from any source**: any human correction, any
+   confirmed `codified_mismatch`, any sampled/reviewed non-empty
+   attention observation for the sender.
 
-**`tools/codify_senders.py`** queries the veracium store with the §2 rule
-and writes **`backend/.memory/codified/<workflow_id>.json`**:
+## 3. The rule artifact (a policy file, treated like one)
 
-```json
-{ "generated_at": "…", "era": "5-bucket", "thresholds": {"confirmed": 5},
-  "senders": { "weeklybrief@news.weather.com":
-      { "category": "notification", "evidence": {"confirmed": 30} } } }
+`tools/codify_senders.py` (**`--dry-run` default, `--apply`,
+`--explain <sender>`**) queries veracium — always scoped to the same
+org/account namespace the workflow writes (`org:<org>:user:<account>`;
+identity is never joined by inference) — and writes:
+
+```
+backend/.memory/codified/<org_id>/<account_id>/<workflow_id>.json
 ```
 
-- **Materialized file, not a live store query**: deterministic functions
-  stay free of veracium coupling (and of per-message store reads); the
-  list is inspectable, diffable, and its provenance travels with it.
-- **Gitignored** (`.memory/` already is): sender addresses are personal
-  mail metadata — never committed, same rule as the ground-truth corpus.
-- **Regeneration is the demotion mechanism**: any `corrected` outcome on
-  a listed sender (from review labels, a fork-with-changed-verdict, or a
-  future G12 answer) removes it on the next run. The CLI prints
-  promoted/retained/demoted with evidence counts. Cadence: operator-run
-  — after review sessions, or when a mismatch audit (§4) fires.
-  Auto-regeneration at boot is a named deferral.
+(v1's `<workflow_id>.json` alone was a tenant-isolation bug: a bundled
+definition can serve multiple mailboxes.) Written atomically (temp file +
+rename), permissions 0600, path components sanitized, schema-validated
+before replacement, gitignored. Per-sender entries carry the full audit
+surface:
 
-## 4. Workflow shape (diamond; engine already supports it)
+```json
+{ "format_version": 1, "triage_schema_version": 2,
+  "rubric_hash": "sha256:…", "codifier_version": 1,
+  "generated_at": "…",
+  "senders": { "weeklybrief@news.weather.com": {
+      "category": "notification", "status": "active",
+      "distinct_messages": 30, "verdict_events_seen": 34,
+      "current_schema_messages": 12, "attention_bearing_messages": 0,
+      "corrections": 0, "first_evidence_at": "…",
+      "last_evidence_at": "…", "expires_at": "…" } } }
+```
+
+- **Rubric/version binding (external finding 13):** the precheck verifies
+  `triage_schema_version` + `rubric_hash` against the deployed workflow;
+  any mismatch routes to full classification until the list is
+  regenerated — a prompt change must not leave semantically stale rules
+  active.
+- **TTL + inactivity revalidation (finding 9):** rules expire
+  (`expires_at`); the first message after a long sender-inactivity gap
+  goes to full classification regardless of the rule.
+
+## 4. Runtime disable overlay (demotion is now actually immediate)
+
+v1's "demotion automatic in effect" was an alert, not demotion — a
+corrected sender stayed codified until an operator reran the CLI, an
+unbounded gap. v2 adds a runtime-writable overlay beside the rule file:
+
+```json
+{ "disabled_senders": { "sender@…": {
+    "reason": "sampled_category_mismatch | correction | attention_detected",
+    "disabled_at": "…", "run_id": "…" } } }
+```
+
+`codified_sender_check` reads rule file + overlay; a disabled sender
+routes to full classification. The overlay is written **at runtime by the
+record step** (a deterministic function writing a local file via
+`world.fs` — no new capability surface) the moment it sees: a sampled
+category mismatch; a non-empty attention verdict on a codified run; or a
+correction event. Regeneration reconciles: confirms the demotion or
+restores the rule, and clears resolved entries. Every disable also emits
+a `codified_sender_disabled` audit entry.
+
+## 5. Workflow shape, v2 (attention is never bypassed)
 
 ```
 trigger → precheck (deterministic, codified_sender_check)
-  precheck → classify     [condition: NOT steps.precheck.codified]
-  precheck → record       [condition: steps.precheck.codified]
-  classify → record
-  record   → apply        [condition: category_valid — unchanged]
+  precheck → classify_full      [condition: route == "full"]
+  precheck → classify_attention [condition: route == "codified"]
+  classify_full      → record
+  classify_attention → record
+  record → apply                 [condition: apply_labels != []]
 ```
 
-**Authentication gate (design-review HIGH, adopted as a requirement):**
-the codified path is a roster of trusted-looking, high-spoof-value
-senders, and bypassing the classifier means a forged `From: Barron's`
-would get a credible `wf/newsletter` label with zero content scrutiny 4
-runs in 5 — sampling is a drift detector, not a per-message defense.
-Therefore the trigger annotates each message with
-`auth_pass: bool` — parsed from Gmail's `Authentication-Results` header
-(DKIM or DMARC pass aligned to the From domain; parse failure or absent
-header ⇒ `False`) — and **`codified_sender_check` requires `auth_pass`**:
-unauthenticated mail from a listed sender goes to the classifier like
-everyone else (fail-open to judgment). Same trigger-annotation precedent
-as the two-axis `already_replied`; the codified path thus never has
-*less* scrutiny than the mail's own authenticity supports.
+- **Precheck output is a structured routing decision** (finding 10), not
+  a bare bool: `{listed, authenticated, sampled, route:
+  "full"|"codified", rule_category, rule_evidence:{…}, rule_compatible}`.
+  `record` validates that **exactly one** classifier step produced
+  output; both-or-neither is a hard error, never a silent preference.
+- **`classify_attention`** (codified route): a small agentic step —
+  attention-only prompt (the definitions + negative exemplars from the
+  two-axis plan), `tools: []`, **no recall injection** (cost; per-sender
+  attention history remains G12's substrate later), smaller token cap,
+  same model initially (a cheaper model is a §11 option). Output:
+  `{"attention": […], "decision_note": "…"}`.
+- **Routing**: `route = "full"` when not listed, not authenticated (§6),
+  rule incompatible/expired/disabled, or **sampled**. Sampled runs carry
+  `rule_category` so `record` can compare the full classifier's category
+  against the rule and write the `codified_mismatch` audit + overlay
+  entry on disagreement.
+- **`record_email_triage`** composes the final verdict from either
+  source: codified route = rule category + classifier attention; full
+  route = classifier both. Output carries **`decision_source:
+  "classifier" | "codified_sender_rule"`**, `model_confidence` (null on
+  the codified route — finding 11: a rule is not a confident model;
+  v1's `category_confidence: 1.0` is withdrawn), `rule_evidence`
+  metadata, and `decision_note` (v1's fake `summary` is withdrawn).
+  `apply_labels` composition downstream is unchanged.
 
-- `codified_sender_check` (new stock function): loads the list **via
-  `world.fs`, path anchored to `WORKFLOW_PLATFORM_MEMORY_DIR`** (the
-  CWD-relative bug class has recurred in this project — never a bare
-  relative path), **read per-run** (rollback-without-restart is a §8
-  requirement, and one small-file read per message is nothing),
-  normalizes `trigger.from_address.address`, checks `auth_pass`, and
-  emits
-  `codified: bool` plus — when codified — `verdict_text`: a synthetic
-  classifier-shaped JSON (`category`, `attention: []`,
-  `category_confidence: 1.0`, `summary: "codified: 30/30 unanimous"`,
-  `triage_schema_version: 2`). Missing/unreadable list
-  → `codified: false` for everyone (fail-open to judgment, never to a
-  wrong rule).
-- **Sampling (drift detection beyond corrections):** even a listed
-  sender goes to the classifier when `sha256(message_id) % N == 0`
-  (config `sample_one_in`, default 5 initially ≈ 20%, loosen later).
-  Hash-based, not RNG — deterministic per message, replay-safe in tests.
-  A sampled run whose classifier verdict **disagrees** with the codified
-  category records a `codified_mismatch` audit entry — the operator
-  signal to regenerate (demote). Skip semantics verified: `record` runs
-  when either incoming edge is active; both inactive never occurs
-  (precheck always activates exactly one).
-- `record_email_triage` gains a fallback source (config
-  `codified_from: steps.precheck.verdict_text`, used when `triage_from`'s
-  step was skipped) and a passthrough output `source:
-  "classifier" | "codified"`. Everything downstream — `apply_labels`
-  composition, the minimized apply step, the enum gates — is unchanged
-  and shared by both paths.
+## 6. Authentication gate (v2: a trusted-header policy, not a parse)
 
-## 5. The anti-feedback rule (load-bearing)
+The codified path still requires authentication, now specified (external
+finding 8):
 
-Codified runs must not manufacture their own evidence. Two guards, both
-test-pinned:
+- Use **only** `Authentication-Results` headers whose `authserv-id` is
+  Google's receiving infrastructure (`mx.google.com`); attacker-supplied
+  AR headers deeper in the header block are ignored (topmost trusted
+  instance wins).
+- `dmarc=pass` suffices. Absent DMARC, an aligned `dkim=pass` (strict
+  alignment; no relaxed-subdomain acceptance in the first release) is
+  accepted. IDN domains are compared punycode-normalized.
+- Forwarded/mailing-list mail typically fails alignment → routes to full
+  classification. Correct: fail toward judgment.
+- Stated limit: authentication proves domain/signing control, not that
+  this message matches the sender's historical category — that is what
+  universal attention judgment + sampling + the overlay are for.
 
-1. **No verdict observation on codified runs — which requires NEW ENGINE
-   SURFACE, named here** (design-review finding: `ObservationSpec` has no
-   conditional field and `_observe_learned_memory` renders every declared
-   observation whose template resolves — the verdict template reads
-   `steps.record.*`, populated on codified runs too). `ObservationSpec`
-   gains **`skip_if: <expression>`**, evaluated with the same
-   simpleeval sandbox as edge conditions against the run context; the
-   verdict observation declares `skip_if: steps.record.source ==
-   "codified"`. Additive, back-compatible (absent = never skip), and
-   generally useful beyond this consumer. The mail-received
-   (third_party) observation still accrues; sampled runs are real
-   classifier verdicts and observe normally (they are exactly how
-   unanimity keeps accruing — or breaks).
-2. **The eligibility query counts classifier-sourced verdicts only**
-   (belt-and-suspenders with guard 1, and robust to any future consumer
-   that writes verdict-shaped events).
+## 7. Sampling, v2 (keyed, counted, honest)
 
-Recall injection and act-time `unreviewed` uses are absent on the
-codified path **structurally, not by new logic** (verified in review:
-recall runs only inside non-minimized agentic steps — classify is
-SKIPPED and apply is `inputs:`-minimized, so neither records uses) —
-outcome counters stay a measure of *judgment*, not of rule
-application. Rule applications are visible instead in step outputs and
-audit (`source: codified`, run counts queryable per sender).
+- **Keyed hash**: `HMAC_SHA256(platform_secret, account ||
+  gmail_message_id) % sample_one_in` — the id is Gmail's internal opaque
+  id (not the sender-supplied RFC Message-ID), and the HMAC removes any
+  residual attacker influence over sampling selection. Deterministic per
+  message, replay-safe; the secret comes from the SecretStore.
+- **Count-based validation** (not calendar-based): with zero mismatches
+  in *n* samples, the ~95% upper bound on the true mismatch rate is
+  ≈ 3/n — so rate reduction (5 → 10) requires a minimum sampled count
+  (≥ 30 across the list, reported per sender), never "two quiet weeks".
+  The validation report includes: codified-run count, sampled count (per
+  sender), mismatches, attention-bearing sampled messages, corrections.
 
-## 6. Interaction with G13 evidence going forward
+## 8. Anti-feedback (v2: query contract primary, skip_if fail-closed)
 
-The two-axis plan's era filter is implemented **in the eligibility query
-of `codify_senders.py`** (category value ∈ current vocabulary), not in
-veracium — the store stays an honest ledger; interpretation lives in the
-consumer. Combined with §5, the evidence stream stays clean: only real,
-current-era classifier judgments ever promote or retain a sender.
+The eligibility query contract (external finding 6) is the primary
+mechanism:
 
-## 7. Cost & behavior expectations
+- **Positive evidence**: classifier-sourced (`decision_source ==
+  "classifier"`), current-schema, distinct-message verdicts only.
+- **Never positive**: rule applications — the codified route's category
+  is rule-sourced by construction. The codified route's *attention*
+  verdicts are real classifier judgments and DO count — toward the
+  attention-cleanliness condition and the disable overlay (a strict
+  improvement over v1: attention violations now surface on every
+  message, not 1-in-5).
+- **Disqualifying**: corrections and confirmed mismatches from any
+  source; a correction to a codified result produces a
+  rule-application-correction event even though no classifier category
+  verdict exists for that run.
 
-- Codified path: **zero LLM tokens, zero recall** — trigger + three
-  deterministic steps + one two-turn apply call (~$0.0025 → the apply
-  call is now the entire cost; a later slice could route codified
-  verdicts through a deterministic label function if the §2b
-  function-capability story ever lands, taking it to zero).
-- Classifier path: unchanged.
-- Latency: codified runs complete in ~1s vs ~8s.
+`ObservationSpec.skip_if` remains as named engine surface, now with
+**fail-closed semantics for learned-memory writes** (external finding 12,
+replacing v1's observe-on-error): expressions are validated at
+workflow-load time (an invalid definition is rejected before execution);
+runtime evaluation failure **skips the observation** and emits a
+high-severity audit event. The asymmetry is the argument: one missed
+observation is recoverable; thousands of self-confirming writes corrupt
+the evidence ledger permanently. Documented explicitly: this fail
+direction is specific to memory writes and may differ for other future
+`skip_if` consumers.
 
-## 8. Validation
+## 9. Validation
 
-1. **Shadow-accuracy via sampling**: run with `sample_one_in: 5` for the
-   first ~2 weeks; success = zero `codified_mismatch` audits, or every
-   mismatch explained and answered by regeneration.
-2. **Zero human corrections** on codified labels in the window (the
-   operator's Gmail spot-checks — same standard as the acting window).
-3. **Measured savings**: fraction of runs taking the codified path +
-   tokens avoided, from step outputs (`source` counts) — replaces the §1
-   hand-wave with numbers.
-4. Rollback: delete/empty the codified list file (fail-open sends
-   everyone back to the classifier); no restart needed — the list is
-   read per-run (pinned; the per-boot hedge is dropped).
-5. **Spoofing check**: at least one crafted unauthenticated message
-   from a listed sender in the test window confirms the auth gate
-   routes it to the classifier (unit-tested regardless; §9).
+1. Shadow accuracy: `sample_one_in: 5` until ≥ 30 sampled messages with
+   zero unexplained mismatches (per-sender counts reported, the 3/n
+   bound stated in the report).
+2. Zero human corrections on codified-route labels; every overlay
+   disable investigated.
+3. Attention parity on the codified route: the attention-only
+   classifier's decisions spot-checked to the same standard as the
+   two-axis acceptance set.
+4. Measured savings: tokens and latency per route from step outputs
+   (`decision_source` counts) — replacing §1's hand-wave with numbers.
+5. Rollback: empty/delete the rule file **or** disable per sender via
+   the overlay; both are read per-run — no restart. Crafted
+   unauthenticated and spoofed-sender fixtures confirm routing in tests
+   and once live.
 
-## 9. Test plan (unit)
+## 10. Test plan (v2)
 
-- `codified_sender_check`: hit / miss / sampled-hit (hash boundary
-  cases) / missing file / malformed file / **`auth_pass=False` on a
-  listed sender** → all fail-open to the classifier; normalization
-  applied to the trigger address.
-- Trigger `auth_pass` parsing: DKIM/DMARC pass, fail, absent header,
-  malformed header, misaligned domain → only aligned pass yields True.
-- `skip_if` on ObservationSpec: engine unit tests (skip on true, observe
-  on false/absent, malformed expression → observe + audit, never crash).
-- DAG: codified run skips `classify` (SKIPPED, zero Bedrock calls);
-  non-codified run skips nothing; `record` completes on either path.
-- `record_email_triage`: fallback source; `source` passthrough;
-  `apply_labels` identical for equivalent verdicts from either path.
-- Anti-feedback: codified run emits no verdict observation and no
-  act-time uses; sampled run emits both; `codified_mismatch` audit on
-  disagreement.
-- `codify_senders.py` against a seeded fake store: promotion at
-  threshold, exclusion below it, demotion on corrected, era filter
-  excludes old-vocabulary verdicts, attention≠none disqualifies,
-  non-email entity keys (`user|person:…`, `org:…`) and the mailbox owner
-  never qualify.
+- Precheck: structured route output; disabled-overlay hit; expired rule;
+  rubric-hash mismatch; inactivity revalidation; sampled carries
+  `rule_category`; exactly-one-classifier-output enforcement
+  (both/neither = hard error); HMAC sampling boundaries; auth-policy
+  cases (trusted vs attacker AR header, dmarc pass, aligned/unaligned
+  dkim, absent, malformed, IDN); missing/malformed rule file → full
+  classification for everyone.
+- Record: verdict composition per route; `decision_source` /
+  `model_confidence: null` / `rule_evidence` passthrough; overlay write
+  on mismatch / attention-detected / correction; audit entries.
+- Eligibility CLI (seeded fake store): distinct-message collapsing
+  (replay/retry/fork dedupe); correction supersedes; current-schema
+  floor with legacy top-up; diversity (single-batch fails) + recency;
+  category allowlist; disqualifiers; entity shape; tenant scoping
+  (evidence from another account's namespace never leaks in);
+  `--dry-run` / `--apply` / `--explain`; atomic write + schema
+  validation + 0600.
+- Engine: `skip_if` load-time validation rejects bad expressions;
+  runtime eval failure skips + high-severity audit (fail-closed pinned).
 
-## 10. Deferred, with triggers
+## 11. Deferred, with triggers (v2 additions marked)
 
 | Deferred | Trigger |
 |---|---|
-| Auto-regeneration (boot-time or scheduled) | The operator forgetting to regenerate after a review session actually causing a stale rule. |
-| Deterministic label application for codified runs (drop the apply LLM call) | The §2b function-capability story landing for any reason. |
-| Gmail filter-export import as seed candidates | Operator interest; assisted flow (XML parse → candidate list → operator confirms categories) — never auto-promoted. |
-| Generalizing codification beyond email triage | A second workflow with per-entity unanimity evidence. |
-| Sampling-rate auto-tuning | Enough mismatch/agreement data to make a rate decision non-arbitrary. |
+| Auto-regeneration (boot/scheduled) | A stale rule surviving past its overlay disable in practice. |
+| Cheaper model for `classify_attention` *(v2)* | Attention parity holding in validation; then measure. |
+| Deterministic label application for codified runs | The §2b function-capability story landing. |
+| Gmail filter-export import as seed candidates | Operator interest; assisted, operator-confirmed, never auto-promoted. |
+| `personal`/`spam` codification *(v2)* | A compelling case; both stay classifier-only until then. |
+| Relaxed DKIM alignment / forwarded-mail handling *(v2)* | A legitimate codified sender consistently failing strict alignment. |
+| Sampling-rate auto-tuning | ≥ the §7 minimum sampled counts, so the decision is non-arbitrary. |
+| Generalizing beyond email triage | A second workflow with per-entity unanimity evidence. |
