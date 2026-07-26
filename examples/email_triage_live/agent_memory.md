@@ -124,6 +124,10 @@ rule anymore: a family member's urgent warning is `category: personal`
 Tiebreakers:
 - promotion vs newsletter: is there an offer/price/discount? →
   promotion. Pure content → newsletter.
+- vendor event/webinar/workshop invitations: `promotion`, not
+  `notification` — a pitch to attend something is marketing, even when
+  it carries dates and logistics. `notification` is reserved for mail
+  about the user's OWN accounts, orders, and commitments.
 - notification vs promotion: about the user's OWN account/order/event →
   notification, even when it upsells at the bottom.
 - spam vs promotion: can you identify the real sender and their real
@@ -136,6 +140,16 @@ Values, any combination (empty list `[]` is the normal case):
 - **`"urgent"`** — time-sensitive; the user should act NOW or today:
   meeting moved to today, deadline today, security alert requiring
   action, account-deletion deadline, a family member's warning.
+
+  **`urgent` is NOT for marketing deadlines.** Negative examples — these
+  get NO urgent flag: a vendor's "workshop TODAY at 1pm", "sale ends
+  tonight", "last chance to register", webinar/event pitches with
+  same-day times, countdown timers in promotions. The seller's clock is
+  not the user's urgency: `urgent` requires the mail to matter to the
+  USER'S own affairs — their accounts, commitments, deadlines, or people
+  — not to the sender's campaign. (First live correction of the part-2
+  window, 2026-07-26: a trading-group workshop pitch was wrongly flagged
+  urgent.)
 
 - **`"awaiting-reply"`** — the sender expects a reply FROM THE USER:
   `In-Reply-To` on a thread the user started, an explicit ask
