@@ -132,6 +132,11 @@ def test_classifier_fence_and_apply_shape() -> None:
     assert "apply_label_count" in (apply_edge.condition or "")
     # TWO_AXIS §3: the trigger annotates reply_status for this workflow.
     assert definition.trigger.config.get("annotate_reply_status") is True
+    # Full-coverage scope (2026-07-26): all incoming mail, never the user's
+    # own outgoing mail or drafts.
+    assert definition.trigger.config.get("label") is None
+    scope_query = definition.trigger.config.get("query") or ""
+    assert "-in:sent" in scope_query and "-in:draft" in scope_query
 
 
 # --- category enum gate (record_email_triage) ---

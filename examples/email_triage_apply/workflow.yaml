@@ -20,7 +20,15 @@ trigger:
     provider: gmail
     account: qspencer@gmail.com
     poll_interval_seconds: 120
-    label: INBOX
+    # Full-coverage scope (2026-07-26, operator request): judge ALL incoming
+    # mail, not just INBOX — sender-based filters route most mail past the
+    # inbox, and those filtered senders are exactly the codification
+    # candidates G13 needs evidence on. `label: null` drops the INBOX
+    # restriction; the query excludes the user's own outgoing mail and
+    # drafts (spam/trash are excluded by the Gmail API by default).
+    label: null
+    query: "-in:sent -in:draft -in:chat"
+
     # TWO_AXIS §3: annotate reply_status (replied/not_replied/unknown) via a
     # metadata-only thread check, so awaiting-reply is suppressed on
     # already-answered (backfilled) mail — the baseball-email fix.
