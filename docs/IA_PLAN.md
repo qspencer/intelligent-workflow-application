@@ -1,11 +1,12 @@
 # Automations / Workflows IA Rework — Design
 
-Status: **proposed** (drafted 2026-07-26; design-reviewed same day:
-adopt-with-conditions, all findings folded in below; not yet built). Resolves
-the open IA question flagged 2026-06-06 and carried in the auto-memory
-("Automations vs Workflows distinction needs rework"). Builds on the C5
-"friendly shell" intent (`docs/CANVAS_ROADMAP.md`); lands on the fresh
-React 19 / react-router 8 foundation laid for exactly this purpose.
+Status: **proposed** (drafted 2026-07-26; internal design review same day:
+adopt-with-conditions, folded; **external review same day: adopt-with-
+conditions, folded** — it caught two internal contradictions and upgraded
+the route, action-matrix, run-warning, bundled-lifecycle, and data-loading
+specs. Not yet built). Resolves the open IA question flagged 2026-06-06.
+Builds on the C5 "friendly shell" intent (`docs/CANVAS_ROADMAP.md`); lands
+on the fresh React 19 / react-router 8 foundation laid for this purpose.
 
 ## 1. Problem, with evidence from the current code
 
@@ -40,9 +41,11 @@ working. Meanwhile:
 
 **One entity, one list, two renderings.** The friendly/developer split the
 C5 shell wanted is real — but it is a difference in *density and
-affordances*, not in *which objects exist*. Pages should differ by entity
+affordances*, not in *which objects exist*. Pages differ by entity
 (automations vs runs vs templates), never by audience; audience is a view
-mode within a page.
+mode within a page. The two renderings show **exactly the same set of
+workflow ids** (test-pinned); they differ in density and in which actions
+get visual prominence (§4b).
 
 ## 3. Options considered
 
@@ -58,102 +61,175 @@ mode within a page.
 
 ## 4. Target information architecture
 
-| Nav item | Route | Contents |
+### 4a. Pages and routes (canonical vs compatibility, stated exactly)
+
+| Nav item | Canonical route | Compatibility | Contents |
+|---|---|---|---|
+| **Automations** | `/` (view mode URL-addressable: `/?view=cards` \| `/?view=table`) | `/workflows` → redirect to `/?view=table` | ALL definitions — user-created *and* bundled — one list, two renderings. |
+| **Runs** | `/runs` (list) | `/instances` → redirect to `/runs`. **`/instances/:id` stays canonical for detail in this cut** — WS deep links, batch-result links, compare links all point there; a `/runs/:id` alias may come later, never the reverse. | The instances list, renamed in nav + headings. Unchanged mechanics. |
+| **Templates** | `/templates` | — | Unchanged: bundled starting points, "Use this template" clones. Cloneability is orthogonal to a bundled instance *running*. |
+| *(Developer)* Cost | `/cost` | — | Unchanged. |
+| *(Admin)* Users | `/users` | — | Unchanged. |
+
+View mode: the `?view=` param is the source of truth (history-correct,
+shareable, deterministic in tests); the Developer toggle writes it. Last
+choice persists via localStorage as a *default* when the param is absent.
+
+### 4b. Action matrix (which affordances, which rendering)
+
+| Action | Friendly cards | Developer table |
 |---|---|---|
-| **Automations** | `/` | ALL workflow definitions — user-created *and* bundled — as cards (friendly) or table (Developer toggle on). Create / Describe it / Import / Run / clone-from-template entry points. |
-| **Runs** | `/runs` (alias `/instances` kept — bookmarks, WS deep links) | The instances list, renamed in nav + headings. Unchanged mechanics. |
-| **Templates** | `/templates` | Unchanged: bundled starting points, "Use this template" clones. A template being *cloneable* is orthogonal to its bundled instance *running*. |
-| *(Developer)* Cost | `/cost` | Unchanged. |
-| *(Admin)* Users | `/users` | Unchanged (gains nothing here; already org-aware). |
+| Open canvas | ✓ (card click) | ✓ (name link) |
+| Run (single) | ✓ | ✓ |
+| Run (batch) | behind an "Advanced" affordance in the Run dialog (existing tab) | ✓ |
+| Create / Describe it | ✓ | ✓ |
+| Import | — (table/Developer affordance) | ✓ |
+| Delete | overflow/hover affordance (as today), **user-created only** | row action, **user-created only** (§4d) |
+| Clone from template | ✓ (via Templates) | ✓ |
 
-**The Automations page, merged:**
+All write actions are gated by the `hasRole` write set (viewers see none —
+session-true and browser-tested). **UI gating is presentation only**: every
+mutation endpoint independently 403s (S2 test-pinned); nothing here relies
+on hidden buttons.
 
-- **No template-id filtering.** Every definition appears. Bundled ones
-  carry a `Bundled` badge (id ∈ template ids — same derivation as today,
-  just displayed instead of used to hide).
+Per-action permissions (run vs edit vs import as distinct grants) stay
+deferred — that is ROLES_PLAN §8's existing "run-vs-edit split inside
+Organization User" deferral, trigger already named there. Not re-decided
+here.
+
+### 4c. The merged Automations page
+
+- **No template-id filtering.** Every definition appears; bundled ones
+  carry a `Bundled` badge.
 - **Cards** (default): name, description, trigger-type chip, latest-run
-  state (exists today), run count, `Bundled` badge, and owner attribution
-  when present. **Org badges render for Administrators only** (the
-  design-review corrected an earlier ">1 org exists" rule: non-admins
-  cannot list orgs — 403 for Org Users/Viewers, own-org-only for Org
-  Admins — and their workflow list is org-scoped anyway, so every row
-  they see shares their org; the badge only carries information for the
-  unscoped view). Click → canvas.
-- **Table** (Developer toggle): the current WorkflowsList columns (id,
-  steps, instance-count link) as a denser rendering of the *same* list —
-  same data, same filters, same actions.
-- **Actions move up from the dev page:** Run (single + batch dialog,
-  exists in WorkflowsList) and Import join Create/Describe — all
-  role-gated by the `hasRole` write set. (Note: this *tightens* today's
-  dev page, which shows Run/Import buttons unconditionally and only
-  mentions roles in dialog copy; the merged page hides them from viewers
-  outright — gating that is now session-true and browser-tested.)
-- **Delete** keeps its current card affordance + confirm; in table mode a
-  Delete action per row (role-gated identically).
+  state, run count, `Bundled` badge, owner attribution when available.
+  **Org badges render for Administrators only** (internal-review
+  correction: non-admins cannot list orgs — 403 for Org Users/Viewers,
+  own-org-only for Org Admins — and their workflow list is org-scoped
+  anyway; the badge only carries information for the unscoped view).
+- **Table** (Developer toggle / `?view=table`): the current WorkflowsList
+  columns (id, steps, instance-count link) as a denser rendering of the
+  same list.
+- `WorkflowsList.tsx` is deleted; its Run/Import dialogs are extracted to
+  shared components and reused as-is.
 
-**Removed:** the `/workflows` page and nav item. The route redirects to `/`
-(Developer-toggle table mode is its successor). `WorkflowsList.tsx` is
-deleted, its Run/Import dialogs extracted to shared components — they are
-the majority of its code and are reused as-is.
+### 4d. Bundled-workflow semantics (external-review upgrade)
 
-## 5. Backend touches (small — but NOT a field on the definition model)
+Bundled-ness stops being a client-side id coincidence and becomes
+**authoritative row metadata in the attribution sidecar** (§5): `source:
+user | bundled` computed server-side from the same templates dir the
+orchestrator seeds (one source of truth instead of two derivations), plus
+`lifecycle: reseeded` for bundled rows.
 
-- None strictly required for IA1: the client already derives bundled-ness
-  from `GET /api/templates` and enriches with counts + latest state.
-- **IA2's attribution needs a deliberate shape (design-review blocking
-  finding).** The obvious move — adding `org_id`/`owner_user_id` to the
-  list response — is a trap twice over: `response_model=
-  list[WorkflowDefinition]` strips unknown keys, and putting the fields ON
-  `WorkflowDefinition` would leak ownership into YAML export/import
-  round-trips, contaminating the deliberate row-vs-model separation
-  (`repository.py`: "Definitions' org lives on the row, not the
-  YAML-shaped model"). Chosen shape: a sidecar endpoint mirroring the
-  existing instance-counts pattern — `GET /api/workflows/attribution` →
-  `{workflow_id: {org_id, owner_user_id}}`, org-scoped like every list,
-  called by the home alongside counts. Zero response-model churn, zero
-  YAML contamination, one extra cheap request on one page.
+**Delete is disabled for bundled rows in both renderings** (tooltip:
+"Bundled example — managed by the examples directory; it re-seeds on
+restart"). This replaces the warn-but-allow quirk: deleting a bundled
+definition was always a footgun (cascades run history, then the definition
+returns on restart). Clearing a bundled workflow's *run history* remains
+available (instance deletion, unchanged). A persistent "disable a bundled
+workflow" (stop its trigger across restarts) is a real feature with
+orchestrator implications — deferred, trigger: first time the operator
+actually wants a bundled example off without editing the YAML.
 
-## 6. What this deliberately does not do
+### 4e. Run-dialog effect warning (external-review upgrade)
 
-- No fleet-health dashboard (option b's operate view) — the enriched cards
-  cover "is it working?" at current scale.
+The internal review's "warn when any step holds a connector-backed tool"
+was too heuristic (connector tools may be read-only; local tools like
+`file_write` mutate; custom tools are unknown). Replace with a
+conservative three-way classification:
+
+- `Tool` gains an `effect: ClassVar` — `"read_only" | "mutating"` — set on
+  every stock tool (`pdf_extract`/`file_read`/connector-query =
+  read_only; `file_write`/`email_send`/`email_label_apply`/connector-send
+  = mutating). Absent (third-party tools) = **unknown**.
+- A workflow's run-effect = worst over its steps' tools; **unknown counts
+  as mutating**.
+- The Run dialog states the classification and the tool names ("acts on
+  external systems via: email_label_apply__…"); mutating/unknown targets
+  require an explicit confirmation checkbox after the payload is composed.
+  Read-only workflows show no warning (a false destructive warning erodes
+  the real ones).
+- This is deliberately C6-adjacent: the same classification can later
+  surface on the capabilities panel.
+
+## 5. Backend touches (small — but NOT fields on the definition model)
+
+- **The attribution/metadata sidecar** (both reviews converged here; the
+  internal one caught the trap, the external one caught that the cut plan
+  still contradicted it): `GET /api/workflows/attribution` →
+
+  ```json
+  { "<workflow_id>": {
+      "org_id": "default", "org_name": "default",
+      "owner_user_id": "…", "owner_display_name": "Quentin",
+      "source": "bundled", "lifecycle": "reseeded" } }
+  ```
+
+  Org-scoped like every list; **display names resolved server-side**
+  (non-admins cannot call `/api/users`, so a raw `owner_user_id` would be
+  undisplayable exactly where it's most needed); fields the requester may
+  not see are omitted, never nulled-and-leaked. Mirrors the
+  instance-counts pattern: zero `response_model` churn on the workflows
+  list, zero ownership leakage into YAML export/import (the row-vs-model
+  separation stands — `repository.py`: "Definitions' org lives on the
+  row, not the YAML-shaped model").
+- The `Tool.effect` classification (§4e) — additive ClassVar + catalog
+  exposure.
+
+## 6. Data loading & partial failure (external-review addition)
+
+The merged page joins five sources: definitions, templates, counts,
+latest-run, attribution. Behavior is specified, not emergent:
+
+- **Definitions failing fails the page** (error state, as today).
+- Every enrichment degrades independently: attribution failure hides
+  owner/org/bundled decoration; counts failure renders "—" (never a
+  misleading 0); latest-run failure renders no state chip (never
+  "has-never-run").
+- Joins are by workflow id; sort is deterministic (name, then id).
+- All requests use the ignore-flag pattern (cancel-on-navigate), as the
+  codebase already does everywhere.
+- At current scale parallel client-side joins are fine; a dedicated
+  catalog-view endpoint is the noted escape hatch if the object count ever
+  makes this chatty.
+
+## 7. What this deliberately does not do
+
+- No fleet-health dashboard (option b's operate view).
 - No change to Templates' role or the canvas.
 - Export stays API-only (`GET /api/workflows/{id}/export`) — it was never
-  on the dev page; no UI home claimed or needed.
+  on the dev page.
 - No new pages for G11's future attention surface — but the merged home is
-  its natural landing (a "needs attention" strip above the cards), and the
-  merge removes the ambiguity about *where* such a strip would live.
-- No route-level breaking changes: `/instances` and `/workflows` keep
-  working (alias + redirect).
+  its natural landing (a "needs attention" strip above the cards).
+- No per-action permission model (referenced deferral, §4b).
+- **Nothing here consults veracium** (external-review regression notes,
+  affirmed): workflow existence, ownership, roles, run state, and effect
+  classification come from the transactional API only; memory-recalled
+  context never decides visibility or permissions. Workflow ids are
+  unchanged by the rename, so veracium-side references stay stable; the
+  Instances→Runs rename may leave stale "Instances" wording in remembered
+  guidance — cosmetic, self-corrects as new observations accrue.
 
-## 7. Cut plan
+## 8. Cut plan (revised sequencing — external review; IA1/IA2 are NOT independent)
+
+The card/table component shape depends on attribution + bundled metadata,
+so the sidecar lands first, not second:
 
 | Cut | Contents | Size |
 |---|---|---|
-| **IA1** | Merge: unfilter the home, move Run/Import dialogs into it, table rendering behind the Developer toggle, delete `/workflows` page + redirect, nav rename Instances→Runs (+`/runs` alias). Vitest for: unfiltered list w/ bundled badge, run-dialog reachable from home, redirect, viewer sees no write affordances (extend existing). e2e: home shows a bundled workflow; run dialog opens from home. | M |
-| **IA2** | Attribution: backend `org_id`/`owner_user_id` on the workflows list response; org badge (>1 org) + owner on cards/table. Backend test + Vitest. | S |
-| **IA3** | Polish pass on the merged page (empty states, card/table transition, a11y sweep with axe on both renderings). | S |
+| **IA1 — data model + routes** | Attribution/metadata sidecar (backend + tests, incl. cross-org isolation); `?view=` param + `/workflows` → `/?view=table` redirect; `/runs` canonical + `/instances` redirect (detail routes untouched); shared catalog data hook with the §6 partial-failure contract. | M |
+| **IA2 — renderings + dialogs** | Unfiltered merged list, card + table renderings off the shared hook, Run/Import dialogs extracted and wired per the §4b matrix, delete-disabled-for-bundled, `Tool.effect` + run-dialog warning/confirm. Basic keyboard/focus handling (dialog focus return) lands HERE, not deferred. | M–L |
+| **IA3 — regression + polish** | e2e: same-ids-in-both-renderings, redirect-to-table-mode, viewer-direct-endpoint 403s, mutating-vs-read-only warning presence/absence, bundled delete-disabled, attribution-failure degradation; axe on both renderings; empty states; toggle keyboard + URL-state compatibility. | S–M |
 
-IA1 is the substance; IA2/IA3 can ride the same PR or follow. Estimated
-total: ~1 day.
+**Estimate: 2–3 days** (the external review is right that ~1 day was
+optimistic once dialog extraction, the sidecar with authorization, effect
+classification, and the browser matrix are counted honestly).
 
-## 8. Risks / open questions for review
+## 9. Risks / open questions
 
-- **Delete on bundled examples** is already possible today from the dev
-  page and re-seeds on restart (documented quirk). Surfacing bundled cards
-  on the home makes that quirk more visible — the confirm dialog should
-  say "bundled examples reappear on restart" for those ids.
-- **Card grid scale**: fine at ≤ dozens of definitions; the table mode is
-  the pressure valve. No pagination in this cut.
-- **Naming**: is "Runs" the right friendly term for instances? (Zapier uses
-  "Zap history"/"Runs"; n8n uses "Executions".) Recommend "Runs".
-- **One-click Run on mutating workflows (design-review finding):**
-  unfiltering the home puts a Run button on `email-triage-apply` — a live
-  mailbox mutation — one click from the friendly page. Mitigation in IA1:
-  the Run dialog already requires composing a payload before firing
-  (never truly one-click), and it gains a warning line when the target
-  workflow's steps hold any connector-backed tool ("this workflow acts on
-  external systems"), derived from the definition's step tool lists. A
-  full capability-aware confirm ties into C6 surfaces later.
-- Keep `/instances/:id` deep-link routes explicitly (WS + batch-result
-  links), not just the bare `/instances` alias.
+- **Card grid scale**: fine at ≤ dozens of definitions; table mode is the
+  pressure valve. No pagination in this cut; the catalog-view endpoint
+  (§6) is the escape hatch.
+- **Naming**: "Runs" recommended (Zapier "Runs", n8n "Executions").
+- Keep `/instances/:id` deep links working forever-ish; they are embedded
+  in WS payload links and batch results.
