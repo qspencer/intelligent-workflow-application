@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router';
 
 import { api, errorMessage } from '../api/client';
 import { extractEvaluations, scoreClass } from '../lib/evaluation';

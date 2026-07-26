@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+import { Link } from 'react-router';
 
 import { fmtShort } from '../../lib/format';
 import { extractUsage } from '../../lib/usage';

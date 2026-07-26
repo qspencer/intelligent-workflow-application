@@ -12,7 +12,7 @@ import {
   type ReactFlowInstance,
 } from '@xyflow/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useParams, useSearchParams } from 'react-router';
 
 import { api, errorMessage } from '../../api/client';
 import { hasRole } from '../../lib/auth';

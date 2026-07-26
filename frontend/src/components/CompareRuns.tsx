@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useParams } from 'react-router';
 
 import { api, errorMessage } from '../api/client';
 import { compareRuns, type CompareRow, type StepFacet } from '../lib/compare';
