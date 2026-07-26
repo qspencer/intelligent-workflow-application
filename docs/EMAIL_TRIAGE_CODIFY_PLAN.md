@@ -38,8 +38,9 @@ evidence (both qualifiers are load-bearing — §5, §6):
    category. (Era filter per the two-axis plan: only verdicts whose
    category ∈ current vocabulary count; old `urgent`/`awaiting-reply`
    edges are excluded, not disqualifying.)
-3. **Attention-clean**: zero `attention ≠ none` verdicts in
-   current-era evidence. A sender that *ever* demanded attention is not
+3. **Attention-clean**: zero verdicts with a non-empty attention list
+   in current-era evidence (attention is multi-valued per the two-axis
+   plan's external review). A sender that *ever* demanded attention is not
    boring enough to codify. (Vacuously true at cutover — the new era
    starts empty; condition binds as two-axis evidence accrues. The
    residual risk that an old-era sender occasionally deserved `review`
@@ -49,10 +50,11 @@ evidence (both qualifiers are load-bearing — §5, §6):
    address, be a fixpoint of `normalize_entity`, and not be the mailbox
    owner. Keys like `user|person:…` or `org:…` from the store can never
    qualify; §2.4 is a query predicate, not an output description.
-5. **Era filter is value-based, explicitly** (correcting the two-axis
-   plan's "equivalently memory_hash-scoped" aside — the two are NOT
-   equivalent: hash-scoping would empty all evidence at cutover and kill
-   the 8 current qualifiers; value-scoping keeps stable-bucket history).
+5. **Era filter: `triage_schema_version` where stamped, value-based for
+   legacy rows** (the two-axis plan's external review introduced the
+   schema-version stamp — the clean discriminator; pre-stamp history
+   filters by value-compatibility, which keeps the 8 current
+   qualifiers' stable-bucket evidence).
 
 ## 3. The codified list: materialized, auditable, operator-generated
 
@@ -109,8 +111,9 @@ as the two-axis `already_replied`; the codified path thus never has
   normalizes `trigger.from_address.address`, checks `auth_pass`, and
   emits
   `codified: bool` plus — when codified — `verdict_text`: a synthetic
-  classifier-shaped JSON (`category`, `attention: "none"`, `confidence:
-  1.0`, `summary: "codified: 30/30 unanimous"`). Missing/unreadable list
+  classifier-shaped JSON (`category`, `attention: []`,
+  `category_confidence: 1.0`, `summary: "codified: 30/30 unanimous"`,
+  `triage_schema_version: 2`). Missing/unreadable list
   → `codified: false` for everyone (fail-open to judgment, never to a
   wrong rule).
 - **Sampling (drift detection beyond corrections):** even a listed
