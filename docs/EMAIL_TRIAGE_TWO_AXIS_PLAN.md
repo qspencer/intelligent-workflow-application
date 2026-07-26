@@ -22,7 +22,15 @@ the part-2 window and G13's current-schema evidence (the filtered senders
 are the codification candidates), at proportionally higher classify spend
 until codification pulls the stable bulk back to deterministic. First
 poll after cutover backfills from the persisted cursor (~1 day of
-filtered mail) — a one-time burst, bounded by max_messages pagination. Executes
+filtered mail) — a one-time burst, bounded by max_messages pagination.
+**Part-2 findings log:** (1) 2026-07-26, first correction — a True
+Trading Group "Workshop Today 1pm ET" pitch got `notification` +
+`attention:["urgent"]`; operator verdict: promotion, not urgent (both
+axes wrong). Rubric gained urgent negative exemplars (a seller's clock
+is not the user's urgency) + the vendor-event→promotion tiebreaker;
+correction recorded against the sender's 40 recalled edges (TTG is now
+permanently disqualified from G13 codification — the §2 corrected-
+outcome disqualifier working as designed on day one). Executes
 `docs/NEXT_STEPS.md` G11 with its four pinned collision examples; the
 rubric-only phase promised in `EMAIL_TRIAGE_ACT_PLAN` §7, designed against
 what the acting pipeline actually is now (input-minimized apply step,
