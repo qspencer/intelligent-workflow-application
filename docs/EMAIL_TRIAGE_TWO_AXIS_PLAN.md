@@ -26,20 +26,29 @@ precedence rule that the evidence has outgrown:
    true at arrival, false after the user replies — needs lifecycle, which
    no category can carry.
 
-Corollary already recorded in G13: the *category* axis is largely
-sender-determined and codifiable; the *attention* axis is
-content/state-dependent and never codifiable. The split is what makes both
+Corollary already recorded in G13: the *category* axis is often
+sender-predictable and codifiable **where unanimity proves it per
+sender**; the *attention* axis is content/state-dependent and never
+codifiable. The split is what makes both
 G13 and (later) G12 elicitation well-posed.
 
 ## 2. The split
 
-### 2a. Category becomes pure source (5 buckets)
+### 2a. Category becomes the message-category axis (5 buckets)
 
 `category ∈ {personal, notification, newsletter, promotion, spam}` — what
 the mail IS. `urgent` and `awaiting-reply` **retire as categories**; they
 were always attention values wearing category clothes. This is the honest
 form of the split: the halfway option (keep 7 buckets, add a flag) leaves
 collision #1 unresolved — `category: urgent` still erases *personal*.
+
+Naming note (external review): this is a **message category**, not a
+"pure source" axis — `personal` is relationship-oriented, `notification`
+function-oriented, `spam` evaluative. The operative property is that it
+is **often sender-predictable**, not sender-determined by definition —
+one sender can emit notifications and promotions — which is exactly why
+G13 codification stays *evidence-gated* (unanimity earned per sender)
+rather than treating sender identity as inherently sufficient.
 
 ### 2b. Attention is its own field — **multi-valued** (external-review correction)
 
