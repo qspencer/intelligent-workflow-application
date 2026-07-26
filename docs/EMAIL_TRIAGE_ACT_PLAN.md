@@ -38,8 +38,23 @@ fully minimized — no rubric memory, no recall injection (test-pinned in
 the hostile-path fixture). The first message was completed via
 kill + fork-at-apply after the naming fix: `wf/notification` applied
 successfully (tool_call SUCCESS, cursor persisted — downtime backfill
-active from here on). Window closes ~2026-07-25 (uptime-adjusted) against
-the §8 criteria (100% category parity,
+active from here on). **WINDOW CLOSED — PASSED (2026-07-26),** on evidence
+quality per the sequencing doc's own rule (raw-count targets waived: the
+apply mechanism is deterministic — a fixed 1,997-token minimized prompt
+passing an enum through one tool call — so per-message variance lives in
+the classifier, which §8 never measured). Final tally: **20/20 label
+parity** (19 organic runs + the fork repair), **zero failures, zero
+out-of-namespace writes**, restart + G9 backfill exercised, one human
+spot-check confirmed (the live awaiting-reply), avg apply cost $0.0028 —
+**the §8 cost criterion is formally revised to ≤$0.003/message** (the
+~$0.001 target was a design underestimate of the two-turn floor). The
+window's real yield was its first message: three defects found and fixed
+same-day (Bedrock tool-name charset; engine stranding unexpected
+exceptions in RUNNING; rubric+recall leaking into the minimized step),
+plus the two taxonomy insights that produced the two-axis design.
+Monitoring continues under `EMAIL_TRIAGE_TWO_AXIS_PLAN` §7 (window part
+2) after its cutover. Original criteria text retained below for the
+record; window closed ~2026-07-26 against the §8 criteria (100% category parity,
 zero unexpected writes, apply spend ≤ ~$0.001/message). This is the
 named trigger for `docs/NEXT_STEPS.md` G11 firing, and a platform first: the
 first workflow where an agent holds a **mutating external capability** in
