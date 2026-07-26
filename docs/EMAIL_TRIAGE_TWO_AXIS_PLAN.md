@@ -99,8 +99,12 @@ deferral, not built.
   `attention_valid = attention ∈ ATTENTION_LEVELS and not (attention ==
   "awaiting-reply" and trigger.already_replied)`; `category_valid` now
   checks the 5-bucket vocabulary. New computed output **`apply_labels:
-  list[str]`** — `["wf/<category>"]` + `["wf-attn/<attention>"]` when
-  valid and ≠ none — built deterministically from validated enums.
+  list[str]`**, built deterministically from validated enums with BOTH
+  elements independently gated (design-review finding — the field
+  outlives the edge skip in observability rows and future consumers):
+  the category element only when `category_valid`, the attention element
+  only when `attention_valid and attention != "none"`; invalid category
+  ⇒ `apply_labels == []` (test-pinned).
 - **Apply step gets *more* minimized, not less:** `inputs` becomes
   `[steps.record.apply_labels, trigger.message_id]` — the tool-holder no
   longer even sees a category, just a pre-computed, enum-derived label
@@ -110,7 +114,9 @@ deferral, not built.
   `steps.record.category_valid == True` (attention invalidity must not
   block the category label — it just drops out of `apply_labels`).
 - **Constants:** `TRIAGE_CATEGORIES` → the five source buckets;
-  `ATTENTION_LEVELS` new. The functions-module comment about historical
+  `ATTENTION_LEVELS` new. The per-account tool allowlist in `main.py`
+  (currently derived from `TRIAGE_CATEGORIES` alone) becomes the
+  explicit eight: `wf/*` × 5 + `wf-attn/*` × 3. The functions-module comment about historical
   taxonomies coexisting (already true for 5-bucket-era rows) extends to
   this era; stored rows are never rewritten, analytics tolerate mixed
   vocabularies keyed by `memory_hash`.
@@ -131,15 +137,26 @@ deferral, not built.
   (~30 messages via the review CLI, which gains an attention prompt) is
   the phase-2 calibration set; the old corpus's source-bucket labels
   (139 of 154) remain directly comparable for category parity.
-- **G13 unanimity evidence:** computed over the *category* axis only.
-  Senders whose historical verdicts were `urgent`/`awaiting-reply` (15
-  messages total) restart their unanimity window under the new
-  vocabulary; the big codification candidates (Barron's, weather.com —
-  all source-bucket history) carry over untouched.
+- **G13 unanimity evidence needs an era filter, defined now**
+  (design-review finding: veracium's V4 counters are cumulative — with
+  no filter, old `urgent`/`awaiting-reply` edges would *permanently
+  poison* those senders' unanimity, not merely delay it). The G13
+  qualifying query counts only verdict edges whose category value is in
+  the **current 5-bucket vocabulary** (equivalently: era-scoped via the
+  rubric `memory_hash` recorded as `context_ref` on outcome events).
+  Under that filter the 15 old-vocabulary messages are excluded rather
+  than disqualifying; the big codification candidates (Barron's,
+  weather.com — all source-bucket history) carry over untouched.
 - **Judge/eval tooling** (`judge_email_triage`, `review_triage`,
   `reclassify_triage`) get vocabulary updates in the same change — but
   judge *calibration* against the new axis waits for the fresh label
   pass (§7).
+- **`tools/label_from_ground_truth.py` is frozen at the 7-bucket era**
+  (design-review finding: it validates the corpus against
+  `TRIAGE_CATEGORIES` and would silently drop the 15 urgent/
+  awaiting-reply labels under the new constant). It gains its own
+  era-pinned vocabulary list + a docstring note; it already served its
+  one-shot purpose and is not re-run routinely.
 
 ## 6. What this deliberately does not do
 
@@ -158,8 +175,16 @@ deferral, not built.
 
 ## 7. Validation (window part 2)
 
-Supervised, ~3 days / ≥50 messages on the live mailbox after cutover of
-the updated rubric + labels:
+Supervised on the live mailbox after cutover of the updated rubric +
+labels. Arithmetic honesty (design-review finding): at the ~9/day INBOX
+residue, ≥50 live messages ≈ **5–6 uptime days**, and rare values
+(`urgent`) may see zero live instances in-window — the 30-message
+offline two-axis pass is the calibration set for rare values, the live
+window is the precision check for common ones. Expect `review`
+over-application and seed the rubric with review-vs-none *negative*
+exemplars up front (the paper-triage `case_study` precedent, 54%→8%
+over three rubric rounds, says over-application of the judgment-shaped
+bucket is the default failure mode):
 
 1. **Category parity** against the 5-bucket vocabulary (spot-checks +
    the fresh 30-message two-axis label pass): target ≥ the phase-1 bar
@@ -175,9 +200,13 @@ the updated rubric + labels:
    replies must not receive `wf-attn/awaiting-reply` (the baseball
    regression test, live).
 
-Rollback: rubric + `setup_triage_labels` are forward-only additions;
-reverting the rubric file restores 7-bucket behavior (labels applied
-meanwhile remain true-at-time).
+Rollback (corrected by design review — the naive version was false):
+reverting the rubric ALONE is broken once `TRIAGE_CATEGORIES` is
+5-bucket — a reverted rubric emitting `urgent` would hit
+`category_valid=False` and silently skip apply for two of seven
+buckets. **Rollback = revert the code constant + rubric together** (one
+revert commit; they ship in one commit precisely so one `git revert`
+restores coherence). Labels applied meanwhile remain true-at-time.
 
 ## 8. Test plan (unit, fake connector)
 
