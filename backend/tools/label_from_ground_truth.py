@@ -27,8 +27,21 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from workflow_platform.connectors.email.bootstrap import maybe_build_gmail_connector
 from workflow_platform.connectors.email.gmail import GmailMessageNotFound
-from workflow_platform.engine.functions import TRIAGE_CATEGORIES
 from workflow_platform.secrets import EnvSecretStore
+
+# Era-frozen (TWO_AXIS §5): the 154-message corpus was labeled under the
+# 2026-07-19 seven-bucket vocabulary; validating against the live (schema-2,
+# five-bucket) constant would silently drop the 15 urgent/awaiting-reply
+# labels. This tool served its one-shot purpose — do not modernize it.
+SEVEN_BUCKET_ERA_CATEGORIES = [
+    "urgent",
+    "awaiting-reply",
+    "personal",
+    "notification",
+    "newsletter",
+    "promotion",
+    "spam",
+]
 
 ACCOUNT = "qspencer@gmail.com"
 LABELS_PATH = Path(__file__).resolve().parent.parent / ".memory" / "triage-ground-truth.jsonl"
@@ -45,7 +58,7 @@ async def run(args: argparse.Namespace) -> int:
         entry = json.loads(line)
         by_message[entry["message_id"]] = entry["true_category"]
 
-    invalid = {m: c for m, c in by_message.items() if c not in TRIAGE_CATEGORIES}
+    invalid = {m: c for m, c in by_message.items() if c not in SEVEN_BUCKET_ERA_CATEGORIES}
     for message_id in invalid:
         del by_message[message_id]
 

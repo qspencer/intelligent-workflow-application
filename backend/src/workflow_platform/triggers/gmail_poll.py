@@ -110,6 +110,7 @@ class GmailPollTrigger(Trigger):
         query: str | None = None,
         download_dir: str | None = None,
         slim_payload: bool = False,
+        annotate_reply_status: bool = False,
         cursor_store: TriggerCursorRepo | None = None,
         cursor_key: str | None = None,
     ) -> None:
@@ -128,6 +129,12 @@ class GmailPollTrigger(Trigger):
         # and the payload gains `attachment_paths`. Deterministic steps can't
         # reach the connector, so the trigger delivers files, not ids.
         self.download_dir = download_dir
+        # TWO_AXIS §3: when set, each payload gains `reply_status` ∈
+        # {replied, not_replied, unknown} via a metadata-only thread check —
+        # one extra Gmail call per message, so opt-in per workflow. `unknown`
+        # (lookup failure) suppresses awaiting-reply downstream rather than
+        # manufacturing a response obligation; delivery is never blocked.
+        self.annotate_reply_status = annotate_reply_status
         # Drop body_html + raw headers from the payload. Newsletters carry
         # 100KB+ of HTML and multi-KB DKIM/ARC headers; a triage agent that
         # reads the payload verbatim burns ~40k input tokens per message on
@@ -283,6 +290,21 @@ class GmailPollTrigger(Trigger):
         local paths under `attachment_paths`. A single failed download is
         logged and skipped rather than sinking the whole message."""
         payload: dict[str, Any] = msg.model_dump(mode="json")
+        if self.annotate_reply_status:
+            try:
+                if msg.thread_id is None:
+                    payload["reply_status"] = "not_replied"  # single-message, no thread
+                else:
+                    replied = await self.connector.thread_has_newer_sent_message(
+                        msg.thread_id, msg.received_at
+                    )
+                    payload["reply_status"] = "replied" if replied else "not_replied"
+            except Exception:
+                logger.warning(
+                    "Thread reply-check failed for message %s; reply_status=unknown.",
+                    msg.message_id,
+                )
+                payload["reply_status"] = "unknown"
         # Image-only mail has no text part: before (possibly) discarding the
         # HTML, derive a safe structural summary — link domains, image count,
         # alt texts — so the triage agent isn't blind on it. Derivation is

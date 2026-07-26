@@ -332,13 +332,15 @@ async def record_paper_triage(
 def _extract_email_triage(raw: str) -> dict[str, Any] | None:
     """Pull email-triage fields from an agent's text response.
 
-    Expected JSON shape:
-        {"category": <str>, "confidence": 0..1, "reply_drafted": <bool>,
-         "labels_applied": [<str>...], "summary": <str>}
+    Schema-2 shape (EMAIL_TRIAGE_TWO_AXIS_PLAN):
+        {"category": <str>, "attention": [<str>...],
+         "category_confidence": 0..1, "summary": <str>}
+    Legacy keys are tolerated: `confidence` aliases `category_confidence`
+    (the value was always category-scoped in practice); `reply_drafted` /
+    `labels_applied` pass through for old-era rows.
 
-    `confidence` is coerced to float; `labels_applied` is normalized to a
-    list of strings with `label_count` computed. Returns None if no parseable
-    JSON object is found. Unknown keys are dropped."""
+    `attention` is normalized to a deduped string list, order preserved.
+    Returns None if no parseable JSON object is found."""
     parsed = _find_json_object(raw)
     if parsed is None:
         return None
@@ -346,9 +348,17 @@ def _extract_email_triage(raw: str) -> dict[str, Any] | None:
     for key in ("category", "summary"):
         if isinstance(parsed.get(key), str):
             out[key] = parsed[key]
-    confidence = parsed.get("confidence")
+    confidence = parsed.get("category_confidence", parsed.get("confidence"))
     if isinstance(confidence, int | float) and not isinstance(confidence, bool):
         out["confidence"] = float(confidence)
+    attention = parsed.get("attention")
+    if isinstance(attention, list):
+        seen: list[str] = []
+        for value in attention:
+            text_value = str(value)
+            if text_value not in seen:
+                seen.append(text_value)
+        out["attention"] = seen
     if isinstance(parsed.get("reply_drafted"), bool):
         out["reply_drafted"] = parsed["reply_drafted"]
     labels = parsed.get("labels_applied")
@@ -358,21 +368,24 @@ def _extract_email_triage(raw: str) -> dict[str, Any] | None:
     return out or None
 
 
-# The seven-bucket email-triage taxonomy (2026-07-19: the old `fyi` split
-# into notification / newsletter / promotion — it had absorbed 85% of mail).
-# Shared by the rubric, the review tool, and the LLM judge. The parser below
-# deliberately does NOT validate against it: historical runs carry the old
-# five-bucket values and both taxonomies coexist in the data, keyed by
-# memory_hash.
+# Schema 2 (2026-07-26, EMAIL_TRIAGE_TWO_AXIS_PLAN): category is the
+# message-category axis only — `urgent` and `awaiting-reply` retired as
+# categories (they were attention values wearing category clothes; the
+# 2026-07-19 seven-bucket era and the original five-bucket era both coexist
+# in stored rows, keyed by `triage_schema_version` / `memory_hash`).
+# The parser deliberately does NOT hard-validate: `category_valid` /
+# `attention` gating below is the enforcement point.
+TRIAGE_SCHEMA_VERSION = 2
 TRIAGE_CATEGORIES = [
-    "urgent",
-    "awaiting-reply",
     "personal",
     "notification",
     "newsletter",
     "promotion",
     "spam",
 ]
+# The attention axis (multi-valued; empty list = no demand). `urgent`
+# subsumes `review` (dominance rule); `awaiting-reply` composes freely.
+ATTENTION_LEVELS = ["urgent", "awaiting-reply", "review"]
 
 
 async def record_email_triage(
@@ -392,13 +405,50 @@ async def record_email_triage(
         raise StepFailure(f"record_email_triage could not resolve {source!r}")
     triage = _extract_email_triage(raw)
     if triage is None:
-        return {"parse_ok": False, "category_valid": False, "raw": raw}
-    # Enum gate (EMAIL_TRIAGE_ACT_PLAN §3): `category` is copied through as
-    # free text for observability, but only exact membership in
-    # TRIAGE_CATEGORIES marks it valid — the acting variant's apply edge
-    # conditions on this, so a steered classifier output can never carry
-    # attacker text into a tool-holding step's prompt.
+        return {
+            "parse_ok": False,
+            "category_valid": False,
+            "attention_valid": False,
+            "apply_labels": [],
+            "apply_label_count": 0,
+            "triage_schema_version": TRIAGE_SCHEMA_VERSION,
+            "raw": raw,
+        }
+    # Enum gates (ACT_PLAN §3 + TWO_AXIS §4): free text is copied through
+    # for observability, but only exact vocabulary membership drives labels
+    # — a steered classifier output can never carry attacker text into the
+    # tool-holding step's prompt.
     triage["category_valid"] = triage.get("category") in TRIAGE_CATEGORIES
+
+    # Attention axis: intra-axis conservatism (one hostile element poisons
+    # the axis), inter-axis independence (never blocks the category label).
+    attention: list[str] = list(triage.get("attention", []))
+    attention_valid = all(value in ATTENTION_LEVELS for value in attention)
+    if attention_valid and "urgent" in attention and "review" in attention:
+        attention = [value for value in attention if value != "review"]
+    # awaiting-reply is state-shaped: suppress when the trigger knows the
+    # user already replied, or when the thread lookup couldn't say
+    # (tri-state; `unknown` must not manufacture a response obligation).
+    reply_status = context.trigger.get("reply_status")
+    suppressed = False
+    if "awaiting-reply" in attention and reply_status in ("replied", "unknown"):
+        attention = [value for value in attention if value != "awaiting-reply"]
+        suppressed = True
+    triage["attention"] = attention if attention_valid else []
+    triage["attention_valid"] = attention_valid
+    if suppressed:
+        triage["awaiting_reply_suppressed"] = reply_status
+
+    apply_labels: list[str] = []
+    if triage["category_valid"]:
+        apply_labels.append(f"wf/{triage['category']}")
+    if attention_valid:
+        apply_labels.extend(f"wf-attn/{value}" for value in attention)
+    triage["apply_labels"] = apply_labels
+    # Scalar mirror for edge conditions: the simpleeval sandbox has no list
+    # literals, so edges gate on `apply_label_count > 0`.
+    triage["apply_label_count"] = len(apply_labels)
+    triage["triage_schema_version"] = TRIAGE_SCHEMA_VERSION
     return {"parse_ok": True, **triage}
 
 

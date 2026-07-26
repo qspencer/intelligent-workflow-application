@@ -94,6 +94,21 @@ class _Users:
     def labels(self) -> _Labels:
         return _Labels(self._svc)
 
+    def threads(self) -> _Threads:
+        return _Threads(self._svc)
+
+
+class _Threads:
+    def __init__(self, svc: FakeGmailService) -> None:
+        self._svc = svc
+
+    def get(self, **kwargs: Any) -> _Request:
+        self._svc.calls.append(("threads.get", kwargs))
+        thread_id = str(kwargs.get("id"))
+        if thread_id in self._svc.thread_errors:
+            return _Request(self._svc.thread_errors[thread_id])
+        return _Request(self._svc.thread_responses.get(thread_id, {"messages": []}))
+
 
 class FakeGmailService:
     """Mimics googleapiclient's chained-call gmail service: `users().messages().list(...).execute()`."""
@@ -106,6 +121,9 @@ class FakeGmailService:
         self.modify_response: dict[str, Any] = {}
         self.labels_response: dict[str, Any] = {"labels": []}
         self.profile_response: dict[str, Any] = {"emailAddress": "test@example.com"}
+        # thread_id -> threads.get response ({"messages": [...]}) / error
+        self.thread_responses: dict[str, dict[str, Any]] = {}
+        self.thread_errors: dict[str, Exception] = {}
         # (message_id, attachment_id) -> attachments.get response ({"data": b64url, ...})
         self.attachment_responses: dict[tuple[str, str], dict[str, Any]] = {}
         self.calls: list[tuple[str, dict[str, Any]]] = []

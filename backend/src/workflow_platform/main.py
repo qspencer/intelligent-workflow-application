@@ -36,7 +36,7 @@ from workflow_platform.engine import (
     WorkflowEngine,
     default_function_registry,
 )
-from workflow_platform.engine.functions import TRIAGE_CATEGORIES
+from workflow_platform.engine.functions import ATTENTION_LEVELS, TRIAGE_CATEGORIES
 from workflow_platform.events import EventBus
 from workflow_platform.memory import LearnedMemoryService, MemoryManager
 from workflow_platform.observability import (
@@ -134,7 +134,9 @@ def _build_default_tools(secret_store: SecretStore) -> list[Tool]:
             EmailLabelApplyTool(
                 connector,
                 name=account_label_tool_name(extra_account),
-                allowed_labels=[f"wf/{c}" for c in TRIAGE_CATEGORIES],
+                # TWO_AXIS §4: the explicit eight — 5 category + 3 attention.
+                allowed_labels=[f"wf/{c}" for c in TRIAGE_CATEGORIES]
+                + [f"wf-attn/{v}" for v in ATTENTION_LEVELS],
             )
         )
         logger.info("Wired %s (wf/* labels only).", account_label_tool_name(extra_account))

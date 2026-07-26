@@ -240,6 +240,47 @@ class GmailConnector(EmailConnector):
 
     # --- helpers ---
 
+    async def thread_has_newer_sent_message(
+        self, thread_id: str, than_received_at: datetime
+    ) -> bool:
+        """Heuristic reply check (TWO_AXIS §3): does the thread contain a
+        SENT-label message newer than `than_received_at`? `format=metadata`
+        is load-bearing — a default threads.get would pull full bodies of
+        the whole thread (third-party content the check doesn't need).
+        Heuristic, not proof: a newer sent message may answer a different
+        message in the thread — the named false-retirement risk."""
+        svc = await self._get_service()
+        resp = await self._execute(
+            svc.users().threads().get(userId=self.USER_ID, id=thread_id, format="metadata")
+        )
+        threshold_ms = int(than_received_at.timestamp() * 1000)
+        for message in resp.get("messages", []) or []:
+            if "SENT" not in (message.get("labelIds") or []):
+                continue
+            internal_date = int(message.get("internalDate", 0))
+            if internal_date > threshold_ms:
+                return True
+        return False
+
+    async def remove_labels(self, message_id: str, labels: list[str]) -> None:
+        """Remove labels from a message. CLI-only surface (the retirement
+        sweep) — deliberately NOT exposed via any agent tool, same fence as
+        `create_label` (TWO_AXIS §3: label removal never becomes an agent
+        capability)."""
+        if not labels:
+            return
+        svc = await self._get_service()
+        label_ids = [await self._resolve_label_id(name) for name in labels]
+        await self._execute(
+            svc.users()
+            .messages()
+            .modify(
+                userId=self.USER_ID,
+                id=message_id,
+                body={"removeLabelIds": label_ids},
+            )
+        )
+
     async def create_label(self, name: str) -> str:
         """Create a user label; returns its id. Idempotent for callers that
         check existence first (Gmail 409s on duplicates — surfaced as

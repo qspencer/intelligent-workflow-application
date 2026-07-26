@@ -1,11 +1,19 @@
 # Email Triage, Two-Axis (G11 phase 2) — Design
 
-Status: **proposed** (drafted 2026-07-26; internal design review same
-day: adopt-with-conditions, folded. **External review same day: adopt
-with design changes, folded** — its core catch: the attention enum
-recreated the very collision the split exists to remove; attention is
-now multi-valued. One external recommendation declined with reasons, §7b.
-Not yet built). Executes
+Status: **BUILT + CUT OVER 2026-07-26** (same day as design + two
+reviews). Landed in one revertible commit per §7: 5-bucket
+`TRIAGE_CATEGORIES` + `ATTENTION_LEVELS` + `TRIAGE_SCHEMA_VERSION=2`;
+multi-valued attention extraction with dedupe + urgent-subsumes-review
+dominance; tri-state `reply_status` (trigger `annotate_reply_status`
+config + `GmailConnector.thread_has_newer_sent_message`, metadata-only,
+fail→unknown→suppress); independent-axis `apply_labels` (+
+`apply_label_count` scalar for edge conditions — simpleeval has no list
+literals); both rubrics rewritten (narrow review definition + negative
+exemplars + the four worked collisions); apply step re-minimized to
+`[apply_labels, message_id]`; 8-label allowlist; `remove_labels`
+CLI-only + `retire_attention_labels.py` (dry-run default, thread-
+grouped); `label_from_ground_truth.py` era-frozen. The three `wf-attn/*`
+labels created live (`Label_144–146`). §7 window part 2 is OPEN. Executes
 `docs/NEXT_STEPS.md` G11 with its four pinned collision examples; the
 rubric-only phase promised in `EMAIL_TRIAGE_ACT_PLAN` §7, designed against
 what the acting pipeline actually is now (input-minimized apply step,
@@ -180,7 +188,8 @@ deferral, not built.
   list to pass through in **one** tool call (both labels in one
   `apply_labels` invocation — the tool's list parameter already supports
   it, so cost stays at the two-turn floor). Edge condition becomes
-  **`steps.record.apply_labels != []`** (external-review correction:
+  **`steps.record.apply_label_count > 0`** (a scalar mirror of
+  `apply_labels` — the simpleeval sandbox has no list literals) (external-review correction:
   conditioning on `category_valid` alone would discard a valid
   attention flag whenever the category was malformed — asymmetric,
   contradicting independence).

@@ -488,3 +488,72 @@ async def test_text_mail_gets_no_body_structure() -> None:
     finally:
         await trig.stop()
     assert "body_structure" not in fired[0]
+
+
+# --- TWO_AXIS §3: reply-status annotation (tri-state, fail-open to unknown) ---
+
+
+def _thread_msg(labels: list[str], internal_ms: int) -> dict[str, object]:
+    return {"labelIds": labels, "internalDate": str(internal_ms)}
+
+
+async def test_reply_status_annotation() -> None:
+    svc = FakeGmailService()
+    received_ms = 1_000_000
+    svc.list_response = {"messages": [{"id": "m-1"}]}
+    svc.get_responses["m-1"] = stage_gmail_message("m-1", thread_id="t-1", internal_ms=received_ms)
+    # Thread has a newer SENT message → replied.
+    svc.thread_responses["t-1"] = {
+        "messages": [
+            _thread_msg(["INBOX"], received_ms),
+            _thread_msg(["SENT"], received_ms + 60_000),
+        ]
+    }
+    connector = GmailConnector(account="a@b.c", auth_provider=FakeAuthProvider(), service=svc)
+    trigger = GmailPollTrigger(connector=connector, annotate_reply_status=True)
+    messages = await connector.poll_inbox(since=None)
+    payload = await trigger._build_payload(messages[0])
+    assert payload["reply_status"] == "replied"
+
+    # Only an OLDER sent message → not_replied.
+    svc.thread_responses["t-1"] = {
+        "messages": [
+            _thread_msg(["SENT"], received_ms - 60_000),
+            _thread_msg(["INBOX"], received_ms),
+        ]
+    }
+    payload = await trigger._build_payload(messages[0])
+    assert payload["reply_status"] == "not_replied"
+
+    # Lookup failure → unknown (never raises, never blocks delivery).
+    svc.thread_errors["t-1"] = RuntimeError("boom")
+    payload = await trigger._build_payload(messages[0])
+    assert payload["reply_status"] == "unknown"
+
+
+async def test_reply_status_absent_when_not_configured() -> None:
+    svc = FakeGmailService()
+    svc.list_response = {"messages": [{"id": "m-1"}]}
+    svc.get_responses["m-1"] = stage_gmail_message("m-1", thread_id="t-1")
+    connector = GmailConnector(account="a@b.c", auth_provider=FakeAuthProvider(), service=svc)
+    trigger = GmailPollTrigger(connector=connector)
+    messages = await connector.poll_inbox(since=None)
+    payload = await trigger._build_payload(messages[0])
+    assert "reply_status" not in payload
+    assert not [c for c in svc.calls if c[0] == "threads.get"]
+
+
+async def test_remove_labels_and_metadata_format() -> None:
+    svc = FakeGmailService()
+    svc.labels_response = {"labels": [{"id": "L1", "name": "wf-attn/awaiting-reply"}]}
+    connector = GmailConnector(account="a@b.c", auth_provider=FakeAuthProvider(), service=svc)
+    await connector.remove_labels("m-9", ["wf-attn/awaiting-reply"])
+    modify = [c for c in svc.calls if c[0] == "messages.modify"]
+    assert modify and modify[0][1]["body"] == {"removeLabelIds": ["L1"]}
+
+    svc.thread_responses["t-2"] = {"messages": []}
+    from datetime import UTC, datetime
+
+    await connector.thread_has_newer_sent_message("t-2", datetime.now(UTC))
+    threads = [c for c in svc.calls if c[0] == "threads.get"]
+    assert threads and threads[0][1].get("format") == "metadata"

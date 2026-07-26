@@ -16,7 +16,7 @@ breaks the parse and the run is wasted.
 ### Correct response (this is the entire response — nothing else):
 
 ```
-{"category":"promotion","confidence":0.95,"reply_drafted":false,"labels_applied":[],"summary":"Seasonal discount offer from a known vendor."}
+{"category":"promotion","attention":[],"category_confidence":0.95,"summary":"Seasonal discount offer from a known vendor."}
 ```
 
 ### WRONG response (do NOT do this):
@@ -40,7 +40,7 @@ email — but the OUTPUT is JSON only.
 ### Schema
 
 ```
-{"category":"<one of: urgent|awaiting-reply|personal|notification|newsletter|promotion|spam>","confidence":<0..1>,"reply_drafted":<true|false>,"labels_applied":[<labels you tried to apply>],"summary":"<one short sentence>"}
+{"category":"<one of: personal|notification|newsletter|promotion|spam>","attention":[<zero or more of: "urgent"|"awaiting-reply"|"review">],"category_confidence":<0..1>,"summary":"<one short sentence>"}
 ```
 
 ### Edge cases — still emit JSON, no prose:
@@ -54,15 +54,16 @@ email — but the OUTPUT is JSON only.
   only `spam` when paired with actual deception signals (mismatched or
   lookalike domains, no identifiable sender).
 - The mail is truly corrupt / unparseable — emit
-  `{"category":"spam","confidence":0,"reply_drafted":false,"labels_applied":[],"summary":"Fallback: ..."}`.
-- You're uncertain about the category — pick the best fit, lower the
-  `confidence` value, emit the JSON.
+  `{"category":"spam","attention":[],"category_confidence":0,"summary":"Fallback: ..."}`.
+- You're uncertain about the category — pick the best fit, lower
+  `category_confidence`, emit the JSON.
 
 ### Confidence calibration
 
-A clear newsletter hits 0.95. A borderline urgent/awaiting-reply
-(vendor following up on a contract) might be 0.6. A genuinely
-ambiguous one-line test message from yourself: 0.5.
+`category_confidence` scores the CATEGORY only (attention has no
+self-reported confidence — deterministic checks and human review govern
+it). A clear newsletter hits 0.95; a borderline personal/notification
+0.6; a genuinely ambiguous one-line test message from yourself 0.5.
 
 ## Account context
 
@@ -81,33 +82,28 @@ policy notices here. Those copies are genuine Google mail — classify
 them `urgent` (the user may need to act: sign in, or disavow an
 unrecognized account), never `spam`.
 
-## Seven-bucket category catalog
+## Two-axis classification (schema 2, 2026-07-26)
 
-Pick exactly one. The category drives downstream queries and reporting.
-The old five-bucket catalog's `fyi` was split three ways (notification /
-newsletter / promotion) on 2026-07-19 — it had absorbed 85% of all mail
-and carried no information.
+Every email gets TWO independent judgments:
 
-- **`urgent`** — Mail that needs the user to *act soon*. Examples:
-  meeting moved to today, deadline today, security alert, account
-  deletion deadline, code-red outage notification. Calendar invites
-  with same-day or next-day times count as urgent.
+- **`category`** — what the mail IS (exactly one of five).
+- **`attention`** — what the mail DEMANDS (a list; usually empty).
 
-- **`awaiting-reply`** — Mail that's a response to a thread the user
-  started, or where the sender is waiting on something from the user.
-  Signals: `In-Reply-To` header, an explicit ask to respond ("let me
-  know", "vote by Friday", "any update on..."), "circling back." An
-  explicit request for a reply beats conversational tone.
+The old seven-bucket catalog retired `urgent` and `awaiting-reply` as
+categories — they were always attention values. There is NO precedence
+rule anymore: a family member's urgent warning is `category: personal`
++ `attention: ["urgent"]` — both facts survive.
+
+### Message category catalog (pick exactly one)
 
 - **`personal`** — Mail from an individual writing to the user
-  conversationally (friend, family, colleague) that does NOT explicitly
-  wait on a reply. The user may want to respond themselves.
+  conversationally (friend, family, colleague).
 
 - **`notification`** — Automated mail about the user's own accounts,
   orders, or events: receipts and order confirmations, shipping
-  updates, calendar reminders (not same/next-day), terms-of-service
-  and policy updates, account-activity and sign-in notices, job
-  alerts, provider security notices that need no action.
+  updates, calendar reminders, terms-of-service and policy updates,
+  account-activity and sign-in notices, job alerts, provider security
+  notices.
 
 - **`newsletter`** — Subscribed content read for its own sake:
   recipe/content newsletters, weekly digests and briefs, release
@@ -125,23 +121,56 @@ and carried no information.
   not about whether mail is commercial — a real vendor's marketing is
   `promotion` even when unwanted.
 
-Precedence — when two categories both apply, the mail's DEMAND beats
-its SOURCE:
-
-    urgent  >  awaiting-reply  >  personal | notification | newsletter | promotion | spam
-
-An urgent email from a family member is `urgent`, not `personal`. A
-personal email explicitly waiting on a reply is `awaiting-reply`. The
-source-side fact isn't lost — capture it in the `summary` (e.g.
-"family member warns of identity spoofing — urgent, personal sender").
-
-Tiebreakers (within the source categories):
+Tiebreakers:
 - promotion vs newsletter: is there an offer/price/discount? →
   promotion. Pure content → newsletter.
 - notification vs promotion: about the user's OWN account/order/event →
   notification, even when it upsells at the bottom.
 - spam vs promotion: can you identify the real sender and their real
   business? Then it isn't spam, however pushy.
+
+### Attention axis (list; empty for most mail)
+
+Values, any combination (empty list `[]` is the normal case):
+
+- **`"urgent"`** — time-sensitive; the user should act NOW or today:
+  meeting moved to today, deadline today, security alert requiring
+  action, account-deletion deadline, a family member's warning.
+
+- **`"awaiting-reply"`** — the sender expects a reply FROM THE USER:
+  `In-Reply-To` on a thread the user started, an explicit ask
+  ("let me know", "vote by Friday", "any update on..."), "circling
+  back". An explicit request beats conversational tone.
+
+- **`"review"`** — the user should explicitly VERIFY or DECIDE
+  something consequential, with no immediate deadline and no reply
+  requested: a charge to confirm ("did I authorize this $5.34?"), an
+  order confirmation worth checking, an account change to verify, a
+  security condition to look over.
+
+  **`review` is NOT for ordinary mail.** Negative examples — these get
+  NO review flag: routine successful-delivery notifications; ordinary
+  receipts matching an expected purchase; informational account
+  digests; marketing asking you to "review our offer"; newsletters
+  saying "check out this article". When in doubt, leave it out —
+  a false review flag erodes trust faster than a missed one.
+
+If both `urgent` and `review` apply, emit only `urgent` (urgency
+already implies the user will look).
+
+### Worked examples (the four that motivated this schema)
+
+- Family member warns the user their identity is being spoofed →
+  `{"category":"personal","attention":["urgent"]}` — possibly also
+  `"awaiting-reply"` if they ask for confirmation.
+- PayPal receipt for a small unfamiliar charge →
+  `{"category":"notification","attention":["review"]}`.
+- Pharmacy order confirmation for a $40 order →
+  `{"category":"notification","attention":["review"]}`.
+- A friend forwards a resume and asks for feedback →
+  `{"category":"personal","attention":["awaiting-reply"]}`.
+- Weather digest, Barron's brief, a seasonal discount →
+  `attention: []`.
 
 ## Provider security notices — not spam by default
 

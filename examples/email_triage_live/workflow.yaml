@@ -56,14 +56,15 @@ steps:
       the HTML (link domains, image count, alt texts) derived safely
       without fetching anything.
 
-      Apply the rubric in your memory (above this prompt) to choose exactly
-      one `category` from the seven-bucket catalog.
+      Apply the rubric in your memory (above this prompt): choose exactly
+      one `category` from the five-bucket catalog AND a (usually empty)
+      `attention` list per the attention-axis section.
 
       Then respond with ONLY a JSON object on one line — no prose, no
       markdown fences:
-        {"category": "<one of seven>", "confidence": <0..1>,
-         "reply_drafted": false, "labels_applied": [],
-         "summary": "<one short sentence — why this category>"}
+        {"category": "<one of five>", "attention": [<zero or more of
+         "urgent"|"awaiting-reply"|"review">], "category_confidence":
+         <0..1>, "summary": "<one short sentence — why>"}
     policy:
       max_iterations: 2
       # Rubric (~1.6k) + goal + slimmed payload; long personal emails can
@@ -114,8 +115,9 @@ learned_memory:
       ref_from: trigger.message_id
     - text: >
         The triage agent classified the email from {trigger.from_address.address}
-        (subject: "{trigger.subject}") as {steps.record.category} with confidence
-        {steps.record.confidence}. Reason: {steps.record.summary}
+        (subject: "{trigger.subject}") as {steps.record.category} (attention:
+        {steps.record.attention}, schema v{steps.record.triage_schema_version})
+        with confidence {steps.record.confidence}. Reason: {steps.record.summary}
       author: system
       # The verdict is ours, but its text embeds third-party content (sender,
       # subject, a summary derived from the body) — declare the mixed

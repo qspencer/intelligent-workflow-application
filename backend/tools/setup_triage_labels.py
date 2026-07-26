@@ -20,7 +20,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 
 from workflow_platform.connectors.email.bootstrap import maybe_build_gmail_connector
-from workflow_platform.engine.functions import TRIAGE_CATEGORIES
+from workflow_platform.engine.functions import ATTENTION_LEVELS, TRIAGE_CATEGORIES
 from workflow_platform.secrets import EnvSecretStore
 
 
@@ -30,7 +30,9 @@ async def run(args: argparse.Namespace) -> int:
         print(f"no credentials for {args.account!r} under .secrets/gmail/ — aborting")
         return 2
 
-    wanted = [f"wf/{category}" for category in TRIAGE_CATEGORIES]
+    wanted = [f"wf/{category}" for category in TRIAGE_CATEGORIES] + [
+        f"wf-attn/{value}" for value in ATTENTION_LEVELS
+    ]
     existing: set[str] = set()
     for name in wanted:
         try:
