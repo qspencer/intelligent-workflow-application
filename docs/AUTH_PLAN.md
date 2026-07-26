@@ -5,7 +5,16 @@ findings folded in; B1–B3 landed the same day — Alembic `0004`, `auth/local.
 + `auth/passwords.py`, `api/auth.py` + `api/users.py`, `tools/create_user.py`,
 login page + users admin in the frontend. All §9 criteria test-pinned in
 `backend/tests/test_auth_local.py` + `test_users_api.py`; live-verified
-end-to-end with curl against a local-mode backend.)
+end-to-end with curl against a local-mode backend. **2026-07-26:** the
+deferred browser coverage landed — a dedicated `chromium-local-auth`
+Playwright project (own AUTH_MODE=local backend with seeded test users, own
+Vite instance so cookies/CSRF behave as deployed) drives the 401 gate,
+bad-credentials alert, admin login→sign-out with server-side revocation,
+and viewer role-gating + axe on `/login`. Writing it surfaced and fixed a
+real gap: `hasRole` read only dev-mode localStorage and defaulted to
+admins, so local-mode viewers saw every write affordance — App now
+resolves `/api/me` before rendering routes and caches the session's real
+roles for every `hasRole` gate.)
 Companion to `docs/ARCHITECTURE.md` D4 — this document proposes a scoped
 amendment to D4, stated explicitly in §3.
 

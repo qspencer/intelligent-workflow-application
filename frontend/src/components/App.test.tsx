@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from './App';
 import { api } from '../api/client';
+import { resetMe } from '../lib/me';
 
 describe('App routing + IA', () => {
   beforeEach(() => {
@@ -13,11 +14,19 @@ describe('App routing + IA', () => {
     vi.spyOn(api, 'listWorkflows').mockResolvedValue([]);
     vi.spyOn(api, 'listTemplates').mockResolvedValue([]);
     vi.spyOn(api, 'getDevErrors').mockResolvedValue({ total: 0, distinct: 0, errors: [] });
+    // App resolves the session (getMe) before rendering routes.
+    vi.spyOn(api, 'me').mockResolvedValue({
+      auth_mode: 'dev',
+      identity: { sub: 'e2e', email: null, roles: ['Administrator'] },
+      user: null,
+      organization: null,
+    });
   });
 
   afterEach(() => {
     cleanup();
     vi.restoreAllMocks();
+    resetMe();
   });
 
   it('lands on the Automations home at the index route', async () => {
@@ -29,26 +38,26 @@ describe('App routing + IA', () => {
     expect(await screen.findByRole('heading', { name: 'Your automations' })).toBeInTheDocument();
   });
 
-  it('shows the friendly nav and hides the developer console by default', () => {
+  it('shows the friendly nav and hides the developer console by default', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>
         <App />
       </MemoryRouter>,
     );
-    expect(screen.getByRole('link', { name: 'Automations' })).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Automations' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Templates' })).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Instances' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Workflows' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Cost' })).not.toBeInTheDocument();
   });
 
-  it('reveals the developer console when Advanced is toggled on', () => {
+  it('reveals the developer console when Advanced is toggled on', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>
         <App />
       </MemoryRouter>,
     );
-    fireEvent.click(screen.getByRole('button', { name: /Developer:/ }));
+    fireEvent.click(await screen.findByRole('button', { name: /Developer:/ }));
     expect(screen.getByRole('link', { name: 'Instances' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Workflows' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Cost' })).toBeInTheDocument();

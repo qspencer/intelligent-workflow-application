@@ -2,6 +2,8 @@ import { useEffect, useState } from 'react';
 import { NavLink, Route, Routes } from 'react-router-dom';
 
 import { advancedEnabled, setAdvanced } from '../lib/advanced';
+import { setSessionRoles } from '../lib/auth';
+import { getMe } from '../lib/me';
 import { AutomationsHome } from './AutomationsHome';
 import { CostDashboard } from './CostDashboard';
 import { ErrorBadge } from './ErrorBadge';
@@ -23,6 +25,23 @@ function navClass({ isActive }: { isActive: boolean }): string {
 export function App() {
   const [advanced, setAdvancedState] = useState(advancedEnabled());
   const [needsLogin, setNeedsLogin] = useState(false);
+  const [authReady, setAuthReady] = useState(false);
+
+  // Resolve the session before rendering routes so hasRole gates read REAL
+  // roles in local/oidc mode (dev mode keeps the RoleSwitcher's localStorage
+  // path — sessionRoles stays null). getMe is memoized; on backend-down it
+  // resolves null quickly and the shell renders as before.
+  useEffect(() => {
+    let ignore = false;
+    void getMe().then((me) => {
+      if (ignore) return;
+      setSessionRoles(me && me.auth_mode !== 'dev' ? me.identity.roles : null);
+      setAuthReady(true);
+    });
+    return () => {
+      ignore = true;
+    };
+  }, []);
 
   // Local-mode session absent/expired: any API 401 flips the whole shell to
   // the login page (the API client dispatches this; docs/AUTH_PLAN.md §6).
@@ -39,6 +58,7 @@ export function App() {
   }
 
   if (needsLogin) return <LoginPage />;
+  if (!authReady) return null;
 
   return (
     <>

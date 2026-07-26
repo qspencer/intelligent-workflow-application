@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 
-import { authHeaders, currentGroups, currentUser, hasRole } from './auth';
+import { authHeaders, currentGroups, currentUser, hasRole, setSessionRoles } from './auth';
 
 describe('auth', () => {
   beforeEach(() => {
@@ -35,5 +35,17 @@ describe('auth', () => {
     localStorage.setItem('wp.groups', 'org-users');
     expect(hasRole(['admins', 'org-users'])).toBe(true);
     expect(hasRole(['org-viewers'])).toBe(false);
+  });
+
+  it('session roles override localStorage when set (local/oidc modes)', () => {
+    setSessionRoles(['Organization Viewer']);
+    try {
+      // localStorage default would claim admins; the real session says viewer.
+      expect(hasRole(['admins', 'org-admins', 'org-users'])).toBe(false);
+      expect(hasRole(['org-viewers'])).toBe(true);
+    } finally {
+      setSessionRoles(null);
+    }
+    expect(hasRole(['admins'])).toBe(true); // dev fallback restored
   });
 });

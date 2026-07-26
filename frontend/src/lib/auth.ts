@@ -26,13 +26,35 @@ export function authHeaders(): Record<string, string> {
   };
 }
 
+const GROUP_TO_ROLE: Record<string, string> = {
+  admins: 'Administrator',
+  'org-admins': 'Organization Administrator',
+  'org-users': 'Organization User',
+  'org-viewers': 'Organization Viewer',
+};
+
+/** Real roles from the authenticated session (local/oidc modes). Set by App
+ * once /api/me resolves; null means dev mode (or unknown) — fall back to the
+ * localStorage group the RoleSwitcher manages. Without this, local-mode
+ * viewers saw every write affordance (hasRole defaulted to admins) and
+ * collected 403s on click. */
+let sessionRoles: string[] | null = null;
+
+export function setSessionRoles(roles: string[] | null): void {
+  sessionRoles = roles;
+}
+
 /**
- * Whether the current dev-mode identity has any of the given group values.
- * An unset localStorage acts as 'admins' in dev mode (matching the headers
- * sent by `authHeaders`). In production OIDC mode there's no localStorage,
- * so this returns false and any role hint stays visible.
+ * Whether the current identity has any of the given group values. When a
+ * real session's roles are cached (local/oidc), those decide — group names
+ * map to role names. Otherwise dev-mode behavior: an unset localStorage
+ * acts as 'admins' (matching the headers sent by `authHeaders`).
  */
 export function hasRole(allowed: string[]): boolean {
+  const roles = sessionRoles;
+  if (roles !== null) {
+    return allowed.some((group) => roles.includes(GROUP_TO_ROLE[group] ?? group));
+  }
   const stored = localStorage.getItem('wp.groups');
   const effective = stored ?? 'admins';
   return allowed.includes(effective);

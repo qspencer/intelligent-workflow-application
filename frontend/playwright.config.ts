@@ -17,7 +17,21 @@ export default defineConfig({
     baseURL: 'http://localhost:4200',
     trace: 'on-first-retry',
   },
-  projects: [{ name: 'chromium', use: { ...devices['Desktop Chrome'] } }],
+  projects: [
+    {
+      name: 'chromium',
+      testIgnore: /auth\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'] },
+    },
+    {
+      // Local-auth flows run against their own backend (AUTH_MODE=local,
+      // seeded test users) through a second Vite instance so cookies +
+      // the CSRF Origin check behave exactly as in a real deployment.
+      name: 'chromium-local-auth',
+      testMatch: /auth\.spec\.ts/,
+      use: { ...devices['Desktop Chrome'], baseURL: 'http://localhost:4300' },
+    },
+  ],
   webServer: [
     {
       command:
@@ -30,6 +44,21 @@ export default defineConfig({
     {
       command: 'npm run dev -- --port 4200',
       url: 'http://localhost:4200',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command:
+        'cd ../backend && AUTH_MODE=local WORKFLOW_PLATFORM_SEED_TEST_USERS=1 ' +
+        'BEDROCK_MODE=replay WORKFLOW_PLATFORM_START_TRIGGERS=0 ' +
+        'uv run uvicorn workflow_platform.main:app --port 8097',
+      url: 'http://localhost:8097/api/health',
+      reuseExistingServer: !process.env.CI,
+      timeout: 120_000,
+    },
+    {
+      command: 'VITE_API_TARGET=http://localhost:8097 npm run dev -- --port 4300',
+      url: 'http://localhost:4300',
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

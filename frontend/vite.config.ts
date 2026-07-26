@@ -6,8 +6,17 @@ export default defineConfig({
   server: {
     port: 4200,
     proxy: {
-      '/api': { target: 'http://localhost:8001', secure: false },
-      '/ws': { target: 'ws://localhost:8001', ws: true, secure: false },
+      // Overridable so the e2e harness can point a second dev-server instance
+      // at the local-auth backend (playwright.config.ts).
+      '/api': {
+        target: process.env.VITE_API_TARGET ?? 'http://localhost:8001',
+        secure: false,
+      },
+      '/ws': {
+        target: (process.env.VITE_API_TARGET ?? 'http://localhost:8001').replace('http', 'ws'),
+        ws: true,
+        secure: false,
+      },
     },
   },
   test: {
