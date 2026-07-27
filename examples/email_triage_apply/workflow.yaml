@@ -33,6 +33,9 @@ trigger:
     # metadata-only thread check, so awaiting-reply is suppressed on
     # already-answered (backfilled) mail — the baseball-email fix.
     annotate_reply_status: true
+    # Long-body newsletters (full-coverage scope) don't need 30k tokens to
+    # classify — the head suffices.
+    body_max_chars: 8000
     # Drop body_html + raw headers from the payload (same rationale as the
     # read-only sibling): body_text is what triage needs.
     slim_payload: true
@@ -137,7 +140,11 @@ edges:
     condition: steps.record.apply_label_count > 0
 
 policies:
-  max_total_tokens: 14000
+  # Raised 14000→24000 (2026-07-27): full-coverage mail is longer than the
+  # INBOX residue the original budget was calibrated on — 12 runs paused
+  # on budget in the first widened-scope day. Body cap above bounds the
+  # common case; this bounds the tail.
+  max_total_tokens: 24000
   budget_action: pause
 
 learned_memory:

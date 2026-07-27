@@ -223,6 +223,9 @@ class TriggerOrchestrator:
                     download_dir=config.get("download_dir"),
                     slim_payload=bool(config.get("slim_payload", False)),
                     annotate_reply_status=bool(config.get("annotate_reply_status", False)),
+                    body_max_chars=(
+                        int(config["body_max_chars"]) if config.get("body_max_chars") else None
+                    ),
                     # G9: the poll position survives restarts. Keyed by
                     # workflow + account so re-pointing a workflow at a
                     # different mailbox starts fresh.

@@ -557,3 +557,19 @@ async def test_remove_labels_and_metadata_format() -> None:
     await connector.thread_has_newer_sent_message("t-2", datetime.now(UTC))
     threads = [c for c in svc.calls if c[0] == "threads.get"]
     assert threads and threads[0][1].get("format") == "metadata"
+
+
+async def test_body_max_chars_truncates_payload() -> None:
+    svc = FakeGmailService()
+    svc.list_response = {"messages": [{"id": "m-1"}]}
+    svc.get_responses["m-1"] = stage_gmail_message("m-1", body_text="x" * 10_000)
+    connector = GmailConnector(account="a@b.c", auth_provider=FakeAuthProvider(), service=svc)
+    trigger = GmailPollTrigger(connector=connector, body_max_chars=500)
+    messages = await connector.poll_inbox(since=None)
+    payload = await trigger._build_payload(messages[0])
+    assert len(payload["body_text"]) < 600
+    assert payload["body_text"].endswith("[body truncated for triage]")
+    # Unconfigured → untouched.
+    trigger2 = GmailPollTrigger(connector=connector)
+    payload2 = await trigger2._build_payload(messages[0])
+    assert len(payload2["body_text"]) == 10_000

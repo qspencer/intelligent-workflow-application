@@ -111,6 +111,7 @@ class GmailPollTrigger(Trigger):
         download_dir: str | None = None,
         slim_payload: bool = False,
         annotate_reply_status: bool = False,
+        body_max_chars: int | None = None,
         cursor_store: TriggerCursorRepo | None = None,
         cursor_key: str | None = None,
     ) -> None:
@@ -135,6 +136,9 @@ class GmailPollTrigger(Trigger):
         # (lookup failure) suppresses awaiting-reply downstream rather than
         # manufacturing a response obligation; delivery is never blocked.
         self.annotate_reply_status = annotate_reply_status
+        # Full-coverage mail includes very long newsletter bodies; a
+        # classification prompt needs the head, not 30k tokens of it.
+        self.body_max_chars = body_max_chars
         # Drop body_html + raw headers from the payload. Newsletters carry
         # 100KB+ of HTML and multi-KB DKIM/ARC headers; a triage agent that
         # reads the payload verbatim burns ~40k input tokens per message on
@@ -290,6 +294,15 @@ class GmailPollTrigger(Trigger):
         local paths under `attachment_paths`. A single failed download is
         logged and skipped rather than sinking the whole message."""
         payload: dict[str, Any] = msg.model_dump(mode="json")
+        body_text = payload.get("body_text")
+        if (
+            self.body_max_chars
+            and isinstance(body_text, str)
+            and len(body_text) > self.body_max_chars
+        ):
+            payload["body_text"] = (
+                body_text[: self.body_max_chars] + "\n…[body truncated for triage]"
+            )
         if self.annotate_reply_status:
             try:
                 if msg.thread_id is None:
