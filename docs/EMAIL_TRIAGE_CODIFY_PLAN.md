@@ -1,24 +1,25 @@
 # Email Triage, Codified Sender Pre-Filter (G13 slice 1) — Design, v2
 
-Status: **slice 1 BUILT 2026-07-30** — the eligibility engine +
-generation CLI (`workflow_platform.codify` pure rule + `tools/
-codify_senders.py`: Postgres verdict evidence x veracium disqualifiers,
-dry-run default, --apply atomic 0600 writes, --explain traces; 11 rule
-tests). **Two delegated decisions executed:** domain-level
-disqualification adopted (registrable-domain fence with a freemail
-exemption — the TTG sibling case) and the part-2 window closed for
-category+mechanics (attention stays monitored; see TWO_AXIS §7 note).
-First live dry-run: 111 senders with evidence, **6 eligible**
-(indeed/wayfair/overstock/businessinsider/simplyrecipes/nextdoor), and
-one finding for the next session: historical 7-bucket-era corrections
-put 17 domains behind the fence (incl. nytimes/wsj — era-collision
-corrections like breakingnews urgent-vs-newsletter, not sender-
-unpredictability evidence). **Open question: era-scope corrections for
-disqualification** the way verdict evidence already is — conservative
-as-is (over-disqualifies, never under), so deliberately left strict for
-the first artifact. Runtime slices (trigger auth_pass, precheck
-function + overlay, diamond YAML + attention-only classifier) not yet
-built.
+Status: **BUILT + CUT OVER 2026-07-30** (slice 1: eligibility engine +
+CLI; runtime slices same day). Live shape: the v2 diamond on
+`email-triage-apply` — deterministic `codified_sender_check` (rule
+artifact + disable overlay read per run via world.fs; schema/TTL/
+inactivity gates; HMAC-keyed 1-in-5 sampling; fail-open to judgment
+everywhere) routes authenticated listed senders past the category
+classifier while a small attention-only step still reads EVERY message;
+`record_email_triage` composes per route with exactly-one-source
+enforcement, decision_source/model_confidence-null semantics, and
+IMMEDIATE overlay demotion on sampled mismatch or attention-detected.
+The auth gate ships with a hardening beyond the plan: EmailMessage
+carries Authentication-Results as an ORDERED list because the collapsed
+header dict is last-wins — which would have surfaced attacker-APPENDED
+AR forgeries; only the first mx.google.com entry is believed.
+First artifact: **7 senders** (30d TTL, sample 1-in-5). §9 validation
+window OPEN. Deviations, honest: runtime rubric-hash verification
+deferred (functions can't see the engine's memory hash yet — schema
+version is checked); `skip_if` engine surface deferred (the §8 query
+contract via decision_source is the primary guard and is what the CLI
+implements); corrections era-scoping still open (fence stays strict).
 
 ## 1. What this is (claims stated honestly)
 
