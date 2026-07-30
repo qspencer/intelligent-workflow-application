@@ -278,4 +278,11 @@ echo "────────────────────────�
 # --- launch -------------------------------------------------------------------
 step "Launch uvicorn (Ctrl-C to stop) — startup logs + per-trigger status follow"
 cd "$BACKEND"
-exec uv run uvicorn workflow_platform.main:app --reload --port "$PORT"
+# --reload watches the tree for code changes — but the platform WRITES
+# inside it at runtime (.memory/learned.db + -wal/-shm on every processed
+# email, codified rule overlays), which made the reloader restart the app
+# continuously ("3 changes detected" flapping, discovered 2026-07-30: six
+# restarts in minutes, re-firing once-per-process alerts each time).
+# Reload stays for the dev loop but only watches actual source.
+exec uv run uvicorn workflow_platform.main:app --port "$PORT" \
+  --reload --reload-dir src --reload-dir ../examples

@@ -70,7 +70,12 @@ class MonitoringService:
         self.events = events
         self.config = config or MonitoringConfig()
         self._task: asyncio.Task[None] | None = None
-        self._stop_event = asyncio.Event()
+        # Created lazily in start(): create_app() is sync and may run under a
+        # different (or no) event loop than the app's lifespan — an Event
+        # constructed here binds wrong and stop() raises "bound to a
+        # different event loop" (seen in the schemathesis job, which builds
+        # several apps per process).
+        self._stop_event: asyncio.Event | None = None
         # Avoid spamming the same alert: remember which stuck instances we've
         # already alerted on (per process). Resets when a process restarts.
         self._alerted_stuck: set[str] = set()
@@ -84,12 +89,13 @@ class MonitoringService:
     async def start(self) -> None:
         if self._task is not None:
             return
-        self._stop_event.clear()
+        self._stop_event = asyncio.Event()
         self._task = asyncio.create_task(self._loop())
 
     async def stop(self) -> None:
         if self._task is None:
             return
+        assert self._stop_event is not None
         self._stop_event.set()
         try:
             await asyncio.wait_for(self._task, timeout=5.0)
@@ -98,15 +104,15 @@ class MonitoringService:
         self._task = None
 
     async def _loop(self) -> None:
-        while not self._stop_event.is_set():
+        assert self._stop_event is not None
+        stop_event = self._stop_event
+        while not stop_event.is_set():
             try:
                 await self.run_once()
             except Exception:
                 logger.exception("Monitoring check failed")
             try:
-                await asyncio.wait_for(
-                    self._stop_event.wait(), timeout=self.config.interval_seconds
-                )
+                await asyncio.wait_for(stop_event.wait(), timeout=self.config.interval_seconds)
             except TimeoutError:
                 continue
 
