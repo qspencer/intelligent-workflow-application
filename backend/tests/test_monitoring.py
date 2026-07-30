@@ -240,3 +240,69 @@ async def test_stop_is_idempotent() -> None:
     await monitor.start()
     await monitor.stop()
     await monitor.stop()  # second stop ok
+
+
+# --- alert_stale_trigger (2026-07-30, the dmarc silent-blindness lesson) ---
+
+
+def _email_definition(defn_id: str, trigger_type: str) -> Any:
+    from workflow_platform.workflow import WorkflowDefinition
+
+    return WorkflowDefinition.model_validate(
+        {
+            "id": defn_id,
+            "name": defn_id,
+            "trigger": {"type": trigger_type, "config": {"account": "a@b.c"}},
+            "steps": [
+                {
+                    "id": "s1",
+                    "name": "s1",
+                    "type": "agentic",
+                    "goal": "g",
+                    "model": "claude-haiku-4-5",
+                }
+            ],
+            "edges": [],
+        }
+    )
+
+
+async def test_stale_email_trigger_alerts_once() -> None:
+    repos = in_memory_repositories()
+    service = MonitoringService(repos, config=MonitoringConfig())
+    now = datetime.now(UTC)
+
+    stale = _email_definition("stale-mail", "email")
+    fresh = _email_definition("fresh-mail", "email")
+    never = _email_definition("never-ran", "email")
+    webhook = _email_definition("hook", "webhook")
+    for d in (stale, fresh, never, webhook):
+        await repos.definitions.save(d)
+
+    await repos.instances.create(
+        WorkflowInstance(
+            workflow_id="stale-mail",
+            state=WorkflowInstanceState.COMPLETED,
+            started_at=now - timedelta(days=5),
+        )
+    )
+    await repos.instances.create(
+        WorkflowInstance(
+            workflow_id="fresh-mail",
+            state=WorkflowInstanceState.COMPLETED,
+            started_at=now - timedelta(hours=2),
+        )
+    )
+
+    alerts = await service.run_once(now=now)
+    stale_alerts = [a for a in alerts if a["action"] == "alert_stale_trigger"]
+    assert {a["workflow_id"] for a in stale_alerts} == {"stale-mail", "never-ran"}
+    never_alert = next(a for a in stale_alerts if a["workflow_id"] == "never-ran")
+    assert never_alert["last_run_at"] is None
+
+    # Once per process: a second sweep stays quiet.
+    again = await service.run_once(now=now)
+    assert not [a for a in again if a["action"] == "alert_stale_trigger"]
+
+    entries = await repos.audit.list_recent(limit=20)
+    assert sum(1 for e in entries if e.action == "alert_stale_trigger") == 2

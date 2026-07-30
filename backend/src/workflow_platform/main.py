@@ -39,6 +39,7 @@ from workflow_platform.engine import (
 from workflow_platform.engine.functions import ATTENTION_LEVELS, TRIAGE_CATEGORIES
 from workflow_platform.events import EventBus
 from workflow_platform.memory import LearnedMemoryService, MemoryManager
+from workflow_platform.monitoring import MonitoringService
 from workflow_platform.observability import (
     CONTENT_TYPE,
     ErrorBuffer,
@@ -212,14 +213,23 @@ def create_app(
         secret_store=secret_store,
     )
 
+    # Week 9's passive orchestrator, previously built-but-dormant: wired into
+    # the app lifespan 2026-07-30 (the dmarc silent-blindness incident — its
+    # new alert_stale_trigger check is only useful if the loop actually runs).
+    # Gated with start_triggers so unit tests stay quiet.
+    monitoring = MonitoringService(repositories, events=events)
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await ensure_seed_users(repositories)
         if start_triggers:
             await orchestrator.start()
+            await monitoring.start()
         try:
             yield
         finally:
+            if start_triggers:
+                await monitoring.stop()
             await orchestrator.stop()
             if db_engine is not None and hasattr(db_engine, "dispose"):
                 await db_engine.dispose()

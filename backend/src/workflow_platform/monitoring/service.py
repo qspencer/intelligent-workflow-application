@@ -48,6 +48,12 @@ class MonitoringConfig(BaseModel):
     token_burn_window_seconds: float = 600.0
     token_burn_threshold: int = 1_000_000
 
+    # A registered email trigger that dispatches nothing for this long is
+    # indistinguishable from a broken one (the 2026-07-30 dmarc-ingest
+    # lesson: a mailbox filter blinded the poller for ten days with zero
+    # errors). 3 days catches it while tolerating quiet weekends.
+    stale_trigger_threshold_seconds: float = 259_200.0
+
     instance_sample_limit: int = 500
     step_sample_limit: int = 1000
 
@@ -68,6 +74,7 @@ class MonitoringService:
         # Avoid spamming the same alert: remember which stuck instances we've
         # already alerted on (per process). Resets when a process restarts.
         self._alerted_stuck: set[str] = set()
+        self._alerted_stale: set[str] = set()
         self._last_high_error_alert_at: datetime | None = None
         self._last_high_queue_alert_at: datetime | None = None
         self._last_high_burn_alert_at: datetime | None = None
@@ -112,6 +119,7 @@ class MonitoringService:
         alerts.extend(await self._check_error_rate(now))
         alerts.extend(await self._check_queue_depth(now))
         alerts.extend(await self._check_token_burn(now))
+        alerts.extend(await self._check_stale_email_triggers(now))
         return alerts
 
     # --- checks ---
@@ -139,6 +147,35 @@ class MonitoringService:
             }
             await self._emit_alert("alert_stuck_workflow", detail, instance.id)
             emitted.append({"action": "alert_stuck_workflow", **detail})
+        return emitted
+
+    async def _check_stale_email_triggers(self, now: datetime) -> list[dict[str, Any]]:
+        """Silent-blindness detector: an email-triggered workflow whose newest
+        run is older than the threshold (or that has no runs at all) gets one
+        `alert_stale_trigger` per process. Polls that error already log; this
+        catches the poller that runs CLEAN against the wrong view — a label
+        filter, a bad query, a deleted history."""
+        threshold = timedelta(seconds=self.config.stale_trigger_threshold_seconds)
+        emitted: list[dict[str, Any]] = []
+        for definition in await self.repositories.definitions.list_all():
+            if definition.trigger.type not in ("email", "gmail_poll"):
+                continue
+            if definition.id in self._alerted_stale:
+                continue
+            instances = await self.repositories.instances.list_by_workflow(definition.id)
+            newest = max((i.started_at or i.created_at for i in instances), default=None)
+            if newest is not None and now - newest < threshold:
+                continue
+            self._alerted_stale.add(definition.id)
+            detail = {
+                "workflow_id": definition.id,
+                "trigger_type": definition.trigger.type,
+                "account": definition.trigger.config.get("account"),
+                "last_run_at": newest.isoformat() if newest else None,
+                "threshold_seconds": self.config.stale_trigger_threshold_seconds,
+            }
+            await self._emit_alert("alert_stale_trigger", detail, None)
+            emitted.append({"action": "alert_stale_trigger", **detail})
         return emitted
 
     async def _check_error_rate(self, now: datetime) -> list[dict[str, Any]]:
