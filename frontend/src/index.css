@@ -1,0 +1,11 @@
+
+/* IA rework: merged catalog affordances */
+.view-toggle { display: inline-flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.view-toggle button { border: none; border-radius: 0; padding: 0.3rem 0.7rem; background: transparent; }
+.view-toggle button.active { background: var(--accent); color: #fff; }
+.badge.bundled { background: var(--muted-bg, #e8e8ef); color: var(--fg); }
+.badge.org { background: transparent; border: 1px solid var(--border); }
+.wf-card-actions { position: absolute; top: 0.5rem; right: 0.5rem; display: flex; gap: 0.3rem; }
+.wf-card-run { font-size: 0.75rem; padding: 0.15rem 0.5rem; }
+.effect-warning { border-left: 3px solid var(--warn, #d97706); padding: 0.4rem 0.6rem; background: color-mix(in srgb, var(--warn, #d97706) 8%, transparent); border-radius: 4px; }
+.effect-confirm { font-weight: 600; }

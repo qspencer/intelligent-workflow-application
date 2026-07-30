@@ -1,5 +1,6 @@
 import { authHeaders } from '../lib/auth';
 import type {
+  WorkflowAttribution,
   Me,
   Organization,
   PlatformUser,
@@ -134,6 +135,12 @@ export const api = {
     id: string,
   ): Promise<{ deleted_workflow: string; deleted_instances: number; deleted_steps: number }> {
     return request('DELETE', `/workflows/${id}`);
+  },
+
+  /** IA_PLAN attribution sidecar: per-definition row facts (org/owner/
+   *  bundled-ness/run-effect), org-scoped server-side. */
+  workflowAttribution(): Promise<Record<string, WorkflowAttribution>> {
+    return request('GET', '/workflows/attribution');
   },
 
   /** Map of `workflow_id → instance count`, aggregated server-side. */

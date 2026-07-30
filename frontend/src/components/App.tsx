@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { NavLink, Route, Routes } from 'react-router';
+import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router';
 
 import { advancedEnabled, setAdvanced } from '../lib/advanced';
 import { setSessionRoles } from '../lib/auth';
@@ -15,7 +15,6 @@ import { UserChip } from './UserChip';
 import { CompareRuns } from './CompareRuns';
 import { TemplatesGallery } from './TemplatesGallery';
 import { UsersAdmin } from './UsersAdmin';
-import { WorkflowsList } from './WorkflowsList';
 import { WorkflowCanvas } from './canvas/WorkflowCanvas';
 
 function navClass({ isActive }: { isActive: boolean }): string {
@@ -73,11 +72,8 @@ export function App() {
           </NavLink>
           {advanced && (
             <>
-              <NavLink to="/instances" className={navClass}>
-                Instances
-              </NavLink>
-              <NavLink to="/workflows" className={navClass}>
-                Workflows
+              <NavLink to="/runs" className={navClass}>
+                Runs
               </NavLink>
               <NavLink to="/cost" className={navClass}>
                 Cost
@@ -106,9 +102,13 @@ export function App() {
         <Routes>
           <Route path="/" element={<AutomationsHome />} />
           <Route path="/templates" element={<TemplatesGallery />} />
-          <Route path="/workflows" element={<WorkflowsList />} />
+          {/* IA_PLAN: /workflows' successor is the table rendering of the
+              merged catalog; /runs is canonical for the list, /instances
+              redirects (detail routes stay canonical at /instances/:id). */}
+          <Route path="/workflows" element={<Navigate to="/?view=table" replace />} />
           <Route path="/canvas/:id" element={<WorkflowCanvas />} />
-          <Route path="/instances" element={<InstancesList />} />
+          <Route path="/runs" element={<InstancesList />} />
+          <Route path="/instances" element={<RedirectPreservingQuery to="/runs" />} />
           <Route path="/instances/:id" element={<InstanceDetail />} />
           <Route path="/compare/:a/:b" element={<CompareRuns />} />
           <Route path="/cost" element={<CostDashboard />} />
@@ -117,4 +117,10 @@ export function App() {
       </main>
     </>
   );
+}
+
+/** Redirect that keeps query params (bookmarked /instances?workflow_id=… links). */
+function RedirectPreservingQuery({ to }: { to: string }) {
+  const location = useLocation();
+  return <Navigate to={`${to}${location.search}`} replace />;
 }

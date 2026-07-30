@@ -132,7 +132,7 @@ export function InstancesList() {
   return (
     <div className="page-instances">
       <div className="header-row">
-        <h2>Workflow Instances</h2>
+        <h2>Runs</h2>
         <button
           className="danger"
           disabled={deletingAll || terminalCount === 0}

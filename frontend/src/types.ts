@@ -227,6 +227,18 @@ export interface WorkflowTemplate {
   trigger_type: string;
 }
 
+/** IA_PLAN attribution sidecar entry (row facts, never on the YAML model). */
+export interface WorkflowAttribution {
+  org_id: string;
+  org_name: string;
+  owner_user_id?: string;
+  owner_display_name?: string;
+  source: 'user' | 'bundled';
+  lifecycle?: 'reseeded';
+  run_effect: 'read_only' | 'mutating';
+  effect_tools?: string[];
+}
+
 export type WorkflowState =
   | 'pending'
   | 'running'

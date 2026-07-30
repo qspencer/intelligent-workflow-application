@@ -1,12 +1,18 @@
 # Automations / Workflows IA Rework — Design
 
-Status: **proposed** (drafted 2026-07-26; internal design review same day:
-adopt-with-conditions, folded; **external review same day: adopt-with-
-conditions, folded** — it caught two internal contradictions and upgraded
-the route, action-matrix, run-warning, bundled-lifecycle, and data-loading
-specs. Not yet built). Resolves the open IA question flagged 2026-06-06.
-Builds on the C5 "friendly shell" intent (`docs/CANVAS_ROADMAP.md`); lands
-on the fresh React 19 / react-router 8 foundation laid for this purpose.
+Status: **BUILT 2026-07-30** (design 2026-07-26, two reviews folded; built
+in two commits — backend sidecar + Tool.effect, then the frontend merge).
+Shipped: the merged catalog at `/` (cards/table via `?view=`, localStorage
+default), `/workflows` → `/?view=table` redirect, `/runs` canonical +
+`/instances` redirect (detail routes untouched), attribution sidecar with
+server-resolved display names + bundled/lifecycle metadata + run-effect
+classification (`Tool.effect` across all 20 stock tools; unknown counts as
+mutating), Run/Import dialogs extracted per the §4b matrix, delete
+disabled for bundled rows, effect warning + explicit confirm in the Run
+dialog, org badges Administrator-only, §6 partial-failure contract in a
+shared `useCatalog` hook. 193 frontend + 849 backend tests; 3 new e2e
+specs (same-ids-both-renderings, redirects, mutating-run confirm) green
+against a live backend.
 
 ## 1. Problem, with evidence from the current code
 

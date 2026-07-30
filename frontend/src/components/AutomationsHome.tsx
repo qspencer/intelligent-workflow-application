@@ -1,13 +1,16 @@
-import { useCallback, useEffect, useState } from 'react';
-import { Link, useNavigate } from 'react-router';
+import { useState } from 'react';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 
 import { api, errorMessage } from '../api/client';
 import { hasRole } from '../lib/auth';
-import type { WorkflowDefinition, WorkflowState } from '../types';
+import { useCatalog } from '../hooks/useCatalog';
+import type { WorkflowAttribution, WorkflowDefinition, WorkflowState } from '../types';
+import { ImportWorkflowDialog } from './dialogs/ImportWorkflowDialog';
+import { RunWorkflowDialog } from './dialogs/RunWorkflowDialog';
 import { Skeleton } from './Skeleton';
 
 /** Strip markdown noise from a description so it reads cleanly on a card. */
-function describe(raw: string | undefined): string {
+function describe(raw: string | undefined, max = 160): string {
   if (!raw) return '';
   const cleaned = raw
     .replace(/`([^`]+)`/g, '$1')
@@ -16,7 +19,7 @@ function describe(raw: string | undefined): string {
     .replace(/^#+\s*/gm, '')
     .replace(/\s+/g, ' ')
     .trim();
-  return cleaned.length > 160 ? cleaned.slice(0, 157) + '…' : cleaned;
+  return cleaned.length > max ? cleaned.slice(0, max - 3) + '…' : cleaned;
 }
 
 const STATUS_LABEL: Record<WorkflowState, string> = {
@@ -28,79 +31,61 @@ const STATUS_LABEL: Record<WorkflowState, string> = {
   killed: 'Stopped',
 };
 
-/** The friendly landing surface (canvas roadmap C5.1). A card grid of the
- *  user's automations with a clear path to create one — no UUIDs, no JSON. */
+const VIEW_STORAGE_KEY = 'wp.automations.view';
+
+type ViewMode = 'cards' | 'table';
+
+/** The merged Automations catalog (IA_PLAN): one entity, one list, two
+ *  renderings. ALL definitions — user-created and bundled — with the view
+ *  mode URL-addressable (`?view=cards|table`; localStorage supplies the
+ *  default when the param is absent). No template-id filtering: bundled
+ *  workflows carry a badge instead of being hidden. */
 export function AutomationsHome() {
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const { definitions, attribution, counts, latest, loading, error, refresh } = useCatalog();
 
-  const [definitions, setDefinitions] = useState<WorkflowDefinition[]>([]);
-  const [counts, setCounts] = useState<Record<string, number>>({});
-  const [latest, setLatest] = useState<Record<string, WorkflowState>>({});
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const paramView = searchParams.get('view');
+  const view: ViewMode =
+    paramView === 'table' || paramView === 'cards'
+      ? paramView
+      : localStorage.getItem(VIEW_STORAGE_KEY) === 'table'
+        ? 'table'
+        : 'cards';
+
+  function setView(next: ViewMode): void {
+    localStorage.setItem(VIEW_STORAGE_KEY, next);
+    setSearchParams(next === 'cards' ? {} : { view: next }, { replace: false });
+  }
 
   const [createOpen, setCreateOpen] = useState(false);
   const [createName, setCreateName] = useState('');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState<string | null>(null);
 
-  // C7.1 NL scaffold — "Describe it".
   const [describeOpen, setDescribeOpen] = useState(false);
   const [describeText, setDescribeText] = useState('');
   const [scaffolding, setScaffolding] = useState(false);
   const [describeError, setDescribeError] = useState<string | null>(null);
 
-  // Delete a workflow (definition + run history).
   const [deleteTarget, setDeleteTarget] = useState<WorkflowDefinition | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
 
+  const [runTarget, setRunTarget] = useState<WorkflowDefinition | null>(null);
+  const [importOpen, setImportOpen] = useState(false);
+
   const canCreate = hasRole(['admins', 'org-admins', 'org-users']);
+  // Org badges are Administrator-only (IA_PLAN: non-admins see only their
+  // own org's rows, so the badge carries no information for them).
+  const showOrgBadges = hasRole(['admins']);
 
-  const refresh = useCallback(async (): Promise<void> => {
-    setLoading(true);
-    // The trigger orchestrator registers the bundled examples as runnable
-    // workflows so their triggers fire — but on this friendly home they belong
-    // in Templates, not "your automations". Exclude any workflow whose id is a
-    // template id. They remain in Templates and the dev-console Workflows list.
-    // Best-effort: if templates can't load we just don't filter.
-    let templateIds = new Set<string>();
-    try {
-      templateIds = new Set((await api.listTemplates()).map((t) => t.id));
-    } catch {
-      templateIds = new Set();
-    }
-    try {
-      const defs = await api.listWorkflows();
-      setDefinitions(defs.filter((d) => !templateIds.has(d.id)));
-      setError(null);
-    } catch (err) {
-      setError(errorMessage(err, 'Failed to load automations'));
-    } finally {
-      setLoading(false);
-    }
-    // Counts + latest run state are best-effort enrichments.
-    try {
-      setCounts(await api.workflowInstanceCounts());
-    } catch {
-      setCounts({});
-    }
-    try {
-      const recent = await api.listInstances({ limit: 200 });
-      const byWorkflow: Record<string, WorkflowState> = {};
-      // listInstances returns newest-first; first seen per workflow is latest.
-      for (const inst of recent) {
-        if (!(inst.workflow_id in byWorkflow)) byWorkflow[inst.workflow_id] = inst.state;
-      }
-      setLatest(byWorkflow);
-    } catch {
-      setLatest({});
-    }
-  }, []);
-
-  useEffect(() => {
-    void refresh();
-  }, [refresh]);
+  function attrOf(id: string): WorkflowAttribution | null {
+    return attribution?.[id] ?? null;
+  }
+  function isBundled(id: string): boolean {
+    return attrOf(id)?.source === 'bundled';
+  }
 
   async function submitCreate(): Promise<void> {
     setCreating(true);
@@ -147,14 +132,54 @@ export function AutomationsHome() {
     }
   }
 
+  function badges(wf: WorkflowDefinition): React.ReactNode {
+    const attr = attrOf(wf.id);
+    if (!attr) return null;
+    return (
+      <>
+        {attr.source === 'bundled' && (
+          <span className="badge bundled" title="Bundled example — managed by the examples directory">
+            Bundled
+          </span>
+        )}
+        {showOrgBadges && (
+          <span className="badge org" title={`Organization: ${attr.org_name}`}>
+            {attr.org_name}
+          </span>
+        )}
+      </>
+    );
+  }
+
+  const list = definitions ?? [];
+
   return (
     <div className="page-home">
       <div className="header">
         <h2>Your automations</h2>
         <div className="home-actions">
+          <div className="view-toggle" role="group" aria-label="View mode">
+            <button
+              className={view === 'cards' ? 'active' : ''}
+              aria-pressed={view === 'cards'}
+              onClick={() => setView('cards')}
+            >
+              Cards
+            </button>
+            <button
+              className={view === 'table' ? 'active' : ''}
+              aria-pressed={view === 'table'}
+              onClick={() => setView('table')}
+            >
+              Table
+            </button>
+          </div>
           <Link className="button" to="/templates">
             Browse templates
           </Link>
+          {canCreate && view === 'table' && (
+            <button onClick={() => setImportOpen(true)}>Import</button>
+          )}
           {canCreate && (
             <button
               onClick={() => {
@@ -182,10 +207,10 @@ export function AutomationsHome() {
       </div>
 
       {loading ? (
-        <Skeleton variant="cards" count={3} />
+        <Skeleton variant={view === 'cards' ? 'cards' : 'table'} count={3} />
       ) : error ? (
         <p className="error">{error}</p>
-      ) : definitions.length === 0 ? (
+      ) : list.length === 0 ? (
         <div className="empty-state">
           <p>No automations yet.</p>
           <p className="muted">
@@ -193,10 +218,11 @@ export function AutomationsHome() {
             {canCreate ? ' or create one from scratch.' : '.'}
           </p>
         </div>
-      ) : (
+      ) : view === 'cards' ? (
         <div className="card-grid">
-          {definitions.map((wf) => {
+          {list.map((wf) => {
             const state = latest[wf.id];
+            const attr = attrOf(wf.id);
             return (
               <div key={wf.id} className="wf-card">
                 <Link className="wf-card-link" to={`/canvas/${wf.id}`}>
@@ -209,26 +235,115 @@ export function AutomationsHome() {
                   <p className="wf-card-desc">{describe(wf.description) || '—'}</p>
                   <div className="wf-card-meta">
                     <span>{wf.steps?.length ?? 0} steps</span>
-                    <span>{counts[wf.id] || 0} runs</span>
+                    <span>{counts === null ? '— runs' : `${counts[wf.id] || 0} runs`}</span>
+                    {badges(wf)}
+                    {attr?.owner_display_name && (
+                      <span className="muted" title="Owner">
+                        {attr.owner_display_name}
+                      </span>
+                    )}
                   </div>
                 </Link>
                 {canCreate && (
-                  <button
-                    className="wf-card-delete"
-                    title="Delete automation"
-                    aria-label={`Delete ${wf.name}`}
-                    onClick={() => {
-                      setDeleteError(null);
-                      setDeleteTarget(wf);
-                    }}
-                  >
-                    ✕
-                  </button>
+                  <div className="wf-card-actions">
+                    <button
+                      className="wf-card-run"
+                      title="Run this automation"
+                      aria-label={`Run ${wf.name}`}
+                      onClick={() => setRunTarget(wf)}
+                    >
+                      Run
+                    </button>
+                    {!isBundled(wf.id) && (
+                      <button
+                        className="wf-card-delete"
+                        title="Delete automation"
+                        aria-label={`Delete ${wf.name}`}
+                        onClick={() => {
+                          setDeleteError(null);
+                          setDeleteTarget(wf);
+                        }}
+                      >
+                        ✕
+                      </button>
+                    )}
+                  </div>
                 )}
               </div>
             );
           })}
         </div>
+      ) : (
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th>
+              <th>Description</th>
+              <th className="num-col">Steps</th>
+              <th className="num-col">Runs</th>
+              <th className="actions-col">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {list.map((wf) => (
+              <tr key={wf.id}>
+                <td>
+                  <Link className="name-cell" to={`/canvas/${wf.id}`} title="Open the workflow canvas">
+                    {wf.name}
+                  </Link>
+                  <code className="muted">{wf.id}</code> {badges(wf)}
+                </td>
+                <td>
+                  <span title={wf.description || ''}>{describe(wf.description, 120) || '—'}</span>
+                </td>
+                <td className="num-col">{wf.steps?.length ?? 0}</td>
+                <td className="num-col">
+                  {counts === null ? (
+                    <span className="muted">—</span>
+                  ) : (
+                    <Link
+                      to={`/runs?workflow_id=${encodeURIComponent(wf.id)}`}
+                      title={`View ${counts[wf.id] || 0} run(s) of this workflow`}
+                    >
+                      {counts[wf.id] || 0}
+                    </Link>
+                  )}
+                </td>
+                <td className="actions-col">
+                  {canCreate && <button onClick={() => setRunTarget(wf)}>Run</button>}
+                  {canCreate && !isBundled(wf.id) && (
+                    <button
+                      onClick={() => {
+                        setDeleteError(null);
+                        setDeleteTarget(wf);
+                      }}
+                    >
+                      Delete
+                    </button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {runTarget && (
+        <RunWorkflowDialog
+          workflow={runTarget}
+          attribution={attrOf(runTarget.id)}
+          onClose={() => setRunTarget(null)}
+        />
+      )}
+
+      {importOpen && (
+        <ImportWorkflowDialog
+          onClose={() => setImportOpen(false)}
+          onImported={() => {
+            setImportOpen(false);
+            void refresh();
+          }}
+        />
       )}
 
       {createOpen && (

@@ -46,30 +46,41 @@ describe('App routing + IA', () => {
     );
     expect(await screen.findByRole('link', { name: 'Automations' })).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Templates' })).toBeInTheDocument();
-    expect(screen.queryByRole('link', { name: 'Instances' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Runs' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Workflows' })).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: 'Cost' })).not.toBeInTheDocument();
   });
 
-  it('reveals the developer console when Advanced is toggled on', async () => {
+  it('reveals the developer console when Advanced is toggled on (no Workflows item — IA merge)', async () => {
     render(
       <MemoryRouter initialEntries={['/']}>
         <App />
       </MemoryRouter>,
     );
     fireEvent.click(await screen.findByRole('button', { name: /Developer:/ }));
-    expect(screen.getByRole('link', { name: 'Instances' })).toBeInTheDocument();
-    expect(screen.getByRole('link', { name: 'Workflows' })).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: 'Runs' })).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: 'Workflows' })).not.toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Cost' })).toBeInTheDocument();
   });
 
-  it('renders the workflows route directly (developer surface still routable)', async () => {
+  it('redirects /workflows to the merged catalog in table mode (IA_PLAN)', async () => {
     render(
       <MemoryRouter initialEntries={['/workflows']}>
         <App />
       </MemoryRouter>,
     );
-    expect(await screen.findByRole('heading', { name: 'Workflows' })).toBeInTheDocument();
+    // Lands on the Automations page with the Table toggle active.
+    expect(await screen.findByRole('heading', { name: 'Your automations' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Table' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('redirects /instances to /runs preserving the query string', async () => {
+    render(
+      <MemoryRouter initialEntries={['/instances?workflow_id=wf1']}>
+        <App />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('heading', { name: 'Runs' })).toBeInTheDocument();
   });
 
   it('renders the cost route', async () => {

@@ -19,7 +19,7 @@ describe('AutomationsHome', () => {
     localStorage.setItem('wp.groups', 'org-users');
     vi.spyOn(api, 'workflowInstanceCounts').mockResolvedValue({ wf1: 3 });
     vi.spyOn(api, 'listInstances').mockResolvedValue([inst({})]);
-    vi.spyOn(api, 'listTemplates').mockResolvedValue([]);
+    vi.spyOn(api, 'workflowAttribution').mockResolvedValue({});
   });
   afterEach(() => {
     cleanup();
@@ -41,23 +41,122 @@ describe('AutomationsHome', () => {
     expect(screen.getByText('Done')).toBeInTheDocument(); // friendly label for 'completed'
   });
 
-  it('excludes bundled-example workflows (they belong in Templates)', async () => {
-    // The orchestrator registers examples as real workflows; the home must not
-    // list them, or it duplicates the Templates gallery.
+  it('shows bundled workflows with a badge instead of hiding them (IA_PLAN)', async () => {
+    // The old home filtered template-id matches out — which hid the
+    // PRODUCTION workloads. The merged catalog shows everything, badged.
     vi.spyOn(api, 'listWorkflows').mockResolvedValue([
       def({ id: 'email-triage', name: 'Email Triage' }), // a bundled example
       def({ id: 'my-flow', name: 'My Flow' }), // user-created
     ]);
-    vi.spyOn(api, 'listTemplates').mockResolvedValue([
-      { id: 'email-triage', name: 'Email Triage', description: '', step_count: 2, trigger_type: 'manual' },
-    ]);
+    vi.spyOn(api, 'workflowAttribution').mockResolvedValue({
+      'email-triage': {
+        org_id: 'default',
+        org_name: 'default',
+        source: 'bundled',
+        lifecycle: 'reseeded',
+        run_effect: 'mutating',
+        effect_tools: ['email_label_apply'],
+      },
+      'my-flow': { org_id: 'default', org_name: 'default', source: 'user', run_effect: 'read_only' },
+    });
     render(
       <MemoryRouter>
         <AutomationsHome />
       </MemoryRouter>,
     );
     expect(await screen.findByText('My Flow')).toBeInTheDocument();
-    expect(screen.queryByText('Email Triage')).not.toBeInTheDocument();
+    expect(screen.getByText('Email Triage')).toBeInTheDocument();
+    expect(screen.getByText('Bundled')).toBeInTheDocument();
+    // Bundled rows get no delete affordance; user rows do.
+    expect(screen.queryByRole('button', { name: 'Delete Email Triage' })).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Delete My Flow' })).toBeInTheDocument();
+  });
+
+  it('opens the Run dialog from the home; mutating workflows need explicit confirmation', async () => {
+    vi.spyOn(api, 'listWorkflows').mockResolvedValue([def({ id: 'wf1', name: 'Flow One' })]);
+    vi.spyOn(api, 'workflowAttribution').mockResolvedValue({
+      wf1: {
+        org_id: 'default',
+        org_name: 'default',
+        source: 'user',
+        run_effect: 'mutating',
+        effect_tools: ['email_send'],
+      },
+    });
+    render(
+      <MemoryRouter>
+        <AutomationsHome />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Run Flow One' }));
+    expect(await screen.findByText(/acts on external systems/)).toBeInTheDocument();
+    // Run stays disabled until the effect checkbox is ticked.
+    const runButton = screen.getByRole('button', { name: 'Run' });
+    expect(runButton).toBeDisabled();
+    fireEvent.click(screen.getByLabelText(/changes external systems/));
+    expect(runButton).not.toBeDisabled();
+  });
+
+  it('read-only workflows get no effect warning (no crying wolf)', async () => {
+    vi.spyOn(api, 'listWorkflows').mockResolvedValue([def({ id: 'wf1', name: 'Flow One' })]);
+    vi.spyOn(api, 'workflowAttribution').mockResolvedValue({
+      wf1: { org_id: 'default', org_name: 'default', source: 'user', run_effect: 'read_only' },
+    });
+    render(
+      <MemoryRouter>
+        <AutomationsHome />
+      </MemoryRouter>,
+    );
+    fireEvent.click(await screen.findByRole('button', { name: 'Run Flow One' }));
+    expect(await screen.findByRole('heading', { name: /Run/ })).toBeInTheDocument();
+    expect(screen.queryByText(/acts on external systems/)).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Run' })).not.toBeDisabled();
+  });
+
+  it('degrades gracefully when attribution fails: no badges, delete stays, run warns', async () => {
+    vi.spyOn(api, 'listWorkflows').mockResolvedValue([def({ id: 'wf1', name: 'Flow One' })]);
+    vi.spyOn(api, 'workflowAttribution').mockRejectedValue(new Error('boom'));
+    render(
+      <MemoryRouter>
+        <AutomationsHome />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Flow One')).toBeInTheDocument();
+    expect(screen.queryByText('Bundled')).not.toBeInTheDocument();
+    // Unknown attribution counts as mutating: the run dialog must warn.
+    fireEvent.click(screen.getByRole('button', { name: 'Run Flow One' }));
+    expect(await screen.findByText(/acts on external systems/)).toBeInTheDocument();
+  });
+
+  it('table view renders the same workflow set as cards (one list, two renderings)', async () => {
+    vi.spyOn(api, 'listWorkflows').mockResolvedValue([
+      def({ id: 'wf1', name: 'Flow One' }),
+      def({ id: 'wf2', name: 'Flow Two' }),
+    ]);
+    render(
+      <MemoryRouter initialEntries={['/?view=table']}>
+        <AutomationsHome />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByRole('table')).toBeInTheDocument();
+    expect(screen.getByText('Flow One')).toBeInTheDocument();
+    expect(screen.getByText('Flow Two')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Table' })).toHaveAttribute('aria-pressed', 'true');
+  });
+
+  it('viewers see no write affordances in either rendering', async () => {
+    localStorage.setItem('wp.groups', 'org-viewers');
+    vi.spyOn(api, 'listWorkflows').mockResolvedValue([def({ id: 'wf1', name: 'Flow One' })]);
+    render(
+      <MemoryRouter>
+        <AutomationsHome />
+      </MemoryRouter>,
+    );
+    expect(await screen.findByText('Flow One')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Run/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /^Delete/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Create' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Import' })).not.toBeInTheDocument();
   });
 
   it('shows an empty state when there are no workflows', async () => {
