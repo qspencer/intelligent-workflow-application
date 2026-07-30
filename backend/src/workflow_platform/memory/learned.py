@@ -276,7 +276,6 @@ class LearnedMemoryService:
 
         return await asyncio.to_thread(_introspect)
 
-
     async def recall_context(
         self, user_id: str, query: str, *, token_budget: int = 600
     ) -> RecalledMemory:

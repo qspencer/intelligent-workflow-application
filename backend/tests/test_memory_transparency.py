@@ -34,7 +34,10 @@ class FakeLearnedMemory:
     async def introspect_namespace(self, namespace: str, mode: str = "summary") -> dict[str, Any]:
         self.introspect_calls.append((namespace, mode))
         if mode == "categories":
-            return {"relations": {"third_party_claim": 30}, "facts": {"x": ["<script>alert(1)</script> claim"]}}
+            return {
+                "relations": {"third_party_claim": 30},
+                "facts": {"x": ["<script>alert(1)</script> claim"]},
+            }
         return {"relations": {"third_party_claim": 30}}
 
 
@@ -79,9 +82,7 @@ def test_introspect_scoping_audit_and_bypass(client: TestClient) -> None:
     assert ok.json()["namespace"] == "org:default:user:q@x.com"
 
     # Cross-org for a non-Administrator: 404, not 403 (no existence leak).
-    assert (
-        client.get("/api/memory/summary/acme/a@acme.com", headers=ORG_ADMIN).status_code == 404
-    )
+    assert client.get("/api/memory/summary/acme/a@acme.com", headers=ORG_ADMIN).status_code == 404
     # Garbage: 404, never 500 (schemathesis will fuzz this shape).
     assert client.get("/api/memory/summary/default/garbage", headers=ADMIN).status_code == 404
     assert client.get("/api/memory/summary/nope/x@y.com", headers=ADMIN).status_code == 404
@@ -97,9 +98,7 @@ def test_introspect_scoping_audit_and_bypass(client: TestClient) -> None:
 
 def test_categories_mode_and_bad_mode(client: TestClient) -> None:
     fake = _wire_fake(client)
-    resp = client.get(
-        "/api/memory/summary/default/q@x.com?mode=categories", headers=ADMIN
-    )
+    resp = client.get("/api/memory/summary/default/q@x.com?mode=categories", headers=ADMIN)
     assert resp.status_code == 200
     body = resp.json()
     assert body["truncated"] is False
@@ -109,6 +108,5 @@ def test_categories_mode_and_bad_mode(client: TestClient) -> None:
     assert ("org:default:user:q@x.com", "categories") in fake.introspect_calls
 
     assert (
-        client.get("/api/memory/summary/default/q@x.com?mode=wat", headers=ADMIN).status_code
-        == 400
+        client.get("/api/memory/summary/default/q@x.com?mode=wat", headers=ADMIN).status_code == 400
     )
