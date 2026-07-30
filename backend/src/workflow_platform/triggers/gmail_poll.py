@@ -42,6 +42,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
 
+from workflow_platform.connectors.email.auth_results import authentication_pass
 from workflow_platform.connectors.email.gmail import GmailConnector
 from workflow_platform.connectors.email.gmail_auth import (
     GmailAuthMisconfigured,
@@ -111,6 +112,7 @@ class GmailPollTrigger(Trigger):
         download_dir: str | None = None,
         slim_payload: bool = False,
         annotate_reply_status: bool = False,
+        annotate_auth_result: bool = False,
         body_max_chars: int | None = None,
         cursor_store: TriggerCursorRepo | None = None,
         cursor_key: str | None = None,
@@ -136,6 +138,10 @@ class GmailPollTrigger(Trigger):
         # (lookup failure) suppresses awaiting-reply downstream rather than
         # manufacturing a response obligation; delivery is never blocked.
         self.annotate_reply_status = annotate_reply_status
+        # CODIFY_PLAN §6: when set, payloads gain `auth_pass` — Gmail's own
+        # Authentication-Results verdict (trusted-authserv policy). Computed
+        # BEFORE slimming (slim_payload drops raw headers).
+        self.annotate_auth_result = annotate_auth_result
         # Full-coverage mail includes very long newsletter bodies; a
         # classification prompt needs the head, not 30k tokens of it.
         self.body_max_chars = body_max_chars
@@ -294,6 +300,9 @@ class GmailPollTrigger(Trigger):
         local paths under `attachment_paths`. A single failed download is
         logged and skipped rather than sinking the whole message."""
         payload: dict[str, Any] = msg.model_dump(mode="json")
+        if self.annotate_auth_result:
+            payload["auth_pass"] = authentication_pass(msg.auth_results, msg.from_address.address)
+        payload.pop("auth_results", None)
         body_text = payload.get("body_text")
         if (
             self.body_max_chars

@@ -8,12 +8,16 @@ from __future__ import annotations
 
 import csv
 import gzip
+import hashlib
+import hmac
 import io
 import json
 import logging
+import os
 import re
 import zipfile
-from datetime import date, datetime
+from contextlib import suppress
+from datetime import UTC, date, datetime, timedelta
 from pathlib import PurePosixPath
 from typing import Any
 
@@ -401,6 +405,29 @@ async def record_email_triage(
     runs where the agent went off-script."""
     source = config.get("triage_from", "steps.triage.output_text")
     raw = _resolve_path(context, source)
+
+    # CODIFY_PLAN v2 §5: when a precheck routed this run, exactly one of the
+    # two classifier steps must have produced output — a config/engine error
+    # that activates both (or neither) is a hard failure, never a silent
+    # preference.
+    attention_raw = (
+        _resolve_path(context, config.get("attention_from"))
+        if config.get("attention_from")
+        else None
+    )
+    precheck_route = (
+        _resolve_path(context, config.get("route_from")) if config.get("route_from") else None
+    )
+    if precheck_route is not None:
+        if precheck_route == "codified" and raw:
+            raise StepFailure("both classifier outputs present on a codified route")
+        if precheck_route == "codified" and not attention_raw:
+            raise StepFailure("codified route but no attention classifier output")
+        if precheck_route == "full" and not raw:
+            raise StepFailure("full route but no classifier output")
+    if precheck_route == "codified":
+        return await _record_codified(config, context, world, attention_raw or "")
+
     if not raw:
         raise StepFailure(f"record_email_triage could not resolve {source!r}")
     triage = _extract_email_triage(raw)
@@ -449,7 +476,106 @@ async def record_email_triage(
     # literals, so edges gate on `apply_label_count > 0`.
     triage["apply_label_count"] = len(apply_labels)
     triage["triage_schema_version"] = TRIAGE_SCHEMA_VERSION
+    triage["decision_source"] = "classifier"
+
+    # Sampled drift check (CODIFY_PLAN §7): a sampled run carries the rule's
+    # category; disagreement disables the rule IMMEDIATELY via the overlay.
+    if config.get("route_from"):
+        sampled = _resolve_value(context, config["route_from"].rsplit(".", 1)[0] + ".sampled")
+        rule_category = _resolve_value(
+            context, config["route_from"].rsplit(".", 1)[0] + ".rule_category"
+        )
+        if sampled is True and rule_category and triage.get("category") != rule_category:
+            triage["codified_mismatch"] = True
+            await _disable_codified_sender(
+                config, context, world, reason="sampled_category_mismatch"
+            )
     return {"parse_ok": True, **triage}
+
+
+async def _record_codified(
+    config: dict[str, Any], context: WorkflowContext, world: World, attention_raw: str
+) -> dict[str, Any]:
+    """Compose the codified-route verdict: category from the rule (already
+    enum-safe — the CLI only writes allowlisted categories), attention from
+    the attention-only classifier. A rule is not a confident model:
+    `model_confidence` is None and `decision_source` says exactly what
+    decided (CODIFY_PLAN v2 §5)."""
+    route_base = str(config.get("route_from", "steps.precheck.route")).rsplit(".", 1)[0]
+    rule_category = _resolve_value(context, route_base + ".rule_category")
+    rule_evidence = _resolve_value(context, route_base + ".rule_evidence")
+
+    parsed = _find_json_object(attention_raw)
+    attention: list[str] = []
+    attention_valid = False
+    note = None
+    if parsed is not None and isinstance(parsed.get("attention"), list):
+        seen: list[str] = []
+        for value in parsed["attention"]:
+            if str(value) not in seen:
+                seen.append(str(value))
+        attention = seen
+        attention_valid = all(v in ATTENTION_LEVELS for v in attention)
+        if attention_valid and "urgent" in attention and "review" in attention:
+            attention = [v for v in attention if v != "review"]
+        note = parsed.get("decision_note") or parsed.get("summary")
+    reply_status = context.trigger.get("reply_status")
+    if "awaiting-reply" in attention and reply_status in ("replied", "unknown"):
+        attention = [v for v in attention if v != "awaiting-reply"]
+
+    # A non-empty attention verdict on a codified sender is itself drift
+    # evidence: the "boring" premise broke. Disable the rule.
+    if attention_valid and attention:
+        await _disable_codified_sender(config, context, world, reason="attention_detected")
+
+    category_valid = rule_category in TRIAGE_CATEGORIES
+    apply_labels: list[str] = []
+    if category_valid:
+        apply_labels.append(f"wf/{rule_category}")
+    if attention_valid:
+        apply_labels.extend(f"wf-attn/{v}" for v in attention)
+    return {
+        "parse_ok": parsed is not None,
+        "category": rule_category,
+        "category_valid": category_valid,
+        "attention": attention if attention_valid else [],
+        "attention_valid": attention_valid,
+        "apply_labels": apply_labels,
+        "apply_label_count": len(apply_labels),
+        "triage_schema_version": TRIAGE_SCHEMA_VERSION,
+        "decision_source": "codified_sender_rule",
+        "model_confidence": None,
+        "rule_evidence": rule_evidence,
+        "decision_note": note,
+    }
+
+
+async def _disable_codified_sender(
+    config: dict[str, Any], context: WorkflowContext, world: World, *, reason: str
+) -> None:
+    """Append the sender to the runtime disable overlay (CODIFY_PLAN v2 §4).
+    Best-effort: an overlay-write failure is logged, never fails the run."""
+    rules_path = config.get("rules_path")
+    if not rules_path:
+        return
+    path = f"{_memory_dir()}/codified/{rules_path}.disabled"
+    sender = str(((context.trigger.get("from_address") or {}).get("address")) or "").strip().lower()
+    if not sender:
+        return
+    try:
+        overlay: dict[str, Any] = {}
+        with suppress(Exception):
+            overlay = json.loads(await world.fs.read_text(path))
+        disabled = overlay.setdefault("disabled_senders", {})
+        disabled[sender] = {
+            "reason": reason,
+            "disabled_at": datetime.now(UTC).isoformat(),
+            "run_id": context.instance_id,
+        }
+        await world.fs.write_text(path, json.dumps(overlay, indent=1))
+        logger.warning("Codified sender %s DISABLED (%s).", sender, reason)
+    except Exception:
+        logger.exception("Failed to write codified disable overlay for %s", sender)
 
 
 def _extract_invoice_fields(raw: str) -> dict[str, Any] | None:
@@ -1077,6 +1203,101 @@ def _resolve_value(context: WorkflowContext, dotted: Any) -> Any:
     return cursor
 
 
+def _memory_dir() -> str:
+    return os.environ.get("WORKFLOW_PLATFORM_MEMORY_DIR", ".memory")
+
+
+def _sampling_bucket(account: str, message_id: str, one_in: int) -> bool:
+    """Deterministic keyed sampling (CODIFY_PLAN §7): HMAC over Gmail's
+    internal (non-sender-controlled) id; keyed when the secret is set so
+    even residual influence over ids can't steer selection."""
+    secret = os.environ.get("WORKFLOW_PLATFORM_SAMPLING_SECRET", "")
+    payload = f"{account}||{message_id}".encode()
+    if secret:
+        digest = hmac.new(secret.encode(), payload, hashlib.sha256).digest()
+    else:
+        digest = hashlib.sha256(payload).digest()
+    return int.from_bytes(digest[:8], "big") % max(one_in, 1) == 0
+
+
+async def codified_sender_check(
+    config: dict[str, Any], context: WorkflowContext, world: World
+) -> dict[str, Any]:
+    """Route a message to the full classifier or the codified path
+    (EMAIL_TRIAGE_CODIFY_PLAN v2 §4-§5).
+
+    Reads the rule artifact + runtime disable overlay per run (rollback
+    without restart), requires DKIM/DMARC authentication for the codified
+    route, verifies schema compatibility + rule expiry + sender-inactivity
+    revalidation, and hash-samples listed senders back to the full
+    classifier as drift detection. Every failure mode is fail-open to
+    judgment: route="full"."""
+    rules_path = config.get("rules_path")
+    if not rules_path:
+        raise StepFailure("codified_sender_check requires config.rules_path")
+    base = f"{_memory_dir()}/codified/{rules_path}"
+    account = str(config.get("account", ""))
+    sample_one_in = int(config.get("sample_one_in", 5))
+    inactivity_days = float(config.get("inactivity_days", 14.0))
+
+    sender = str(((context.trigger.get("from_address") or {}).get("address")) or "").strip().lower()
+    message_id = str(context.trigger.get("message_id") or "")
+    authenticated = context.trigger.get("auth_pass") is True
+
+    out: dict[str, Any] = {
+        "listed": False,
+        "authenticated": authenticated,
+        "sampled": False,
+        "route": "full",
+        "rule_category": None,
+        "rule_compatible": False,
+    }
+    try:
+        artifact = json.loads(await world.fs.read_text(base))
+    except Exception:
+        return out  # missing/unreadable rules — everyone gets judgment
+    overlay: dict[str, Any] = {}
+    try:
+        overlay = json.loads(await world.fs.read_text(base + ".disabled"))
+    except Exception:
+        overlay = {}
+
+    entry = (artifact.get("senders") or {}).get(sender)
+    if not isinstance(entry, dict):
+        return out
+    out["listed"] = True
+    out["rule_category"] = entry.get("category")
+    out["rule_evidence"] = {
+        "distinct_messages": entry.get("distinct_messages"),
+        "current_schema_messages": entry.get("current_schema_messages"),
+    }
+
+    compatible = int(artifact.get("triage_schema_version", 0)) == TRIAGE_SCHEMA_VERSION
+    out["rule_compatible"] = compatible
+    disabled = sender in (overlay.get("disabled_senders") or {})
+    expired = False
+    expires_at = entry.get("expires_at") or artifact.get("expires_at")
+    last_evidence = entry.get("last_evidence_at")
+    now = datetime.now(UTC)
+    with suppress(ValueError, TypeError):
+        expired = expires_at is not None and datetime.fromisoformat(expires_at) < now
+    inactive = False
+    with suppress(ValueError, TypeError):
+        inactive = last_evidence is not None and (
+            now - datetime.fromisoformat(last_evidence)
+        ) > timedelta(days=inactivity_days)
+
+    if not (compatible and authenticated) or disabled or expired or inactive:
+        return out
+
+    if _sampling_bucket(account, message_id, sample_one_in):
+        out["sampled"] = True
+        return out  # sampled runs take the full classifier, carrying rule_category
+
+    out["route"] = "codified"
+    return out
+
+
 def _resolve_path(context: WorkflowContext, dotted: str | None) -> str | None:
     if not dotted:
         return None
@@ -1108,6 +1329,7 @@ def default_function_registry() -> FunctionRegistry:
             "record_pr_triage": record_pr_triage,
             "record_paper_triage": record_paper_triage,
             "record_email_triage": record_email_triage,
+            "codified_sender_check": codified_sender_check,
             "record_invoice_extraction": record_invoice_extraction,
             "route_by_value": route_by_value,
             "append_file": append_file,

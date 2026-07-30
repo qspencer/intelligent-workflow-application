@@ -33,6 +33,10 @@ trigger:
     # metadata-only thread check, so awaiting-reply is suppressed on
     # already-answered (backfilled) mail — the baseball-email fix.
     annotate_reply_status: true
+    # CODIFY_PLAN §6: annotate Gmail's Authentication-Results verdict —
+    # the codified route requires it (unauthenticated mail always gets the
+    # full classifier).
+    annotate_auth_result: true
     # Long-body newsletters (full-coverage scope) don't need 30k tokens to
     # classify — the head suffices.
     body_max_chars: 8000
@@ -59,6 +63,19 @@ trigger:
     headers: {}
 
 steps:
+  # CODIFY_PLAN v2 §5: deterministic router. Senders with a unanimous,
+  # authenticated, in-date rule skip the full (category) classifier; the
+  # attention axis is NEVER bypassed. Fail-open to judgment everywhere.
+  - id: precheck
+    label: "Codified-sender routing"
+    type: deterministic
+    function: codified_sender_check
+    config:
+      rules_path: default/qspencer@gmail.com/email-triage-apply.json
+      account: qspencer@gmail.com
+      sample_one_in: 5
+      inactivity_days: 14
+
   - id: triage
     label: "Classify the email (no tools)"
     type: agentic
@@ -89,6 +106,34 @@ steps:
       max_iterations: 2
       max_total_tokens: 8000
 
+  # Codified route: category comes from the rule; this small step judges
+  # ONLY the attention axis (content-dependent, never codified). No tools,
+  # no recall block, tighter token cap.
+  - id: classify_attention
+    label: "Attention-only check (codified sender)"
+    type: agentic
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    tools: []
+    capabilities:
+      tools: []
+    goal: |
+      This email's category is already known from a validated sender rule
+      — judge ONLY whether it DEMANDS attention. Read the trigger payload
+      (from_address, subject, body_text) and apply the attention-axis
+      section of the rubric in your memory: `urgent` (time-sensitive for
+      the USER'S own affairs — never a seller's deadline),
+      `awaiting-reply` (sender expects the user's reply), `review`
+      (consequential verify/decide, narrow — routine receipts and digests
+      get NONE). The empty list is the normal answer for a codified
+      (historically boring) sender.
+
+      Respond with ONLY a JSON object on one line:
+        {"attention": [<zero or more of "urgent"|"awaiting-reply"|"review">],
+         "decision_note": "<one short clause>"}
+    policy:
+      max_iterations: 2
+      max_total_tokens: 6000
+
   - id: record
     label: "Record the triage result"
     type: deterministic
@@ -96,6 +141,9 @@ steps:
     output_renderer: triage
     config:
       triage_from: steps.triage.output_text
+      attention_from: steps.classify_attention.output_text
+      route_from: steps.precheck.route
+      rules_path: default/qspencer@gmail.com/email-triage-apply.json
 
   - id: apply
     label: "Apply the wf/<category> label"
@@ -129,7 +177,15 @@ steps:
       retries: 2
 
 edges:
+  - from: precheck
+    to: triage
+    condition: steps.precheck.route == 'full'
+  - from: precheck
+    to: classify_attention
+    condition: steps.precheck.route == 'codified'
   - from: triage
+    to: record
+  - from: classify_attention
     to: record
   - from: record
     to: apply

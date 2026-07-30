@@ -49,6 +49,12 @@ class EmailMessage(BaseModel):
     labels: list[str] = Field(default_factory=list)
     in_reply_to: str | None = None
     headers: dict[str, str] = Field(default_factory=dict)
+    # Authentication-Results header VALUES in top-to-bottom order. Kept as an
+    # ordered list because the collapsed `headers` dict is last-wins — for AR
+    # that would surface an attacker-APPENDED forgery instead of Gmail's own
+    # topmost verdict (CODIFY_PLAN §6: only the first trusted-authserv entry
+    # may be believed).
+    auth_results: list[str] = Field(default_factory=list)
     attachments: list[EmailAttachment] = Field(default_factory=list)
 
 

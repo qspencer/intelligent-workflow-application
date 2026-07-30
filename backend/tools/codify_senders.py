@@ -136,6 +136,9 @@ def load_store_facts(store_path: str, namespace: str) -> tuple[dict[str, SenderF
 def build_artifact(
     eligible: list[Eligibility], rubric_hash: str, sample_one_in: int
 ) -> dict[str, object]:
+    from datetime import timedelta
+
+    expires = (datetime.now(UTC) + timedelta(days=30)).isoformat()
     return {
         "format_version": 1,
         "triage_schema_version": TRIAGE_SCHEMA_VERSION,
@@ -156,6 +159,7 @@ def build_artifact(
                 if e.first_evidence_at
                 else None,
                 "last_evidence_at": e.last_evidence_at.isoformat() if e.last_evidence_at else None,
+                "expires_at": expires,
             }
             for e in eligible
         },

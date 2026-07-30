@@ -118,10 +118,20 @@ def test_classifier_fence_and_apply_shape() -> None:
     definition = load_definition_from_file(WORKFLOW_PATH)
     assert definition.id == "email-triage-apply"
 
-    triage, _record, apply = definition.steps
+    precheck, triage, classify_attention, _record, apply = definition.steps
+    # CODIFY_PLAN v2 §5 diamond: deterministic router first; the attention
+    # axis has its OWN read-only classifier and is never bypassed.
+    assert precheck.type == "deterministic"
     assert triage.type == "agentic"
     assert triage.tools == []
     assert triage.capabilities is not None and triage.capabilities.tools == []
+    assert classify_attention.type == "agentic"
+    assert classify_attention.tools == []
+    assert classify_attention.capabilities is not None
+    assert classify_attention.capabilities.tools == []
+    route_conditions = {e.target: e.condition for e in definition.edges if e.source == "precheck"}
+    assert "full" in (route_conditions["triage"] or "")
+    assert "codified" in (route_conditions["classify_attention"] or "")
 
     assert apply.type == "agentic"
     assert apply.tools == [TOOL_NAME]
@@ -409,3 +419,66 @@ def test_unexpected_exception_marks_instance_failed() -> None:
     entries = asyncio.run(engine.repositories.audit.list_by_instance(instance.id))
     failed = [e for e in entries if e.action == "workflow_failed"]
     assert failed and failed[-1].detail.get("unexpected") is True
+
+
+def test_codified_route_end_to_end_skips_category_classifier() -> None:
+    """A listed, authenticated, unsampled sender: rule supplies the category,
+    the attention-only classifier still runs, apply fires ONE call with the
+    rule's label — and the full classifier is SKIPPED (zero category-judgment
+    tokens)."""
+    import json as _json
+
+    svc = _service_with_wf_labels()
+    # Only ONE agentic exchange before apply: the attention check.
+    bedrock = FakeBedrock(
+        [
+            text_response('{"attention": [], "decision_note": "routine digest"}'),
+            *_apply_tool_use(["wf/newsletter"]),
+        ]
+    )
+    engine = _engine(bedrock, svc)
+    definition = load_definition_from_file(WORKFLOW_PATH)
+
+    from datetime import UTC as _UTC
+    from datetime import datetime as _dt
+    from datetime import timedelta as _td
+
+    now = _dt.now(_UTC)
+    artifact = {
+        "format_version": 1,
+        "triage_schema_version": 2,
+        "rubric_hash": "sha256:x",
+        "codifier_version": 1,
+        "senders": {
+            "someone@example.com": {
+                "category": "newsletter",
+                "status": "active",
+                "last_evidence_at": (now - _td(days=1)).isoformat(),
+                "expires_at": (now + _td(days=30)).isoformat(),
+            }
+        },
+    }
+    world = engine.world
+    asyncio.run(
+        world.fs.write_text(
+            ".memory/codified/default/qspencer@gmail.com/email-triage-apply.json",
+            _json.dumps(artifact),
+        )
+    )
+
+    payload = {**_payload(), "auth_pass": True}
+    instance = asyncio.run(engine.run(definition, trigger_payload=payload))
+    assert instance.state.value == "completed"
+
+    steps = asyncio.run(engine.repositories.steps.list_by_instance(instance.id))
+    by_id = {s.step_id: s for s in steps}
+    assert by_id["triage"].state.value == "skipped"
+    assert by_id["classify_attention"].state.value == "completed"
+    record_out = by_id["record"].output or {}
+    assert record_out["decision_source"] == "codified_sender_rule"
+    assert record_out["category"] == "newsletter"
+    assert record_out["model_confidence"] is None
+
+    modify_calls = [c for c in svc.calls if c[0] == "messages.modify"]
+    assert len(modify_calls) == 1
+    assert modify_calls[0][1]["body"] == {"addLabelIds": [WF_LABELS["wf/newsletter"]]}

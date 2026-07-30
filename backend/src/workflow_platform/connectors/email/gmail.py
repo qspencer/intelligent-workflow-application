@@ -380,7 +380,11 @@ def _extract_attachments(payload: dict[str, Any]) -> list[EmailAttachment]:
 
 def _parse_gmail_message(raw: dict[str, Any]) -> EmailMessage:
     payload = raw.get("payload", {})
-    headers = _header_map(payload.get("headers", []))
+    header_list = payload.get("headers", [])
+    headers = _header_map(header_list)
+    auth_results = [
+        h["value"] for h in header_list if h.get("name", "").lower() == "authentication-results"
+    ]
     body_text, body_html = _extract_bodies(payload)
     received_at = datetime.fromtimestamp(int(raw["internalDate"]) / 1000.0, tz=UTC)
     return EmailMessage(
@@ -398,6 +402,7 @@ def _parse_gmail_message(raw: dict[str, Any]) -> EmailMessage:
         labels=list(raw.get("labelIds", []) or []),
         in_reply_to=headers.get("In-Reply-To"),
         headers=headers,
+        auth_results=auth_results,
         attachments=_extract_attachments(payload),
     )
 
