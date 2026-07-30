@@ -1,5 +1,6 @@
 import { authHeaders } from '../lib/auth';
 import type {
+  MemorySummary,
   WorkflowAttribution,
   Me,
   Organization,
@@ -135,6 +136,22 @@ export const api = {
     id: string,
   ): Promise<{ deleted_workflow: string; deleted_instances: number; deleted_steps: number }> {
     return request('DELETE', `/workflows/${id}`);
+  },
+
+  /** Memory transparency surface (VERACIUM_041_ADOPTION_PLAN). */
+  memorySummary(): Promise<MemorySummary> {
+    return request('GET', '/memory/summary');
+  },
+
+  memoryIntrospect(
+    orgId: string,
+    account: string,
+    mode: 'summary' | 'categories',
+  ): Promise<Record<string, unknown>> {
+    return request(
+      'GET',
+      `/memory/summary/${encodeURIComponent(orgId)}/${encodeURIComponent(account)}?mode=${mode}`,
+    );
   },
 
   /** IA_PLAN attribution sidecar: per-definition row facts (org/owner/

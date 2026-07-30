@@ -229,6 +229,9 @@ def create_app(
         version=__version__,
         lifespan=lifespan,
     )
+    # Test seam: lets suites swap engine collaborators (e.g. the learned-
+    # memory service) without rebuilding the router closure.
+    app.state.engine = engine
     local_auth = LocalAuthService(
         repositories.users, repositories.auth_sessions, repositories.audit
     )

@@ -25,6 +25,7 @@ import asyncio
 import hashlib
 import logging
 import os
+import re
 from pathlib import Path
 from typing import Any
 
@@ -229,6 +230,52 @@ class LearnedMemoryService:
             cost_usd=cost,
             model=self.model_id,
         )
+
+    # --- transparency surface (VERACIUM_041_ADOPTION_PLAN §2a) ------------
+    # Read-only, store-only, zero-LLM (verified in review: introspect and
+    # list_entities are pure store aggregation). Deliberately LOCK-FREE —
+    # SqliteStore has its own lock, and a slow read must never stall
+    # observation writes.
+
+    _NAMESPACE_RE = re.compile(r"^org:([^:]+):user:(.+)$")
+
+    async def list_memory_namespaces(self) -> dict[str, Any]:
+        """Namespace-shaped ids with counts, plus a count of ids that do NOT
+        match the namespace shape — a transparency surface must not silently
+        hide rows (review finding 3)."""
+
+        def _list() -> dict[str, Any]:
+            memory = self._get_memory()
+            namespaces = []
+            unrecognized = 0
+            for entry in memory.list_entities():
+                match = self._NAMESPACE_RE.match(str(entry.get("user_id", "")))
+                if match is None:
+                    unrecognized += 1
+                    continue
+                namespaces.append(
+                    {
+                        "org_id": match.group(1),
+                        "account": match.group(2),
+                        "edges": entry.get("edges", 0),
+                        "episodes": entry.get("episodes", 0),
+                    }
+                )
+            return {"namespaces": namespaces, "unrecognized_ids": unrecognized}
+
+        return await asyncio.to_thread(_list)
+
+    async def introspect_namespace(self, namespace: str, mode: str = "summary") -> dict[str, Any]:
+        """`Memory.introspect` passthrough — the "what do you know about me
+        and where did it come from" view. Facts render verbatim; callers must
+        treat them as attacker-authored text (mail content)."""
+
+        def _introspect() -> dict[str, Any]:
+            result: dict[str, Any] = self._get_memory().introspect(namespace, mode=mode)
+            return result
+
+        return await asyncio.to_thread(_introspect)
+
 
     async def recall_context(
         self, user_id: str, query: str, *, token_budget: int = 600

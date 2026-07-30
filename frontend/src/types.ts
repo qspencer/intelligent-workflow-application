@@ -239,6 +239,18 @@ export interface WorkflowAttribution {
   effect_tools?: string[];
 }
 
+export interface MemoryNamespace {
+  org_id: string;
+  account: string;
+  edges: number;
+  episodes: number;
+}
+
+export interface MemorySummary {
+  namespaces: MemoryNamespace[];
+  unrecognized_ids?: number;
+}
+
 export type WorkflowState =
   | 'pending'
   | 'running'

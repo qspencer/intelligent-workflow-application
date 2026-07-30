@@ -1911,3 +1911,7 @@ table.compare td.diff { background: #fff8e6; }
 .wf-card-run { font-size: 0.75rem; padding: 0.15rem 0.5rem; }
 .effect-warning { border-left: 3px solid var(--warn, #d97706); padding: 0.4rem 0.6rem; background: color-mix(in srgb, var(--warn, #d97706) 8%, transparent); border-radius: 4px; }
 .effect-confirm { font-weight: 600; }
+
+/* Memory transparency page */
+.memory-detail { margin-top: 1.5rem; }
+.memory-raw { max-height: 60vh; overflow: auto; font-size: 12px; background: var(--panel, rgba(127,127,127,0.08)); padding: 0.8rem; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }

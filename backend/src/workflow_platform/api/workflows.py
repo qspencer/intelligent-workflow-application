@@ -30,7 +30,7 @@ from pydantic import ValidationError
 from workflow_platform.auth import auth_mode, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.auth.provisioning import current_issuer
-from workflow_platform.auth.rbac import ANY_ROLE, ORG_WRITE_ROLES
+from workflow_platform.auth.rbac import ANY_ROLE, ORG_WRITE_ROLES, Role
 from workflow_platform.auth.scope import OrgScope, resolve_org_scope
 from workflow_platform.catalog import build_catalog
 from workflow_platform.cost import CostReportService, price_for_model
@@ -482,6 +482,73 @@ def build_router(
         Separate from `/api/workflows` so the (heavier) count query only
         runs when the count is actually wanted."""
         return await repositories.instances.count_by_workflow(org_id=scope.org_id)
+
+    _MEMORY_ADMIN_ROLES = (Role.ADMINISTRATOR, Role.ORG_ADMIN)
+    _CATEGORIES_BYTE_CAP = 262_144
+
+    @router.get("/memory/summary")
+    async def memory_summary(
+        user: UserIdentity = Depends(require_roles(*_MEMORY_ADMIN_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
+    ) -> dict[str, Any]:
+        """Memory transparency surface (VERACIUM_041_ADOPTION_PLAN §2b):
+        namespaces visible to the caller with counts. Memory is tenant data —
+        Org Admins see their own org only; the unrecognized-ids count (legacy
+        store keys that render no rows) is Administrator-only."""
+        if engine is None or engine.learned_memory is None:
+            return {"namespaces": [], "unrecognized_ids": 0}
+        data = await engine.learned_memory.list_memory_namespaces()
+        if scope.org_id is not None:
+            data["namespaces"] = [n for n in data["namespaces"] if n["org_id"] == scope.org_id]
+            data.pop("unrecognized_ids", None)
+        return data
+
+    @router.get("/memory/summary/{org_id}/{account}")
+    async def memory_introspect(
+        org_id: str,
+        account: str,
+        mode: str = "summary",
+        user: UserIdentity = Depends(require_roles(*_MEMORY_ADMIN_ROLES)),
+        scope: OrgScope = Depends(_org_scope),
+    ) -> dict[str, Any]:
+        """Introspect one namespace, keyed by the full (org, account)
+        identity. Cross-org for non-Administrators → 404, never 403 (S2's
+        no-existence-leak rule); garbage params → 404, never 500. Audited
+        (`memory_introspected`) — this view renders personal-data-heavy,
+        attacker-authored mail content; access deserves a log line."""
+        if mode not in ("summary", "categories"):
+            raise HTTPException(status_code=400, detail="mode must be summary|categories")
+        if scope.org_id is not None and org_id != scope.org_id:
+            raise HTTPException(status_code=404, detail="No such memory namespace")
+        if engine is None or engine.learned_memory is None:
+            raise HTTPException(status_code=404, detail="No such memory namespace")
+        namespace = f"org:{org_id}:user:{account}"
+        listing = await engine.learned_memory.list_memory_namespaces()
+        known = {(n["org_id"], n["account"]) for n in listing["namespaces"]}
+        if (org_id, account) not in known:
+            raise HTTPException(status_code=404, detail="No such memory namespace")
+
+        result = await engine.learned_memory.introspect_namespace(namespace, mode=mode)
+        truncated = False
+        if mode == "categories" and len(json.dumps(result)) > _CATEGORIES_BYTE_CAP:
+            # Byte cap (review finding 4): fall back to the always-intact
+            # summary counts + an explicit flag; pagination waits for a real
+            # operator hitting this.
+            result = await engine.learned_memory.introspect_namespace(namespace, mode="summary")
+            truncated = True
+        await repositories.audit.append(
+            AuditEntry(
+                actor_type="human",
+                actor_id=user.sub,
+                action="memory_introspected",
+                detail={
+                    "namespace": namespace,
+                    "mode": mode,
+                    **_bypass(scope, org_id),
+                },
+            )
+        )
+        return {**result, "namespace": namespace, "mode": mode, "truncated": truncated}
 
     @router.get("/workflows/attribution")
     async def workflows_attribution(

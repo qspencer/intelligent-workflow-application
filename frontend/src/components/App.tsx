@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Navigate, NavLink, Route, Routes, useLocation } from 'react-router';
 
 import { advancedEnabled, setAdvanced } from '../lib/advanced';
-import { setSessionRoles } from '../lib/auth';
+import { hasRole, setSessionRoles } from '../lib/auth';
 import { getMe } from '../lib/me';
 import { AutomationsHome } from './AutomationsHome';
 import { CostDashboard } from './CostDashboard';
@@ -10,6 +10,7 @@ import { ErrorBadge } from './ErrorBadge';
 import { InstanceDetail } from './InstanceDetail';
 import { InstancesList } from './InstancesList';
 import { LoginPage } from './LoginPage';
+import { MemoryPage } from './MemoryPage';
 import { RoleSwitcher } from './RoleSwitcher';
 import { UserChip } from './UserChip';
 import { CompareRuns } from './CompareRuns';
@@ -78,6 +79,11 @@ export function App() {
               <NavLink to="/cost" className={navClass}>
                 Cost
               </NavLink>
+              {hasRole(['admins', 'org-admins']) && (
+                <NavLink to="/memory" className={navClass}>
+                  Memory
+                </NavLink>
+              )}
               <NavLink to="/users" className={navClass}>
                 Users
               </NavLink>
@@ -112,6 +118,7 @@ export function App() {
           <Route path="/instances/:id" element={<InstanceDetail />} />
           <Route path="/compare/:a/:b" element={<CompareRuns />} />
           <Route path="/cost" element={<CostDashboard />} />
+          <Route path="/memory" element={<MemoryPage />} />
           <Route path="/users" element={<UsersAdmin />} />
         </Routes>
       </main>
