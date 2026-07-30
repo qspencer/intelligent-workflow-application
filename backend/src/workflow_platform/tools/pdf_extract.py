@@ -16,6 +16,7 @@ from workflow_platform.tools.base import Tool, ToolContext, ToolResult
 
 
 class PdfExtractTool(Tool):
+    effect = "read_only"
     name: ClassVar[str] = "pdf_extract"
     description: ClassVar[str] = (
         "Extract text from a PDF file. Auto-detects native vs. scanned pages and "

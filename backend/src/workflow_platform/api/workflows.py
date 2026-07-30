@@ -483,6 +483,61 @@ def build_router(
         runs when the count is actually wanted."""
         return await repositories.instances.count_by_workflow(org_id=scope.org_id)
 
+    @router.get("/workflows/attribution")
+    async def workflows_attribution(
+        scope: OrgScope = Depends(_org_scope),
+    ) -> dict[str, dict[str, Any]]:
+        """The IA_PLAN attribution/metadata sidecar: per-definition row facts
+        that deliberately do NOT live on the YAML-shaped model — org + owner
+        (display name resolved server-side; non-admins can't call /api/users),
+        bundled-ness as authoritative metadata (same templates dir the
+        orchestrator seeds), and the run-effect classification (worst over the
+        definition's tools; unknown counts as mutating — IA_PLAN §4e)."""
+        ownership = await repositories.definitions.list_ownership(org_id=scope.org_id)
+
+        template_ids = {tpl.id for tpl in load_templates(default_examples_dir())}
+        org_names: dict[str, str] = {}
+        owner_names: dict[str, str | None] = {}
+        out: dict[str, dict[str, Any]] = {}
+        for definition_id, (org_id, owner_user_id) in ownership.items():
+            if org_id not in org_names:
+                org = await repositories.organizations.get(org_id)
+                org_names[org_id] = org.name if org else org_id
+            entry: dict[str, Any] = {"org_id": org_id, "org_name": org_names[org_id]}
+            if owner_user_id:
+                if owner_user_id not in owner_names:
+                    owner = await repositories.users.get(owner_user_id)
+                    owner_names[owner_user_id] = (
+                        (owner.display_name or owner.email) if owner else None
+                    )
+                entry["owner_user_id"] = owner_user_id
+                if owner_names[owner_user_id]:
+                    entry["owner_display_name"] = owner_names[owner_user_id]
+            entry["source"] = "bundled" if definition_id in template_ids else "user"
+            if entry["source"] == "bundled":
+                entry["lifecycle"] = "reseeded"
+
+            definition = await repositories.definitions.get(definition_id)
+            tool_names: list[str] = []
+            if definition is not None:
+                for step in definition.steps:
+                    tool_names.extend(getattr(step, "tools", None) or [])
+            effects: list[str] = []
+            effect_tools: list[str] = []
+            for name in dict.fromkeys(tool_names):
+                tool = engine.tools.get(name) if engine is not None else None
+                tool_effect = getattr(tool, "effect", None) if tool is not None else None
+                effects.append(tool_effect or "unknown")
+                if tool_effect != "read_only":
+                    effect_tools.append(name)
+            if any(e in ("mutating", "unknown") for e in effects):
+                entry["run_effect"] = "mutating"
+                entry["effect_tools"] = effect_tools
+            else:
+                entry["run_effect"] = "read_only"
+            out[definition_id] = entry
+        return out
+
     @router.get("/workflows/{workflow_id}", response_model=WorkflowDefinition)
     async def get_workflow(
         workflow_id: str, scope: OrgScope = Depends(_org_scope)

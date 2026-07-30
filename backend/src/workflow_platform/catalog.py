@@ -39,6 +39,9 @@ class ToolCatalogItem(BaseModel):
     name: str
     description: str
     category: str
+    # "read_only" | "mutating" | None (unknown — treated as mutating by
+    # consumers deriving run warnings; IA_PLAN §4e).
+    effect: str | None = None
 
 
 class WorkflowCatalog(BaseModel):
@@ -165,6 +168,7 @@ def build_catalog(functions: FunctionRegistry, tools: ToolCatalog) -> WorkflowCa
                 name=name,
                 description=getattr(tool, "description", "") or "",
                 category=_tool_category(name),
+                effect=getattr(tool, "effect", None),
             )
         )
     return WorkflowCatalog(triggers=TRIGGERS, functions=func_items, tools=tool_items)

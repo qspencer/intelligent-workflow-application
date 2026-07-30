@@ -65,6 +65,14 @@ class InMemoryDefinitionRepo(DefinitionRepo):
             if self._ownership.get(d.id, (DEFAULT_ORG_ID, None))[0] == org_id
         ]
 
+    async def list_ownership(self, org_id: str | None = None) -> dict[str, tuple[str, str | None]]:
+        out: dict[str, tuple[str, str | None]] = {}
+        for definition_id in self._items:
+            row = self._ownership.get(definition_id, (DEFAULT_ORG_ID, None))
+            if org_id is None or row[0] == org_id:
+                out[definition_id] = row
+        return out
+
     async def org_of(self, definition_id: str) -> str | None:
         if definition_id not in self._items:
             return None

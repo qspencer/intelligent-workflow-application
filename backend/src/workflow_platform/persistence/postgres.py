@@ -92,6 +92,18 @@ class PostgresDefinitionRepo(DefinitionRepo):
             rows = result.scalars().all()
         return [WorkflowDefinition.model_validate(r.body) for r in rows]
 
+    async def list_ownership(self, org_id: str | None = None) -> dict[str, tuple[str, str | None]]:
+        async with self._sf() as s:
+            stmt = select(
+                WorkflowDefinitionRow.id,
+                WorkflowDefinitionRow.org_id,
+                WorkflowDefinitionRow.owner_user_id,
+            )
+            if org_id is not None:
+                stmt = stmt.where(WorkflowDefinitionRow.org_id == org_id)
+            rows = (await s.execute(stmt)).all()
+            return {r[0]: (r[1], r[2]) for r in rows}
+
     async def org_of(self, definition_id: str) -> str | None:
         async with self._sf() as s:
             result = await s.execute(

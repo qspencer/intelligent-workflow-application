@@ -48,6 +48,7 @@ _ADDRESS_SCHEMA: dict[str, Any] = {
 
 
 class EmailSendTool(Tool):
+    effect = "mutating"
     name: ClassVar[str] = "email_send"
     description: ClassVar[str] = (
         "Send an email via the bound Gmail account. Provide at minimum `to`, "
@@ -100,6 +101,7 @@ def account_label_tool_name(account: str) -> str:
 
 
 class EmailLabelApplyTool(Tool):
+    effect = "mutating"
     name: ClassVar[str] = "email_label_apply"
     description: ClassVar[str] = (
         "Apply one or more Gmail labels to a message id. Label names are "

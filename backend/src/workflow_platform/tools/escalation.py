@@ -22,6 +22,7 @@ from workflow_platform.tools.base import Tool, ToolContext, ToolResult
 
 
 class RequestHumanReviewTool(Tool):
+    effect = "mutating"
     name: ClassVar[str] = "request_human_review"
     description: ClassVar[str] = (
         "Escalate to a human operator. Call this when stuck, uncertain, or out "

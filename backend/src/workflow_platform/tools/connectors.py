@@ -16,6 +16,7 @@ from workflow_platform.tools.base import Tool, ToolContext, ToolResult
 
 
 class ConnectorSendTool(Tool):
+    effect = "mutating"
     name: ClassVar[str] = "connector_send"
     description: ClassVar[str] = (
         "Send a payload to a registered connector (e.g. webhook POST, S3 PutObject). "
@@ -55,6 +56,7 @@ class ConnectorSendTool(Tool):
 
 
 class ConnectorQueryTool(Tool):
+    effect = "read_only"
     name: ClassVar[str] = "connector_query"
     description: ClassVar[str] = (
         "Query a registered connector for data (e.g. webhook GET, S3 ListObjects/GetObject). "

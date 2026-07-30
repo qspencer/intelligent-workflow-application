@@ -61,6 +61,10 @@ class Tool(ABC):
     name: ClassVar[str]
     description: ClassVar[str]
     parameters_schema: ClassVar[dict[str, Any]]
+    # Side-effect classification (IA_PLAN §4e): "read_only" | "mutating".
+    # None (unset, e.g. third-party tools) is treated as UNKNOWN and counts
+    # as mutating wherever run warnings are derived — conservative default.
+    effect: ClassVar[str | None] = None
 
     @abstractmethod
     async def execute(

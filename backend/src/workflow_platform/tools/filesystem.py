@@ -13,6 +13,7 @@ from workflow_platform.tools.base import Tool, ToolContext, ToolResult
 
 
 class FileReadTool(Tool):
+    effect = "read_only"
     name: ClassVar[str] = "file_read"
     description: ClassVar[str] = (
         "Read a UTF-8 text file from the agent's world. Returns the file contents "
@@ -44,6 +45,7 @@ class FileReadTool(Tool):
 
 
 class FileWriteTool(Tool):
+    effect = "mutating"
     name: ClassVar[str] = "file_write"
     description: ClassVar[str] = (
         "Write UTF-8 text to a file in the agent's world. Overwrites existing content."

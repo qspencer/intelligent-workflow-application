@@ -46,6 +46,13 @@ class DefinitionRepo(ABC):
         """All definitions, optionally scoped to one org (ROLES_PLAN S2)."""
 
     @abstractmethod
+    async def list_ownership(self, org_id: str | None = None) -> dict[str, tuple[str, str | None]]:
+        """Map of definition_id → (org_id, owner_user_id), optionally filtered
+        to one org. Row-level attribution for the IA_PLAN sidecar — kept off
+        the YAML-shaped model deliberately."""
+        ...
+
+    @abstractmethod
     async def org_of(self, definition_id: str) -> str | None:
         """The owning org of a definition, or None if it doesn't exist.
         Definitions' org lives on the row, not the YAML-shaped model."""

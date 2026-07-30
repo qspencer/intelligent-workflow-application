@@ -21,6 +21,7 @@ from workflow_platform.tools.base import Tool, ToolContext, ToolResult
 
 
 class ImageOcrTool(Tool):
+    effect = "read_only"
     name: ClassVar[str] = "image_ocr"
     description: ClassVar[str] = (
         "Run OCR (Tesseract) on a local image file (JPG / PNG / WebP / TIFF / BMP) "

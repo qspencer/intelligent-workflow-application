@@ -47,6 +47,7 @@ def _selector_param(params: dict[str, Any]) -> str | ToolResult:
 
 
 class BrowserNavigateTool(Tool):
+    effect = "mutating"
     name: ClassVar[str] = "browser_navigate"
     description: ClassVar[str] = (
         "Load a URL in the current browser session. `wait_until` controls "
@@ -88,6 +89,7 @@ class BrowserNavigateTool(Tool):
 
 
 class BrowserReadTextTool(Tool):
+    effect = "read_only"
     name: ClassVar[str] = "browser_read_text"
     description: ClassVar[str] = (
         "Read the innerText of the first DOM element matching `selector`. "
@@ -117,6 +119,7 @@ class BrowserReadTextTool(Tool):
 
 
 class BrowserReadTableTool(Tool):
+    effect = "read_only"
     name: ClassVar[str] = "browser_read_table"
     description: ClassVar[str] = (
         "Read an HTML `<table>` matching `selector` and return its rows as "
@@ -147,6 +150,7 @@ class BrowserReadTableTool(Tool):
 
 
 class BrowserWaitForTool(Tool):
+    effect = "read_only"
     name: ClassVar[str] = "browser_wait_for"
     description: ClassVar[str] = (
         "Wait for the first element matching `selector` to reach `state` "
@@ -191,6 +195,7 @@ class BrowserWaitForTool(Tool):
 
 
 class BrowserScreenshotTool(Tool):
+    effect = "read_only"
     name: ClassVar[str] = "browser_screenshot"
     description: ClassVar[str] = (
         "Capture a screenshot of the current page. Returns the local file "
@@ -234,6 +239,7 @@ class BrowserScreenshotTool(Tool):
 
 
 class BrowserClickTool(Tool):
+    effect = "mutating"
     name: ClassVar[str] = "browser_click"
     description: ClassVar[str] = (
         "Click the first DOM element matching `selector`. Selector can be "
@@ -270,6 +276,7 @@ class BrowserClickTool(Tool):
 
 
 class BrowserFillTool(Tool):
+    effect = "mutating"
     name: ClassVar[str] = "browser_fill"
     description: ClassVar[str] = (
         "Fill an `<input>` / `<textarea>` matching `selector` with `value`. "
@@ -311,6 +318,7 @@ class BrowserFillTool(Tool):
 
 
 class BrowserUploadFileTool(Tool):
+    effect = "mutating"
     name: ClassVar[str] = "browser_upload_file"
     description: ClassVar[str] = (
         'Set the value of an `<input type="file">` matching `selector` to '
@@ -346,6 +354,7 @@ class BrowserUploadFileTool(Tool):
 
 
 class BrowserDownloadTool(Tool):
+    effect = "mutating"
     name: ClassVar[str] = "browser_download"
     description: ClassVar[str] = (
         "Click an element matching `selector` and capture the resulting "
@@ -395,6 +404,7 @@ class BrowserDownloadTool(Tool):
 
 
 class BrowserSubmitFormTool(Tool):
+    effect = "mutating"
     name: ClassVar[str] = "browser_submit_form"
     description: ClassVar[str] = (
         "Submit the `<form>` matching `selector` via JavaScript `form.submit()`. "
@@ -426,6 +436,7 @@ class BrowserSubmitFormTool(Tool):
 
 
 class BrowserFetchUrlTool(Tool):
+    effect = "read_only"
     name: ClassVar[str] = "browser_fetch_url"
     description: ClassVar[str] = (
         "Fetch a URL (image, PDF, JSON, etc.) via the browser session and "
