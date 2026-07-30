@@ -1,13 +1,24 @@
 # Email Triage, Codified Sender Pre-Filter (G13 slice 1) — Design, v2
 
-Status: **proposed** (v1 2026-07-26, internal review folded; **v2 same day
-after an external review — rework-level revision adopted in full**. The
-external review's core finding invalidated v1's architecture: the codified
-path's synthetic `attention: []` silently codified *the absence of
-attention* for unsampled messages, contradicting the plan's own
-never-codify-attention principle. v2 codifies **category only** and runs
-attention judgment on **every** message. Not yet built). Executes
-`docs/NEXT_STEPS.md` G13; **depends on the two-axis plan shipping first**.
+Status: **slice 1 BUILT 2026-07-30** — the eligibility engine +
+generation CLI (`workflow_platform.codify` pure rule + `tools/
+codify_senders.py`: Postgres verdict evidence x veracium disqualifiers,
+dry-run default, --apply atomic 0600 writes, --explain traces; 11 rule
+tests). **Two delegated decisions executed:** domain-level
+disqualification adopted (registrable-domain fence with a freemail
+exemption — the TTG sibling case) and the part-2 window closed for
+category+mechanics (attention stays monitored; see TWO_AXIS §7 note).
+First live dry-run: 111 senders with evidence, **6 eligible**
+(indeed/wayfair/overstock/businessinsider/simplyrecipes/nextdoor), and
+one finding for the next session: historical 7-bucket-era corrections
+put 17 domains behind the fence (incl. nytimes/wsj — era-collision
+corrections like breakingnews urgent-vs-newsletter, not sender-
+unpredictability evidence). **Open question: era-scope corrections for
+disqualification** the way verdict evidence already is — conservative
+as-is (over-disqualifies, never under), so deliberately left strict for
+the first artifact. Runtime slices (trigger auth_pass, precheck
+function + overlay, diamond YAML + attention-only classifier) not yet
+built.
 
 ## 1. What this is (claims stated honestly)
 

@@ -23,6 +23,13 @@ are the codification candidates), at proportionally higher classify spend
 until codification pulls the stable bulk back to deterministic. First
 poll after cutover backfills from the persisted cursor (~1 day of
 filtered mail) — a one-time burst, bounded by max_messages pagination.
+**Window part 2 CLOSED for the category axis + apply mechanics
+(2026-07-30, delegated call):** 289+ runs, zero failures, zero
+out-of-allowlist writes, category mix stable, one operational fix
+(body cap + budget). **Attention stays in monitored status** — the
+findings log continues, wf-attn labels remain under operator
+spot-check, and the formal 30-message acceptance pass is optional
+(nothing downstream gates on it; codify never codifies attention).
 **Part-2 findings log:** (1) 2026-07-26, first correction — a True
 Trading Group "Workshop Today 1pm ET" pitch got `notification` +
 `attention:["urgent"]`; operator verdict: promotion, not urgent (both
