@@ -1,15 +1,16 @@
 # Veracium 0.4.1 Feature Adoption — Design
 
-Status: **proposed** (drafted 2026-07-29; design-reviewed same day:
-adopt-with-conditions, all findings folded in below — including the
-reviewer's verification that introspect is genuinely store-only, and a
-correction to this plan's own API inventory. Not yet built). The pin
-is already at 0.4.1 (`a06c9ee`, security bump for GHSA-r7j7-5jq9-3f5q);
-this plan decides what the platform *consumes* from 0.4.x, feature by
-feature, against the verified installed API — not the coordination-file
-prose. Companion to the veracium adoption conditions in
-`docs/SEMANTICS.md` (engine-written observations only; metered LLM;
-COALA N1 — no agent-facing memory tools), all of which this plan keeps.
+Status: **BUILT 2026-07-30** (V1 + V2 same day; design reviewed
+2026-07-29). Live: `LearnedMemoryService.{list_memory_namespaces,
+introspect_namespace}` (lock-free, store-only), `GET /api/memory/summary`
++ `/{org}/{account}?mode=` (Administrator/Org-Admin, org-scoped,
+404-no-leak, garbage-safe, byte-cap→summary-fallback with `truncated`,
+`memory_introspected` audit + `org_bypass`), and the Developer-console
+Memory page (namespace table → summary/facts detail, text-node-only
+rendering test-pinned with a script-tag fixture, unrecognized-ids note,
+truncation banner). §3 absorption visibility ships via the summary's
+retired-by-reason counts as planned. Proactive recall stays deferred on
+its two named triggers.
 
 ## 0. Inventory, verified against the installed package
 
