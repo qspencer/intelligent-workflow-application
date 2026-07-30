@@ -26,6 +26,11 @@ trigger:
     # Server-side filter: only mail carrying zip/gz attachments fires.
     # DMARC subjects always start with "Report domain:"; keeping the filter
     # on attachments is looser but catches providers with odd subjects.
+    # No INBOX restriction: a mailbox filter labels-and-archives the report
+    # mail (observed 2026-07-30 — reports stopped carrying INBOX ~Jul 20 and
+    # the trigger's INBOX default silently saw nothing). The attachment
+    # query is the real scope; this is a dedicated report mailbox.
+    label: null
     query: 'has:attachment (filename:zip OR filename:gz)'
     download_dir: /tmp/dmarc-spool
     poll_interval_seconds: 300
