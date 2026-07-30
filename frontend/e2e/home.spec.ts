@@ -74,7 +74,11 @@ test('home shows bundled workflows with a badge; both renderings share the id se
   const templates = (await (
     await page.request.get(`${BACKEND}/api/templates`, { headers: DEV_HEADERS })
   ).json()) as { id: string }[];
-  const bundledId = templates[0].id;
+  // Prefer the throwaway demo template: importing over templates[0]
+  // (alphabetically the PRODUCTION dmarc-ingest) and deleting it cascaded
+  // that workflow's real run history on a live backend (2026-07-30).
+  const bundledId =
+    templates.find((t) => t.id === 'webhook-echo')?.id ?? templates[templates.length - 1].id;
   await importFixture(page, bundledId);
   try {
     await page.goto('/');
