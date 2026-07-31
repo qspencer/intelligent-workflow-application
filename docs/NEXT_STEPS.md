@@ -2,7 +2,17 @@
 
 ## Where things stand
 
-The manual-testing backlog that motivated this doc is essentially closed.
+*(Refreshed 2026-07-31.)* The 2026-07 build arc landed: local auth +
+tenant-scoped roles (S1–S3), the acting email triage with two-axis
+classification live on the full mailbox, codification (G13) live with 7
+senders, the IA rework (one catalog, two renderings), the veracium
+memory transparency surface, and the monitoring loop actually running in
+production (five checks incl. the new `alert_stale_trigger`). Current
+open work is the G15/G16 follow-ups below plus the two supervised
+validation windows (two-axis part 2; codify §9), both accumulating on
+live mail.
+
+The manual-testing backlog that originally motivated this doc is closed.
 Today you can: `docker compose up -d postgres`, start the backend with
 `WORKFLOW_DEFINITIONS_DIR=../examples`, start the frontend, then drop a
 PDF / click Run / curl a webhook / wait for a schedule — each fires
@@ -147,7 +157,12 @@ old process-local behavior (logged, never blocks polling). Tests:
 round-trip. `FilesystemTrigger` still process-local — extend if a real
 miss shows up there.
 
-### G11 — Two-axis triage: separate category from attention
+### G11 — Two-axis triage: separate category from attention — **Done 2026-07-26**
+
+Built + cut over same day as the design (`docs/EMAIL_TRIAGE_TWO_AXIS_PLAN.md`
+holds the authoritative status): 5-bucket message category + multi-valued
+attention, tri-state reply lifecycle, re-minimized apply path. Original
+notes kept below for the evidence trail.
 
 Surfaced during the 2026-07-19 ground-truth labeling session, twice in
 one pass. The seven-bucket taxonomy still mixes two orthogonal axes —
@@ -233,7 +248,13 @@ Trigger to start: after the two-axis split (G11) — the `attention`
 axis is where elicited context pays off — and after outcome tracking
 ships (0.3.x), so question value is measurable. Effort: **M-L**.
 
-### G13 — Codification loop, slice 1: evidence-driven sender pre-filter
+### G13 — Codification loop, slice 1: evidence-driven sender pre-filter — **Done 2026-07-30**
+
+Built + cut over (`docs/EMAIL_TRIAGE_CODIFY_PLAN.md` holds the
+authoritative status): eligibility engine + CLI, DKIM/DMARC auth gate,
+diamond workflow with an attention-only classifier, runtime disable
+overlay, 7 senders live at 1-in-5 sampling. Follow-ups → G15/G16 below.
+Original notes kept for the evidence trail.
 
 From the 2026-07-24 Pega research (`docs/product/COMPETITIVE_LANDSCAPE.md`
 Pega profile): the design-time/runtime split is a **dial per step**, and
@@ -285,6 +306,36 @@ Trigger to start: first external-agent consumer ask, or adopting the
 channel). Until then this is speculative horizontal surface — exactly
 what the operating principles defer. Effort: **M** (server shim + API
 keys prerequisite).
+
+### G15 — Codify hardening follow-ups (deferred at build, triggers named)
+
+Three deviations recorded honestly in `EMAIL_TRIAGE_CODIFY_PLAN.md`'s
+status paragraph, each with a trigger:
+
+- **Corrections era-scoping** — the domain fence currently counts
+  7-bucket-era corrections (vocabulary collisions, not
+  sender-unpredictability), keeping nytimes/wsj-class senders
+  disqualified. Deliberately strict (over-disqualifies, never under).
+  Trigger: the operator wanting a fenced sender codified, or the fence
+  visibly costing meaningful spend.
+- **Runtime rubric-hash verification** — the precheck validates schema
+  version but cannot see the engine's memory hash; a rubric edit relies
+  on regeneration discipline. Trigger: exposing the memory hash to
+  deterministic functions for any other reason, or a stale-rule incident.
+- **`skip_if` on ObservationSpec** — the fail-closed conditional
+  observation surface designed in the codify plan; the decision-source
+  query contract made it non-blocking. Trigger: any consumer needing
+  per-run observation suppression.
+
+### G16 — Two-axis acceptance labeling (optional)
+
+The part-2 window closed for category + mechanics on operational
+evidence (2026-07-30); attention runs in monitored status. The formal
+30-message dev + 30-message held-out acceptance pass (zero false urgent,
+≥80% review/awaiting-reply precision as raw counts) remains available if
+attention precision ever needs a *number* rather than spot-checks —
+e.g. before showing attention flags in a customer-facing surface.
+Prep: the review CLI needs attention prompts.
 
 ### G10 — Learned-memory recall injection (veracium slice 2) — **landed 2026-07-17**
 
