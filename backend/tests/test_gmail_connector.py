@@ -484,3 +484,14 @@ async def test_trigger_poll_advances_cursor_and_returns_dicts() -> None:
     await conn.trigger_poll()
     next_list_call = next(kw for (m, kw) in svc.calls if m == "messages.list")
     assert next_list_call["q"].startswith("after:")
+
+
+async def test_get_message_single_fetch() -> None:
+    svc = FakeGmailService()
+    svc.get_responses["m-77"] = stage_gmail_message("m-77", subject="Single fetch")
+    connector = GmailConnector(account="a@b.c", auth_provider=FakeAuthProvider(), service=svc)
+    msg = await connector.get_message("m-77")
+    assert msg.message_id == "m-77"
+    assert msg.subject == "Single fetch"
+    get_calls = [c for c in svc.calls if c[0] == "messages.get"]
+    assert get_calls and get_calls[0][1]["format"] == "full"

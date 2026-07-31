@@ -327,6 +327,21 @@ status paragraph, each with a trigger:
   query contract made it non-blocking. Trigger: any consumer needing
   per-run observation suppression.
 
+### G18 — Model price/quality benchmark on real labeled data — **harness built 2026-07-31**
+
+`tools/eval_models.py`: runs the production classification task (current
+rubric, trigger-shaped prompt) across models over the 154-message
+ground-truth corpus (139 current-vocabulary labels; bodies fetched
+read-only from Gmail and cached gitignored — no mail content in the
+repo), scoring category accuracy vs the human label with tokens / $ /
+latency from the live calls and an accuracy-per-dollar ranking. Results
+append to `.memory/eval-results.jsonl`. Smoke-verified (3 msgs, Haiku,
+100%, $0.005/msg). Related but distinct: the scaffold-quality suite
+proposal in `docs/product/LLM_EVAL_FRAMEWORK.md` (different task, judge
+layer L3 — pull ideas from it if this grows judge scoring).
+Open: the full sweep is a spend decision (~$0.70/model for Haiku-class,
+~$2 Sonnet, ~$3.50 Opus over all 139) — operator's call per run.
+
 ### G17 — Proactive recall adoption (veracium 0.4.x, trigger-gated)
 
 The one 0.4.x feature assessed and deliberately NOT consumed

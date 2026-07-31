@@ -172,6 +172,17 @@ class GmailConnector(EmailConnector):
             messages.append(_parse_gmail_message(raw))
         return messages
 
+    async def get_message(self, message_id: str) -> EmailMessage:
+        """Fetch one message by Gmail id (read-only, format=full) — the
+        single-message counterpart of `poll_inbox`, for tools that work from
+        a stored id list (e.g. the model-eval harness over the ground-truth
+        corpus)."""
+        svc = await self._get_service()
+        raw = await self._execute(
+            svc.users().messages().get(userId=self.USER_ID, id=message_id, format="full")
+        )
+        return _parse_gmail_message(raw)
+
     async def send_email(self, req: EmailSendRequest) -> str:
         svc = await self._get_service()
         in_reply_to = ""
