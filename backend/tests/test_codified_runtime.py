@@ -229,7 +229,9 @@ def test_record_preserves_full_attention_set_despite_label_dominance() -> None:
     context = _context()
     context.record_step_output(
         "triage",
-        {"output_text": '{"category": "notification", "attention": ["urgent", "review"], "category_confidence": 0.9}'},
+        {
+            "output_text": '{"category": "notification", "attention": ["urgent", "review"], "category_confidence": 0.9}'
+        },
     )
     out = asyncio.run(
         record_email_triage({"triage_from": "steps.triage.output_text"}, context, mock_world())
@@ -252,14 +254,10 @@ def test_disable_overlay_concurrent_writes_dont_lose_entries() -> None:
                 workflow_id="wf",
                 trigger={"from_address": {"address": sender}, "message_id": "m"},
             )
-            await _disable_codified_sender(
-                {**CONFIG}, ctx, world, reason="attention_detected"
-            )
+            await _disable_codified_sender({**CONFIG}, ctx, world, reason="attention_detected")
 
         await asyncio.gather(one("a@x.com"), one("b@x.com"), one("c@x.com"))
 
     asyncio.run(_disable_two())
-    overlay = json.loads(
-        asyncio.run(world.fs.read_text(f".memory/codified/{RULES_REL}.disabled"))
-    )
+    overlay = json.loads(asyncio.run(world.fs.read_text(f".memory/codified/{RULES_REL}.disabled")))
     assert set(overlay["disabled_senders"]) == {"a@x.com", "b@x.com", "c@x.com"}
