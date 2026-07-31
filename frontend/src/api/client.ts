@@ -134,8 +134,9 @@ export const api = {
    *  Returns the cascade counts. */
   deleteWorkflow(
     id: string,
+    force = false,
   ): Promise<{ deleted_workflow: string; deleted_instances: number; deleted_steps: number }> {
-    return request('DELETE', `/workflows/${id}`);
+    return request('DELETE', `/workflows/${id}${force ? '?force=true' : ''}`);
   },
 
   /** Memory transparency surface (VERACIUM_041_ADOPTION_PLAN). */

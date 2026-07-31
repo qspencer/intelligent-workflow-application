@@ -618,6 +618,7 @@ def build_router(
     @router.delete("/workflows/{workflow_id}")
     async def delete_workflow(
         workflow_id: str,
+        force: bool = False,
         user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
         scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
@@ -656,6 +657,20 @@ def build_router(
                 detail=(
                     f"Workflow {workflow_id!r} has {len(live)} non-terminal instance(s) "
                     f"(states: {', '.join(states)}). Kill or wait for them, then delete."
+                ),
+            )
+        # Run-history containment (external review round 3 §8): a plain
+        # delete must not silently cascade audit/run evidence. Refuse when
+        # history exists unless the caller explicitly passes force=true —
+        # until soft-delete/archive lands (G21). Definitions with no run
+        # history delete freely (the common case: an unused draft).
+        if instances and not force:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"Workflow {workflow_id!r} has {len(instances)} run(s) of history. "
+                    f"Deleting cascades their audit trail — pass force=true to confirm, "
+                    f"or export first. (Soft-delete/archive is tracked as G21.)"
                 ),
             )
         instance_ids = [i.id for i in instances]

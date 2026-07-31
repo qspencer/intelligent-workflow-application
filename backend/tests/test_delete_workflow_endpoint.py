@@ -46,7 +46,8 @@ def test_delete_cascades_instances_and_steps(monkeypatch: pytest.MonkeyPatch) ->
 
     asyncio.run(seed())
 
-    r = _client(repos).delete("/api/workflows/to-delete", headers=_ADMIN)
+    # History present → force required (external review round 3 §8).
+    r = _client(repos).delete("/api/workflows/to-delete?force=true", headers=_ADMIN)
     assert r.status_code == 200, r.text
     assert r.json() == {
         "deleted_workflow": "to-delete",
@@ -133,6 +134,25 @@ def test_delete_allowed_once_instances_terminal(monkeypatch: pytest.MonkeyPatch)
 
     asyncio.run(seed())
 
-    r = _client(repos).delete("/api/workflows/to-delete", headers=_ADMIN)
+    # Run-history containment (external review round 3 §8): even terminal
+    # history is not silently cascaded — force=true is required.
+    refused = _client(repos).delete("/api/workflows/to-delete", headers=_ADMIN)
+    assert refused.status_code == 409
+    assert "history" in refused.json()["detail"]
+    assert asyncio.run(repos.definitions.get("to-delete")) is not None
+
+    r = _client(repos).delete("/api/workflows/to-delete?force=true", headers=_ADMIN)
     assert r.status_code == 200
     assert r.json()["deleted_instances"] == 3
+
+
+def test_delete_no_history_needs_no_force(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A definition with zero runs (an unused draft) deletes freely."""
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    repos = in_memory_repositories()
+    asyncio.run(repos.definitions.save(load_definition(_WF)))
+
+    r = _client(repos).delete("/api/workflows/to-delete", headers=_ADMIN)
+    assert r.status_code == 200
+    assert asyncio.run(repos.definitions.get("to-delete")) is None

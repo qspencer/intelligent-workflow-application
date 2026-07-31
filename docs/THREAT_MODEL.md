@@ -11,9 +11,12 @@ workflows and the shared platform surfaces currently implemented
 (auth, tenancy, capabilities, memory, audit, WebSocket). Aspirational
 architecture and unimplemented connectors — general API/DB/browser/CLI
 tools, knowledge ingestion, generated code, multi-node/self-hosted
-operation, the model-provider boundary as a first-class adversary
-surface — are **out of scope** and each requires its own threat-model
-amendment before activation. The deepest analysis (the injection
+operation, the general model-provider boundary as a broad
+adversary surface — are **out of scope** and each requires its own
+threat-model amendment before activation. **The current Bedrock path is
+NOT out of scope** (external review §1) and is covered in §7a: the
+deployed system sends hostile/sensitive content to Bedrock, spends on it,
+and trusts its responses as data. The deepest analysis (the injection
 ladder) is specifically the email surface because that is what mutates
 a real asset today.
 
@@ -72,8 +75,9 @@ tenant boundary itself.
 | **Compromised Gmail/OAuth account** | the mailbox + its refresh token | read/label as the operator |
 | **Malicious model output** | classifier/attention verdicts | steer decisions within the enum bounds (§8-decision) |
 | **Host / DB / backup operator** | disk: secrets, store, Postgres | read everything at rest — **trusted today** (§5a) |
-| **Dependency / build-pipeline attacker** | the running code | arbitrary — supply-chain (out of app scope) |
+| **Dependency / build-pipeline attacker** | the running code | arbitrary — supply-chain: bypasses every app control, so IN the deployed-system model as accepted risk (§9a) |
 | **Resource-exhaustion sender** | poll/parse/spend/audit volume | DoS + cost burn (§8-resource) |
+| **Malicious/compromised workflow author** | definitions, prompts, tool selection, inputs, conditions, schedules WITHIN their role's org ceiling | grant a step every ceiling capability, route data to permitted-but-wrong destinations, loop/overspend, embed hostile goal text, mark a consequential condition optional, leak one resource into another (§7b) |
 
 ## 4. The mail-surface injection defense ladder (deepest asset, most layers)
 
@@ -118,8 +122,9 @@ tenant boundary itself.
 ## 5. Tenant isolation (A6)
 
 Row-level org key (`org_id` on definitions/instances from birth) in
-shared Postgres. Every resource endpoint resolves `OrgScope`; cross-org
-is **404, never 403** (no existence oracle); audit/steps/cost join
+shared Postgres. **All currently-identified resource endpoints resolve
+`OrgScope`** (route-completeness is not yet mechanically proven — G22);
+cross-org is **404, never 403** (no existence oracle); audit/steps/cost join
 through the instance; WS events carry org from emit time and filter per
 subscriber; learned memory is namespaced `org:<org>:user:<key>` and the
 transparency surface is org-scoped with cross-org reads audited as
@@ -132,7 +137,13 @@ than relying on reviewer memory; Postgres row-level security as
 defense-in-depth if the app layer ever misses a filter. Tracked G22. Escalation guards: last-Administrator and
 per-org last-org-admin protected; Org Admins cannot touch
 Administrators; role authority is exclusive per auth mode (never
-merged).
+merged). **Within one org, isolation is coarse (external review §8,
+stated explicitly):** org members at write roles see, by design, all of
+that org's workflows, runs, outputs, audit, memory observations,
+connector identities, and costs — cross-org isolation is strict, but
+intra-org is role-graded not per-resource-owner. Acceptable for the
+single-operator deployment; a named boundary (per-owner intra-org
+scoping) before an org has mutually-distrusting members.
 
 ## 5a. Trust assumptions (stated, not implied — external review §5)
 
@@ -143,9 +154,14 @@ CLIs perform otherwise-prohibited actions (label removal, codify
 `--apply`, user bootstrap), and secrets sit on the same machine as the
 service. Consequence, stated plainly: **the current single-operator
 deployment does not protect tenants against a malicious host
-administrator.** Acceptable while the operator is the sole user and
-tenant; a material boundary to close before the first external
-organization (§8).
+administrator.** Acceptable while the operator is the sole user and tenant. **These are
+RELEASE GATES, not post-onboarding triggers** (external review §5):
+before any external org is provisioned — complete the secret-manager
+migration, backup encryption, credential-rotation design, the G22
+tenant-surface inventory, the trace-access/redaction posture, the
+host-administrator disclosure, the intra-org authorization boundary
+(§5), and resource-exhaustion limits (§9). "Gate" means done-before-
+crossing, not considered-after.
 
 ## 6. Authentication & session surface
 
@@ -172,10 +188,45 @@ IdP is sole authority — D4). Fifteen pinned security tests in
   budget event, memory write/recall/introspection. Org-scoped reads;
   instance-less audit is Administrator-only.
 
+## 7a. The Bedrock (model-provider) boundary — current path
+
+- **Sent to Bedrock:** the trigger-shaped message (from/subject/
+  body_text, body capped), the rubric (system), and — on non-minimized
+  steps — quarantined recall context. The minimized apply step sends an
+  enum-derived label list only. Account/region come from the operator's
+  AWS creds; inference-profile ids are region-normalized.
+- **Trust:** model responses are treated as **untrusted data** — parsed
+  for JSON, enum-gated, never executed; a malicious/erroneous response
+  can only steer a permitted decision (§4a decision-robustness), not
+  expand authority.
+- **Retention/logging:** assumed per the AWS account's Bedrock
+  configuration; the platform stores prompts/responses only in its own
+  audit/full-trace path (§8 raw-trace row). No prompt content is sent
+  anywhere else.
+- **Availability/cost:** provider outage or throttle fails the agentic
+  step (retries per §4 rules); spend is bounded per-step and per-workflow
+  and observable per model/day; model substitution/version drift is a
+  known eval concern (the G18 benchmark exists to detect quality drift).
+
+## 7b. The workflow-author surface
+
+An authorized author operates within their org's capability ceiling but
+controls definitions, prompts, tool selection, conditions, and schedules.
+Current controls: the capability **ceiling** (a step can never exceed
+system ∩ workflow ∩ step ∩ runtime — an author cannot grant above the
+org's system ceiling), enum/allowlist gates on the mail path, build-time
+`validate_definition`, dry-run before live, and audit of definition
+create/import/scaffold. Gaps (all G21/G22-adjacent): no per-destination
+policy, no dangerous-tool approval step, no author-change audit diff, no
+loop/spend guard beyond the token budget. Material at the first org with
+multiple authors of differing trust.
+
 ## 8. Known gaps — named, with dispositions
 
-*Each row's disposition names the compensating control (where one
-exists) and the revisit trigger. External review §10 asks for full
+*Status tags: **[impl]** already enforced · **[planned]** designed,
+tracked (G-item) · **[gated]** required before a named boundary. Each
+row's disposition names the compensating control and the revisit
+trigger. External review §10 asks for full
 governance columns (severity / owner / acceptance date / required
 pre-trigger action / monitoring signal) — for a single-operator project
 the owner is the operator and the acceptance date is this doc's date;
@@ -183,15 +234,15 @@ the governance-table expansion becomes real at the first external org.*
 
 | Gap | Disposition |
 |---|---|
-| Audit is append-only at the app layer, **not tamper-evident** (no hash chain/WORM) | Accepted for single-operator; trigger: first compliance-bound customer (RELEASE_READINESS names it) |
-| Retries not engine-gated on `Tool.effect` | Authoring rule in EXECUTION_SEMANTICS §4; trigger: second mutating connector |
+| Audit is append-only at the app layer, **not tamper-evident** (no hash chain/WORM) | **[gated]** Accepted for single-operator; trigger: first compliance-bound customer (RELEASE_READINESS names it) |
+| Retries not engine-gated on `Tool.effect` | **[planned G21]** Authoring rule in EXECUTION_SEMANTICS §4; trigger: second mutating connector |
 | Schemathesis fuzzes GET only | TESTING.md roadmap item (widen to mutating verbs) |
-| Webhook HMAC | **Now ENFORCED**: outside dev mode the orchestrator refuses to register an unsigned webhook trigger (test-pinned). Remaining follow-ups: min-entropy secret check, timestamp/nonce replay defense, constant-time compare (httpx hmac already), rotation overlap, signature-failure rate-limit |
-| Secrets on local disk (0600) — an operational safeguard, NOT a secrets boundary | **Trigger corrected to first external ORGANIZATION** (external review §6, was "compliance-bound customer"): external secret manager, separate service identities, short-lived creds, encrypted backups, OAuth/HMAC rotation, credential-scrubbed debug dumps |
+| Webhook HMAC | **[impl]**: outside dev mode the orchestrator refuses to register an unsigned webhook trigger (test-pinned). Remaining follow-ups: min-entropy secret check, timestamp/nonce replay defense, constant-time compare (httpx hmac already), rotation overlap, signature-failure rate-limit |
+| Secrets on local disk (0600) — an operational safeguard, NOT a secrets boundary | **[gated — before first external org]** (external review §6, was "compliance-bound customer"): external secret manager, separate service identities, short-lived creds, encrypted backups, OAuth/HMAC rotation, credential-scrubbed debug dumps |
 | Single-box deployment (DB, service co-located) | Solo-dev posture; `infra/` exists unapplied; revisit at first external user |
-| Resource exhaustion (poll volume, MIME/attachment size, parser CPU, Bedrock spend, repeated invocation, audit/DB growth, alert flooding) | Partial today (body cap, per-workflow token budget, monitoring's token-burn + queue-depth alerts); **follow-up:** per-sender/per-account throttles, max-decoded-size, parser timeouts, an explicit cost circuit-breaker |
+| Resource exhaustion (poll volume, MIME/attachment size, parser CPU, Bedrock spend, repeated invocation, audit/DB growth, alert flooding) | **[partial]** Partial today (body cap, per-workflow token budget, monitoring's token-burn + queue-depth alerts); **follow-up:** per-sender/per-account throttles, max-decoded-size, parser timeouts, an explicit cost circuit-breaker |
 | Generated-code execution | **No such feature exists** — the ARCHITECTURE passage is aspirational; the shipped analogue (codified rules) is human-approved + self-disabling |
-| Full-trace views expose raw prompts (mail content) | **Until redaction exists: default OFF, separate privilege from ordinary admin, every view audited, exports restricted, short retention, auth headers stripped before storage** (external review §7 — role-gating alone doesn't address insider/privacy risk) |
+| Full-trace views expose raw prompts (mail content) | **[planned/gated] Until redaction exists: default OFF, separate privilege from ordinary admin, every view audited, exports restricted, short retention, auth headers stripped before storage** (external review §7 — role-gating alone doesn't address insider/privacy risk) |
 
 ## 9. Security test matrix (where the pins live)
 
@@ -202,3 +253,35 @@ the governance-table expansion becomes real at the first external org.*
 `test_learned_memory.py` (verbatim fence, quarantine, normalization) ·
 `test_memory_transparency.py` (scoping, no-leak, audit) — plus the
 schemathesis contract suite and the weekly live job.
+
+## 9a. Resource-exhaustion ceilings (thresholds to set — external review §9)
+
+Current partial controls (body cap 8000 chars, per-workflow token budget,
+monitoring token-burn + queue-depth alerts) lack explicit numbers to test
+against. Ceilings to define before external use: max decoded body size,
+max attachment count + aggregate size, MIME nesting limit, parser
+timeout/memory, max messages per poll, per-account concurrent workflows,
+a daily Bedrock hard limit (circuit breaker), audit/DB growth alert, max
+queued alerts. Tracked with G21/G22.
+
+## 9b. Supply chain — accepted risk (external review §7)
+
+A dependency/build-pipeline compromise bypasses every application
+control, so it belongs in the deployed-system model even though it is
+outside the app's authorization layer. Current controls: pinned exact
+versions + `uv.lock`, CI dependency audit (prod-scoped npm + pip-audit),
+GitHub-hosted CI with scoped permissions, release provenance via signed
+commits. Not present: SBOM, artifact signing, reproducible builds —
+named for the first-external-org gate.
+
+## 9c. Decision-robustness metric (external review §10)
+
+The §4a empirical side needs a defined metric, not just "corrections
+happen": an adversarial test population, misclassification and
+attention-escalation denominators, benign false-positive rate, correction
+rate, per-authentication-state breakdown, and codification error rate —
+with frozen acceptance thresholds where applicable. Today only the
+correction-driven loop + the two-axis part-2 window exist; they are a
+biased estimator (operator sees his own mail, not a red-team set). The
+G16 acceptance-labeling pass is the start of an unbiased set. Explicitly
+NOT claimed: that normal corrections alone measure attack resistance.

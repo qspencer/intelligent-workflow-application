@@ -327,12 +327,41 @@ status paragraph, each with a trigger:
   query contract made it non-blocking. Trigger: any consumer needing
   per-run observation suppression.
 
-### G21 — Execution-semantics safety follow-ups (external review round 2)
+### G21 — Execution-semantics safety follow-ups (external review rounds 2–3)
 
-The document review of `EXECUTION_SEMANTICS.md` (2026-07-31) landed two
-fixes in code immediately (edge-condition errors now fail closed with an
-`on_error: inactive` opt-out; production webhooks must be signed). The
-rest are named follow-ups, each a real behavior change:
+Landed in code across the review rounds: edge-condition errors fail
+closed (`on_error: inactive` opt-out); production webhooks must be
+signed; **definition delete requires `force=true` when run history
+exists** (round 3). The rest are named follow-ups, SPLIT by severity per
+the round-3 request (so "G21 done" can't mean one small UI change while a
+destructive gap remains):
+
+**Higher severity (before external/multi-author use):**
+- **Persist immutable definition identity (content hash) on every
+  instance** — prerequisite for correct crash recovery, replay,
+  forensics, AND the cross-version fork guard. Currently instances
+  load the *current* definition fresh; a mid-flight edit corrupts
+  recovery. This unblocks the next two.
+- **Reject cross-version forks** — once instances carry a def hash,
+  refuse a fork when current ≠ source (the safe subset until
+  replay_fork/migration_fork split exists).
+- **Static retry/effect validation** — `validate_definition` gates
+  `retries > 0` on `Tool.effect` (read-only auto-pass; mutating needs
+  declared idempotency; unknown rejects). Cheapest high-value item.
+- **`on_error: inactive` safety validation** — reject/warn when the
+  swallowed-error edge guards a mutating/approval/security target.
+
+**Lower severity / operability:**
+- **Soft-delete + retention** — replace the `force` guard with real
+  disable/archive + retained immutable versions.
+- **Concurrency keys** (`concurrency: {key, mode}`), **worker leases**
+  (multi-process recovery arbitration), **request-vs-effected state
+  surfacing** (`pause_requested`/`kill_requested` in API/UI),
+  **persist-before-ack inbound queue** + client idempotency key,
+  **shared-txn step-commit** + post-crash consistency check,
+  **machine-recorded effect-outcome** tags.
+
+Original round-2 list preserved below for lineage:
 - **Retry static validation** — `validate_definition` gates `retries > 0`
   on `Tool.effect` (read-only auto-pass; mutating needs declared
   idempotency; unknown rejects). Achievable now without ack-aware
