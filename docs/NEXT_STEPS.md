@@ -327,6 +327,17 @@ status paragraph, each with a trigger:
   query contract made it non-blocking. Trigger: any consumer needing
   per-run observation suppression.
 
+### G17 — Proactive recall adoption (veracium 0.4.x, trigger-gated)
+
+The one 0.4.x feature assessed and deliberately NOT consumed
+(`docs/VERACIUM_041_ADOPTION_PLAN.md` §4 holds the reasoning): the
+session-briefing builder has no message-shaped consumer today. Two named
+triggers, either reopens it: (1) the G12 elicitation design pass —
+evaluate `proactive.assemble` before inventing a substrate; (2) an
+operator daily-brief surface (its DATED COMMITMENTS section pairs with
+the awaiting-reply lifecycle). Tracked here per the backstop's
+2026-07-31 cross-track ledger review (finding 4).
+
 ### G16 — Two-axis acceptance labeling (optional)
 
 The part-2 window closed for category + mechanics on operational
