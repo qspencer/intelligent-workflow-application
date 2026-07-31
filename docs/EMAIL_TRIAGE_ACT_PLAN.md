@@ -6,8 +6,13 @@ predated cutover and the two-axis/codify evolution). Current live shape
 lives in `EMAIL_TRIAGE_TWO_AXIS_PLAN.md` (5-bucket category + multi-valued
 attention) and `EMAIL_TRIAGE_CODIFY_PLAN.md` (codified fast path); this
 document is the ORIGINAL acting-variant design + its rollout history —
-read it for the privilege-split rationale, not the current field values
-(the diagram below shows the original single-category shape). Landed: Landed: the `inputs:` selector on `AgenticStep` + minimized
+read it for the privilege-split rationale, not the current field values.
+(The §5 diagram was partly updated at cutover — sanitized tool name +
+`apply_labels` inputs — but still shows the single-category edge condition
+`category_valid`; the live edge is `apply_label_count > 0` per TWO_AXIS §4,
+and §3 keeps the original `[category, message_id]` inputs as historical
+text. Treat TWO_AXIS/CODIFY as authoritative for current field values.)
+Landed: the `inputs:` selector on `AgenticStep` + minimized
 `_build_user_message`; `category_valid` enum gate in `record_email_triage`;
 per-account `email_label_apply__<sanitized-account>` tools (instance-named, `wf/*`
 allowlisted) wired at boot for every credentialed account;

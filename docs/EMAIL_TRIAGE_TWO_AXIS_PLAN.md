@@ -142,10 +142,12 @@ read state already signals handled mail); their decay is a recorded
 deferral, not built.
 
 - **Check-then-label (arrival/backfill guard).** The Gmail poll trigger
-  annotates each delivered message with `already_replied: bool`. This is
-  **new connector surface, named** (design-review finding — the connector
-  has no thread fetch today): `GmailConnector.thread_has_newer_sent(
-  thread_id, than_internal_date)` on `threads.get` with
+  annotates each delivered message with `reply_status ∈ {replied,
+  not_replied, unknown}` (the tri-state below; an early draft's
+  `already_replied: bool` is withdrawn — the boolean was the rejected
+  fail-open shape). This is **new connector surface, named** (the
+  connector had no thread fetch): `GmailConnector.thread_has_newer_sent_message(
+  thread_id, than_received_at)` on `threads.get` with
   **`format=metadata`** — labelIds + internalDate, plus the
   `In-Reply-To`/`References` metadata headers (headers only, never
   bodies) for precise reply linkage where present. The format
@@ -201,8 +203,11 @@ deferral, not built.
   across rubric *wording* changes (which churn `memory_hash`) without
   conflating vocabularies. `memory_hash` remains the exact-repro key.
 - **`record_email_triage`** (additive): extracts `attention`; computes
-  `attention_valid = attention ∈ ATTENTION_LEVELS and not (attention ==
-  "awaiting-reply" and trigger.already_replied)`; `category_valid` now
+  `attention_valid = all(v ∈ ATTENTION_LEVELS for v in attention)`
+  (a pure vocabulary check over the multi-valued list); separately,
+  `awaiting-reply` is dropped from the attention list when
+  `trigger.reply_status ∈ {replied, unknown}` (recording
+  `awaiting_reply_suppressed`), and `category_valid` now
   checks the 5-bucket vocabulary. New computed output **`apply_labels: list[str]`** with the axes
   **genuinely independent** (external review caught the first draft
   contradicting itself — "independently gated" followed by
@@ -317,7 +322,7 @@ bucket is the default failure mode):
    blockers: false urgency erodes trust faster than missed urgency.
 3. **Zero out-of-allowlist writes** (now 8 labels), zero apply-cost
    regression (still one tool call).
-4. **`already_replied` correctness**: backfilled messages with existing
+4. **`reply_status` correctness**: backfilled messages with existing
    replies must not receive `wf-attn/awaiting-reply` (the baseball
    regression test, live).
 
@@ -343,7 +348,7 @@ ever runs as a multi-tenant service where restarts are expensive.
 ## 8. Test plan (unit, fake connector)
 
 - `record_email_triage`: 5-bucket `category_valid`; `attention_valid`
-  incl. the `already_replied` gate; `apply_labels` composition for all
+  incl. the `reply_status` suppression gate; `apply_labels` composition for all
   (valid, invalid, none) combinations; hostile attention string →
   `attention_valid=False`, label dropped, category label unaffected.
 - Trigger: `reply_status` annotation from a faked thread response —

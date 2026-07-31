@@ -56,9 +56,9 @@ A sender qualifies when ALL hold:
    — **a candidate threshold for THIS single-operator deployment, not an
    established universal promotion rule** (external review finding 14: 5
    unanimous over >1 day is weak evidence of durable future stability; the
-   impact here is one reversible label in one mailbox). A general platform
+   impact here is one reversible label in one mailbox; a general platform
    default should require evidence scaled by sender volume + observed
-   category variability, not a fixed count.
+   category variability, not a fixed count) —
    category, **all with empty attention**, zero corrections. Legacy
    (pre-schema-2) evidence may *support category stability* on top of
    this floor but can never satisfy the attention condition (v1's
@@ -262,7 +262,9 @@ for building it, not a description of current behavior.
 ## 10. Test plan (v2)
 
 - Precheck: structured route output; disabled-overlay hit; expired rule;
-  rubric-hash mismatch; inactivity revalidation; sampled carries
+  schema-version incompatibility (rubric-hash enforcement is DEFERRED —
+  G23, so no rubric-hash test today); inactivity revalidation; sampled
+  carries
   `rule_category`; exactly-one-classifier-output enforcement
   (both/neither = hard error); HMAC sampling boundaries; auth-policy
   cases (trusted vs attacker AR header, dmarc pass, aligned/unaligned
@@ -278,8 +280,11 @@ for building it, not a description of current behavior.
   (evidence from another account's namespace never leaks in);
   `--dry-run` / `--apply` / `--explain`; atomic write + schema
   validation + 0600.
-- Engine: `skip_if` load-time validation rejects bad expressions;
-  runtime eval failure skips + high-severity audit (fail-closed pinned).
+- Engine (DEFERRED — G23, the `skip_if` surface is not built; the
+  decision_source query contract is the live anti-feedback guard and is
+  covered by the eligibility-CLI tests above): when `skip_if` lands,
+  load-time validation rejects bad expressions and runtime eval failure
+  skips + high-severity audit (fail-closed).
 
 ## 11. Deferred, with triggers (v2 additions marked)
 
