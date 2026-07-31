@@ -161,3 +161,66 @@ async def test_target_runs_if_at_least_one_incoming_edge_active() -> None:
         s.step_id: s.state for s in await engine.repositories.steps.list_by_instance(instance.id)
     }
     assert states_by_id["c"] == StepExecutionState.COMPLETED
+
+
+async def test_condition_eval_error_fails_instance_by_default() -> None:
+    """External review 2026-07-31 (EXECUTION_SEMANTICS §3): a broken
+    condition must never silently skip its target — the target may be a
+    compliance/approval gate."""
+    fns = FunctionRegistry()
+
+    async def step(config: dict[str, Any], ctx: Any, world: Any) -> dict[str, Any]:
+        return {"ok": True}
+
+    fns.register("step", step)
+    definition = load_definition(
+        {
+            "id": "wf-edge-err",
+            "name": "wf",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {"id": "a", "type": "deterministic", "function": "step"},
+                {"id": "b", "type": "deterministic", "function": "step"},
+            ],
+            "edges": [
+                {"from": "a", "to": "b", "condition": "steps['a']['missing']['deeper'] == 1"}
+            ],
+        }
+    )
+    engine = _engine(fns)
+    instance = await engine.run(definition, trigger_payload={})
+    assert instance.state == WorkflowInstanceState.FAILED
+    assert "failed to evaluate" in (instance.error or "")
+
+
+async def test_condition_eval_error_opt_out_marks_target_skipped() -> None:
+    fns = FunctionRegistry()
+
+    async def step(config: dict[str, Any], ctx: Any, world: Any) -> dict[str, Any]:
+        return {"ok": True}
+
+    fns.register("step", step)
+    definition = load_definition(
+        {
+            "id": "wf-edge-opt",
+            "name": "wf",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {"id": "a", "type": "deterministic", "function": "step"},
+                {"id": "b", "type": "deterministic", "function": "step"},
+            ],
+            "edges": [
+                {
+                    "from": "a",
+                    "to": "b",
+                    "condition": "steps['a']['missing']['deeper'] == 1",
+                    "on_error": "inactive",
+                }
+            ],
+        }
+    )
+    engine = _engine(fns)
+    instance = await engine.run(definition, trigger_payload={})
+    assert instance.state == WorkflowInstanceState.COMPLETED
+    steps = await engine.repositories.steps.list_by_instance(instance.id)
+    assert {s.step_id: s.state.value for s in steps}["b"] == "skipped"

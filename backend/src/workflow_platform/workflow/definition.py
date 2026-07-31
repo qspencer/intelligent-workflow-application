@@ -94,6 +94,13 @@ class Edge(BaseModel):
 
     model_config = ConfigDict(populate_by_name=True)
 
+    # Behavior when the condition EXPRESSION ERRORS (not when it's falsy):
+    # "fail" (default) fails the instance — a broken condition must never
+    # silently bypass a validation/approval gate (external review 2026-07-31);
+    # "inactive" restores the old fail-open-to-skipped behavior for edges
+    # whose target is genuinely optional.
+    on_error: str = "fail"
+
     source: str = Field(alias="from")
     target: str = Field(alias="to")
     condition: str | None = None

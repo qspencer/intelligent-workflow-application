@@ -736,3 +736,42 @@ edges: []
             "gmail/intelligent.workflow.engine@quentinspencer.com/client_credentials"
         )
         await store.delete("gmail/intelligent.workflow.engine@quentinspencer.com/refresh_token")
+
+
+async def test_unsigned_webhook_refused_outside_dev_mode(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """THREAT_MODEL §8 production invariant: unsigned webhooks are a
+    dev-only convenience — refused (not registered) in local/oidc modes."""
+    yaml_text = """
+id: unsigned-hook
+name: unsigned
+trigger:
+  type: webhook
+  config:
+    trigger_id: unsigned-hook
+steps:
+  - id: s1
+    type: deterministic
+    function: noop
+edges: []
+"""
+    (tmp_path / "workflow.yaml").write_text(yaml_text)
+
+    monkeypatch.setenv("AUTH_MODE", "local")
+    registry = WebhookRegistry()
+    orch = _orchestrator(tmp_path, engine=_make_engine(), registry=registry)
+    await orch.start()
+    try:
+        assert not registry.is_registered("unsigned-hook")
+    finally:
+        await orch.stop()
+
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    registry2 = WebhookRegistry()
+    orch2 = _orchestrator(tmp_path, engine=_make_engine(), registry=registry2)
+    await orch2.start()
+    try:
+        assert registry2.is_registered("unsigned-hook")
+    finally:
+        await orch2.stop()

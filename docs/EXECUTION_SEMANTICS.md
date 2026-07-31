@@ -13,8 +13,20 @@ breaking change and updates this file in the same commit.
 WorkflowInstance:  PENDING → RUNNING → {COMPLETED | FAILED | KILLED}
                               ↕ PAUSED (resumable; budget or operator)
                    FAILED —retry→ RUNNING (operator endpoint)
-StepExecution:     PENDING → RUNNING → {COMPLETED | FAILED | SKIPPED}
+StepExecution:     PENDING → RUNNING → {COMPLETED | FAILED | CANCELLED}
+                   PENDING → SKIPPED
 ```
+
+A **sibling cancelled** by another branch's failure is distinct from
+FAILED (its own execution failed), SKIPPED (graph conditions made it
+unnecessary), and PENDING (never began). Orthogonal to workflow state,
+a step that dispatched an external effect records an **effect outcome**
+for recovery reasoning: `not_dispatched` (safe to retry) ·
+`dispatched_outcome_unknown` (timeout/cancel mid-call) · `effect_confirmed`
+· `effect_failed`. Today `CANCELLED` and the effect-outcome tags are the
+documented contract; the engine records the transition and audits it, and
+tracking the effect-outcome tag mechanically is the named follow-up (it
+needs acknowledgement state the engine does not yet keep).
 
 - `KILLED` is terminal and not resumable; `PAUSED` resumes from the next
   unstarted step; `FAILED` instances may be resumed via the retry
@@ -24,8 +36,12 @@ StepExecution:     PENDING → RUNNING → {COMPLETED | FAILED | SKIPPED}
 
 ## 2. Trigger delivery guarantees (per trigger type)
 
-**The platform-wide guarantee is at-least-once with bounded dedupe.**
-Exactly-once is **not provided** anywhere.
+**Delivery semantics are TRIGGER-SPECIFIC; there is no global delivery
+guarantee** (external-review correction — the earlier "platform-wide
+at-least-once" claim was contradicted by this same table). Email and
+filesystem aim for at-least-once under the stated bounds; webhook,
+schedule, and API are best-effort or caller-mediated. Exactly-once is
+**not provided** anywhere.
 
 | Trigger | Guarantee | Dedupe | Missed-while-down |
 |---|---|---|---|
@@ -48,11 +64,23 @@ delivery overwrites by basename.
   (`asyncio.wait FIRST_COMPLETED`, edge-driven readiness). There is no
   cross-instance coordination: N instances of one workflow run fully
   independently, and last-write-wins on any shared external target.
+  **This is a load-bearing semantic, not a detail** (external review §5):
+  two triggers for the same object, concurrent record updates, a fork
+  racing its origin, or schedule overlap all resolve last-write-wins with
+  no locking. **Contract until concurrency keys exist: a workflow whose
+  steps can target the same external object concurrently is unsupported
+  unless that operation is commutative or idempotent.** A
+  `concurrency: {key, mode: reject|queue|replace|allow}` control is the
+  named follow-up.
 - Edge conditions are simpleeval expressions over `trigger`/`steps`
-  context. An evaluation error makes the edge **inactive** (logged) —
-  fail-toward-not-running-the-target. A step whose incoming edges are
-  all resolved-inactive becomes `SKIPPED`; skip propagates downstream
-  unless another active path reaches the step.
+  context. A **falsy** result makes the edge inactive. A condition that
+  **errors** (typo, unexpected shape) **fails the instance by default**
+  (changed 2026-07-31 per external review §3: a broken condition must
+  never silently bypass a validation/approval/containment gate). An edge
+  whose target is genuinely optional may opt into the old behavior with
+  `on_error: inactive`. A step whose incoming edges are all
+  resolved-inactive becomes `SKIPPED`; skip propagates downstream unless
+  another active path reaches the step.
 - A step failure (after retries) fails the instance and **cancels
   in-flight sibling branches**; their external effects up to the
   cancellation point are NOT undone (see §6).
@@ -89,10 +117,15 @@ delivery overwrites by basename.
   engine does not yet track acknowledgement state; today the
   distinction is carried by tool choice (idempotent label-add) rather
   than machinery.
-- **Not provided:** automatic error classification (retryable vs
-  permanent), acknowledgement-aware retry, engine-enforced
-  effect-gating of retries. Named follow-up if a second mutating
-  connector arrives.
+- **High-priority follow-up (external review §4): make the invariant
+  static-checkable now.** `Tool.effect` already exists, so
+  `workflow.validate_definition` can, without acknowledgement-aware
+  execution, pass `retries > 0` automatically for all-`read_only` steps,
+  require a declared idempotency strategy on mutating steps, and reject
+  retries on unknown/non-idempotent effects (manual override explicit +
+  audited). Tracked as G21.
+- **Not provided (execution-time):** automatic error classification,
+  acknowledgement-aware retry, engine-enforced effect-gating at runtime.
 
 ## 5. Timeouts, budgets, pause
 
@@ -106,7 +139,11 @@ delivery overwrites by basename.
   `notify` (audit + continue), `pause` (default), `escalate`.
 - Operator pause is polled **between steps**; a running step completes
   first. Kill marks the instance KILLED at the next between-step check;
-  in-flight Bedrock/tool calls are not interrupted mid-call.
+  in-flight Bedrock/tool calls are not interrupted mid-call. **The
+  request/effected distinction should surface in the UI/API**
+  (`pause_requested`→`paused`, `kill_requested`→`killed`) so an operator
+  who hits "kill" during a consequential call is not misled into thinking
+  the call was interrupted — a follow-up on the API surface (G21).
 
 ## 6. Failure, partial completion, compensation
 
@@ -125,6 +162,14 @@ delivery overwrites by basename.
   instance is re-driven with `already_done` seeded from persisted
   COMPLETED/SKIPPED steps — completed work is not repeated, but a step
   that was RUNNING at crash time re-runs in full (at-least-once again).
+- **Honest limitation (external review §6): recovery is
+  restart-triggered, not lease-arbitrated.** The single-process
+  deployment recovers its own instances on boot; there are no worker
+  leases, heartbeats, stale-running timeouts, or atomic ownership. A
+  RUNNING step is re-driven **only** because the one process restarted —
+  in a multi-process deployment this would need leases to avoid two
+  workers driving one instance during a partition. Named prerequisite
+  for horizontal scale (G21).
 - Trigger-side: the email cursor persists (G9), so mail arriving during
   downtime is delivered late, not lost.
 
@@ -133,12 +178,26 @@ delivery overwrites by basename.
 - Definitions are replaced whole (save/import); an in-flight instance
   continues on the definition object it started with. **In-flight
   migration is not provided.**
-- Deleting a definition cascades its run history and 409s while any
-  instance is non-terminal. Bundled examples re-seed on restart.
+- Deleting a definition **currently cascades its run history** and 409s
+  while any instance is non-terminal. **The reviewer is right this
+  conflicts with the audit/forensic posture** (§8): the intended model is
+  disable/archive/soft-delete with run history + audit + immutable
+  definition versions retained per policy, and hard deletion a separate,
+  recorded process. Changing this is tracked as G21 (a behavior change,
+  not a doc edit); until then, treat delete as destructive and prefer
+  leaving definitions in place.
 - Fork (`POST .../fork`): new instance with topological-ancestor outputs
   copied as COMPLETED, driven from the chosen step under the CURRENT
-  definition + memory state; lineage recorded via the `workflow_forked`
-  audit entry referencing the source instance.
+  definition + memory state. **The reviewer is right this is dangerous
+  when the definition has since changed** (§7): old ancestor output
+  schema meeting new downstream expectations. The intended split, one a
+  named follow-up (G21): `replay_fork` (source definition + source memory
+  snapshot — the safe default) vs `migration_fork` (current definition,
+  with explicit compatibility validation). Today's single behavior is the
+  migration variant WITHOUT the validation — safe on an unchanged
+  definition, which is the only case exercised. The `workflow_forked`
+  audit entry should carry source-instance, source + destination
+  definition hashes, and memory-snapshot identity (follow-up).
 - **Not provided:** dynamic graph changes to running instances,
   approval/escalation expiry (escalations remain open until resolved).
 
@@ -147,5 +206,7 @@ delivery overwrites by basename.
 Exactly-once delivery · cross-step transactions · compensation ·
 engine-enforced retry/effect gating · mid-step budget enforcement ·
 in-flight definition migration · schedule catch-up · webhook queueing ·
-approval expiry. Each is either an authoring rule (§4), an operator
+approval expiry · worker leases / multi-process recovery arbitration ·
+concurrency keys · fork version-binding validation · soft-delete
+retention. Each is either an authoring rule (§4), an operator
 procedure (§6), or a trigger-gated backlog item.

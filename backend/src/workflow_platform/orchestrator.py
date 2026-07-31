@@ -22,6 +22,7 @@ to the next file. The server stays up.
 from __future__ import annotations
 
 import logging
+import os
 from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
@@ -171,6 +172,16 @@ class TriggerOrchestrator:
                     timezone_name=tz,
                 )
             if spec.type == "webhook":
+                if not config.get("secret_name") and os.environ.get("AUTH_MODE", "dev") != "dev":
+                    # Production invariant (THREAT_MODEL §8): unsigned webhooks
+                    # are a dev-only convenience — outside dev mode a webhook
+                    # trigger without a secret_name is refused, not registered.
+                    logger.error(
+                        "Refusing unsigned webhook trigger for %s: AUTH_MODE is not dev "
+                        "and no secret_name is configured.",
+                        definition.id,
+                    )
+                    return None
                 trigger_id = config.get("trigger_id") or definition.id
                 return WebhookTrigger(
                     self.webhook_registry,

@@ -808,11 +808,22 @@ class WorkflowEngine:
         )
         try:
             return bool(evaluator.eval(edge.condition))
-        except Exception:
-            logger.exception(
-                "Failed to evaluate condition %r — treating as inactive", edge.condition
-            )
-            return False
+        except Exception as exc:
+            if edge.on_error == "inactive":
+                logger.exception(
+                    "Failed to evaluate condition %r — edge opted into inactive-on-error",
+                    edge.condition,
+                )
+                return False
+            # Fail closed (default): a broken condition must never silently
+            # skip its target — the target may be a compliance/approval gate
+            # (EXECUTION_SEMANTICS §3; external review 2026-07-31).
+            raise RuntimeError(
+                f"Edge condition {edge.condition!r} ({edge.source} -> {edge.target}) "
+                f"failed to evaluate: {exc}. The instance fails rather than "
+                f"silently skipping the target; set on_error: inactive on this "
+                f"edge if skipping is genuinely safe."
+            ) from exc
 
     # --- step execution: retry, timeout, lifecycle, audit ---
 

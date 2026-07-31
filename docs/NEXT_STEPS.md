@@ -327,6 +327,39 @@ status paragraph, each with a trigger:
   query contract made it non-blocking. Trigger: any consumer needing
   per-run observation suppression.
 
+### G21 — Execution-semantics safety follow-ups (external review round 2)
+
+The document review of `EXECUTION_SEMANTICS.md` (2026-07-31) landed two
+fixes in code immediately (edge-condition errors now fail closed with an
+`on_error: inactive` opt-out; production webhooks must be signed). The
+rest are named follow-ups, each a real behavior change:
+- **Retry static validation** — `validate_definition` gates `retries > 0`
+  on `Tool.effect` (read-only auto-pass; mutating needs declared
+  idempotency; unknown rejects). Achievable now without ack-aware
+  execution. **Highest priority** — it makes the retry invariant
+  mechanical, not just documented.
+- **Soft-delete + retention** — stop cascading run history on definition
+  delete; disable/archive with audit + immutable versions retained;
+  hard-delete a separate recorded process. Conflicts with the audit
+  posture until fixed.
+- **Fork version-binding** — split `replay_fork` (source def + memory
+  snapshot, safe default) vs `migration_fork` (current def + compat
+  validation); audit source/dest definition hashes.
+- **Concurrency keys** — `concurrency: {key, mode}` for workflows that
+  can target the same external object; until then the unsupported-unless-
+  idempotent contract stands.
+- **Worker leases** — prerequisite for multi-process/horizontal scale;
+  today recovery is single-process restart only.
+- **State surfacing** — `pause_requested`/`kill_requested` vs terminal in
+  the API/UI so operators aren't misled about in-flight calls.
+
+### G22 — Tenant-isolation enforcement inventory (external review round 2)
+
+A generated route-to-scope inventory proving every surface participates
+in `OrgScope` (not reviewer memory), plus Postgres row-level security as
+defense-in-depth. Trigger: first external organization — same gate as the
+secrets-manager and host-admin-trust items in `THREAT_MODEL.md` §8.
+
 ### G19 — Workflow execution-semantics contract — **Done 2026-07-31** (`docs/EXECUTION_SEMANTICS.md`)
 
 A formal document specifying what the engine guarantees: trigger
