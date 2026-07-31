@@ -327,6 +327,25 @@ status paragraph, each with a trigger:
   query contract made it non-blocking. Trigger: any consumer needing
   per-run observation suppression.
 
+### G19 — Workflow execution-semantics contract (external review §6)
+
+A formal document specifying what the engine guarantees: trigger
+delivery (at-least-once + seen-id dedupe today), idempotency
+expectations per Tool.effect class, retry classification (the reviewer
+is right that blanket retry is unsafe for non-idempotent sends —
+today's default is retries=0 and the only retrying step is the
+enum-gated label apply), partial completion, cancellation, resume,
+fork lineage. Most behavior exists and is tested; the CONTRACT is
+unwritten. Trigger: before the next external review round, or any
+second engineer writing a mutating workflow.
+
+### G20 — Consolidated trust-boundary / threat-model document (external review §3)
+
+One picture unifying what exists piecewise (capability intersection,
+tenant isolation, mail-surface injection defenses, memory quarantine,
+secrets handling, WS auth). Trigger: same as G19 — it is the
+reviewer's requested bundle item 3.
+
 ### G18 — Model price/quality benchmark on real labeled data — **harness built 2026-07-31**
 
 `tools/eval_models.py`: runs the production classification task (current

@@ -781,8 +781,15 @@ expansions with return-triggers logged in its §8.)*
 | **Organization User** | One org | Create/edit/run workflows; read runs, audit, cost. No user management. |
 | **Organization Viewer** | One org | Read-only. Run and dry-run are spend actions and stay denied. |
 
-Until ROLES_PLAN S2 lands, org scoping is enforced on user management only;
-resource endpoints check the role but not yet the org.
+Org scoping is enforced end-to-end (ROLES_PLAN S2+S3, landed 2026-07-18):
+every resource endpoint resolves an `OrgScope` — lists filter, cross-org
+reads and mutations 404 (no existence leak), audit/steps/cost join through
+the instance, WS events filter per subscriber, and Administrator cross-org
+acts are audited as `org_bypass`. Isolation model: **row-level tenant key**
+(`org_id` on definitions/instances from birth) in shared Postgres —
+database/schema-per-tenant is a deployment-tier option, not the current
+design. Seven isolation invariants are test-pinned in
+`backend/tests/test_org_isolation.py`.
 
 In `oidc` mode, roles map to IdP groups — no local role assignment needed
 when groups are configured in the IdP. In `AUTH_MODE=local`, roles are
@@ -963,9 +970,16 @@ Agent reasoning is always captured but displayed at configurable verbosity:
 |-------|-------|
 | **Summary** (default) | One-line status per step: "Extracted 5 fields from invoice" |
 | **Reasoning** | Agent's decision rationale: "Chose to route to human review because amount exceeds $50K policy" |
-| **Full trace** | Complete chain-of-thought, all tool calls, all LLM inputs/outputs |
+| **Full trace** | The full recorded conversation: every tool call + result, LLM inputs/outputs as sent/received, policy checks | 
 
-UI supports click-through: summary view → click a step → reasoning view → click "show full trace" → raw LLM conversation.
+UI supports click-through: summary view → click a step → reasoning view →
+click "show full trace" → the recorded conversation. ("Reasoning" here means
+the model's *stated* rationale and the auditable record of what it did — the
+platform does not claim to capture a model's internal chain-of-thought, and
+raw prompt/output storage carries its own exposure: prompts can contain mail
+content, credentials-shaped strings, or injection payloads, so full-trace
+access is role-gated and full traces inherit the audit stream's handling
+rules rather than being casually displayable.)
 
 Configurable per user role:
 - Viewers see summary only
