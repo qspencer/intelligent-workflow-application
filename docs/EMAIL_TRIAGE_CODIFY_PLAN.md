@@ -15,11 +15,17 @@ carries Authentication-Results as an ORDERED list because the collapsed
 header dict is last-wins — which would have surfaced attacker-APPENDED
 AR forgeries; only the first mx.google.com entry is believed.
 First artifact: **7 senders** (30d TTL, sample 1-in-5). §9 validation
-window OPEN. Deviations, honest: runtime rubric-hash verification
-deferred (functions can't see the engine's memory hash yet — schema
-version is checked); `skip_if` engine surface deferred (the §8 query
-contract via decision_source is the primary guard and is what the CLI
-implements); corrections era-scoping still open (fence stays strict).
+window OPEN — **and codification is NOT yet "validated": the attention-
+only classifier has no frozen precision results, which codify depends on
+(TWO_AXIS finding 6)**. Deviations, honest (corrected per the 2026-07-31
+review): runtime **rubric-hash NOT enforced** (schema version is; §3);
+**`skip_if` deferred** — the decision_source query contract is the built
+guard (§8); corrections era-scoping open (fence stays strict); the
+overlay read-modify-write is now lock-serialized (§4/finding 17).
+Engine-surface follow-ups — runtime rubric-hash, `skip_if`, per-sender
+sampling floors, paired attention shadow eval, a resolved policy
+fingerprint, tool-param pinning, apply postconditions — are tracked as
+**G23**.
 
 ## 1. What this is (claims stated honestly)
 
@@ -47,6 +53,12 @@ promotion.
 A sender qualifies when ALL hold:
 
 1. **Current-schema floor**: ≥ 5 distinct schema-2 messages, unanimous
+   — **a candidate threshold for THIS single-operator deployment, not an
+   established universal promotion rule** (external review finding 14: 5
+   unanimous over >1 day is weak evidence of durable future stability; the
+   impact here is one reversible label in one mailbox). A general platform
+   default should require evidence scaled by sender volume + observed
+   category variability, not a fixed count.
    category, **all with empty attention**, zero corrections. Legacy
    (pre-schema-2) evidence may *support category stability* on top of
    this floor but can never satisfy the attention condition (v1's
@@ -93,11 +105,15 @@ surface:
       "last_evidence_at": "…", "expires_at": "…" } } }
 ```
 
-- **Rubric/version binding (external finding 13):** the precheck verifies
-  `triage_schema_version` + `rubric_hash` against the deployed workflow;
-  any mismatch routes to full classification until the list is
-  regenerated — a prompt change must not leave semantically stale rules
-  active.
+- **Rubric/version binding — DESIGN TARGET, partially implemented**
+  (external review round 2, finding 12 — resolving the contradiction with
+  the status line): **current runtime behavior checks
+  `triage_schema_version` only**; `rubric_hash` is recorded in the
+  artifact but **NOT enforced at runtime** (deterministic functions can't
+  read the engine's memory hash yet). Stated plainly: a prompt/rubric
+  change may leave semantically stale rules active until the operator
+  regenerates — a real current limitation, not a minor note. Enforcing
+  the hash at runtime is a G23 item.
 - **TTL + inactivity revalidation (finding 9):** rules expire
   (`expires_at`); the first message after a long sender-inactivity gap
   goes to full classification regardless of the rule.
@@ -186,8 +202,13 @@ finding 8):
   message, replay-safe; the secret comes from the SecretStore.
 - **Count-based validation** (not calendar-based): with zero mismatches
   in *n* samples, the ~95% upper bound on the true mismatch rate is
-  ≈ 3/n — so rate reduction (5 → 10) requires a minimum sampled count
-  (≥ 30 across the list, reported per sender), never "two quiet weeks".
+  ≈ 3/n — but that bound is **per sender, not aggregate** (external
+  review finding 15: 28 samples on sender A + 2 on B can reach "30 across
+  the list" while B is essentially untested). Rate reduction or continued
+  promotion for a sender requires that SENDER's own minimum sample count
+  (or a hierarchical rule keeping low-volume senders at the higher rate);
+  aggregate counts are operational reporting only, never sender-level
+  confidence.
   The validation report includes: codified-run count, sampled count (per
   sender), mismatches, attention-bearing sampled messages, corrections.
 
@@ -209,16 +230,17 @@ mechanism:
   rule-application-correction event even though no classifier category
   verdict exists for that run.
 
-`ObservationSpec.skip_if` remains as named engine surface, now with
-**fail-closed semantics for learned-memory writes** (external finding 12,
-replacing v1's observe-on-error): expressions are validated at
-workflow-load time (an invalid definition is rejected before execution);
-runtime evaluation failure **skips the observation** and emits a
-high-severity audit event. The asymmetry is the argument: one missed
-observation is recoverable; thousands of self-confirming writes corrupt
-the evidence ledger permanently. Documented explicitly: this fail
-direction is specific to memory writes and may differ for other future
-`skip_if` consumers.
+**`ObservationSpec.skip_if` is DEFERRED, not implemented** (external
+review round 2, finding 13 — resolving the contradiction with the status
+line): what is actually built is the **eligibility query contract** —
+codified runs are excluded from positive evidence because promotion
+counts only `decision_source == "classifier"` verdicts, so no
+self-confirming write reaches the ledger. The `skip_if` engine surface
+(load-time validation + runtime fail-closed skip + high-severity audit)
+is the DESIGNED belt-and-suspenders, tracked G23; its fail-closed
+semantics (a missed observation is recoverable; thousands of
+self-confirming writes corrupt the ledger permanently) are the argument
+for building it, not a description of current behavior.
 
 ## 9. Validation
 

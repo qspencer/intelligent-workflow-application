@@ -6,6 +6,7 @@ through `FunctionRegistry`.
 
 from __future__ import annotations
 
+import asyncio
 import csv
 import gzip
 import hashlib
@@ -391,6 +392,21 @@ TRIAGE_CATEGORIES = [
 # subsumes `review` (dominance rule); `awaiting-reply` composes freely.
 ATTENTION_LEVELS = ["urgent", "awaiting-reply", "review"]
 
+# Serializes the codified disable-overlay read-modify-write within the
+# single-process engine (external review finding 17 — a lost-update race
+# would silently drop a rule-disable, a security control). Multi-process
+# deployments need transactional storage instead (tracked G23).
+_OVERLAY_LOCK = asyncio.Lock()
+
+
+def _label_attention(attention: list[str]) -> list[str]:
+    """Display-label dominance (NOT a record mutation — finding 8): urgent
+    subsumes the review label (urgency implies the user will look), but the
+    record keeps both judgments."""
+    if "urgent" in attention and "review" in attention:
+        return [v for v in attention if v != "review"]
+    return attention
+
 
 async def record_email_triage(
     config: dict[str, Any], context: WorkflowContext, world: World
@@ -451,8 +467,6 @@ async def record_email_triage(
     # the axis), inter-axis independence (never blocks the category label).
     attention: list[str] = list(triage.get("attention", []))
     attention_valid = all(value in ATTENTION_LEVELS for value in attention)
-    if attention_valid and "urgent" in attention and "review" in attention:
-        attention = [value for value in attention if value != "review"]
     # awaiting-reply is state-shaped: suppress when the trigger knows the
     # user already replied, or when the thread lookup couldn't say
     # (tri-state; `unknown` must not manufacture a response obligation).
@@ -461,6 +475,10 @@ async def record_email_triage(
     if "awaiting-reply" in attention and reply_status in ("replied", "unknown"):
         attention = [value for value in attention if value != "awaiting-reply"]
         suppressed = True
+    # The RECORD preserves the full validated attention set (external review
+    # finding 8 — the urgent-subsumes-review dominance is a LABEL-display
+    # policy, not an erasure of the judgment). Dominance is applied only when
+    # composing apply_labels below.
     triage["attention"] = attention if attention_valid else []
     triage["attention_valid"] = attention_valid
     if suppressed:
@@ -470,7 +488,7 @@ async def record_email_triage(
     if triage["category_valid"]:
         apply_labels.append(f"wf/{triage['category']}")
     if attention_valid:
-        apply_labels.extend(f"wf-attn/{value}" for value in attention)
+        apply_labels.extend(f"wf-attn/{value}" for value in _label_attention(attention))
     triage["apply_labels"] = apply_labels
     # Scalar mirror for edge conditions: the simpleeval sandbox has no list
     # literals, so edges gate on `apply_label_count > 0`.
@@ -516,8 +534,6 @@ async def _record_codified(
                 seen.append(str(value))
         attention = seen
         attention_valid = all(v in ATTENTION_LEVELS for v in attention)
-        if attention_valid and "urgent" in attention and "review" in attention:
-            attention = [v for v in attention if v != "review"]
         note = parsed.get("decision_note") or parsed.get("summary")
     reply_status = context.trigger.get("reply_status")
     if "awaiting-reply" in attention and reply_status in ("replied", "unknown"):
@@ -533,7 +549,7 @@ async def _record_codified(
     if category_valid:
         apply_labels.append(f"wf/{rule_category}")
     if attention_valid:
-        apply_labels.extend(f"wf-attn/{v}" for v in attention)
+        apply_labels.extend(f"wf-attn/{v}" for v in _label_attention(attention))
     return {
         "parse_ok": parsed is not None,
         "category": rule_category,
@@ -563,16 +579,21 @@ async def _disable_codified_sender(
     if not sender:
         return
     try:
-        overlay: dict[str, Any] = {}
-        with suppress(Exception):
-            overlay = json.loads(await world.fs.read_text(path))
-        disabled = overlay.setdefault("disabled_senders", {})
-        disabled[sender] = {
-            "reason": reason,
-            "disabled_at": datetime.now(UTC).isoformat(),
-            "run_id": context.instance_id,
-        }
-        await world.fs.write_text(path, json.dumps(overlay, indent=1))
+        # Atomic read-modify-write under a process lock: two apply steps
+        # finishing concurrently must not lose one another's disable entry.
+        # Corrupt/unreadable overlay → start empty (fail-open to full
+        # classification, the safe direction).
+        async with _OVERLAY_LOCK:
+            overlay: dict[str, Any] = {}
+            with suppress(Exception):
+                overlay = json.loads(await world.fs.read_text(path))
+            disabled = overlay.setdefault("disabled_senders", {})
+            disabled[sender] = {
+                "reason": reason,
+                "disabled_at": datetime.now(UTC).isoformat(),
+                "run_id": context.instance_id,
+            }
+            await world.fs.write_text(path, json.dumps(overlay, indent=1))
         logger.warning("Codified sender %s DISABLED (%s).", sender, reason)
     except Exception:
         logger.exception("Failed to write codified disable overlay for %s", sender)

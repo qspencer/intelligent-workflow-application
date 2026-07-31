@@ -430,6 +430,51 @@ tenant isolation, mail-surface injection defenses, memory quarantine,
 secrets handling, WS auth). Trigger: same as G19 — it is the
 reviewer's requested bundle item 3.
 
+### G23 — Triage acting/codify hardening → platform controls (external review 2026-07-31)
+
+The three-plan review's lesson: turn production-discovered conventions
+into platform-level controls. Two landed this pass (attention-set
+preservation in the record; lock-serialized disable overlay). Remaining,
+by theme:
+
+**Acting-path safety (high priority — "the trigger has effectively fired"):**
+- **Tool-parameter pinning** — the engine binds `message_id =
+  trigger.message_id` and `labels = steps.record.apply_labels`; the model
+  may request the call but cannot choose/alter those fields (today
+  message_id is a free tool param — the agent could label another message
+  in the mailbox).
+- **Apply postcondition** — a step whose tool call errored then finished
+  in prose must be FAILED, not silently successful (`success_requires:
+  tool_call{name,result:success,count:1}`), or make the tool the
+  deterministic step impl once connector-capability enforcement lives
+  outside the agent harness.
+- **Decouple verdict observation from Gmail apply success** — record the
+  adjudicated classification whether or not Gmail accepts the label; a
+  separate outcome event records the apply failure.
+
+**Codify maturity (before treating as a general default, not just supervised):**
+- Runtime **rubric-hash enforcement** (functions can't read the engine
+  memory hash today — schema version only).
+- **`skip_if`** engine surface (fail-closed learned-memory writes) as the
+  designed belt-and-suspenders over the query-contract guard.
+- **Per-sender** sampling floors (aggregate 3/n doesn't bound a
+  low-volume sender).
+- **Paired attention shadow eval** on sampled messages (full vs
+  attention-only vs human, same messages) — spot checks can't establish
+  parity across a different prompt with no recall.
+- One **resolved policy fingerprint** (schema + rubric + auth-policy +
+  normalization + vocab + sampling versions) so a normalization/auth
+  change can't leave an artifact "compatible" while its keys mean
+  something different.
+- Multi-process transactional overlay storage (the lock covers
+  single-process only).
+
+**Process:** record threshold waivers as (original gate / evidence /
+deviation / owner / residual risk / new prospective gate), never as a
+pass; a population-scope expansion (like the same-day inbox→all-mail
+widening) is an independently-reviewed amendment with volume/spend/
+backfill/rollback stated up front.
+
 ### G18 — Model price/quality benchmark on real labeled data — **harness built 2026-07-31**
 
 `tools/eval_models.py`: runs the production classification task (current

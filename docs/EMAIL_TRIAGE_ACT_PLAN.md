@@ -1,7 +1,13 @@
 # Email Triage, Acting Variant — Design
 
-Status: **built, not yet cut over** (2026-07-18, same day as design +
-review). Landed: the `inputs:` selector on `AgenticStep` + minimized
+Status: **BUILT + CUT OVER 2026-07-22; SUPERSEDED in part** (external
+review 2026-07-31, finding 5 — the old "built, not yet cut over" opener
+predated cutover and the two-axis/codify evolution). Current live shape
+lives in `EMAIL_TRIAGE_TWO_AXIS_PLAN.md` (5-bucket category + multi-valued
+attention) and `EMAIL_TRIAGE_CODIFY_PLAN.md` (codified fast path); this
+document is the ORIGINAL acting-variant design + its rollout history —
+read it for the privilege-split rationale, not the current field values
+(the diagram below shows the original single-category shape). Landed: Landed: the `inputs:` selector on `AgenticStep` + minimized
 `_build_user_message`; `category_valid` enum gate in `record_email_triage`;
 per-account `email_label_apply__<sanitized-account>` tools (instance-named, `wf/*`
 allowlisted) wired at boot for every credentialed account;
@@ -18,7 +24,7 @@ read-only sibling = manual rollback artifact), tests re-pinned to the real
 invariant (the siblings must never BOTH hold email triggers —
 `test_siblings_never_both_poll_the_mailbox`), service restarted, exactly
 one poller on the mailbox confirmed in logs, and
-`email_label_apply:qspencer@gmail.com` verified in the live catalog.
+`email_label_apply__qspencer_gmail_com` verified in the live catalog.
 **First-run finding (2026-07-23):** the very first live
 message crashed the apply step — Bedrock's `toolSpec.name` only allows
 `[a-zA-Z0-9_-]+`, so the colon/@/dot per-account name was illegal at the
@@ -38,12 +44,19 @@ fully minimized — no rubric memory, no recall injection (test-pinned in
 the hostile-path fixture). The first message was completed via
 kill + fork-at-apply after the naming fix: `wf/notification` applied
 successfully (tool_call SUCCESS, cursor persisted — downtime backfill
-active from here on). **WINDOW CLOSED — PASSED (2026-07-26),** on evidence
-quality per the sequencing doc's own rule (raw-count targets waived: the
-apply mechanism is deterministic — a fixed 1,997-token minimized prompt
-passing an enum through one tool call — so per-message variance lives in
-the classifier, which §8 never measured). Final tally: **20/20 label
-parity** (19 organic runs + the fork repair), **zero failures, zero
+active from here on). **WINDOW CLOSED 2026-07-26 — original §8 criteria
+NOT met; operator accepted an evidence-based waiver** (external review
+2026-07-31, finding 1 — corrected from the earlier "PASSED" language,
+which conflated a waiver with a pass against the precommitted gate). The
+precommitted gate was ~3 days / ≥100 messages at ~$0.001/msg; the actual
+disposition was: **after 20 successful applications** the operator
+accepted a waiver because the apply path has fixed structure and no
+observed outcome variance (deterministic 1,997-token prompt passing an
+enum through one tool call), and the **cost ceiling was revised
+PROSPECTIVELY** to ≤$0.003/msg (the ~$0.001 target underestimated the
+two-turn floor). Recording this as a waiver, not a pass, is the point:
+acceptance thresholds must not silently move after results are visible.
+Evidence tally: **20/20 label parity** (19 organic runs + the fork repair), **zero failures, zero
 out-of-namespace writes**, restart + G9 backfill exercised, one human
 spot-check confirmed (the live awaiting-reply), avg apply cost $0.0028 —
 **the §8 cost criterion is formally revised to ≤$0.003/message** (the
@@ -164,9 +177,11 @@ Two gaps in the current plumbing, both closed here:
 email trigger (qspencer@gmail.com, unchanged)
   → classify   (agentic; tools: []           — unchanged, rubric + recall)
   → record     (deterministic record_email_triage — unchanged)
-  → apply      (agentic; tools: [email_label_apply:qspencer@gmail.com]
-                inputs: [steps.record.category, trigger.message_id]
-                goal: "Apply exactly the label wf/<category> to the message."
+  → apply      (agentic; tools: [email_label_apply__qspencer_gmail_com]
+                # ^ sanitized per-account name — the colon/@/dot form shown
+                #   in early drafts was illegal for Bedrock toolSpec.name
+                inputs: [steps.record.apply_labels, trigger.message_id]
+                goal: "Apply exactly the given labels to the message."
                 policy: max_iterations 2, small token cap)
        condition: steps.record.category_valid == true — unparseable or
                   out-of-vocabulary verdicts are recorded but never acted

@@ -28,8 +28,16 @@ filtered mail) — a one-time burst, bounded by max_messages pagination.
 out-of-allowlist writes, category mix stable, one operational fix
 (body cap + budget). **Attention stays in monitored status** — the
 findings log continues, wf-attn labels remain under operator
-spot-check, and the formal 30-message acceptance pass is optional
-(nothing downstream gates on it; codify never codifies attention).
+spot-check. **Correction (external review 2026-07-31, finding 6): the
+formal acceptance pass is NO LONGER optional.** The earlier "nothing
+downstream gates on it" was wrong once codification shipped — codify
+qualifies senders on *empty attention*, runs a universal attention check
+on codified messages, and disables a rule the moment attention is
+detected. Attention quality therefore gates which senders codify, which
+rules stay active, and the optimized route's cost. So: codification must
+NOT be described as validated until the attention-only classifier has
+frozen precision results (§7 acceptance set), and attention remains
+"deployed, not yet accepted".
 **Part-2 findings log:** (1) 2026-07-26, first correction — a True
 Trading Group "Workshop Today 1pm ET" pitch got `notification` +
 `attention:["urgent"]`; operator verdict: promotion, not urgent (both
@@ -106,10 +114,12 @@ rule and lost information again.
   purchases, account digests, marketing "review our offer", newsletters
   saying "check out".
 
-Admissible combinations: any subset, with one dominance rule —
-**`urgent` subsumes `review`** (if both emitted, `review` is dropped;
-urgency already implies the user will look). `awaiting-reply` composes
-freely with either.
+Admissible combinations: any subset, with one dominance rule that is a
+**LABEL-DISPLAY policy, not an erasure** (external review finding 8): when
+both are emitted, the `wf-attn/review` LABEL is dropped (urgency implies
+the user will look), but the **record's `attention` field keeps both
+values** — downstream/analytics/codify see the full judgment. `awaiting-
+reply` composes freely with either.
 
 ### 2c. Labels
 
@@ -336,9 +346,14 @@ ever runs as a multi-tenant service where restarts are expensive.
   incl. the `already_replied` gate; `apply_labels` composition for all
   (valid, invalid, none) combinations; hostile attention string →
   `attention_valid=False`, label dropped, category label unaffected.
-- Trigger: `already_replied` annotation from a faked thread response
-  (newer sent message present/absent; thread fetch failure → `False` +
-  logged, never blocks delivery).
+- Trigger: `reply_status` annotation from a faked thread response —
+  newer-sent present → `replied`, absent → `not_replied`, **thread-fetch
+  failure → `unknown`** (external review finding 7 — the earlier
+  "failure → `False`" reintroduced the rejected fail-open boolean; the
+  design's tri-state is authoritative and the code implements it). The
+  test asserts: failure → `reply_status="unknown"`; `unknown` suppresses
+  `awaiting-reply`; category and other attention values unaffected; never
+  blocks delivery.
 - Apply path: one tool call carrying both labels; attention-invalid run
   carries category label only; hostile-category fixture still skips
   entirely (existing pin, re-asserted under new vocabulary).

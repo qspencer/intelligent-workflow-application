@@ -221,3 +221,45 @@ def test_exactly_one_classifier_output_enforced() -> None:
         )
     with pytest.raises(StepFailure):
         _record(_context(), world, triage=None, attention=None, precheck=PRECHECK_CODIFIED)
+
+
+def test_record_preserves_full_attention_set_despite_label_dominance() -> None:
+    """External review finding 8: urgent-subsumes-review is a LABEL policy,
+    not an erasure — the record keeps both judgments."""
+    context = _context()
+    context.record_step_output(
+        "triage",
+        {"output_text": '{"category": "notification", "attention": ["urgent", "review"], "category_confidence": 0.9}'},
+    )
+    out = asyncio.run(
+        record_email_triage({"triage_from": "steps.triage.output_text"}, context, mock_world())
+    )
+    assert out["attention"] == ["urgent", "review"]  # both preserved in the record
+    assert out["apply_labels"] == ["wf/notification", "wf-attn/urgent"]  # review label dropped
+
+
+def test_disable_overlay_concurrent_writes_dont_lose_entries() -> None:
+    """External review finding 17: two apply steps disabling different
+    senders concurrently must not lose one another's entry."""
+    world = _world(_artifact())
+
+    async def _disable_two() -> None:
+        from workflow_platform.engine.functions import _disable_codified_sender
+
+        async def one(sender: str) -> None:
+            ctx = WorkflowContext(
+                instance_id=f"i-{sender}",
+                workflow_id="wf",
+                trigger={"from_address": {"address": sender}, "message_id": "m"},
+            )
+            await _disable_codified_sender(
+                {**CONFIG}, ctx, world, reason="attention_detected"
+            )
+
+        await asyncio.gather(one("a@x.com"), one("b@x.com"), one("c@x.com"))
+
+    asyncio.run(_disable_two())
+    overlay = json.loads(
+        asyncio.run(world.fs.read_text(f".memory/codified/{RULES_REL}.disabled"))
+    )
+    assert set(overlay["disabled_senders"]) == {"a@x.com", "b@x.com", "c@x.com"}
