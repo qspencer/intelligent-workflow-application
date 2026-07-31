@@ -21,8 +21,11 @@ inherit their definition's org at run/fork time, and the org-aware veracium
 namespace (`org:<org>:user:<key>`) live — engine + offline tools composed,
 the production store's 7,981 rows migrated (`tools/
 migrate_learned_namespace.py`), recall verified intact under the new keys.
-All seven §7 isolation criteria are test-pinned in
-`backend/tests/test_org_isolation.py`. S1 delivered: the four-role vocabulary end to end (enum, group
+§7 isolation criteria are test-pinned across two modules (external
+review 2026-07-31, finding 1 — corrected from an "all in one file"
+overclaim): criteria 1, 2, 4, 5, 6, 6b, 7-map in
+`test_org_isolation.py`; criterion 3 (user-management guards) in
+`test_users_api.py`; the migration-map totality in the migration test. S1 delivered: the four-role vocabulary end to end (enum, group
 map, RoleSwitcher, Users admin, `create_user.py`), Alembic `0005` data
 migration, the §4-table translation of every `require_roles` call site with
 the §4c expansions test-pinned, and org-scoped `/api/users` (Org Admins
@@ -284,7 +287,47 @@ the end of S2:
 7. After the `0005` migration, no user row contains an old role string
    (and the Users admin page renders only new-vocabulary options).
 
+**Evidence map + honesty (S2 test review, 2026-07-31):**
+
+| Criterion | Where pinned | Note |
+|---|---|---|
+| 1 cross-org reads | `test_org_isolation.py` | list-filter + 404-not-403 |
+| 2 cross-org mutations | `test_org_isolation.py` | Org-User paths + delete-as-Org-Admin |
+| 3 user-mgmt guards | `test_users_api.py` | separate module |
+| 4 Viewer matrix | `test_org_isolation.py` | + positive controls |
+| 5 Administrator bypass | `test_org_isolation.py` | full detail + same-org negative control |
+| 6 WS isolation | `test_org_isolation.py` | forbidden-first delivery test + direct `event_deliverable` primitive test (the prior test could pass unfiltered — fixed) |
+| 6b escalations | `test_org_isolation.py` | — |
+| 7 migration | `0005` map test | map totality only — does NOT execute the SQL; real Postgres migration-execution test is G22 |
+
+Strengthened this pass (`test_org_isolation.py`): the WS test now fails
+if an implementation delivers unfiltered; the Administrator-bypass test
+asserts the full audit detail plus a same-org negative control;
+bulk-delete asserts the own-org row is gone and the foreign row
+untouched; paired positive controls prove own-org read/run/delete
+succeed. Workflow delete is now Org-Admin+ (finding 5).
+
+**Not yet mechanically complete (G22, stated honestly):** these tests use
+`in_memory_repositories()`, so the §4b SQL joins (audit/steps/cost) are
+NOT exercised against Postgres; endpoint coverage is a representative
+sample, not the full route table; the migration test does not run the
+Alembic SQL; S3 lifecycle is asserted elsewhere, not here. Until G22's
+generated route-to-scope inventory plus a Postgres isolation job exist,
+S2 is substantially pinned, not endpoint- and storage-complete.
+
 ## 8. Deferred, with triggers
+
+Structural hardening from the S2 test review (2026-07-31), tracked as
+**G22** in `NEXT_STEPS.md`: fail-closed repository methods (the optional
+`org_id=` default is the most likely future isolation defect — an author
+who forgets it silently gets every tenant); a generated route-to-scope +
+route-to-test inventory that fails CI on an unclassified route;
+Postgres-backed isolation tests for the join-dependent surfaces; a
+migration-execution test; user-management audit entries carrying an
+`affected org_id`; connector/secret per-org scoping as a hard
+prerequisite for a second org; `/metrics` protected by more than
+deployment convention. Each is a release gate before the first external
+organization.
 
 | Deferred | Trigger |
 |---|---|

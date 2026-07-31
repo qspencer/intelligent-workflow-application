@@ -30,7 +30,7 @@ from pydantic import ValidationError
 from workflow_platform.auth import auth_mode, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.auth.provisioning import current_issuer
-from workflow_platform.auth.rbac import ANY_ROLE, ORG_WRITE_ROLES, Role
+from workflow_platform.auth.rbac import ANY_ROLE, ORG_ADMIN_ROLES, ORG_WRITE_ROLES, Role
 from workflow_platform.auth.scope import OrgScope, resolve_org_scope
 from workflow_platform.catalog import build_catalog
 from workflow_platform.cost import CostReportService, price_for_model
@@ -619,7 +619,7 @@ def build_router(
     async def delete_workflow(
         workflow_id: str,
         force: bool = False,
-        user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        user: UserIdentity = Depends(require_roles(*ORG_ADMIN_ROLES)),
         scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         """Hard-delete a workflow definition and cascade to its run history

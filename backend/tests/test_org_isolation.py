@@ -35,6 +35,7 @@ from workflow_platform.workflow import load_definition
 
 _ADMIN = {"X-Dev-User": "root", "X-Dev-Groups": "admins"}
 _ACME_USER = {"X-Dev-User": "acme-u", "X-Dev-Groups": "org-users"}
+_ACME_ADMIN = {"X-Dev-User": "acme-a", "X-Dev-Groups": "org-admins"}
 _ACME_VIEWER = {"X-Dev-User": "acme-v", "X-Dev-Groups": "org-viewers"}
 _DEFAULT_USER = {"X-Dev-User": "def-u", "X-Dev-Groups": "org-users"}
 
@@ -59,7 +60,12 @@ def _two_org_app(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, Any, Even
 
     async def _seed() -> None:
         await repos.organizations.save(Organization(id="acme", name="acme"))
-        for sub, org in [("acme-u", "acme"), ("acme-v", "acme"), ("def-u", "default")]:
+        for sub, org in [
+            ("acme-u", "acme"),
+            ("acme-a", "acme"),
+            ("acme-v", "acme"),
+            ("def-u", "default"),
+        ]:
             await repos.users.save(User(iss="dev", sub=sub, org_id=org))
         await repos.definitions.save(_definition("wf-default"), org_id="default")
         await repos.definitions.save(_definition("wf-acme"), org_id="acme")
@@ -157,6 +163,7 @@ def test_admin_sees_everything_including_system_entries(
 
 def test_cross_org_mutations_404(monkeypatch: pytest.MonkeyPatch) -> None:
     client, _, _ = _two_org_app(monkeypatch)
+    # Org-User-reachable mutations: cross-org target is invisible (404).
     for method, path, body in [
         ("post", "/api/workflows/wf-default/run", {}),
         ("post", "/api/workflows/wf-default/dry-run", {}),
@@ -164,19 +171,53 @@ def test_cross_org_mutations_404(monkeypatch: pytest.MonkeyPatch) -> None:
         ("post", "/api/workflow-instances/i-default/kill", None),
         ("post", "/api/workflow-instances/i-default/fork", {"from_step_id": "s1"}),
         ("delete", "/api/workflow-instances/i-default", None),
-        ("delete", "/api/workflows/wf-default", None),
     ]:
         r = getattr(client, method)(
             path, headers=_ACME_USER, **({"json": body} if body is not None else {})
         )
         assert r.status_code == 404, (path, r.status_code, r.text)
 
+    # Workflow deletion is Org-Admin+ (external review finding 5). Tested
+    # with an acme Org Admin so the role gate passes and the cross-org
+    # SCOPE check is what produces the 404 — not the role denial.
+    r = client.delete("/api/workflows/wf-default", headers=_ACME_ADMIN)
+    assert r.status_code == 404, ("delete wf-default as acme-admin", r.status_code, r.text)
+    # An Org User is denied delete uniformly (role, not scope) — 403 leaks
+    # nothing org-specific since it's identical for their own org.
+    r = client.delete("/api/workflows/wf-default", headers=_ACME_USER)
+    assert r.status_code == 403, ("org-user delete denied by role", r.status_code)
+
 
 def test_bulk_delete_scoped_to_own_org(monkeypatch: pytest.MonkeyPatch) -> None:
     client, repos, _ = _two_org_app(monkeypatch)
     r = client.delete("/api/workflow-instances", params={"state": "failed"}, headers=_ACME_USER)
+    # Stronger postconditions (external review finding 14): success status,
+    # the acme instance actually gone, the foreign instance untouched.
+    assert r.status_code == 200
     assert r.json()["deleted_instances"] == 1  # only i-acme
-    assert asyncio.run(repos.instances.get("i-default")) is not None
+    assert asyncio.run(repos.instances.get("i-acme")) is None, "own-org instance deleted"
+    assert asyncio.run(repos.instances.get("i-default")) is not None, "foreign untouched"
+
+
+def test_positive_controls_own_org_actions_succeed(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Paired positive controls (external review finding 13): a suite that
+    rejected ALL mutations could pass much of the isolation set. Prove the
+    OWN-org paths that must SUCCEED (or fail only for a non-authz reason)."""
+    client, _, _ = _two_org_app(monkeypatch)
+    # Org User reads + spends in own org: never 403/404.
+    assert client.get("/api/workflows/wf-acme", headers=_ACME_USER).status_code == 200
+    assert client.post("/api/workflows/wf-acme/run", headers=_ACME_USER, json={}).status_code != 403
+    # Org Admin manages own-org workflow deletion (403 would mean the role
+    # gate wrongly denied; 404 would mean scope wrongly hid own resource).
+    assert client.delete("/api/workflows/wf-acme", headers=_ACME_ADMIN).status_code not in (
+        403,
+        404,
+    )
+    # Viewer reads own org but cannot spend.
+    assert client.get("/api/workflows/wf-acme", headers=_ACME_VIEWER).status_code == 200
+    assert (
+        client.post("/api/workflows/wf-acme/run", headers=_ACME_VIEWER, json={}).status_code == 403
+    )
 
 
 # --- Criterion 4: Organization Viewer read/write matrix ---
@@ -213,36 +254,60 @@ def test_org_viewer_reads_but_never_spends(monkeypatch: pytest.MonkeyPatch) -> N
 
 def test_admin_cross_org_mutation_audits_bypass(monkeypatch: pytest.MonkeyPatch) -> None:
     client, repos, _ = _two_org_app(monkeypatch)
-    # root's JIT row lands in the default org; killing an acme instance is
-    # a cross-org act.
+    # root's JIT row lands in the default org; retrying an acme instance is
+    # a cross-org act (external review finding 12: assert the FULL detail,
+    # and fix the stale "killing" comment — the call is retry).
     r = client.post("/api/workflow-instances/i-acme/retry", headers=_ADMIN)
     assert r.status_code in (200, 503)  # no engine bound → 503 after the check
     entries = asyncio.run(repos.audit.list_recent(limit=50))
     bypasses = [e for e in entries if e.detail.get("org_bypass") is True]
-    assert bypasses, "expected an org_bypass audit entry for the cross-org retry"
-    assert bypasses[-1].actor_id == "root"
+    assert len(bypasses) == 1, "exactly one org_bypass entry for one cross-org act"
+    entry = bypasses[0]
+    assert entry.actor_id == "root"
+    assert entry.action == "instance_retry_requested"
+    assert entry.workflow_instance_id == "i-acme"  # the acme resource, not default
+    assert entry.detail.get("org_bypass") is True
+
+    # Negative control (finding 12 + 13): a SAME-org Administrator act must
+    # NOT produce an org_bypass marker (the bypass tracer fires only when
+    # the actor reaches across orgs; same-org effects are engine-audited).
+    r2 = client.post("/api/workflow-instances/i-default/retry", headers=_ADMIN)
+    assert r2.status_code in (200, 503)
+    entries2 = asyncio.run(repos.audit.list_recent(limit=50))
+    default_bypass = [
+        e
+        for e in entries2
+        if e.workflow_instance_id == "i-default" and e.detail.get("org_bypass") is True
+    ]
+    assert not default_bypass, "a same-org Administrator action must never be flagged org_bypass"
 
 
 # --- Criterion 6: WS delivery is org-filtered ---
 
 
 def test_ws_never_delivers_foreign_org_events(monkeypatch: pytest.MonkeyPatch) -> None:
+    # Forbidden events are published FIRST (external review 2026-07-31,
+    # finding 8): an implementation that delivered everything unfiltered
+    # would surface a-default before a-acme, so the first-message assert
+    # below fails unless the receiver actually SKIPPED the two forbidden
+    # events. The prior version published a-acme first and could pass on a
+    # fully-broken filter.
     client, _, events = _two_org_app(monkeypatch)
 
-    async def _publish_all() -> None:
-        await events.publish({"action": "a-acme", "org_id": "acme"})
-        await events.publish({"action": "a-default", "org_id": "default"})
-        await events.publish({"action": "a-system"})  # instance-less
+    async def _publish_forbidden_then_allowed() -> None:
+        await events.publish({"action": "a-default", "org_id": "default"})  # forbidden
+        await events.publish({"action": "a-system"})  # instance-less, forbidden
+        await events.publish({"action": "a-acme", "org_id": "acme"})  # the only allowed one
 
     with client.websocket_connect("/ws/events?user=acme-u&groups=org-users") as ws:
-        asyncio.run(_publish_all())
-        first = ws.receive_json()
-        assert first["action"] == "a-acme"  # default-org + system events skipped
+        asyncio.run(_publish_forbidden_then_allowed())
+        assert ws.receive_json()["action"] == "a-acme"  # skipped both forbidden
 
+    # Administrator (unscoped) receives all three, in order.
     with client.websocket_connect("/ws/events?user=root&groups=admins") as ws:
-        asyncio.run(_publish_all())
+        asyncio.run(_publish_forbidden_then_allowed())
         got = [ws.receive_json()["action"] for _ in range(3)]
-        assert got == ["a-acme", "a-default", "a-system"]
+        assert got == ["a-default", "a-system", "a-acme"]
 
 
 # --- Criterion 6b: escalations are org-scoped ---
@@ -299,3 +364,19 @@ def test_role_migration_mapping_is_total() -> None:
     from workflow_platform.auth import Role
 
     assert set(module._FORWARD.values()) <= {r.value for r in Role}
+
+
+def test_event_deliverable_primitive_negative_and_positive() -> None:
+    """Directly pin the WS org-filter primitive (external review finding 8):
+    the delivery-path test proves skipping; this proves NON-delivery
+    deterministically without relying on a blocking WebSocket read."""
+    from workflow_platform.api.ws import event_deliverable
+
+    # Scoped subscriber: only their own org's events.
+    assert event_deliverable({"action": "x", "org_id": "acme"}, "acme") is True
+    assert event_deliverable({"action": "x", "org_id": "default"}, "acme") is False
+    assert event_deliverable({"action": "x"}, "acme") is False  # instance-less/system
+    assert event_deliverable({"action": "x", "org_id": None}, "acme") is False  # malformed
+    # Unscoped Administrator: everything.
+    for ev in ({"org_id": "acme"}, {"org_id": "default"}, {}, {"org_id": None}):
+        assert event_deliverable({**ev, "action": "x"}, None) is True

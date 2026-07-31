@@ -36,6 +36,8 @@ class Role(StrEnum):
 
 # Convenience tuples for require_roles call sites (ROLES_PLAN §4 table).
 ORG_WRITE_ROLES = (Role.ADMINISTRATOR, Role.ORG_ADMIN, Role.ORG_USER)
+# Destructive/admin-tier org actions (delete-with-history, org mgmt).
+ORG_ADMIN_ROLES = (Role.ADMINISTRATOR, Role.ORG_ADMIN)
 ANY_ROLE = tuple(Role)
 
 

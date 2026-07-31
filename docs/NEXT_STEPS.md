@@ -382,7 +382,29 @@ Original round-2 list preserved below for lineage:
 - **State surfacing** — `pause_requested`/`kill_requested` vs terminal in
   the API/UI so operators aren't misled about in-flight calls.
 
-### G22 — Tenant-isolation enforcement inventory (external review round 2)
+### G22 — Tenant-isolation enforcement inventory + hardening (external review rounds 2-3)
+
+Landed this pass (the cheap, high-value test/permission fixes): the WS
+isolation test rewritten forbidden-first + a direct `event_deliverable`
+primitive test (the prior test could pass on a fully-unfiltered
+implementation); Administrator-bypass test asserts full audit detail +
+same-org negative control; bulk-delete postconditions; paired positive
+controls; workflow delete tightened to Org-Admin+. Remaining structural
+work, each a release gate before the first external org:
+- Generated route-to-scope + route-to-test inventory; CI fails on an
+  unclassified route (the reviewer's "most important structural fix").
+- Fail-closed repository methods (retire the optional `org_id=` default —
+  the likeliest future isolation defect).
+- Postgres-backed isolation tests for the §4b join surfaces
+  (audit/steps/cost) — the in-memory suite can't catch a missing SQL join.
+- Migration-execution test (run `0005` against real rows, not just prove
+  the map is total).
+- User-management audit entries carry an `affected org_id` (so Org Admins
+  see their own org's user events).
+- Connector/secret per-org scoping as a hard prerequisite for org #2.
+- `/metrics` protected by more than deployment convention.
+
+### G22-orig — Tenant-isolation enforcement inventory (external review round 2)
 
 A generated route-to-scope inventory proving every surface participates
 in `OrgScope` (not reviewer memory), plus Postgres row-level security as

@@ -30,6 +30,21 @@ from workflow_platform.events import EventBus
 from workflow_platform.persistence import Repositories
 
 
+def event_deliverable(event: dict[str, Any], subscriber_org: str | None) -> bool:
+    """Pure WS org-filter primitive (ROLES_PLAN §7.6, test-pinned directly).
+
+    `subscriber_org is None` = unscoped Administrator, receives everything.
+    A scoped subscriber receives ONLY events whose `org_id` equals theirs —
+    so instance-less/system events (no `org_id`) and foreign-org events are
+    both withheld. Fail-closed: a missing/malformed `org_id` never matches.
+    """
+    if subscriber_org is None:
+        return True
+    return event.get("org_id") == subscriber_org
+
+
+
+
 def _dev_user_from_query(ws: WebSocket) -> UserIdentity | None:
     sub = ws.query_params.get("user")
     if not sub:
@@ -71,9 +86,7 @@ def build_ws_router(
         return row.org_id if row else "default"
 
     def _deliver(event: dict[str, Any], subscriber_org: str | None) -> bool:
-        if subscriber_org is None:
-            return True
-        return event.get("org_id") == subscriber_org
+        return event_deliverable(event, subscriber_org)
 
     @router.websocket("/ws/events")
     async def events_socket(ws: WebSocket) -> None:
