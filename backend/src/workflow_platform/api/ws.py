@@ -43,8 +43,6 @@ def event_deliverable(event: dict[str, Any], subscriber_org: str | None) -> bool
     return event.get("org_id") == subscriber_org
 
 
-
-
 def _dev_user_from_query(ws: WebSocket) -> UserIdentity | None:
     sub = ws.query_params.get("user")
     if not sub:
