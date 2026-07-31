@@ -50,6 +50,16 @@ This evolves from the PDF Action Automator prototype (see `/home/ubuntu/Dev/pdf-
 
 ### Orchestrator
 
+> **⚠ TARGET DESIGN — the LLM-driven orchestrator is NOT implemented and
+> is deliberately deferred** (`CLAUDE.md` "What NOT to do"). What runs
+> today is the deterministic `MonitoringService` (five threshold checks
+> → audit alerts; wired into the app lifespan 2026-07-30). The control
+> model is: **deterministic policy decides** (budgets, timeouts,
+> capabilities, isolation — engine-enforced); **LLMs propose**
+> (classification verdicts, future advisory diagnosis); **humans approve
+> consequence** (mutation cutover, codification promotion, permission
+> grants). An LLM never enforces a budget or permission.
+
 - Singleton agent running continuously
 - Monitors all active workflow instances: progress, errors, token consumption, wall-clock time
 - Detects anomalies: stuck workflows, looping agents, excessive token burn, repeated failures
@@ -184,6 +194,17 @@ push-driven."
 ---
 
 ## Agent-Generated Code for Deterministic Steps
+
+> **⚠ ASPIRATIONAL — UNAPPROVED RESEARCH DIRECTION. NO IMPLEMENTATION
+> EXISTS (status affirmed 2026-07-31, external review §5).** Nothing in
+> the platform generates, deploys, or rewrites code. The shipped
+> counterpart of this idea is the codification loop
+> (`docs/EMAIL_TRIAGE_CODIFY_PLAN.md`): evidence-gated promotion of
+> stable agent behavior into deterministic *rules*, with human approval
+> at promotion, shadow sampling, runtime rollback, and version binding.
+> If code generation is ever pursued, it starts from a fresh design
+> review under the safer lifecycle the external review specified —
+> not from this section.
 
 ### Concept
 

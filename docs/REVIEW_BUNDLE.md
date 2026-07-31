@@ -106,3 +106,53 @@ what is actually recorded).
   frontend, Playwright+axe e2e, schemathesis contract suite on every
   GET, weekly live Bedrock+Gmail+browser job; Postgres/Bedrock/Gmail
   suites deselect by default (replay-mode by design — no AWS in CI).
+
+## Addendum (2026-07-31): "production," operationally defined
+
+Per the reviewer's follow-up — what "production today" means here,
+stated so the assurance level is not oversold:
+
+- **Users:** one — the platform operator, on his personal Gmail
+  mailbox. No external users, no multi-organization service, no SLOs.
+- **Environment:** a single EC2 box; systemd user service; shared
+  Postgres; secrets on local disk (0600); the Terraform in `infra/`
+  is written but unapplied.
+- **Duration & volume:** acting (mutating) email triage live since
+  2026-07-22, full-mailbox coverage since 2026-07-26 — 400+ runs, a
+  Gmail label mutation on essentially every categorized message;
+  codified-sender routing live since 2026-07-30 (7 senders, 1-in-5
+  shadow sampling). DMARC ingest deterministic pipeline since
+  2026-07-13.
+- **Human intervention:** operator corrections are the learning input
+  (one taxonomy-changing correction to date plus the historical
+  labeling sessions); escalation volume otherwise zero.
+- **Failure history (honest):** three defects found and fixed on the
+  acting pipeline's first live day; a token-budget pause wave on
+  full-coverage day one (fixed same day); one Gmail token revocation
+  outage (~40 min, cursor-backfilled, zero loss); one silent trigger
+  blindness (DMARC label filter, 10 days, zero data loss — backfilled;
+  produced the `alert_stale_trigger` monitor).
+- **Data sensitivity:** production data IS sensitive third-party
+  content (the operator's real mail). This is why the corpus is
+  metadata-only and gitignored, memory quarantines third-party claims,
+  and the review artifacts below are redacted.
+
+This is single-operator production: real stakes, real mutations, real
+third-party adversarial content — but not multi-tenant service
+assurance. The tenant-isolation machinery is built and test-pinned
+ahead of that need, not proven by it.
+
+## Addendum: next-bundle artifacts
+
+The reviewer's six requested items map to: (1) `CLAUDE.md` +
+`docs/BUILD_PLAN.md` (in-repo); (2) `backend/src/workflow_platform/
+engine/executor.py` + `backend/tests/test_engine*.py` +
+`backend/alembic/` — reviewed against `docs/EXECUTION_SEMANTICS.md`
+(now written); (3) `backend/src/workflow_platform/tools/base.py`,
+`security/` capability resolution, `tools/email.py`
+(`EmailLabelApplyTool` — the mutating Gmail tool with allowlist
+enforcement); (4) `docs/ROLES_PLAN.md` +
+`backend/tests/test_org_isolation.py`; (5) the two email-triage plans
+(in-repo); (6) a sanitized real run artifact:
+`docs/review-artifacts/sample-run.md` (generated from a live instance,
+mail content redacted).

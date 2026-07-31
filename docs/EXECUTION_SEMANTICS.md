@@ -75,6 +75,20 @@ delivery overwrites by basename.
   The one retrying step in production (`apply`, retries=2) satisfies
   this: Gmail label-add is idempotent. `email_send` is NOT idempotent
   and no bundled workflow retries a step holding it.
+- The reviewer-supplied invariant is adopted as the normative rule:
+
+  > **A retry may never occur merely because the platform did not
+  > receive a successful response; it occurs only when the effect
+  > contract makes repetition safe, or a stable idempotency mechanism
+  > prevents duplication.**
+
+  Corollary — three outcomes must be distinguished when reasoning about
+  a failed step: *request failed before dispatch* (safe to retry),
+  *outcome unknown* (timeout/cancel mid-call — retry only under the
+  invariant), *side effect confirmed* (never retry the effect). The
+  engine does not yet track acknowledgement state; today the
+  distinction is carried by tool choice (idempotent label-add) rather
+  than machinery.
 - **Not provided:** automatic error classification (retryable vs
   permanent), acknowledgement-aware retry, engine-enforced
   effect-gating of retries. Named follow-up if a second mutating
