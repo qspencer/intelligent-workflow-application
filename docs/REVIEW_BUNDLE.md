@@ -32,7 +32,11 @@ what is actually recorded).
   propagation, retries/timeouts, pause/resume/kill/fork), Alembic
   migrations for the entity model, `docs/EMAIL_TRIAGE_ACT_PLAN.md` §6b
   (partial-failure semantics for the acting path).
-- **Gap acknowledged — G19**: a formal execution-semantics document
+- **`docs/EXECUTION_SEMANTICS.md` (written 2026-07-31)** — the formal
+  contract: state machines, per-trigger delivery guarantees, the
+  at-least-once consequence, retry rules, budgets, crash recovery,
+  fork lineage, and an explicit not-provided list.
+- Historical note (G19 was the gap): a formal execution-semantics document
   (delivery guarantees, idempotency, retry classification,
   compensation, cancellation, version/fork lineage). The reviewer is
   right that "retry once" without side-effect classification is unsafe;
@@ -49,8 +53,10 @@ what is actually recorded).
   DKIM/DMARC-gated codification, ordered Authentication-Results
   parsing), `docs/SEMANTICS.md` + `COALA_NOTES.md` (memory-injection
   posture), `docs/RELEASE_READINESS.md` (self-named gaps).
-- **Gap acknowledged — G20**: a consolidated trust-boundary / data-flow
-  document. The pieces are strong; the single picture does not exist.
+- **`docs/THREAT_MODEL.md` (written 2026-07-31)** — the single picture:
+  assets, trust-boundary data flow, adversaries, the mail-surface
+  injection defense ladder, tenant isolation, auth surface, known gaps
+  with dispositions, and the security test matrix.
 
 ## 4. Tool and connector contract
 - `backend/src/workflow_platform/tools/base.py` (Tool ABC: schema,

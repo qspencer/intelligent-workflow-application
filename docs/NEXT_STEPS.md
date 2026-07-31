@@ -327,7 +327,7 @@ status paragraph, each with a trigger:
   query contract made it non-blocking. Trigger: any consumer needing
   per-run observation suppression.
 
-### G19 — Workflow execution-semantics contract (external review §6)
+### G19 — Workflow execution-semantics contract — **Done 2026-07-31** (`docs/EXECUTION_SEMANTICS.md`)
 
 A formal document specifying what the engine guarantees: trigger
 delivery (at-least-once + seen-id dedupe today), idempotency
@@ -339,7 +339,7 @@ fork lineage. Most behavior exists and is tested; the CONTRACT is
 unwritten. Trigger: before the next external review round, or any
 second engineer writing a mutating workflow.
 
-### G20 — Consolidated trust-boundary / threat-model document (external review §3)
+### G20 — Consolidated trust-boundary / threat-model document — **Done 2026-07-31** (`docs/THREAT_MODEL.md`)
 
 One picture unifying what exists piecewise (capability intersection,
 tenant isolation, mail-surface injection defenses, memory quarantine,
