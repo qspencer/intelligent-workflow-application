@@ -16,12 +16,22 @@ findings from conceptual redesign (v1–v2) to Postgres partial-index semantics
 (v6) — the design has converged. This is the **terminal design revision**:
 the plan is not reopened for further speculative review rounds. Remaining
 precision is pinned by **tests at build time** (the §8 criteria are the
-contract), not by more refinement of an unbuilt spec. The next move on this
-work is to **build TG1 + the approved TG2 human-release path** when the §0
-trigger fires (before the first external organization), starting from the
-frozen contracts here; TG3's one genuine open prerequisite is the
-immutable-attempt model landing in `EXECUTION_SEMANTICS`, which is itself only
-needed when TG3 builds.
+contract), not by more refinement of an unbuilt spec.
+
+**Build status: TG1 BUILT (2026-08-01).** The raw-trace privilege is now a
+scoped, audited, revocable grant distinct from administration (Contract A):
+`raw_trace_grants` state-machine table + Alembic 0006; `RawTraceGrantService`
+(request/approve/revoke/expiry, two approval modes, self-escalation +
+approver-distinct + duplicate-active guards); `ADMIN_TIER` retired in favor
+of `_raw_reader_for_org` at every read surface (instance detail, explain,
+both audit endpoints, WS); Administrator-gated grants API; revoke-on-
+deactivation/org-transfer. Criteria 1, 2, 5, 11 (and 21/25/32/33's lifecycle
+content) test-pinned across `test_raw_trace_grants{,_api}.py`,
+`test_audit_redaction.py`, `test_org_isolation.py`. **The intended
+operational break is live: an Administrator without a grant reads no raw.**
+Next: the approved **TG2 human-release audit** (§3.1), then TG3 (gated on the
+`EXECUTION_SEMANTICS` immutable-attempt model). Trigger to ship to an
+external org is unchanged (§0).
 
 The coupled design for the three F3 pre-external-organization gates the
 external code review left open after the read-surface redaction closed
@@ -739,7 +749,7 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
 
 | Cut | Contents | Contract | Authorization |
 |---|---|---|---|
-| **TG1** | grant **state machine** (§2) + two `approval_mode`s (§2.1) + closed reason_code/opaque ticket_ref + expiry transition (§2/F6) + target-org bypass + read-site `ADMIN_TIER`→grant (incl. WS) + memory facts-mode under grant | A | **authorizable (v6 grant modes + expiry folded — pending re-review)** |
+| **TG1** | grant **state machine** (§2) + two `approval_mode`s (§2.1) + closed reason_code/opaque ticket_ref + expiry transition (§2/F6) + target-org bypass + read-site `ADMIN_TIER`→grant (incl. WS) + grants admin API + revoke-on-deactivation/transfer | A | **BUILT 2026-08-01** (memory facts-mode-under-grant deferred to the memory endpoint's own cut) |
 | **TG2 (human release)** | raw-access audit: **release-boundary model (§3.1)** + cardinality + explicit partial/degradation, HTTP + WS release-before-send | A | **design-APPROVED (external review v6); independently authorizable** |
 | **TG2 (system access)** | `raw_trace_system_access_attempted`-before-decrypt + fail-closed (§3.2) | A | **authorizable (v6 audit-before-decrypt folded — pending re-review)** |
 | **TG3a** | typed registry (§1.2) + safe-output contract (§1.4) + vault-all-free-form + abstract vault repo/opaque IDs (§0.2) + schema (§4.1) + collision-free key + **cross-system fencing (§4.2)**; **DARK DUAL-WRITE** | A | after the EXECUTION_SEMANTICS attempt model |
