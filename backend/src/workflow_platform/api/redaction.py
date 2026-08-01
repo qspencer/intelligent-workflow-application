@@ -1,8 +1,13 @@
-"""The single role-aware tool-trace projection (external review 2026-08-01
-finding 3). Raw tool payloads (mail bodies, file contents, error text) are
-stored in full but read only by ADMIN-TIER roles; every read surface
-(audit endpoints, the instance endpoint, explain, and WebSocket events)
-applies this same redaction for below-admin readers.
+"""The single role-aware trace projection (external review 2026-08-01,
+finding 3 + follow-ups). Raw payloads are stored in full but read only by
+ADMIN-TIER roles; every read surface (audit endpoints, the instance
+endpoint, explain, WebSocket events) applies this same redaction for
+below-admin readers. Three asset classes are projected, each with its own
+mechanism (they do NOT share keys, so one function can't cover all — see
+TRACE_GOVERNANCE_PLAN §1): tool-call input/result + a tool-bearing step's
+echoing `output_text`; the raw `trigger_payload`/`trigger` (routing fields
+kept, content stripped — F4); and the `recall` correspondent history
+(withheld — F1/F7).
 """
 
 from __future__ import annotations
@@ -11,6 +16,28 @@ import json
 from typing import Any
 
 _REDACTED_OUTPUT = "[redacted — tool-bearing step output; admin-tier only]"
+_REDACTED_TRIGGER = "raw trigger payload withheld (raw-trace privilege only)"
+_REDACTED_RECALL = "[redacted — recalled correspondent history; raw-trace privilege only]"
+# Routing fields kept in a redacted trigger payload: IDs, never content
+# (subject/body/headers/arbitrary webhook fields are stripped).
+_TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
+
+
+def safe_trigger_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    """A trigger payload (raw inbound mail / webhook body / file event) →
+    routing fields only (TRACE_GOVERNANCE_PLAN §1, F4). `redact_tool_data`
+    is a no-op on a trigger payload — none of its keys are tool-call-shaped —
+    so a below-grant caller recovers the raw email via the instance detail
+    endpoint without this. Keeps message_id/thread_id/id (+ sender address)
+    so IDs stay visible; strips subject/body/headers/webhook content."""
+    safe: dict[str, Any] = {"_redacted": _REDACTED_TRIGGER}
+    for key in _TRIGGER_ROUTING_KEYS:
+        if key in payload:
+            safe[key] = payload[key]
+    frm = payload.get("from")
+    if isinstance(frm, dict) and "address" in frm:
+        safe["from"] = {"address": frm["address"]}
+    return safe
 
 
 def safe_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
@@ -51,6 +78,15 @@ def redact_tool_data(obj: Any, admin: bool) -> Any:
             if v:
                 used_tool = True
             out[k] = [safe_tool_call(c) if isinstance(c, dict) else c for c in v]
+        elif k in ("trigger_payload", "trigger") and isinstance(v, dict):
+            # Instance top-level `trigger_payload`, plus the `trigger` key in
+            # `context` and the `workflow_started` audit detail — all carry the
+            # raw inbound message (TRACE_GOVERNANCE_PLAN §1/§5a, F4).
+            out[k] = safe_trigger_payload(v)
+        elif k == "recall" and v:
+            # Third-party correspondent history injected into an agentic step;
+            # withheld entirely below the grant (F1/F7).
+            out[k] = _REDACTED_RECALL
         elif isinstance(v, dict):
             out[k] = redact_tool_data(v, admin)
         else:

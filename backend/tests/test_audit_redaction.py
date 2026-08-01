@@ -20,6 +20,7 @@ from workflow_platform.world import mock_world
 
 SECRET_IN = "SENTINEL-INPUT-victim@example.com"
 SECRET_OUT = "SENTINEL-OUTPUT-private-body"
+SECRET_TRIGGER = "SENTINEL-TRIGGER-raw-email-body"
 
 _ADMIN = {"X-Dev-User": "root", "X-Dev-Groups": "admins"}
 _VIEWER = {"X-Dev-User": "v", "X-Dev-Groups": "org-viewers"}
@@ -73,7 +74,17 @@ async def _run_and_app(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, str
             "edges": [],
         }
     )
-    instance = await engine.run(definition, trigger_payload={})
+    # A raw inbound message shape: routing (message_id) + content
+    # (subject/body). Below-grant readers must see the id but not the body
+    # (TRACE_GOVERNANCE_PLAN F4 — the detail endpoint leaked this before).
+    instance = await engine.run(
+        definition,
+        trigger_payload={
+            "message_id": "msg-routing-123",
+            "subject": SECRET_TRIGGER,
+            "body": SECRET_TRIGGER,
+        },
+    )
     assert instance.state.value == "completed"
     app = create_app(repositories=repos, engine=engine)
     return TestClient(app), instance.id
@@ -96,6 +107,11 @@ async def test_below_admin_cannot_recover_tool_secrets_anywhere(
             body = client.get(path, headers=headers).text
             assert SECRET_IN not in body, f"input secret leaked at {path} for {headers}"
             assert SECRET_OUT not in body, f"output secret leaked at {path} for {headers}"
+            assert SECRET_TRIGGER not in body, f"trigger body leaked at {path} for {headers}"
+
+    # Routing survives redaction (kept for the reader; needed by pin/resume).
+    viewer_detail = client.get(f"/api/workflow-instances/{iid}", headers=_VIEWER).text
+    assert "msg-routing-123" in viewer_detail
 
     # The LIST endpoint is a summary — it omits the full trace for EVERYONE,
     # including admin-tier (a dashboard list shouldn't ship execution traces).
@@ -106,7 +122,40 @@ async def test_below_admin_cannot_recover_tool_secrets_anywhere(
     # echoed output_text.
     admin_instance = client.get(f"/api/workflow-instances/{iid}", headers=_ADMIN).text
     assert SECRET_OUT in admin_instance
+    assert SECRET_TRIGGER in admin_instance
     admin_explain = client.get(
         f"/api/workflow-instances/{iid}/steps/act/explain", headers=_ADMIN
     ).text
     assert SECRET_IN in admin_explain and SECRET_OUT in admin_explain
+
+
+def test_redact_projects_trigger_payload_and_recall() -> None:
+    """Unit-level: `redact_tool_data` is no longer a no-op on a trigger
+    payload or a recall block (TRACE_GOVERNANCE_PLAN F1/F4/F7). A full
+    veracium recall run is too heavy for a unit test, so the recall shape is
+    exercised directly here; the trigger payload is also covered end-to-end
+    above."""
+    from workflow_platform.api.redaction import redact_tool_data
+
+    obj = {
+        "trigger": {"message_id": "m1", "subject": "SECRET-SUBJ", "body": "SECRET-BODY"},
+        "steps": {
+            "classify": {
+                "output": {
+                    "category": "urgent",
+                    "recall": "prior thread: SECRET-CORRESPONDENT-HISTORY",
+                }
+            }
+        },
+    }
+    redacted = redact_tool_data(obj, admin=False)
+    import json as _json
+
+    blob = _json.dumps(redacted)
+    assert "SECRET-SUBJ" not in blob and "SECRET-BODY" not in blob
+    assert "SECRET-CORRESPONDENT-HISTORY" not in blob
+    assert redacted["trigger"]["message_id"] == "m1"  # routing kept
+    assert redacted["steps"]["classify"]["output"]["category"] == "urgent"  # structured kept
+
+    # admin=True is unchanged (forensics preserved).
+    assert redact_tool_data(obj, admin=True) == obj

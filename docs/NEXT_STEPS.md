@@ -511,8 +511,17 @@ The reviewer executed the code against the contracts and found 6 items.
   nothing from the 5 HTTP surfaces (incl. the LIST endpoint, which now
   returns a summary omitting context + trigger_payload entirely) + a
   dedicated WS delivery test; admin raw. Content-hash oracle dropped from
-  the projection (byte length kept). Closed for the read surfaces. *Gate:* storage-level separation, a
-  raw-trace privilege DISTINCT from ordinary admin, and audited raw access.
+  the projection (byte length kept). Closed for the read surfaces. Internal
+  design review of the gate work (below) also surfaced a **live** below-grant
+  leak the shared redactor missed — the instance DETAIL endpoint returned the
+  raw `trigger_payload` (and the `recall` correspondent history) because
+  `redact_tool_data` no-ops on non-tool-call keys; now closed with per-asset
+  projections (`safe_trigger_payload` keeps routing only; recall withheld) +
+  two tests. *Gate (design DONE, build trigger-gated):* storage-level
+  separation, a raw-trace privilege DISTINCT from ordinary admin, and audited
+  raw access are now specified in `docs/TRACE_GOVERNANCE_PLAN.md` (TG1–TG3,
+  design-reviewed adopt-with-conditions, all folded). Build fires before the
+  first external organization.
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
