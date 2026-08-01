@@ -519,9 +519,19 @@ The reviewer executed the code against the contracts and found 6 items.
   projections (`safe_trigger_payload` keeps routing only; recall withheld) +
   two tests. *Gate (design DONE, build trigger-gated):* storage-level
   separation, a raw-trace privilege DISTINCT from ordinary admin, and audited
-  raw access are now specified in `docs/TRACE_GOVERNANCE_PLAN.md` (TG1–TG3,
-  design-reviewed adopt-with-conditions, all folded). Build fires before the
-  first external organization.
+  raw access are now specified in `docs/TRACE_GOVERNANCE_PLAN.md` (TG1–TG3d,
+  internal review + external review both folded). External review disposition:
+  **adopt the architecture, revise before build** — two blocking findings
+  folded: (1) a same-DB vault is NOT a boundary against the host/DB operator,
+  so the plan now commits to two explicit contracts — Contract A
+  (application-level governance, host trusted) for TG1–TG3c, and Contract B
+  (separate credentials / envelope encryption, operator-inaccessible keys) at
+  **TG3d, which is the true external-org gate**; (2) execution-critical raw
+  writes are now durable-or-fail, not best-effort, so resume/fork stay
+  recoverable. Grant is a scoped record (not a bare boolean), trigger
+  projection is a typed default-deny registry, plus migration/deletion/
+  retention/resource-limit contracts. 16 test-pinned criteria. Build stays
+  trigger-gated; **no external org until TG3d is in effect.**
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
