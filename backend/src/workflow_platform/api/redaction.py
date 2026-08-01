@@ -7,7 +7,6 @@ applies this same redaction for below-admin readers.
 
 from __future__ import annotations
 
-import hashlib
 import json
 from typing import Any
 
@@ -30,9 +29,11 @@ def safe_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
         "_redacted": "raw tool input/result withheld (admin-tier only)",
     }
     if content is not None:
-        blob = json.dumps(content, sort_keys=True, default=str).encode()
-        safe["content_sha256"] = hashlib.sha256(blob).hexdigest()[:16]
-        safe["content_bytes"] = len(blob)
+        # Byte length only — the truncated hash was dropped (external review
+        # 2026-08-01 nonblocking note: a hash is an equality/dictionary
+        # oracle for low-entropy results; there's no operational use for it
+        # in ordinary-reader responses).
+        safe["content_bytes"] = len(json.dumps(content, sort_keys=True, default=str).encode())
     return safe
 
 

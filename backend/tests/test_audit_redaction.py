@@ -86,6 +86,7 @@ async def test_below_admin_cannot_recover_tool_secrets_anywhere(
 
     surfaces = [
         "/api/audit",
+        "/api/workflow-instances",  # the LIST endpoint (external review round 4)
         f"/api/workflow-instances/{iid}/audit",
         f"/api/workflow-instances/{iid}",
         f"/api/workflow-instances/{iid}/steps/act/explain",
@@ -95,6 +96,11 @@ async def test_below_admin_cannot_recover_tool_secrets_anywhere(
             body = client.get(path, headers=headers).text
             assert SECRET_IN not in body, f"input secret leaked at {path} for {headers}"
             assert SECRET_OUT not in body, f"output secret leaked at {path} for {headers}"
+
+    # The LIST endpoint is a summary — it omits the full trace for EVERYONE,
+    # including admin-tier (a dashboard list shouldn't ship execution traces).
+    admin_list = client.get("/api/workflow-instances", headers=_ADMIN).text
+    assert SECRET_IN not in admin_list and SECRET_OUT not in admin_list
 
     # Admin-tier still gets the raw trace (forensics preserved) — incl. the
     # echoed output_text.

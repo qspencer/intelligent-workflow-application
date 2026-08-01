@@ -956,6 +956,27 @@ def build_router(
             "sandbox": "MockWorld; external tools (email/connector/browser) disabled; live Bedrock",
         }
 
+    def _instance_summary(i: WorkflowInstance) -> dict[str, Any]:
+        """A list/dashboard row — NEVER the full execution trace (external
+        review 2026-08-01). Omits `context` (step outputs, tool_calls,
+        echoed output_text) AND `trigger_payload` (raw mail content);
+        surfaces only identity, state, timestamps, and the non-sensitive
+        cost/token totals. The detail endpoint serves the (redacted) full
+        instance."""
+        ctx = i.context or {}
+        return {
+            "id": i.id,
+            "workflow_id": i.workflow_id,
+            "org_id": i.org_id,
+            "state": i.state.value,
+            "error": i.error,
+            "created_at": _iso(i.created_at),
+            "started_at": _iso(i.started_at),
+            "completed_at": _iso(i.completed_at),
+            "total_tokens": ctx.get("total_tokens"),
+            "total_cost_usd": ctx.get("total_cost_usd"),
+        }
+
     @router.get("/workflow-instances")
     async def list_instances(
         workflow_id: str | None = None,
@@ -970,7 +991,7 @@ def build_router(
         if state:
             items = [i for i in items if i.state.value == state]
         items.sort(key=lambda i: i.created_at, reverse=True)
-        return [i.model_dump() for i in items[: max(1, min(limit, 200))]]
+        return [_instance_summary(i) for i in items[: max(1, min(limit, 200))]]
 
     @router.get("/workflow-instances/{instance_id}")
     async def get_instance(

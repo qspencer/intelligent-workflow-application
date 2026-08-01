@@ -508,8 +508,10 @@ The reviewer executed the code against the contracts and found 6 items.
   withholds output_text when a step used a tool, since the model can
   paraphrase a tool secret into free text (F3 round 3). End-to-end test:
   the model echoes both an input and an output secret; Viewer+User recover
-  nothing from the 4 HTTP surfaces + a dedicated WS delivery test; admin
-  raw. Closed for the read surfaces. *Gate:* storage-level separation, a
+  nothing from the 5 HTTP surfaces (incl. the LIST endpoint, which now
+  returns a summary omitting context + trigger_payload entirely) + a
+  dedicated WS delivery test; admin raw. Content-hash oracle dropped from
+  the projection (byte length kept). Closed for the read surfaces. *Gate:* storage-level separation, a
   raw-trace privilege DISTINCT from ordinary admin, and audited raw access.
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
