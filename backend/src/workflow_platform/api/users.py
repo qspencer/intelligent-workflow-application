@@ -27,6 +27,7 @@ from workflow_platform.auth import Role, UserIdentity, require_roles
 from workflow_platform.auth.local import canonical_email
 from workflow_platform.auth.passwords import hash_password
 from workflow_platform.auth.provisioning import current_issuer
+from workflow_platform.auth.raw_trace_grants import RawTraceGrantService
 from workflow_platform.persistence import LOCAL_ISSUER, AuditEntry, Repositories, User
 
 VALID_ROLES = {r.value for r in Role}
@@ -76,6 +77,7 @@ def _check_password(password: str) -> None:
 
 def build_users_router(repositories: Repositories) -> APIRouter:
     router = APIRouter(prefix="/api")
+    grant_service = RawTraceGrantService(repositories)
 
     async def _scope(
         actor: UserIdentity = Depends(require_roles(Role.ADMINISTRATOR, Role.ORG_ADMIN)),
@@ -195,6 +197,7 @@ def build_users_router(repositories: Repositories) -> APIRouter:
 
         changed: list[str] = []
         revoke = False
+        revoke_grants_reason: str | None = None
         was_active_administrator = user.is_active and Role.ADMINISTRATOR.value in user.roles
         was_active_org_admin = user.is_active and Role.ORG_ADMIN.value in user.roles
         old_org = user.org_id
@@ -211,6 +214,7 @@ def build_users_router(repositories: Repositories) -> APIRouter:
             user.org_id = body.org_id
             changed.append("org_id")
             revoke = True
+            revoke_grants_reason = "org_transfer"
 
         if body.roles is not None:
             _check_roles(body.roles)
@@ -224,6 +228,7 @@ def build_users_router(repositories: Repositories) -> APIRouter:
             changed.append("is_active")
             if not body.is_active:
                 revoke = True
+                revoke_grants_reason = "deactivation"
         if body.display_name is not None and body.display_name != user.display_name:
             user.display_name = body.display_name
             changed.append("display_name")
@@ -258,10 +263,26 @@ def build_users_router(repositories: Repositories) -> APIRouter:
             await repositories.users.save(user)
             if revoke:
                 await repositories.auth_sessions.delete_by_user(user.id)
+            grants_revoked = 0
+            if revoke_grants_reason is not None:
+                # Deactivation / org transfer revokes any raw-trace grant —
+                # an org-scoped grant must not survive a move, and a
+                # deactivated user holds nothing (TRACE_GOVERNANCE_PLAN §2,
+                # criterion 11).
+                grants_revoked = await grant_service.revoke_all_for_principal(
+                    principal_id=user.id,
+                    revoked_by=scope.identity_sub,
+                    reason=revoke_grants_reason,
+                )
             await _audit(
                 scope,
                 "user_updated",
-                {"user_id": user.id, "changed": changed, "sessions_revoked": revoke},
+                {
+                    "user_id": user.id,
+                    "changed": changed,
+                    "sessions_revoked": revoke,
+                    "raw_grants_revoked": grants_revoked,
+                },
             )
         return _public(user)
 

@@ -22,6 +22,7 @@ from workflow_platform import __version__
 from workflow_platform.api.auth import build_auth_router
 from workflow_platform.api.dev import build_dev_router
 from workflow_platform.api.organizations import build_organizations_router
+from workflow_platform.api.raw_trace_grants import build_raw_trace_grants_router
 from workflow_platform.api.users import build_users_router
 from workflow_platform.api.workflows import build_router
 from workflow_platform.api.ws import build_ws_router
@@ -271,6 +272,7 @@ def create_app(
     app.include_router(build_ws_router(events, local_auth=local_auth, repositories=repositories))
     app.include_router(build_users_router(repositories))
     app.include_router(build_organizations_router(repositories))
+    app.include_router(build_raw_trace_grants_router(repositories))
     if auth_mode() == "local":
         app.include_router(build_auth_router(local_auth))
 
