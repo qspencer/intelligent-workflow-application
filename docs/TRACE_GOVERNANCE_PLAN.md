@@ -45,12 +45,23 @@ with the vault).
 
 **Prerequisite DONE (2026-08-01): the immutable-attempt model** is written
 into `EXECUTION_SEMANTICS` §3a (normative) with an explicit first-class
-`attempt` number (Alembic 0007) — this was the named gate on TG3b. The
-step-attempt id the vault keys on (§4.1) is now a guaranteed identity, not an
-implicit one. **Next: TG3a/b** (the vault + write-time projection + rehydration
-— the storage inversion), then TG3c (backfill/verifier) and TG3d (the
-B-contract boundary). Trigger to ship to an external org is unchanged (§0)
-and still requires the chosen B-contract (TG3d).
+`attempt` number (Alembic 0007) — the step-attempt id the vault keys on
+(§4.1) is now a guaranteed identity.
+
+**Build status: TG3a BUILT (2026-08-01).** The raw-trace vault +
+write-time projector, as a **dark dual-write**: `raw_traces` table (Alembic
+0008) + `RawTraceVaultRepo` (abstract, opaque ids, idempotent `put`); the
+projector (`trace_vault.py`, §1.2/§1.4 default-deny — tool_calls / free-form
+model output / recall / errors are raw, structured fields are not) + the
+collision-free idempotency key on the immutable step-attempt (F2); the engine
+vaults the trigger payload + each attempt's raw output/error keyed on the
+step-attempt id, while the operational store keeps its inline copy
+AUTHORITATIVE (a vault-write failure is logged, never raised). Additive and
+non-behavioral for readers. `test_raw_trace_vault.py`. **Next: TG3b** — the
+flip: rehydration from the vault + operational store goes safe-only +
+durable-or-fail + the finalized dependency manifest (§5.1) + system-access
+audit (§3.2). Trigger to ship to an external org is unchanged (§0) and still
+requires the chosen B-contract (TG3d).
 
 The coupled design for the three F3 pre-external-organization gates the
 external code review left open after the read-surface redaction closed
@@ -771,7 +782,7 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
 | **TG1** | grant **state machine** (§2) + two `approval_mode`s (§2.1) + closed reason_code/opaque ticket_ref + expiry transition (§2/F6) + target-org bypass + read-site `ADMIN_TIER`→grant (incl. WS) + grants admin API + revoke-on-deactivation/transfer | A | **BUILT 2026-08-01** (memory facts-mode-under-grant deferred to the memory endpoint's own cut) |
 | **TG2 (human release)** | raw-access audit: **release-boundary model (§3.1)** + cardinality + explicit degradation, HTTP + WS release-before-send | A | **BUILT 2026-08-01** (`partial`/vault outcomes arrive with TG3) |
 | **TG2 (system access)** | `raw_trace_system_access_attempted`-before-decrypt + fail-closed (§3.2) | A | **authorizable (v6 audit-before-decrypt folded — pending re-review)** |
-| **TG3a** | typed registry (§1.2) + safe-output contract (§1.4) + vault-all-free-form + abstract vault repo/opaque IDs (§0.2) + schema (§4.1) + collision-free key + **cross-system fencing (§4.2)**; **DARK DUAL-WRITE** | A | after the EXECUTION_SEMANTICS attempt model |
+| **TG3a** | typed registry (§1.2) + safe-output contract (§1.4) + vault-all-free-form + abstract vault repo/opaque IDs (§0.2) + schema (§4.1) + collision-free key; **DARK DUAL-WRITE** | A | **BUILT 2026-08-01** (same-DB; cross-system fencing §4.2 lands with the separate-vault B form at TG3d) |
 | **TG3b** | rehydration + integrity + versioning (§4.3) + state machine w/ concurrency + fencing (§4.2) + **finalized dependency manifest (§5.1)** + **system-access audit (§3.2)**; only then flip operational to safe-only | A | after the finalized manifest + attempt model |
 | **TG3c** | backfill + mixed-version cutover + zero-raw verifier + retention/expiry state (§5.1) + fork lineage + **cross-org-fork prohibition (§5.2)** | A | after §5.2 rule (done) |
 | **TG3d-1** | B1 boundary: per-org envelope encryption (keys outside the DB role, BYOK-ready `key_id`), AEAD-bound ciphertext, narrow decrypt identity; dual-control grant; THREAT_MODEL §5a amended (DB-operator-resistant, infra-operator-trusted residual) | **B1** | own design doc; the shippable external-org gate for a B1-accepting customer |

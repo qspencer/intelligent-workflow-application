@@ -638,12 +638,21 @@ The reviewer executed the code against the contracts and found 6 items.
   Alembic 0007); the engine already appended one row per attempt, so this
   formalized the contract (and corrected two doc lines that wrongly said a
   re-run "overwrites" the row) and made the step-attempt id the vault keys on
-  a guarantee. This was the named gate on TG3b. **Next cut: TG3a/b** (the
-  vault + write-time projection + rehydration — the storage inversion), then
-  TG3c (backfill + zero-raw verifier) and TG3d (the B-contract boundary;
-  `partial`/vault outcomes + delivery-observed telemetry land with the
-  vault). Deferred within TG1: memory facts-mode-under-grant. Ship to an
-  external org stays trigger-gated + needs the chosen B-contract (TG3d).
+  a guarantee. This was the named gate on TG3b.
+  **TG3a BUILT (2026-08-01):** the raw-trace vault + write-time projector as a
+  DARK DUAL-WRITE — `raw_traces` (Alembic 0008) + abstract opaque-id repo
+  (idempotent put); the default-deny projector (tool_calls / free-form model
+  output / recall / errors are raw) + collision-free idempotency key on the
+  immutable step-attempt; the engine vaults trigger + each attempt's raw
+  output/error while inline stays authoritative (vault failure logged, never
+  raised). Additive, non-behavioral for readers. test_raw_trace_vault.
+  **Next cut: TG3b** — the flip: rehydration from the vault + operational
+  store goes safe-only + durable-or-fail + finalized dependency manifest
+  (§5.1) + system-access audit (§3.2). Then TG3c (backfill + zero-raw
+  verifier) and TG3d (the B-contract boundary; cross-system fencing +
+  `partial`/vault outcomes + delivery-observed land there). Deferred within
+  TG1: memory facts-mode-under-grant. Ship to an external org stays
+  trigger-gated + needs the chosen B-contract (TG3d).
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
