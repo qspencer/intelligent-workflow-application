@@ -454,11 +454,13 @@ by theme:
   `tool_param_override_blocked`. Live on the apply step
   (`message_id`←trigger, `labels`←record). Steered-agent e2e proves it
   labels the real message with the validated label only.
-- **Apply postcondition** — a step whose tool call errored then finished
-  in prose must be FAILED, not silently successful (`success_requires:
-  tool_call{name,result:success,count:1}`), or make the tool the
-  deterministic step impl once connector-capability enforcement lives
-  outside the agent harness.
+- **Apply postcondition — DONE 2026-08-01.** `require_tool_call:
+  {name, min_success}` on AgenticStep; the executor FAILS the step (audit
+  `step_postcondition_failed`) if it finishes without the required
+  successful tool calls — cost still attributed, tool-call audits
+  preserved. Live on the apply step. Pairs with tool-param pinning: pinning
+  bounds WHAT the agent can mutate, the postcondition bounds THAT it must
+  actually do it.
 - **Decouple verdict observation from Gmail apply success** — record the
   adjudicated classification whether or not Gmail accepts the label; a
   separate outcome event records the apply failure.

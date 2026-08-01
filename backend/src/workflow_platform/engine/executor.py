@@ -1118,6 +1118,36 @@ class WorkflowEngine:
         )
         self.metrics.bedrock_cost(step.model, cost_usd)
 
+        # Step postcondition (external review finding 3): a step that must
+        # make a successful tool call but finished without one (silent tool
+        # error → prose end_turn) is a FAILURE, not a success. Checked after
+        # cost attribution so the spend is still recorded, and after the
+        # tool_call audits so the forensic trail is preserved.
+        req = step.require_tool_call
+        if req is not None:
+            successes = sum(
+                1 for c in result.tool_calls if c.name == req.name and not c.result.get("error")
+            )
+            if successes < req.min_success:
+                await self._audit(
+                    "step_postcondition_failed",
+                    actor_type="engine",
+                    actor_id="workflow_engine",
+                    instance_id=instance_id,
+                    step_id=step.id,
+                    detail={
+                        "require_tool_call": req.name,
+                        "min_success": req.min_success,
+                        "actual_success": successes,
+                        "stop_reason": result.stop_reason.value,
+                    },
+                )
+                raise StepFailure(
+                    f"Step {step.id!r} postcondition unmet: required "
+                    f"{req.min_success} successful call(s) to {req.name!r}, "
+                    f"got {successes} (stop_reason={result.stop_reason.value})."
+                )
+
         return {
             "output_text": result.output_text,
             "stop_reason": result.stop_reason.value,

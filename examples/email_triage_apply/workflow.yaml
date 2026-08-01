@@ -168,6 +168,12 @@ steps:
     pin_params:
       message_id: trigger.message_id
       labels: steps.record.apply_labels
+    # Postcondition (external review finding 3): the step FAILS if it
+    # finishes without a successful email_label_apply call — a silent tool
+    # error followed by a prose "done" must not pass as success.
+    require_tool_call:
+      name: email_label_apply__qspencer_gmail_com
+      min_success: 1
     goal: |
       Apply the given Gmail labels to one message, then stop.
 

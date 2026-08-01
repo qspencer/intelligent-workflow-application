@@ -56,6 +56,15 @@ class AgenticStepPolicy(BaseModel):
     inference_config: dict[str, Any] | None = None
 
 
+class RequireToolCall(BaseModel):
+    """Postcondition on an agentic step (EMAIL_TRIAGE_ACT_PLAN / external
+    review finding 3): the step must have made at least `min_success`
+    successful calls to the named tool, else it FAILS."""
+
+    name: str
+    min_success: int = 1
+
+
 class AgenticStep(BaseModel):
     id: str
     type: Literal["agentic"] = "agentic"
@@ -76,6 +85,11 @@ class AgenticStep(BaseModel):
     # them (e.g. message_id: trigger.message_id, labels:
     # steps.record.apply_labels). An override attempt is audited.
     pin_params: dict[str, str] | None = None
+    # Step postcondition (external review 2026-07-31, finding 3): the step
+    # FAILS unless it made ≥ min_success successful calls to `name`. Stops a
+    # silent tool error followed by a prose finish from passing as success —
+    # a "successful step without a successful tool call" must be FAILED.
+    require_tool_call: RequireToolCall | None = None
     policy: AgenticStepPolicy = Field(default_factory=AgenticStepPolicy)
     outputs: list[str] = Field(default_factory=list)
     capabilities: CapabilityPolicy | None = None

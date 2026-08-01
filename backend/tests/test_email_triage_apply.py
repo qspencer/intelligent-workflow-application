@@ -153,6 +153,11 @@ def test_classifier_fence_and_apply_shape() -> None:
         "message_id": "trigger.message_id",
         "labels": "steps.record.apply_labels",
     }
+    # Postcondition (external review finding 3): a silent tool failure must
+    # not pass as success.
+    assert apply.require_tool_call is not None
+    assert apply.require_tool_call.name == TOOL_NAME
+    assert apply.require_tool_call.min_success == 1
     assert apply.policy.max_iterations == 2
 
     (apply_edge,) = [e for e in definition.edges if e.target == "apply"]
@@ -554,3 +559,44 @@ def test_label_allowlist_is_exactly_the_intended_eight() -> None:
     assert len(allowlist) == 8
     # No system labels, no wildcards.
     assert not any(lbl in allowlist for lbl in ("INBOX", "TRASH", "SPAM", "*"))
+
+
+def test_postcondition_fails_step_when_tool_call_errors_silently() -> None:
+    """External review finding 3: an apply agent that gets a tool ERROR and
+    then finishes in prose must FAIL the step — not pass as success. The
+    step declares require_tool_call, so a run with zero successful calls
+    fails, and the failure is audited."""
+    svc = _service_with_wf_labels()
+    # The label-apply will error: use a label the fake service can't resolve
+    # is one way, but simplest — the agent never calls the tool, just talks.
+    bedrock = FakeBedrock(
+        [
+            _classify("newsletter"),
+            text_response("I have applied the label."),  # prose, NO tool call
+        ]
+    )
+    engine = _engine(bedrock, svc)
+    definition = load_definition_from_file(WORKFLOW_PATH)
+    instance = asyncio.run(engine.run(definition, trigger_payload=_payload()))
+
+    assert instance.state.value == "failed"
+    # No mutation happened.
+    assert [c for c in svc.calls if c[0] == "messages.modify"] == []
+    entries = asyncio.run(engine.repositories.audit.list_by_instance(instance.id))
+    pc = [e for e in entries if e.action == "step_postcondition_failed"]
+    assert pc, "the unmet postcondition must be audited"
+    assert pc[0].detail["actual_success"] == 0
+    assert pc[0].detail["require_tool_call"] == TOOL_NAME
+
+
+def test_postcondition_passes_when_tool_call_succeeds() -> None:
+    """The happy path is unaffected: a real successful apply meets the
+    postcondition and the step completes."""
+    svc = _service_with_wf_labels()
+    bedrock = FakeBedrock([_classify("newsletter"), *_apply_tool_use(["wf/newsletter"])])
+    engine = _engine(bedrock, svc)
+    definition = load_definition_from_file(WORKFLOW_PATH)
+    instance = asyncio.run(engine.run(definition, trigger_payload=_payload()))
+    assert instance.state.value == "completed"
+    entries = asyncio.run(engine.repositories.audit.list_by_instance(instance.id))
+    assert not [e for e in entries if e.action == "step_postcondition_failed"]
