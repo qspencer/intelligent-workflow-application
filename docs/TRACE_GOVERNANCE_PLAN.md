@@ -41,9 +41,16 @@ emits no access event. Detail/explain responses carry `raw_included`.
 Criteria 2/3/28 test-pinned (`test_raw_trace_release_audit.py`). Scoped to
 pre-TG3 (raw inline/atomic → outcomes `released` | degraded-`projected`;
 `partial`/`retrieval_failed`/`integrity_failed` + delivery-observed arrive
-with the vault). **Next: TG3** (gated on the `EXECUTION_SEMANTICS`
-immutable-attempt model). Trigger to ship to an external org is unchanged
-(§0) and still requires the B-contract (TG3d).
+with the vault).
+
+**Prerequisite DONE (2026-08-01): the immutable-attempt model** is written
+into `EXECUTION_SEMANTICS` §3a (normative) with an explicit first-class
+`attempt` number (Alembic 0007) — this was the named gate on TG3b. The
+step-attempt id the vault keys on (§4.1) is now a guaranteed identity, not an
+implicit one. **Next: TG3a/b** (the vault + write-time projection + rehydration
+— the storage inversion), then TG3c (backfill/verifier) and TG3d (the
+B-contract boundary). Trigger to ship to an external org is unchanged (§0)
+and still requires the chosen B-contract (TG3d).
 
 The coupled design for the three F3 pre-external-organization gates the
 external code review left open after the read-surface redaction closed

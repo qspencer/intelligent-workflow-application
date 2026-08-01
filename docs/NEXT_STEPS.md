@@ -632,12 +632,18 @@ The reviewer executed the code against the contracts and found 6 items.
   before any raw byte leaves; fail-closed to projected +
   redaction_reason=access_audit_unavailable on audit-append failure; a
   below-grant read emits no access event; detail/explain carry raw_included.
-  Criteria 2/3/28 test-pinned (test_raw_trace_release_audit). **Next cut:
-  TG3** (storage inversion — gated on the immutable-attempt model landing in
-  EXECUTION_SEMANTICS; `partial`/vault outcomes + delivery-observed telemetry
-  land there). Deferred within TG1: memory facts-mode-under-grant (rides the
-  memory endpoint's own cut). Ship to an external org stays trigger-gated +
-  needs the chosen B-contract (TG3d).
+  Criteria 2/3/28 test-pinned (test_raw_trace_release_audit).
+  **Immutable-attempt model DONE (2026-08-01):** EXECUTION_SEMANTICS §3a is
+  written (normative) + a first-class `attempt` number (StepExecution/Row +
+  Alembic 0007); the engine already appended one row per attempt, so this
+  formalized the contract (and corrected two doc lines that wrongly said a
+  re-run "overwrites" the row) and made the step-attempt id the vault keys on
+  a guarantee. This was the named gate on TG3b. **Next cut: TG3a/b** (the
+  vault + write-time projection + rehydration — the storage inversion), then
+  TG3c (backfill + zero-raw verifier) and TG3d (the B-contract boundary;
+  `partial`/vault outcomes + delivery-observed telemetry land with the
+  vault). Deferred within TG1: memory facts-mode-under-grant. Ship to an
+  external org stays trigger-gated + needs the chosen B-contract (TG3d).
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
