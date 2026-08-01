@@ -11,6 +11,18 @@ grant-expiry transition). **The TG2 human release path is design-approved
 blocked pending the v6 folds below; TG3 stays gated. Not built; build is
 trigger-gated (§0).
 
+**Design status: SETTLED as of v6 (2026-08-01).** Six review rounds took the
+findings from conceptual redesign (v1–v2) to Postgres partial-index semantics
+(v6) — the design has converged. This is the **terminal design revision**:
+the plan is not reopened for further speculative review rounds. Remaining
+precision is pinned by **tests at build time** (the §8 criteria are the
+contract), not by more refinement of an unbuilt spec. The next move on this
+work is to **build TG1 + the approved TG2 human-release path** when the §0
+trigger fires (before the first external organization), starting from the
+frozen contracts here; TG3's one genuine open prerequisite is the
+immutable-attempt model landing in `EXECUTION_SEMANTICS`, which is itself only
+needed when TG3 builds.
+
 The coupled design for the three F3 pre-external-organization gates the
 external code review left open after the read-surface redaction closed
 (rounds 1–4, HEAD `4de5d58`):

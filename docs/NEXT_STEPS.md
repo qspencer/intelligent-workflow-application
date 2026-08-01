@@ -614,6 +614,11 @@ The reviewer executed the code against the contracts and found 6 items.
   grant expiry is a durable DB transition (an active-but-past-expiry row
   can't block a replacement — Postgres can't use now() in a partial index).
   Criteria 31→36. TG1, TG2-system, TG3 await re-review; TG2-human approved.
+  **Design SETTLED as of v6 (terminal revision) — the plan is not reopened
+  for further speculative review rounds; remaining precision is pinned by
+  tests at build time (the §8 criteria are the contract). Next move: build
+  TG1 + the approved TG2 human-release path when the trigger fires (before
+  first external org), not more spec refinement.**
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
