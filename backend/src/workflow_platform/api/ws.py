@@ -62,6 +62,10 @@ async def _oidc_user_from_query(ws: WebSocket, validator: OidcValidator) -> User
         return None
 
 
+class _OrgUnresolved(Exception):
+    """A non-Administrator subscriber whose org can't be resolved (finding 5)."""
+
+
 def build_ws_router(
     events: EventBus,
     validator: OidcValidator | None = None,
@@ -73,15 +77,21 @@ def build_ws_router(
 
     async def _subscriber_org(user: UserIdentity) -> str | None:
         """The org this subscriber's events are filtered to. None =
-        unscoped (Administrator). ROLES_PLAN §7.6: an org A subscriber never
-        receives an org B event; instance-less (org-less) system events go
-        to Administrators only."""
+        unscoped (Administrator). FAIL-CLOSED (external review 2026-08-01
+        finding 5): a non-Administrator whose platform user row can't be
+        resolved is REJECTED, not assigned "default" — the WS must not
+        manufacture tenant membership (matching the HTTP scope resolver's
+        403 on a missing row). Raises `_OrgUnresolved`; the handler closes."""
         if Role.ADMINISTRATOR.value in user.roles:
             return None
-        if repositories is None:
-            return "default"
-        row = await repositories.users.get_by_identity(current_issuer(), user.sub)
-        return row.org_id if row else "default"
+        row = (
+            await repositories.users.get_by_identity(current_issuer(), user.sub)
+            if repositories is not None
+            else None
+        )
+        if row is None:
+            raise _OrgUnresolved(user.sub)
+        return row.org_id
 
     def _deliver(event: dict[str, Any], subscriber_org: str | None) -> bool:
         return event_deliverable(event, subscriber_org)
@@ -106,7 +116,11 @@ def build_ws_router(
             await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="auth required")
             return
 
-        subscriber_org = await _subscriber_org(user)
+        try:
+            subscriber_org = await _subscriber_org(user)
+        except _OrgUnresolved:
+            await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="organization unresolved")
+            return
         await ws.accept()
         queue = events.subscribe()
         # Race the event queue against ws.receive(): receive() is how we

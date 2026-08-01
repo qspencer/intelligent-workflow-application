@@ -179,3 +179,51 @@ async def test_diamond_topology_runs_branches_in_parallel() -> None:
 
     steps = await repos.steps.list_by_instance(instance.id)
     assert all(s.state == StepExecutionState.COMPLETED for s in steps)
+
+
+async def test_unexpected_exception_cancels_mutating_sibling() -> None:
+    """External review 2026-08-01 finding 1: an UNEXPECTED (non-StepFailure)
+    branch exception must still cancel in-flight siblings — previously a
+    RuntimeError escaped the dispatch loop and a mutating sibling kept
+    running after the workflow was marked FAILED."""
+    repos = in_memory_repositories()
+    fns = FunctionRegistry()
+    sentinel: dict[str, Any] = {"sibling_mutated": False}
+
+    async def fast_unexpected(config: dict[str, Any], ctx: Any, world: Any) -> dict[str, Any]:
+        raise RuntimeError("not a StepFailure")  # unexpected, non-StepFailure
+
+    async def slow_mutator(config: dict[str, Any], ctx: Any, world: Any) -> dict[str, Any]:
+        try:
+            await asyncio.sleep(2.0)
+        except asyncio.CancelledError:
+            raise
+        sentinel["sibling_mutated"] = True  # the "external mutation" — must NOT run
+        return {"ok": True}
+
+    fns.register("fast_unexpected", fast_unexpected)
+    fns.register("slow_mutator", slow_mutator)
+    definition = load_definition(
+        {
+            "id": "wf",
+            "name": "wf",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {"id": "a", "type": "deterministic", "function": "fast_unexpected"},
+                {"id": "b", "type": "deterministic", "function": "slow_mutator"},
+            ],
+            "edges": [],
+        }
+    )
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=fns,
+        tools=ToolCatalog(),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+    )
+    instance = await engine.run(definition)
+    assert instance.state == WorkflowInstanceState.FAILED
+    assert sentinel["sibling_mutated"] is False, "mutating sibling ran after failure"
+    steps = {s.step_id: s for s in await repos.steps.list_by_instance(instance.id)}
+    assert steps["b"].state == StepExecutionState.CANCELLED

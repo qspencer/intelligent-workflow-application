@@ -20,6 +20,7 @@ from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
+from starlette.websockets import WebSocketDisconnect
 
 from workflow_platform.events import EventBus
 from workflow_platform.main import create_app
@@ -380,3 +381,60 @@ def test_event_deliverable_primitive_negative_and_positive() -> None:
     # Unscoped Administrator: everything.
     for ev in ({"org_id": "acme"}, {"org_id": "default"}, {}, {"org_id": None}):
         assert event_deliverable({**ev, "action": "x"}, None) is True
+
+
+def test_raw_tool_payloads_hidden_from_non_admin_audit(monkeypatch: pytest.MonkeyPatch) -> None:
+    """External review 2026-08-01 finding 3: raw tool input/result (email
+    bodies, file contents, error text) must NOT appear in ordinary audit
+    responses — audit access must not become an intra-org read escalation.
+    Admin-tier sees raw; Org User/Viewer see projected metadata."""
+    client, repos, _ = _two_org_app(monkeypatch)
+
+    async def _seed_tool_call() -> None:
+        await repos.instances.create(
+            WorkflowInstance(id="i-acme2", workflow_id="wf-acme", org_id="acme")
+        )
+        await repos.audit.append(
+            AuditEntry(
+                actor_type="agent",
+                actor_id="agent:x",
+                action="tool_call",
+                workflow_instance_id="i-acme2",
+                detail={
+                    "name": "email_send",
+                    "input": {"to": "victim@example.com", "subject": "SECRET", "body": "PRIVATE"},
+                    "result": {"content": {"message_id": "m1"}, "error": None},
+                },
+            )
+        )
+
+    asyncio.run(_seed_tool_call())
+
+    # Org User (read-only-ish, below admin tier): raw values withheld.
+    user_view = client.get("/api/workflow-instances/i-acme2/audit", headers=_ACME_USER).json()
+    tc = next(e for e in user_view if e["action"] == "tool_call")
+    blob = str(tc["detail"])
+    assert "PRIVATE" not in blob and "SECRET" not in blob and "victim@example.com" not in blob
+    assert tc["detail"]["_redacted"]
+    assert tc["detail"]["input_keys"] == ["body", "subject", "to"]  # keys ok, values not
+
+    # Org Admin (admin tier): full raw payload.
+    admin_view = client.get("/api/workflow-instances/i-acme2/audit", headers=_ACME_ADMIN).json()
+    tc_admin = next(e for e in admin_view if e["action"] == "tool_call")
+    assert tc_admin["detail"]["input"]["body"] == "PRIVATE"
+
+
+def test_ws_rejects_non_admin_with_unresolvable_org(monkeypatch: pytest.MonkeyPatch) -> None:
+    """External review 2026-08-01 finding 5: a non-Administrator whose
+    platform user row can't be resolved is REJECTED — the WS must not
+    manufacture 'default' tenant membership (matching HTTP's fail-closed)."""
+    client, _, _ = _two_org_app(monkeypatch)
+    # 'ghost' is an org-user that was never provisioned into any org.
+    with (
+        pytest.raises(WebSocketDisconnect),
+        client.websocket_connect("/ws/events?user=ghost&groups=org-users") as ws,
+    ):
+        ws.receive_json()
+    # A seeded org user still connects fine (control).
+    with client.websocket_connect("/ws/events?user=acme-u&groups=org-users") as ws:
+        pass  # accepted

@@ -92,3 +92,52 @@ async def test_multiple_pins() -> None:
     )
     await agent.run("go")
     assert tool.seen[0] == {"message_id": "real-123", "labels": ["wf/notification"]}
+
+
+async def test_unresolved_pin_fails_step_closed() -> None:
+    """External review 2026-08-01 finding 2: a pin whose context path is
+    missing/None FAILS the step before dispatch — it must NOT silently drop
+    the pin and let the model choose the value (a security boundary must
+    fail closed)."""
+    from workflow_platform.engine import (
+        FunctionRegistry,
+        ToolCatalog,
+        WorkflowEngine,
+    )
+    from workflow_platform.persistence import WorkflowInstanceState, in_memory_repositories
+    from workflow_platform.workflow import load_definition
+    from workflow_platform.world import mock_world
+
+    repos = in_memory_repositories()
+    # An agentic step that pins message_id from a trigger field that is ABSENT.
+    definition = load_definition(
+        {
+            "id": "wf",
+            "name": "wf",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {
+                    "id": "act",
+                    "type": "agentic",
+                    "goal": "label it",
+                    "model": "claude-haiku-4-5",
+                    "tools": [],
+                    "pin_params": {"message_id": "trigger.message_id"},
+                }
+            ],
+            "edges": [],
+        }
+    )
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=FunctionRegistry(),
+        tools=ToolCatalog(),
+        bedrock=FakeBedrock([text_response("hi")]),
+        world=mock_world(),
+    )
+    # trigger has NO message_id → the pin can't resolve → step fails closed.
+    instance = await engine.run(definition, trigger_payload={})
+    assert instance.state == WorkflowInstanceState.FAILED
+    entries = await repos.audit.list_by_instance(instance.id)
+    unresolved = [e for e in entries if e.action == "tool_pin_unresolved"]
+    assert unresolved and unresolved[0].detail["param"] == "message_id"

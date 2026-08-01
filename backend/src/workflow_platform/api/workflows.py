@@ -484,6 +484,9 @@ def build_router(
         return await repositories.instances.count_by_workflow(org_id=scope.org_id)
 
     _MEMORY_ADMIN_ROLES = (Role.ADMINISTRATOR, Role.ORG_ADMIN)
+    # Roles that read RAW tool payloads in audit (finding 3); others get the
+    # projected metadata.
+    ADMIN_TIER = {Role.ADMINISTRATOR.value, Role.ORG_ADMIN.value}
     _CATEGORIES_BYTE_CAP = 262_144
 
     @router.get("/memory/summary")
@@ -1220,23 +1223,57 @@ def build_router(
             "deleted_steps": deleted_steps,
         }
 
+    def _project_audit(entries: list[AuditEntry], user: UserIdentity) -> list[AuditEntry]:
+        """Raw tool payloads (email bodies, file contents, error text) are
+        stored in full but only ADMIN-TIER roles read them (external review
+        2026-08-01 finding 3). Below that, `tool_call` detail is projected to
+        safe metadata — keys, status, content hash/size — so audit access
+        cannot become an intra-org read-privilege escalation. Storage is
+        unchanged (operators/admins keep forensics); this is a response-layer
+        projection."""
+        if any(r in ADMIN_TIER for r in user.roles):
+            return entries
+        projected: list[AuditEntry] = []
+        for e in entries:
+            if e.action != "tool_call":
+                projected.append(e)
+                continue
+            d = e.detail
+            result = d.get("result") or {}
+            content = result.get("content")
+            safe: dict[str, Any] = {
+                "name": d.get("name"),
+                "input_keys": sorted((d.get("input") or {}).keys()),
+                "result_ok": not result.get("error"),
+                "error_present": bool(result.get("error")),
+                "pinned": d.get("pinned", []),
+                "pin_overrides": d.get("pin_overrides", []),
+                "_redacted": "raw tool input/result withheld (admin-tier only)",
+            }
+            if content is not None:
+                blob = json.dumps(content, sort_keys=True, default=str).encode()
+                safe["content_sha256"] = hashlib.sha256(blob).hexdigest()[:16]
+                safe["content_bytes"] = len(blob)
+            projected.append(e.model_copy(update={"detail": safe}))
+        return projected
+
     @router.get(
         "/workflow-instances/{instance_id}/audit",
         response_model=list[AuditEntry],
     )
     async def list_instance_audit(
         instance_id: str,
-        _: UserIdentity = Depends(require_roles(*ANY_ROLE)),
+        user: UserIdentity = Depends(require_roles(*ANY_ROLE)),
         scope: OrgScope = Depends(_org_scope),
     ) -> list[AuditEntry]:
         await _visible_instance(instance_id, scope)
-        return await repositories.audit.list_by_instance(instance_id)
+        return _project_audit(await repositories.audit.list_by_instance(instance_id), user)
 
     @router.get("/audit", response_model=list[AuditEntry])
     async def list_recent_audit(
         limit: int = 100,
         instance_id: str | None = None,
-        _: UserIdentity = Depends(require_roles(*ANY_ROLE)),
+        user: UserIdentity = Depends(require_roles(*ANY_ROLE)),
         scope: OrgScope = Depends(_org_scope),
     ) -> list[AuditEntry]:
         """Recent audit entries, optionally scoped to one instance. Before
@@ -1245,8 +1282,11 @@ def build_router(
         if instance_id is not None:
             await _visible_instance(instance_id, scope)
             entries = await repositories.audit.list_by_instance(instance_id)
-            return entries[: min(limit, 500)]
-        return await repositories.audit.list_recent(limit=min(limit, 500), org_id=scope.org_id)
+            return _project_audit(entries[: min(limit, 500)], user)
+        return _project_audit(
+            await repositories.audit.list_recent(limit=min(limit, 500), org_id=scope.org_id),
+            user,
+        )
 
     if webhook_registry is not None:
         registry = webhook_registry  # narrowed for the closure

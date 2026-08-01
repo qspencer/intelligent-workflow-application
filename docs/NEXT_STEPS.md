@@ -488,6 +488,33 @@ pass; a population-scope expansion (like the same-day inbox→all-mail
 widening) is an independently-reviewed amendment with volume/spend/
 backfill/rollback stated up front.
 
+### G25 — Code-level review findings (external code review, 2026-08-01)
+
+The reviewer executed the code against the contracts and found 6 items.
+**Resolved this pass** (against HEAD, not the frozen 1d2ef25 baseline):
+- **F1 (HIGH)** unexpected branch exceptions now cancel in-flight siblings
+  — the whole dispatch-loop body is guarded, not just `StepFailure`; a
+  mutating sibling can no longer run after the workflow FAILED. Pinned.
+- **F2 (HIGH)** tool pins **fail closed** — an unresolved pin path FAILS
+  the step before dispatch + audits `tool_pin_unresolved`. Pinned.
+- **F3 (HIGH-before-ext-org)** raw tool payloads (mail bodies, file
+  contents) are **projected to safe metadata** in audit responses for
+  below-admin-tier roles; admin-tier sees raw. Pinned. *Gate:* project at
+  STORAGE not just response, and separately audit raw-trace access.
+- **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
+- **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
+  user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
+  token-in-query → cookie/BFF (OIDC-mode only).
+
+**Deferred as pre-external-org gates:**
+- **F6 (MED) cross-tenant slug oracle** — create de-dupes ids against ALL
+  orgs, leaking another org's existence via the collision suffix. Proper
+  fix is composite `(org_id, slug)` identity — an identity/schema change
+  (a naive org-scoped de-dup would cause a global PK collision). One org
+  today = no oracle. Test: two orgs, same name, neither observes the other.
+- **Offline-reproducible handoff** — ship a hash-pinned wheelhouse OR a
+  container/OCI digest of the recorded py3.12.3/uv0.12.0 env next time.
+
 ### G18 — Model price/quality benchmark on real labeled data — **harness built 2026-07-31**
 
 `tools/eval_models.py`: runs the production classification task (current

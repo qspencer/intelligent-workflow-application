@@ -644,39 +644,51 @@ class WorkflowEngine:
                 )
 
         while in_progress:
-            await self._maybe_pause(instance_id, in_progress)
+            # ANY abnormal exit from a loop iteration cancels + awaits the
+            # in-flight siblings before propagating (external review
+            # 2026-08-01 finding 1). Previously only StepFailure did — an
+            # unexpected RuntimeError escaped, the workflow was marked FAILED,
+            # and a sibling kept running and could still mutate. Covers branch
+            # exceptions, pause/kill, budget, and scheduling errors alike.
+            try:
+                await self._maybe_pause(instance_id, in_progress)
 
-            done, _ = await asyncio.wait(in_progress.values(), return_when=asyncio.FIRST_COMPLETED)
-            for task in done:
-                sid = next(s for s, t in in_progress.items() if t is task)
-                del in_progress[sid]
-                try:
-                    task.result()  # raises if step failed
-                except StepFailure:
-                    await self._cancel_pending(in_progress, instance_id)
-                    raise
+                done, _ = await asyncio.wait(
+                    in_progress.values(), return_when=asyncio.FIRST_COMPLETED
+                )
+                for task in done:
+                    sid = next(s for s, t in in_progress.items() if t is task)
+                    del in_progress[sid]
+                    task.result()  # raises if the step failed
 
-                # Step succeeded; check the workflow budget before resolving
-                # downstream — pause/escalate must take effect immediately.
-                await self._check_budget(definition, context, instance_id, in_progress)
+                    # Step succeeded; check the workflow budget before
+                    # resolving downstream (pause/escalate must take effect
+                    # immediately).
+                    await self._check_budget(definition, context, instance_id, in_progress)
 
-                for edge in state.edges_by_source.get(sid, []):
-                    active = self._is_edge_active(edge, context)
-                    state.incoming_resolved[edge.target] += 1
-                    if active:
-                        state.incoming_active[edge.target] += 1
-                    if state.incoming_resolved[edge.target] == state.incoming_total[edge.target]:
-                        await self._schedule_or_skip(
-                            edge.target,
-                            steps_by_id,
-                            state,
-                            context,
-                            instance_id,
-                            in_progress,
-                            scheduled,
-                            skipped,
-                            definition,
-                        )
+                    for edge in state.edges_by_source.get(sid, []):
+                        active = self._is_edge_active(edge, context)
+                        state.incoming_resolved[edge.target] += 1
+                        if active:
+                            state.incoming_active[edge.target] += 1
+                        if (
+                            state.incoming_resolved[edge.target]
+                            == state.incoming_total[edge.target]
+                        ):
+                            await self._schedule_or_skip(
+                                edge.target,
+                                steps_by_id,
+                                state,
+                                context,
+                                instance_id,
+                                in_progress,
+                                scheduled,
+                                skipped,
+                                definition,
+                            )
+            except BaseException:
+                await self._cancel_pending(in_progress, instance_id)
+                raise
 
     async def _schedule_or_skip(
         self,
@@ -1045,17 +1057,33 @@ class WorkflowEngine:
                 f"markers) ---\n{recalled.context}"
             )
 
-        # Tool-parameter pinning (external review finding 2): resolve each
-        # pinned param's value from context so the engine — not the model —
-        # supplies it on every tool call. A pin whose path resolves to None
-        # is dropped (the tool sees the model's value or its own default),
-        # so a missing upstream field can't silently pin null.
+        # Tool-parameter pinning: resolve each pinned param from context so
+        # the engine — not the model — supplies it. **Fail-closed** (external
+        # review 2026-08-01 finding 2): a pin whose path is missing/None
+        # FAILS the step BEFORE model dispatch — dropping it would silently
+        # remove a security boundary (e.g. a malformed trigger could restore
+        # the model's choice of message_id). A missing pin is never
+        # optional-by-accident.
         pinned_tool_params: dict[str, Any] = {}
         if step.pin_params:
             for param, path in step.pin_params.items():
                 value = _resolve_context_value(context, path)
-                if value is not None:
-                    pinned_tool_params[param] = value
+                if value is None:
+                    await self._audit(
+                        "tool_pin_unresolved",
+                        actor_type="engine",
+                        actor_id="workflow_engine",
+                        instance_id=instance_id,
+                        step_id=step.id,
+                        detail={"param": param, "path": path},
+                    )
+                    raise StepFailure(
+                        f"Step {step.id!r} pinned tool param {param!r} did not "
+                        f"resolve ({path!r} is missing/None). Pins fail closed — "
+                        f"the step is not dispatched rather than let the model "
+                        f"choose an unpinned value."
+                    )
+                pinned_tool_params[param] = value
 
         agent = Agent(
             system_prompt=system_prompt,
