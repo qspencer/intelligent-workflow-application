@@ -60,7 +60,7 @@ finding 4; collection ≠ passing):
 |---|---|
 | commit | this doc's commit (see manifest) |
 | command | `cd backend && uv run pytest -q` |
-| passed | **899** |
+| passed | **905** |
 | skipped | 14 (live/integration, self-skip without creds) |
 | failed | 0 |
 | python | 3.12.3 |
@@ -71,6 +71,22 @@ finding 4; collection ≠ passing):
 The gated suites (Postgres / schema / live Bedrock+Gmail+browser) run
 separately — their pass records live in the CI run for this commit
 (`.github/workflows/ci.yml` + `live-tests.yml`), not reproduced here.
+
+**Code-review round-2 controls (external review 2026-08-01, all
+VERIFIED-CODE+TEST):**
+
+| Claim | Implementation | Test |
+|---|---|---|
+| F1 ANY branch exception cancels in-flight siblings (not just StepFailure) | `executor.py` dispatch loop body guarded → `_cancel_pending` on any exception | `test_parallel_execution.py::test_unexpected_exception_cancels_mutating_sibling` (RuntimeError branch; slow sibling never mutates; row CANCELLED) |
+| F2 tool pins FAIL CLOSED on unresolved path | `executor.py` pin resolution → `StepFailure` + audit `tool_pin_unresolved` if a path resolves None | `test_tool_param_pinning.py::test_unresolved_pin_fails_step_closed` |
+| F3 raw tool payloads projected for below-admin roles | `api/workflows.py::_project_audit` (admin-tier sees raw; else keys/status/hash) on both audit endpoints | `test_org_isolation.py::test_raw_tool_payloads_hidden_from_non_admin_audit` |
+| F5 WS org resolution fails closed | `api/ws.py::_subscriber_org` raises `_OrgUnresolved` on missing row → upgrade rejected | `test_org_isolation.py::test_ws_rejects_non_admin_with_unresolvable_org` |
+
+Reproducibility (external review note): the suite needs the locked deps
+(veracium==0.4.3 et al) — a clean env can't run it offline yet. Next
+handoff will ship a hash-pinned wheelhouse or a container/OCI digest of
+the py3.12.3 / uv0.12.0 env. Affects independent reproduction, not archive
+integrity.
 CI runs `uv run pytest -m "not integration"` (`.github/workflows/ci.yml:67`).
 
 Opt-in gated suites (markers declared in `backend/pyproject.toml:59-64`;
