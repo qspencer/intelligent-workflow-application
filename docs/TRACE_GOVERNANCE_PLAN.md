@@ -70,17 +70,25 @@ still-present inline copy (`test_raw_trace_rehydrate.py`) — proving the vault
 is a faithful read-back source, which is the flip's precondition. Additive;
 nothing flips yet.
 
-**TG3b PART 2 (the write flip) — scoped, next.** Persist safe-only
-(step.output / trigger_payload / context / audit detail) + durable-or-fail
-(vault-first) + rehydrate on resume/fork + read-surface raw-merge for
-grant-holders, gated behind a `trace_safe_only` flag (default OFF = today's
-dark dual-write; the default flips at the gate). Prerequisite surfaced during
-part 1: the projection functions (`redact_tool_data` / `safe_trigger_payload`)
-live in `api/redaction.py`; the engine must not import `api`, so they extract
-to a domain `trace_projection` module (re-exported from `api/redaction` for
-the existing callers) first. Plus the finalized dependency manifest (§5.1).
-Trigger to ship to an external org is unchanged (§0) and still requires the
-chosen B-contract (TG3d).
+**TG3b PART 2 BUILT (2026-08-01) — the safe-only flip (flag-gated).** With
+`trace_safe_only` ON, the operational store persists ONLY the safe projection
+(instance / step.output / context / trigger / step_completed audit are
+zero-raw at rest) and the raw lives in the vault; run() vaults the raw trigger
+DURABLY, `_run_step_once` vaults the raw output before persisting the
+projection (durable-or-fail), `_mark_instance` persists the projected context,
+and resume + fork rehydrate the trigger + step outputs from the vault
+(system-audited, fail-closed, keyed on the latest COMPLETED step-attempt; fork
+re-binds its own copy, §4.3). Default OFF = dark dual-write (full suite
+untouched); the default flips at the gate. Projection extracted to a domain
+`trace_projection` module first (engine must not import `api`).
+`test_trace_safe_only_flip.py`.
+
+**TG3b PART 3 (completing pieces) — next.** Read-surface raw-merge so
+grant-holders regain raw via the API under the flip (rehydrate-on-release, a
+no-op under default) + per-call `tool_call` audit-at-rest projection + the
+finalized dependency manifest (§5.1). All raw stays read-projected via
+TG1/TG2 meanwhile — no regression. Trigger to ship to an external org is
+unchanged (§0) and still requires the chosen B-contract (TG3d).
 
 The coupled design for the three F3 pre-external-organization gates the
 external code review left open after the read-surface redaction closed
@@ -803,7 +811,8 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
 | **TG2 (system access)** | `raw_trace_system_access_attempted`-before-decrypt + fail-closed (§3.2) | A | **authorizable (v6 audit-before-decrypt folded — pending re-review)** |
 | **TG3a** | typed registry (§1.2) + safe-output contract (§1.4) + vault-all-free-form + abstract vault repo/opaque IDs (§0.2) + schema (§4.1) + collision-free key; **DARK DUAL-WRITE** | A | **BUILT 2026-08-01** (same-DB; cross-system fencing §4.2 lands with the separate-vault B form at TG3d) |
 | **TG3b.1** | rehydration read-back (§4.3) + integrity + **system-access audit (§3.2)**, fail-closed | A | **BUILT 2026-08-01** (additive; validated against inline) |
-| **TG3b.2** | the write flip (flag-gated): persist safe-only + durable-or-fail (§4.2) + rehydrate on resume/fork + read-surface merge + finalized dependency manifest (§5.1) | A | scoped; needs the `trace_projection` extraction first |
+| **TG3b.2** | the write flip (flag-gated `trace_safe_only`): persist safe-only + durable-or-fail (§4.2) + rehydrate on resume/fork | A | **BUILT 2026-08-01** (default OFF; execution-state tables zero-raw at rest) |
+| **TG3b.3** | read-surface raw-merge for grant-holders under the flip + `tool_call` audit-at-rest projection + finalized dependency manifest (§5.1) | A | scoped, next |
 | **TG3c** | backfill + mixed-version cutover + zero-raw verifier + retention/expiry state (§5.1) + fork lineage + **cross-org-fork prohibition (§5.2)** | A | after §5.2 rule (done) |
 | **TG3d-1** | B1 boundary: per-org envelope encryption (keys outside the DB role, BYOK-ready `key_id`), AEAD-bound ciphertext, narrow decrypt identity; dual-control grant; THREAT_MODEL §5a amended (DB-operator-resistant, infra-operator-trusted residual) | **B1** | own design doc; the shippable external-org gate for a B1-accepting customer |
 | **TG3d-2** | B2 boundary: move the decrypt identity into an attested/enclaved runtime OR external/customer-mediated key release; THREAT_MODEL §5a amended (host-operator-resistant) | **B2** | own threat-model + infra design; pulled forward when a customer contract requires operator-non-decrypt |

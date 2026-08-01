@@ -651,18 +651,23 @@ The reviewer executed the code against the contracts and found 6 items.
   + the system-access audit (§3.2, `raw_trace_system_access_attempted/
   _completed`, engine workload identity, audit-before-fetch, fail-closed),
   validated against the inline copy (test_raw_trace_rehydrate). Additive.
-  **TG3b PART 2 (the write flip) — next, scoped:** persist safe-only
-  (step.output/trigger/context/audit) + durable-or-fail (vault-first) +
-  rehydrate on resume/fork + read-surface raw-merge for grant-holders +
-  finalized dependency manifest (§5.1), behind a `trace_safe_only` flag
-  (default OFF = today's dark dual-write; the default flips at the gate).
-  Prerequisite: extract `redact_tool_data`/`safe_trigger_payload` from
-  `api/redaction` to a domain `trace_projection` module (engine must not
-  import api). Then TG3c (backfill + zero-raw verifier) and TG3d (the
-  B-contract boundary; cross-system fencing + `partial`/vault outcomes +
-  delivery-observed land there). Deferred within TG1: memory
-  facts-mode-under-grant. Ship to an external org stays trigger-gated + needs
-  the chosen B-contract (TG3d).
+  **TG3b PART 2 BUILT (2026-08-01) — the safe-only flip (flag-gated):** with
+  `trace_safe_only` ON the operational store persists only the safe projection
+  (instance/step.output/context/trigger/step_completed audit zero-raw at
+  rest) and raw lives in the vault; run vaults the raw trigger durably,
+  _run_step_once vaults raw before persisting the projection (durable-or-fail),
+  resume+fork rehydrate from the vault (system-audited, fail-closed, keyed on
+  the latest COMPLETED step-attempt; fork re-binds its own copy). Default OFF
+  = dark dual-write (full suite untouched); default flips at the gate.
+  Projection extracted to a domain `trace_projection` module first.
+  test_trace_safe_only_flip. **TG3b PART 3 (next):** read-surface raw-merge so
+  grant-holders regain raw via the API under the flip (rehydrate-on-release,
+  no-op under default) + per-call tool_call audit-at-rest projection +
+  finalized dependency manifest (§5.1). Then TG3c (backfill + zero-raw
+  verifier) and TG3d (the B-contract boundary; cross-system fencing +
+  `partial`/vault outcomes + delivery-observed land there). Deferred within
+  TG1: memory facts-mode-under-grant. Ship to an external org stays
+  trigger-gated + needs the chosen B-contract (TG3d).
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
