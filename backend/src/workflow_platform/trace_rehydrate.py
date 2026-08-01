@@ -155,6 +155,34 @@ class RawTraceRehydrator:
             return safe_trigger
         return row.payload if isinstance(row.payload, dict) else safe_trigger
 
+    async def merge_output(
+        self, *, org_id: str, instance_id: str, step_attempt_id: str, safe_output: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Read-surface overlay for a grant-holder (TG3b.3). The HUMAN access
+        is already audited via the release-boundary path (§3.1), so this emits
+        NO system-access audit. Best-effort: a missing vault row leaves the
+        projected field (the read degrades, it does not 500). A no-op when
+        nothing is projected — so it's harmless under the default dark
+        dual-write, where the operational row already holds raw."""
+        merged = dict(safe_output)
+        for kind in (k for k in _OUTPUT_FIELD if _is_projected(safe_output, k)):
+            key = idempotency_key(org_id, instance_id, step_attempt_id, kind)
+            row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+            if row is not None:
+                merged[_OUTPUT_FIELD[kind]] = row.payload
+        return merged
+
+    async def merge_trigger(
+        self, *, org_id: str, instance_id: str, safe_trigger: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Read-surface trigger overlay (no system-access audit — see
+        `merge_output`)."""
+        key = idempotency_key(org_id, instance_id, None, RawTraceKind.TRIGGER_PAYLOAD)
+        row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        if row is not None and isinstance(row.payload, dict):
+            return row.payload
+        return safe_trigger
+
 
 def _is_projected(safe_output: dict[str, Any], kind: RawTraceKind) -> bool:
     """Whether the safe operational output has this raw kind projected out

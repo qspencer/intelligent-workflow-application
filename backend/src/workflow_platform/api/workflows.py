@@ -60,6 +60,7 @@ from workflow_platform.secrets import SecretNotFoundError, SecretStore
 from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.templates import default_examples_dir, load_templates, slugify, unique_id
 from workflow_platform.tools import Tool, ToolContext, ToolResult
+from workflow_platform.trace_rehydrate import RawTraceRehydrator
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.workflow import (
     TriggerSpec,
@@ -496,6 +497,10 @@ def build_router(
     # (docs/TRACE_GOVERNANCE_PLAN.md §2, TG1) — a per-user privilege distinct
     # from administration, NOT a role. See `_raw_reader_for_org`.
     grant_service = RawTraceGrantService(repositories)
+    # Read-surface raw-merge (TG3b.3): under the safe-only flip the operational
+    # store is projected, so a grant-holder's raw is restored from the vault
+    # here. A no-op under the default dark dual-write (nothing is projected).
+    rehydrator = RawTraceRehydrator(repositories)
     _CATEGORIES_BYTE_CAP = 262_144
 
     @router.get("/memory/summary")
@@ -1021,9 +1026,28 @@ def build_router(
         # Both the step rows AND instance.context.steps carry raw tool_calls;
         # redact both when raw isn't released (below-grant, or the release
         # audit was unavailable → fail-closed to projected, F3/TG2).
+        instance_dump = instance.model_dump()
+        step_dumps = [s.model_dump() for s in steps]
+        if released:
+            # Grant-holder: restore raw from the vault (TG3b.3). A no-op under
+            # the default dark dual-write; under the flip it re-merges the
+            # projected operational rows. Human access already audited (§3.1).
+            instance_dump["trigger_payload"] = await rehydrator.merge_trigger(
+                org_id=instance.org_id,
+                instance_id=instance_id,
+                safe_trigger=instance_dump.get("trigger_payload") or {},
+            )
+            for sd in step_dumps:
+                if isinstance(sd.get("output"), dict):
+                    sd["output"] = await rehydrator.merge_output(
+                        org_id=instance.org_id,
+                        instance_id=instance_id,
+                        step_attempt_id=sd["id"],
+                        safe_output=sd["output"],
+                    )
         body: dict[str, Any] = {
-            "instance": redact_tool_data(instance.model_dump(), released),
-            "steps": [redact_tool_data(s.model_dump(), released) for s in steps],
+            "instance": redact_tool_data(instance_dump, released),
+            "steps": [redact_tool_data(sd, released) for sd in step_dumps],
             "raw_included": released,
         }
         if reason is not None:
