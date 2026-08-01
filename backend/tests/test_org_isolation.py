@@ -438,3 +438,38 @@ def test_ws_rejects_non_admin_with_unresolvable_org(monkeypatch: pytest.MonkeyPa
     # A seeded org user still connects fine (control).
     with client.websocket_connect("/ws/events?user=acme-u&groups=org-users") as ws:
         pass  # accepted
+
+
+def test_ws_redacts_tool_secrets_for_non_admin_subscriber(monkeypatch: pytest.MonkeyPatch) -> None:
+    """External review 2026-08-01 F3 round 3: WS events mirror audit incl.
+    step_completed carrying tool_calls AND an echoed output_text. A
+    below-admin subscriber must receive neither; an Administrator gets raw."""
+    client, _, events = _two_org_app(monkeypatch)
+    secret_in = "WS-SENTINEL-IN"
+    secret_out = "WS-SENTINEL-OUT"
+    step_event = {
+        "action": "step_completed",
+        "org_id": "acme",
+        "detail": {
+            "output": {
+                "tool_calls": [
+                    {"name": "t", "input": {"body": secret_in}, "result": {"content": secret_out}}
+                ],
+                "output_text": f"Saw {secret_in} and {secret_out}",
+            }
+        },
+    }
+
+    # Below-admin (org user): redacted.
+    with client.websocket_connect("/ws/events?user=acme-u&groups=org-users") as ws:
+        asyncio.run(events.publish(dict(step_event)))
+        got = ws.receive_json()
+        blob = str(got)
+        assert secret_in not in blob and secret_out not in blob
+        assert got["detail"]["output"]["output_text"].startswith("[redacted")
+
+    # Administrator: raw.
+    with client.websocket_connect("/ws/events?user=root&groups=admins") as ws:
+        asyncio.run(events.publish(dict(step_event)))
+        got = ws.receive_json()
+        assert secret_out in str(got)

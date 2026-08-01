@@ -60,7 +60,7 @@ finding 4; collection ≠ passing):
 |---|---|
 | commit | this doc's commit (see manifest) |
 | command | `cd backend && uv run pytest -q` |
-| passed | **907** |
+| passed | **908** |
 | skipped | 14 (live/integration, self-skip without creds) |
 | failed | 0 |
 | python | 3.12.3 |
@@ -79,7 +79,7 @@ VERIFIED-CODE+TEST):**
 |---|---|---|
 | F1 ANY branch exception cancels siblings AND the origin step persists FAILED | `executor.py` loop body guarded; `_run_step_once` catches unexpected `Exception` → step FAILED + `unexpected:true` audit → re-raise (not CancelledError) | `test_parallel_execution.py::test_unexpected_exception_cancels_mutating_sibling` (asserts step a FAILED w/ error, sibling b CANCELLED, no mutation) |
 | F2 tool pins FAIL CLOSED on unresolved path | `executor.py` pin resolution → `StepFailure` + audit `tool_pin_unresolved` if a path resolves None | `test_tool_param_pinning.py::test_unresolved_pin_fails_step_closed` |
-| F3 raw tool payloads projected across EVERY read surface | ONE `api/redaction.py::redact_tool_data` applied to: both audit endpoints, instance endpoint (dump + step rows + context), explain, WS delivery | `test_audit_redaction.py::test_below_admin_cannot_recover_tool_secrets_anywhere` (real tool call w/ sentinel in+out secrets; Viewer+User recover nothing from all 4 surfaces; admin sees raw) |
+| F3 tool secrets (incl. model-ECHOED output_text) projected across every read surface | `api/redaction.py::redact_tool_data` — redacts `tool_calls` AND withholds `output_text` when the step used a tool; applied to both audit endpoints, instance endpoint (dump+steps+context), explain, WS delivery | `test_audit_redaction.py::...` (model echoes both secrets into output_text; Viewer+User recover nothing from the 4 HTTP surfaces; admin raw) **+** `test_org_isolation.py::test_ws_redacts_tool_secrets_for_non_admin_subscriber` (WS delivery) | **VERIFIED-CODE+TEST** for the read surfaces. NOTE: authorization is Admin+Org-Admin roles, not a distinct raw-trace privilege, and raw access is not itself audited — storage-level separation + audited-raw remain pre-external-org gates (F3-gate) |
 | F5 WS org resolution fails closed | `api/ws.py::_subscriber_org` raises `_OrgUnresolved` on missing row → upgrade rejected | `test_org_isolation.py::test_ws_rejects_non_admin_with_unresolvable_org` |
 
 Reproducibility (external review note): the suite needs the locked deps

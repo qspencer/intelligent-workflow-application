@@ -11,6 +11,8 @@ import hashlib
 import json
 from typing import Any
 
+_REDACTED_OUTPUT = "[redacted — tool-bearing step output; admin-tier only]"
+
 
 def safe_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
     """One tool-call record → non-sensitive metadata: parameter KEYS (not
@@ -42,8 +44,11 @@ def redact_tool_data(obj: Any, admin: bool) -> Any:
     if admin or not isinstance(obj, dict):
         return obj
     out: dict[str, Any] = {}
+    used_tool = False
     for k, v in obj.items():
         if k == "tool_calls" and isinstance(v, list):
+            if v:
+                used_tool = True
             out[k] = [safe_tool_call(c) if isinstance(c, dict) else c for c in v]
         elif isinstance(v, dict):
             out[k] = redact_tool_data(v, admin)
@@ -51,4 +56,11 @@ def redact_tool_data(obj: Any, admin: bool) -> Any:
             out[k] = v
     if {"input", "result", "name"} <= out.keys() and "tool_calls" not in out:
         return safe_tool_call(out)
+    # A tool-bearing step's FREE-TEXT output can echo a tool secret the model
+    # read (external review 2026-08-01, F3 round 3 — structural redaction of
+    # tool_calls isn't enough; the model may paraphrase the result into
+    # output_text). Withhold it below the raw-trace privilege whenever the
+    # step actually used a tool.
+    if used_tool and "output_text" in out:
+        out["output_text"] = _REDACTED_OUTPUT
     return out

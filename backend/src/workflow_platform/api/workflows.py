@@ -1659,6 +1659,9 @@ def build_router(
             for a in audit
             if a.action == "tool_call"
         ]
+        # F3 round 3: a tool-bearing step's output_text can echo a tool
+        # secret — withhold it below the raw-trace privilege.
+        step_used_tool = bool(tool_calls)
 
         common: dict[str, Any] = {
             "instance_id": instance_id,
@@ -1681,7 +1684,11 @@ def build_router(
                 "cost_usd": output.get("cost_usd"),
                 "goal": _excerpt(getattr(step_def, "goal", None)),
                 "system_prompt": _excerpt(getattr(step_def, "system_prompt", None)),
-                "output_text": _excerpt(output.get("output_text")),
+                "output_text": (
+                    _excerpt(output.get("output_text"))
+                    if (admin or not step_used_tool)
+                    else "[redacted — tool-bearing step output; admin-tier only]"
+                ),
                 "tool_calls": tool_calls,
             }
         return {

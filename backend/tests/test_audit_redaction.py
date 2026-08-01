@@ -48,7 +48,10 @@ async def _run_and_app(monkeypatch: pytest.MonkeyPatch) -> tuple[TestClient, str
         bedrock=FakeBedrock(
             [
                 tool_use_response(tool_uses=[("t1", "leaky_tool", {"body": SECRET_IN})]),
-                text_response("done"),
+                # The model ECHOES both secrets into its final free text
+                # (external review F3 round 3 — output_text bypassed the
+                # structural redaction).
+                text_response(f"Applied. Saw {SECRET_IN} and {SECRET_OUT}."),
             ]
         ),
         world=mock_world(),
@@ -93,10 +96,11 @@ async def test_below_admin_cannot_recover_tool_secrets_anywhere(
             assert SECRET_IN not in body, f"input secret leaked at {path} for {headers}"
             assert SECRET_OUT not in body, f"output secret leaked at {path} for {headers}"
 
-    # Admin-tier still gets the raw trace (forensics preserved).
+    # Admin-tier still gets the raw trace (forensics preserved) — incl. the
+    # echoed output_text.
     admin_instance = client.get(f"/api/workflow-instances/{iid}", headers=_ADMIN).text
     assert SECRET_OUT in admin_instance
     admin_explain = client.get(
         f"/api/workflow-instances/{iid}/steps/act/explain", headers=_ADMIN
     ).text
-    assert SECRET_IN in admin_explain
+    assert SECRET_IN in admin_explain and SECRET_OUT in admin_explain

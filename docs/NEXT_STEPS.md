@@ -504,11 +504,13 @@ The reviewer executed the code against the contracts and found 6 items.
   read surfaces via one shared `redact_tool_data` (round-2 follow-up — the
   first fix only covered `tool_call` entries; raw data also flowed through
   `step_completed` audit, `StepExecution.output`, `instance.context`,
-  explain, and WS events). End-to-end test runs a real tool call with
-  sentinel secrets and proves Viewer/User recover nothing from
-  `/audit`, instance-audit, the instance endpoint, or explain; admin-tier
-  still sees raw. Closed for the read surfaces. *Gate:* storage-level
-  separation + separately-audited raw access.
+  explain, WS events) AND the model-ECHOED output_text — the redactor
+  withholds output_text when a step used a tool, since the model can
+  paraphrase a tool secret into free text (F3 round 3). End-to-end test:
+  the model echoes both an input and an output secret; Viewer+User recover
+  nothing from the 4 HTTP surfaces + a dedicated WS delivery test; admin
+  raw. Closed for the read surfaces. *Gate:* storage-level separation, a
+  raw-trace privilege DISTINCT from ordinary admin, and audited raw access.
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
