@@ -530,8 +530,26 @@ The reviewer executed the code against the contracts and found 6 items.
   writes are now durable-or-fail, not best-effort, so resume/fork stay
   recoverable. Grant is a scoped record (not a bare boolean), trigger
   projection is a typed default-deny registry, plus migration/deletion/
-  retention/resource-limit contracts. 16 test-pinned criteria. Build stays
-  trigger-gated; **no external org until TG3d is in effect.**
+  retention/resource-limit contracts. **External review v2 folded:
+  architecture accepted; TG1/TG2 approvable for implementation planning,
+  TG3a–d implementation-blocked.** Four more blocking findings folded:
+  (1) Contract B split into B1 (DB-operator resistance via envelope
+  encryption) and B2 (host-operator resistance — needs external vault /
+  attested execution; KMS-to-engine-identity alone doesn't stop a host root);
+  the gate must NAME which it requires. (2) The Contract-B mechanism is now a
+  schema-shaping decision made BEFORE TG3a (abstract vault repo + opaque IDs
+  + reserve→persist→commit protocol), not an afterthought. (3) TG3a is a DARK
+  DUAL-WRITE — it must not flip the operational store to safe-only before
+  TG3b's rehydration lands, or instances created between them resume/fork
+  wrong. (4) Output sensitivity is by TAINT (any raw-influenced free-form
+  output/error is raw), not just tool-bearing steps; v1 vaults ALL free-form
+  output + errors. Plus: grant-scope constrains admin bypass (org-A grant
+  doesn't travel to org B); frozen execution identity (one immutable row per
+  attempt) + attempt-isolation; exact disagreement predicate w/ projector
+  versioning + AEAD binding; `workflow_instances.context` + errors + cost
+  tags added to the zero-raw inventory; retention coupled to resume/fork. 17
+  criteria. Build stays trigger-gated; **no external org until the gate's
+  required contract (up to TG3d) is in effect** — not merely TG1–TG3c.
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
