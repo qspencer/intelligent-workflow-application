@@ -27,6 +27,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
 
+from workflow_platform.api.raw_trace_audit import (
+    SURFACE_AUDIT,
+    SURFACE_DETAIL,
+    SURFACE_EXPLAIN,
+    decide_raw_release,
+)
 from workflow_platform.api.redaction import redact_tool_data
 from workflow_platform.auth import auth_mode, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
@@ -1003,13 +1009,26 @@ def build_router(
     ) -> dict[str, Any]:
         instance = await _visible_instance(instance_id, scope)
         steps = await repositories.steps.list_by_instance(instance_id)
-        admin = await _raw_reader_for_org(user, instance.org_id)
+        raw_ok = await _raw_reader_for_org(user, instance.org_id)
+        released, reason = await decide_raw_release(
+            repositories,
+            raw_ok=raw_ok,
+            surface=SURFACE_DETAIL,
+            actor_id=user.sub,
+            instance_id=instance_id,
+            kinds=("tool_calls", "output_text", "trigger_payload", "recall"),
+        )
         # Both the step rows AND instance.context.steps carry raw tool_calls;
-        # redact both for below-grant readers (F3).
-        return {
-            "instance": redact_tool_data(instance.model_dump(), admin),
-            "steps": [redact_tool_data(s.model_dump(), admin) for s in steps],
+        # redact both when raw isn't released (below-grant, or the release
+        # audit was unavailable → fail-closed to projected, F3/TG2).
+        body: dict[str, Any] = {
+            "instance": redact_tool_data(instance.model_dump(), released),
+            "steps": [redact_tool_data(s.model_dump(), released) for s in steps],
+            "raw_included": released,
         }
+        if reason is not None:
+            body["redaction_reason"] = reason
+        return body
 
     @router.post("/workflow-instances/{instance_id}/pause")
     async def pause_instance(
@@ -1294,7 +1313,15 @@ def build_router(
     ) -> list[AuditEntry]:
         instance = await _visible_instance(instance_id, scope)
         raw_ok = await _raw_reader_for_org(user, instance.org_id)
-        return _project_audit(await repositories.audit.list_by_instance(instance_id), raw_ok)
+        released, _ = await decide_raw_release(
+            repositories,
+            raw_ok=raw_ok,
+            surface=SURFACE_AUDIT,
+            actor_id=user.sub,
+            instance_id=instance_id,
+            kinds=("tool_calls",),
+        )
+        return _project_audit(await repositories.audit.list_by_instance(instance_id), released)
 
     @router.get("/audit", response_model=list[AuditEntry])
     async def list_recent_audit(
@@ -1309,15 +1336,31 @@ def build_router(
         if instance_id is not None:
             instance = await _visible_instance(instance_id, scope)
             raw_ok = await _raw_reader_for_org(user, instance.org_id)
+            released, _ = await decide_raw_release(
+                repositories,
+                raw_ok=raw_ok,
+                surface=SURFACE_AUDIT,
+                actor_id=user.sub,
+                instance_id=instance_id,
+                kinds=("tool_calls",),
+            )
             entries = await repositories.audit.list_by_instance(instance_id)
-            return _project_audit(entries[: min(limit, 500)], raw_ok)
+            return _project_audit(entries[: min(limit, 500)], released)
         # The global list spans orgs — only a PLATFORM-WIDE grant reads raw
         # here (an org-scoped grant covers only its own org's entries), which
         # `covering(target_org=None)` returns exactly.
         raw_ok = await _raw_reader_for_org(user, None)
+        released, _ = await decide_raw_release(
+            repositories,
+            raw_ok=raw_ok,
+            surface=SURFACE_AUDIT,
+            actor_id=user.sub,
+            instance_id=None,
+            kinds=("tool_calls",),
+        )
         return _project_audit(
             await repositories.audit.list_recent(limit=min(limit, 500), org_id=scope.org_id),
-            raw_ok,
+            released,
         )
 
     if webhook_registry is not None:
@@ -1684,14 +1727,22 @@ def build_router(
             for a in await repositories.audit.list_by_instance(instance_id)
             if a.step_id == step_id
         ]
-        admin = await _raw_reader_for_org(user, instance.org_id)
+        raw_ok = await _raw_reader_for_org(user, instance.org_id)
+        released, reason = await decide_raw_release(
+            repositories,
+            raw_ok=raw_ok,
+            surface=SURFACE_EXPLAIN,
+            actor_id=user.sub,
+            instance_id=instance_id,
+            kinds=("tool_calls", "output_text"),
+        )
         tool_calls = [
             {
                 "name": a.detail.get("name"),
-                "input": _excerpt(a.detail.get("input")) if admin else None,
-                "result": _excerpt(a.detail.get("result")) if admin else None,
+                "input": _excerpt(a.detail.get("input")) if released else None,
+                "result": _excerpt(a.detail.get("result")) if released else None,
                 "timestamp": _iso(a.timestamp),
-                **({} if admin else {"_redacted": "admin-tier only"}),
+                **({} if released else {"_redacted": "raw-trace grant only"}),
             }
             for a in audit
             if a.action == "tool_call"
@@ -1708,6 +1759,8 @@ def build_router(
             "started_at": _iso(exe.started_at),
             "completed_at": _iso(exe.completed_at),
             "error": exe.error,
+            "raw_included": released,
+            **({"redaction_reason": reason} if reason is not None else {}),
         }
         if kind == "agentic":
             usage = output.get("usage") or {}
@@ -1723,8 +1776,8 @@ def build_router(
                 "system_prompt": _excerpt(getattr(step_def, "system_prompt", None)),
                 "output_text": (
                     _excerpt(output.get("output_text"))
-                    if (admin or not step_used_tool)
-                    else "[redacted — tool-bearing step output; admin-tier only]"
+                    if (released or not step_used_tool)
+                    else "[redacted — tool-bearing step output; raw-trace grant only]"
                 ),
                 "tool_calls": tool_calls,
             }

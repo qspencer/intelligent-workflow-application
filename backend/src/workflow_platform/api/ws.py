@@ -21,6 +21,7 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
+from workflow_platform.api.raw_trace_audit import SURFACE_WS, decide_raw_release
 from workflow_platform.api.redaction import redact_tool_data
 from workflow_platform.auth import OidcValidator, UserIdentity, assign_roles, auth_mode
 from workflow_platform.auth.local import SESSION_COOKIE, LocalAuthService
@@ -173,8 +174,28 @@ def build_ws_router(
                     event = get_task.result()
                     get_task = None
                     if _deliver(event, subscriber_org):
-                        payload = event if raw_reader else _redact_ws_event(event)
-                        await ws.send_json(payload)
+                        projected = _redact_ws_event(event)
+                        if not raw_reader or projected == event:
+                            # Below-grant, or the event carries no raw at all
+                            # (projected is identical) — no raw is released, so
+                            # no access audit. Send the event as-is / projected.
+                            await ws.send_json(event if projected == event else projected)
+                        else:
+                            # A grant-holder receiving a raw-bearing event: emit
+                            # the release-boundary audit pair BEFORE the frame is
+                            # sent, one pair per delivered raw event (§3.1). A
+                            # failed audit degrades THIS frame to projected
+                            # without closing the connection.
+                            assert repositories is not None  # raw_reader ⟹ repos
+                            released, _ = await decide_raw_release(
+                                repositories,
+                                raw_ok=True,
+                                surface=SURFACE_WS,
+                                actor_id=user.sub,
+                                instance_id=event.get("workflow_instance_id"),
+                                kinds=("tool_calls", "output_text"),
+                            )
+                            await ws.send_json(event if released else projected)
         except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
             pass
         finally:
