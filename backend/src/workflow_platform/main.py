@@ -112,6 +112,12 @@ def _default_engine(
         events=events,
         memory=memory,
         learned_memory=LearnedMemoryService(bedrock, learned_db),
+        # TG3b safe-only flip: when on, the operational store persists only the
+        # safe projection and raw lives in the vault (rehydrated on
+        # resume/fork). Default OFF (dark dual-write); flip at the external-org
+        # gate. See docs/TRACE_GOVERNANCE_PLAN.md §4.
+        trace_safe_only=os.environ.get("WORKFLOW_PLATFORM_TRACE_SAFE_ONLY", "").lower()
+        in ("1", "true", "yes"),
     )
 
 

@@ -55,6 +55,8 @@ from workflow_platform.persistence.models import _new_id, _utcnow
 from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.security.capabilities import ResolvedCapabilities
 from workflow_platform.tools import Tool, ToolContext
+from workflow_platform.trace_projection import redact_tool_data, safe_trigger_payload
+from workflow_platform.trace_rehydrate import RawTraceRehydrator
 from workflow_platform.trace_vault import RawTraceVault
 from workflow_platform.workflow import (
     AgenticStep,
@@ -159,12 +161,17 @@ class WorkflowEngine:
     # that returns a fake instead so no real Chromium is launched.
     browser_downloads_dir: Path = field(default_factory=lambda: Path("./downloads"))
     browser_connector_factory: Callable[[], BrowserConnector] | None = None
-    # Raw-trace vault write path (TG3a). Dark dual-write: raw is copied here
-    # while the operational store stays authoritative until the TG3b flip.
+    # Raw-trace vault write path (TG3a). Dark dual-write: raw is copied to the
+    # vault; the operational store keeps its inline copy UNLESS `trace_safe_only`
+    # flips it to persist only the safe projection (TG3b). Default OFF — the
+    # default flips at the external-org gate.
+    trace_safe_only: bool = False
     _vault: RawTraceVault = field(init=False)
+    _rehydrator: RawTraceRehydrator = field(init=False)
 
     def __post_init__(self) -> None:
         self._vault = RawTraceVault(self.repositories)
+        self._rehydrator = RawTraceRehydrator(self.repositories)
 
     # --- public API ---
 
@@ -180,35 +187,41 @@ class WorkflowEngine:
         # engine stays org-blind; it just copies attribution forward so
         # trigger-fired runs scope correctly too.
         org_id = await self.repositories.definitions.org_of(definition.id) or "default"
+        raw_trigger = dict(trigger_payload or {})
+        # Safe-only flip (TG3b): the operational store persists only the
+        # routing-safe trigger; the raw lives in the vault. Dark dual-write
+        # (TG3a, default): inline keeps the raw.
+        stored_trigger = safe_trigger_payload(raw_trigger) if self.trace_safe_only else raw_trigger
         instance = WorkflowInstance(
             workflow_id=definition.id,
             org_id=org_id,
             state=WorkflowInstanceState.RUNNING,
-            trigger_payload=dict(trigger_payload or {}),
+            trigger_payload=stored_trigger,
             started_at=started,
         )
         instance = await self.repositories.instances.create(instance)
+        # Vault the RAW trigger (durable under the flip — a lost write would
+        # lose the only raw copy, so it must fail the run then).
+        await self._vault.record_trigger(
+            org_id=instance.org_id,
+            instance_id=instance.id,
+            payload=raw_trigger,
+            durable=self.trace_safe_only,
+        )
         self.metrics.workflow_started(definition.id)
         await self._audit(
             "workflow_started",
             actor_type="engine",
             actor_id="workflow_engine",
             instance_id=instance.id,
-            detail={"workflow_id": definition.id, "trigger": instance.trigger_payload},
+            detail={"workflow_id": definition.id, "trigger": stored_trigger},
         )
 
         context = WorkflowContext(
             instance_id=instance.id,
             workflow_id=definition.id,
             org_id=instance.org_id,
-            trigger=dict(instance.trigger_payload),
-        )
-        # Dark dual-write (TG3a): vault the raw trigger payload while the
-        # inline copy stays authoritative (the flip to safe-only is TG3b).
-        await self._vault.record_trigger(
-            org_id=instance.org_id,
-            instance_id=instance.id,
-            payload=instance.trigger_payload,
+            trigger=raw_trigger,  # in-memory context keeps FULL fidelity for the run
         )
         result = await self._drive(definition, instance, context, already_done=set())
         self._record_workflow_finished(definition.id, result, started)
@@ -248,6 +261,7 @@ class WorkflowEngine:
             for s in prior
             if s.state in (StepExecutionState.COMPLETED, StepExecutionState.SKIPPED)
         }
+        await self._rehydrate_context(context, prior, purpose="resume")
         result = await self._drive(definition, instance, context, already_done=already_done)
         self._record_workflow_finished(definition.id, result, resumed_at)
         return result
@@ -278,9 +292,13 @@ class WorkflowEngine:
         preserved = _ancestors(definition, from_step_id)
         source_steps = await self.repositories.steps.list_by_instance(source_instance_id)
         usable_outputs: dict[str, dict[str, Any]] = {}
+        source_attempt: dict[str, StepExecution] = {}
         for s in source_steps:
             if s.step_id in preserved and s.state == StepExecutionState.COMPLETED and s.output:
-                usable_outputs[s.step_id] = dict(s.output)
+                cur = source_attempt.get(s.step_id)
+                if cur is None or s.attempt > cur.attempt:
+                    source_attempt[s.step_id] = s
+                    usable_outputs[s.step_id] = dict(s.output)
 
         missing = preserved - usable_outputs.keys()
         if missing:
@@ -289,15 +307,43 @@ class WorkflowEngine:
                 f"required ancestor(s) {sorted(missing)}"
             )
 
+        # Under the safe-only flip, the source's persisted outputs + trigger
+        # are projected — rehydrate the RAW from the SOURCE vault so the fork
+        # carries full fidelity; it re-binds its own copy below (§4.3).
+        raw_trigger = dict(source.trigger_payload)
+        if self.trace_safe_only:
+            raw_trigger = await self._rehydrator.rehydrate_trigger(
+                purpose="fork",
+                org_id=source.org_id,
+                instance_id=source_instance_id,
+                safe_trigger=raw_trigger,
+            )
+            for step_id, safe_output in list(usable_outputs.items()):
+                usable_outputs[step_id] = await self._rehydrator.rehydrate_output(
+                    purpose="fork",
+                    org_id=source.org_id,
+                    instance_id=source_instance_id,
+                    step_attempt_id=source_attempt[step_id].id,
+                    safe_output=safe_output,
+                )
+
         started = _utcnow()
+        stored_trigger = safe_trigger_payload(raw_trigger) if self.trace_safe_only else raw_trigger
         new_instance = WorkflowInstance(
             workflow_id=definition.id,
             org_id=source.org_id,
             state=WorkflowInstanceState.RUNNING,
-            trigger_payload=dict(source.trigger_payload),
+            trigger_payload=stored_trigger,
             started_at=started,
         )
         new_instance = await self.repositories.instances.create(new_instance)
+        # The fork binds its OWN raw copy so deleting the source can't break it.
+        await self._vault.record_trigger(
+            org_id=new_instance.org_id,
+            instance_id=new_instance.id,
+            payload=raw_trigger,
+            durable=self.trace_safe_only,
+        )
         self.metrics.workflow_started(definition.id)
         await self._audit(
             "workflow_forked",
@@ -311,25 +357,32 @@ class WorkflowEngine:
             },
         )
 
-        # Materialize the preserved steps in the new instance as COMPLETED,
-        # carrying over their outputs verbatim.
+        # Materialize the preserved steps in the new instance as COMPLETED.
+        # Under the flip: persist the SAFE projection + vault the raw under the
+        # NEW step-attempt id (the fork's own bound copy); inline otherwise.
         for step_id, output in usable_outputs.items():
-            await self.repositories.steps.create(
-                StepExecution(
-                    instance_id=new_instance.id,
-                    step_id=step_id,
-                    state=StepExecutionState.COMPLETED,
-                    started_at=started,
-                    completed_at=started,
-                    output=output,
-                )
+            row = StepExecution(
+                instance_id=new_instance.id,
+                step_id=step_id,
+                state=StepExecutionState.COMPLETED,
+                started_at=started,
+                completed_at=started,
+                output=redact_tool_data(output, admin=False) if self.trace_safe_only else output,
+            )
+            await self.repositories.steps.create(row)
+            await self._vault.record_step_output(
+                org_id=new_instance.org_id,
+                instance_id=new_instance.id,
+                step_attempt_id=row.id,
+                output=output,
+                durable=self.trace_safe_only,
             )
 
         context = WorkflowContext(
             instance_id=new_instance.id,
             workflow_id=definition.id,
             org_id=new_instance.org_id,
-            trigger=dict(new_instance.trigger_payload),
+            trigger=raw_trigger,  # in-memory context keeps FULL fidelity
             steps={sid: dict(out) for sid, out in usable_outputs.items()},
         )
 
@@ -941,6 +994,7 @@ class WorkflowEngine:
                 instance_id=instance_id,
                 step_attempt_id=execution.id,
                 error=error_msg,
+                durable=self.trace_safe_only,
             )
             self.metrics.step_finished(
                 step.type,
@@ -983,21 +1037,24 @@ class WorkflowEngine:
             )
             raise
 
-        context.record_step_output(step.id, output)
-        execution.state = StepExecutionState.COMPLETED
-        execution.output = output
-        completed_at = _utcnow()
-        execution.completed_at = completed_at
-        await self.repositories.steps.update(execution)
-        # Dark dual-write (TG3a): vault this attempt's raw output kinds
-        # (tool_calls / model output / recall) keyed on the immutable
-        # step-attempt id; inline stays authoritative until the TG3b flip.
+        context.record_step_output(step.id, output)  # in-memory keeps RAW
+        # Vault this attempt's raw output kinds (tool_calls / model output /
+        # recall) keyed on the immutable step-attempt id, BEFORE persisting —
+        # under the flip the vault write is durable-or-fail (a lost write must
+        # fail the step, not silently drop the raw). Then persist SAFE-ONLY
+        # under the flip; inline raw under the default dark dual-write.
         await self._vault.record_step_output(
             org_id=context.org_id,
             instance_id=instance_id,
             step_attempt_id=execution.id,
             output=output,
+            durable=self.trace_safe_only,
         )
+        execution.state = StepExecutionState.COMPLETED
+        execution.output = redact_tool_data(output, admin=False) if self.trace_safe_only else output
+        completed_at = _utcnow()
+        execution.completed_at = completed_at
+        await self.repositories.steps.update(execution)
         self.metrics.step_finished(
             step.type,
             StepExecutionState.COMPLETED.value,
@@ -1009,7 +1066,11 @@ class WorkflowEngine:
             actor_id=f"step:{step.id}",
             instance_id=instance_id,
             step_id=step.id,
-            detail={"output": output, "attempt": attempt},
+            # `execution.output` is the SAFE projection under the flip (raw
+            # under the default), so the step_completed audit is zero-raw at
+            # rest too. (Per-call `tool_call` audit entries stay read-projected
+            # via redact_tool_data — their at-rest projection is TG3b part 3.)
+            detail={"output": execution.output, "attempt": attempt},
         )
 
     async def _dispatch_step(
@@ -1411,6 +1472,42 @@ class WorkflowEngine:
 
     # --- repository helpers ---
 
+    async def _rehydrate_context(
+        self, context: WorkflowContext, prior: list[StepExecution], *, purpose: str
+    ) -> None:
+        """Under the safe-only flip, the persisted trigger + step outputs are
+        projected; restore full fidelity from the vault before driving
+        (docs/TRACE_GOVERNANCE_PLAN.md §4.3). A missing/unrecordable raw fails
+        closed (RawTraceUnavailable) rather than resuming on projected data.
+        No-op when not flipped — nothing was projected."""
+        if not self.trace_safe_only:
+            return
+        context.trigger = await self._rehydrator.rehydrate_trigger(
+            purpose=purpose,
+            org_id=context.org_id,
+            instance_id=context.instance_id,
+            safe_trigger=context.trigger,
+        )
+        # The latest COMPLETED attempt per step is the one whose output the
+        # context carries (immutable-attempt model, EXECUTION_SEMANTICS §3a).
+        latest: dict[str, StepExecution] = {}
+        for s in prior:
+            if s.state is StepExecutionState.COMPLETED:
+                cur = latest.get(s.step_id)
+                if cur is None or s.attempt > cur.attempt:
+                    latest[s.step_id] = s
+        for step_id, safe_output in list(context.steps.items()):
+            attempt = latest.get(step_id)
+            if attempt is None or not isinstance(safe_output, dict):
+                continue
+            context.steps[step_id] = await self._rehydrator.rehydrate_output(
+                purpose=purpose,
+                org_id=context.org_id,
+                instance_id=context.instance_id,
+                step_attempt_id=attempt.id,
+                safe_output=safe_output,
+            )
+
     async def _mark_instance(
         self,
         instance: WorkflowInstance,
@@ -1420,7 +1517,11 @@ class WorkflowEngine:
         error: str | None,
     ) -> WorkflowInstance:
         instance.state = state
-        instance.context = context.model_dump()
+        dumped = context.model_dump()
+        # Safe-only flip (TG3b): the persisted context (which nests each
+        # step's output + the trigger) stores only the projection; the raw is
+        # in the vault and rehydrated on resume/fork.
+        instance.context = redact_tool_data(dumped, admin=False) if self.trace_safe_only else dumped
         if state in (WorkflowInstanceState.COMPLETED, WorkflowInstanceState.FAILED):
             instance.completed_at = _utcnow()
         instance.error = error

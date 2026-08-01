@@ -75,6 +75,7 @@ class RawTraceVault:
         step_attempt_id: str | None,
         kind: RawTraceKind,
         payload: Any,
+        durable: bool,
     ) -> RawTrace | None:
         if _empty(payload):
             return None
@@ -89,23 +90,37 @@ class RawTraceVault:
         try:
             return await self._repos.raw_trace_vault.put(trace)
         except Exception:
-            # Dark dual-write: inline is authoritative in TG3a, so a vault
-            # failure must never fail the run (durable-or-fail arrives at the
-            # TG3b flip). Log and move on.
+            if durable:
+                # DURABLE (safe-only flip, TG3b): the operational store keeps
+                # only the projection, so a lost vault write loses the raw —
+                # the step/run must FAIL rather than silently drop it (§4.2).
+                logger.warning("durable raw-trace vault write failed", exc_info=True)
+                raise
+            # Dark dual-write (TG3a): inline is authoritative, so a vault
+            # failure must never fail the run. Log and move on.
             logger.warning("raw-trace vault write failed (dark dual-write)", exc_info=True)
             return None
 
-    async def record_trigger(self, *, org_id: str, instance_id: str, payload: Any) -> None:
+    async def record_trigger(
+        self, *, org_id: str, instance_id: str, payload: Any, durable: bool = False
+    ) -> None:
         await self._record(
             org_id=org_id,
             instance_id=instance_id,
             step_attempt_id=None,
             kind=RawTraceKind.TRIGGER_PAYLOAD,
             payload=payload,
+            durable=durable,
         )
 
     async def record_step_output(
-        self, *, org_id: str, instance_id: str, step_attempt_id: str, output: dict[str, Any]
+        self,
+        *,
+        org_id: str,
+        instance_id: str,
+        step_attempt_id: str,
+        output: dict[str, Any],
+        durable: bool = False,
     ) -> None:
         for kind, payload in raw_kinds_of_output(output).items():
             await self._record(
@@ -114,10 +129,17 @@ class RawTraceVault:
                 step_attempt_id=step_attempt_id,
                 kind=kind,
                 payload=payload,
+                durable=durable,
             )
 
     async def record_error(
-        self, *, org_id: str, instance_id: str, step_attempt_id: str, error: str | None
+        self,
+        *,
+        org_id: str,
+        instance_id: str,
+        step_attempt_id: str,
+        error: str | None,
+        durable: bool = False,
     ) -> None:
         await self._record(
             org_id=org_id,
@@ -125,4 +147,5 @@ class RawTraceVault:
             step_attempt_id=step_attempt_id,
             kind=RawTraceKind.ERROR,
             payload=error,
+            durable=durable,
         )
