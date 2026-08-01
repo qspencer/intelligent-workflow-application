@@ -40,9 +40,10 @@ then it is a human reasoning aid, not a guarantee.
   (verified against code):** the endpoint sets the instance
   `FAILED → PAUSED` then drives `resume()` (`PAUSED → RUNNING`); the
   resume path's `already_done` set contains only `COMPLETED` + `SKIPPED`
-  steps, so **the `FAILED` step is re-run** and its row is overwritten
-  when it executes again (effectively `FAILED → RUNNING`, no separate
-  PENDING). Completed step outputs are preserved and never recomputed.
+  steps, so **the `FAILED` step is re-run** — which **appends a new attempt
+  row** (§3a); the prior `FAILED` row persists immutably as the record of
+  that attempt, it is not overwritten. Completed step outputs are preserved
+  and never recomputed.
   Not addressed by re-running: a prior `dispatched_outcome_unknown`
   effect (the retry re-runs blind — see the §4 invariant), cancelled
   siblings (re-evaluated from the graph), and downstream skips
@@ -112,9 +113,10 @@ delivery overwrites by basename.
 - A step failure (after retries) fails the instance and **cancels
   in-flight sibling branches**; their external effects up to the
   cancellation point are NOT undone (see §6).
-- Step outputs are immutable once written. Reruns happen only via new
-  instances (retry re-executes non-terminal steps; completed steps'
-  outputs are never recomputed in place).
+- Step outputs are immutable once written; a terminal step-attempt row is
+  never rewritten. Re-execution (in-run retry or operator retry) appends a
+  NEW attempt row rather than mutating a prior one — the immutable-attempt
+  model (§3a). Completed steps' outputs are never recomputed in place.
 - **Persistence is NOT atomic across records (verified against the
   Postgres repos — external review §5).** Step-output+state (one row, one
   transaction), the workflow-context/instance update, each audit append,
@@ -125,6 +127,65 @@ delivery overwrites by basename.
   bounds the first case; the others are accepted small windows at
   single-operator scale. A post-crash consistency check + shared-txn
   step-commit is a G21 item.
+
+## 3a. Step-attempt identity — the immutable-attempt model
+
+Normative model required by `TRACE_GOVERNANCE_PLAN` §4.1 before its TG3b
+(vault rehydration) can build. It states the contract the engine already
+follows — the `step_executions` table is append-per-attempt today
+(`_run_step_once` creates a fresh row each attempt); this section makes that
+a guarantee and adds an explicit `attempt` number so the attempt is a
+first-class, referenceable identity. **Built 2026-08-01.**
+
+- **Identity.** Each execution *attempt* of a step is its own immutable
+  `step_executions` row. Its primary key `StepExecution.id` is the
+  **step-attempt id** — the stable identity the raw-traces vault keys on
+  (`TRACE_GOVERNANCE_PLAN` §4.1). Each row carries a 1-based `attempt`
+  number. `(instance_id, step_id, attempt)` is unique; the row id is the
+  authoritative key.
+- **A retry APPENDS, never mutates.** Both retry paths — in-run
+  (`runtime.retries`, `_run_step_with_retry`) and operator (`/retry` →
+  `resume()`) — create a new row for the next attempt. A terminal row
+  (`COMPLETED` / `FAILED` / `CANCELLED` / `SKIPPED`) of a prior attempt is
+  never rewritten.
+- **The only in-place writes are a row's own lifecycle within its attempt:**
+  `RUNNING → {COMPLETED | FAILED}` as the attempt finishes, and the
+  sibling-cancel `RUNNING → CANCELLED` when a pause / kill / sibling-failure
+  interrupts *that* in-flight attempt. Neither crosses attempts.
+- **Current logical-step state = the latest attempt row** (max `attempt`).
+  `explain` and the dashboard read the latest attempt; earlier attempts
+  remain visible as history.
+- **Which attempt downstream consumes: the latest COMPLETED attempt.**
+  `context.steps[step_id]` holds that output, and `already_done` counts a
+  step as done iff it has *any* `COMPLETED` (or `SKIPPED`) row — so once an
+  attempt succeeds, the step is not re-scheduled, and a later prompt / pin /
+  condition reads the successful attempt's output. A `FAILED` or `CANCELLED`
+  attempt does not satisfy `already_done`.
+- **Retry ordering.** Attempt N+1's row is created only after attempt N
+  reached a terminal state; attempts are strictly ordered by creation and by
+  the `attempt` counter. **Attempt isolation:** attempt N never reads
+  attempt N−1's vault objects — the vault key includes the step-attempt id,
+  so each attempt's raw is bound to its own row (`TRACE_GOVERNANCE_PLAN`
+  §4.2/§4.3).
+- **A cancelled attempt holds no raw.** `CANCELLED` means the attempt was
+  interrupted before completing, so its `output` is `None` — no raw object
+  is bound to it, and it is not rehydrated.
+- **Crash mid-attempt.** A crash leaves that attempt's row `RUNNING`;
+  recovery (§7) re-runs the step (not `COMPLETED`), appending a fresh
+  attempt. The stale `RUNNING` row persists as the immutable record of the
+  interrupted attempt — it is not rewritten. (A post-crash sweep to mark
+  orphaned `RUNNING` rows is the G21 consistency-check item; until then a
+  stale `RUNNING` row is an accepted small window, consistent with
+  immutability.)
+- **Cost and audit attach to the attempt, roll up to the step/instance.**
+  Every `step_started` / `step_failed` / `step_completed` / `step_retry`
+  audit entry carries `attempt` in its detail and references `step_id`; each
+  attempt's tokens/cost accrue into the instance total (a retried step pays
+  per attempt). There is no separate per-attempt cost row — the instance
+  total is the authority, the audit trail is the per-attempt breakdown.
+- **Migration.** None for the row shape — the engine already appends one row
+  per attempt. The only change is the additive `attempt` column (Alembic
+  `0007`, default `1`); pre-existing rows read as attempt `1`.
 
 ## 4. Retries — and why the default is zero
 

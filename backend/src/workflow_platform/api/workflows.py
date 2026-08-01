@@ -1754,6 +1754,7 @@ def build_router(
         common: dict[str, Any] = {
             "instance_id": instance_id,
             "step_id": step_id,
+            "attempt": exe.attempt,
             "state": exe.state.value,
             "kind": kind,
             "started_at": _iso(exe.started_at),

@@ -9,7 +9,7 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, String, Text, UniqueConstraint
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
 from sqlalchemy import true as sa_true
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -64,6 +64,9 @@ class StepExecutionRow(Base):
         index=True,
     )
     step_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    # 1-based attempt number; each attempt is its own immutable row
+    # (docs/EXECUTION_SEMANTICS.md §3a). The row id is the step-attempt id.
+    attempt: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
     state: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     output: Mapped[dict[str, Any] | None] = mapped_column(JsonColumn, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)

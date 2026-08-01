@@ -896,6 +896,7 @@ class WorkflowEngine:
         execution = StepExecution(
             instance_id=instance_id,
             step_id=step.id,
+            attempt=attempt,
             state=StepExecutionState.RUNNING,
             started_at=started_at,
         )

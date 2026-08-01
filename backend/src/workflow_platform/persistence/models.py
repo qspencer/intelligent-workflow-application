@@ -66,6 +66,10 @@ class StepExecution(BaseModel):
     id: str = Field(default_factory=_new_id)
     instance_id: str
     step_id: str
+    # 1-based attempt number. Each attempt is its own immutable row (the
+    # step-attempt identity the raw-traces vault keys on) — a retry appends a
+    # new row, never mutates a prior one. See docs/EXECUTION_SEMANTICS.md §3a.
+    attempt: int = 1
     state: StepExecutionState = StepExecutionState.PENDING
     output: dict[str, Any] | None = None
     error: str | None = None
