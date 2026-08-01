@@ -57,11 +57,30 @@ collision-free idempotency key on the immutable step-attempt (F2); the engine
 vaults the trigger payload + each attempt's raw output/error keyed on the
 step-attempt id, while the operational store keeps its inline copy
 AUTHORITATIVE (a vault-write failure is logged, never raised). Additive and
-non-behavioral for readers. `test_raw_trace_vault.py`. **Next: TG3b** — the
-flip: rehydration from the vault + operational store goes safe-only +
-durable-or-fail + the finalized dependency manifest (§5.1) + system-access
-audit (§3.2). Trigger to ship to an external org is unchanged (§0) and still
-requires the chosen B-contract (TG3d).
+non-behavioral for readers. `test_raw_trace_vault.py`.
+
+**Build status: TG3b PART 1 BUILT (2026-08-01) — the read-back foundation.**
+`trace_rehydrate.py::RawTraceRehydrator` reconstructs a full step output /
+trigger payload from the vault (§4.3), with the system-access audit (§3.2):
+every engine-side vault read commits `raw_trace_system_access_attempted`
+BEFORE any fetch and `_completed` after, under the narrow "engine" workload
+identity, FAIL-CLOSED (an unrecordable access takes no fetch; a
+projected-but-missing kind raises `retrieval_failed`). Validated against the
+still-present inline copy (`test_raw_trace_rehydrate.py`) — proving the vault
+is a faithful read-back source, which is the flip's precondition. Additive;
+nothing flips yet.
+
+**TG3b PART 2 (the write flip) — scoped, next.** Persist safe-only
+(step.output / trigger_payload / context / audit detail) + durable-or-fail
+(vault-first) + rehydrate on resume/fork + read-surface raw-merge for
+grant-holders, gated behind a `trace_safe_only` flag (default OFF = today's
+dark dual-write; the default flips at the gate). Prerequisite surfaced during
+part 1: the projection functions (`redact_tool_data` / `safe_trigger_payload`)
+live in `api/redaction.py`; the engine must not import `api`, so they extract
+to a domain `trace_projection` module (re-exported from `api/redaction` for
+the existing callers) first. Plus the finalized dependency manifest (§5.1).
+Trigger to ship to an external org is unchanged (§0) and still requires the
+chosen B-contract (TG3d).
 
 The coupled design for the three F3 pre-external-organization gates the
 external code review left open after the read-surface redaction closed
@@ -783,7 +802,8 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
 | **TG2 (human release)** | raw-access audit: **release-boundary model (§3.1)** + cardinality + explicit degradation, HTTP + WS release-before-send | A | **BUILT 2026-08-01** (`partial`/vault outcomes arrive with TG3) |
 | **TG2 (system access)** | `raw_trace_system_access_attempted`-before-decrypt + fail-closed (§3.2) | A | **authorizable (v6 audit-before-decrypt folded — pending re-review)** |
 | **TG3a** | typed registry (§1.2) + safe-output contract (§1.4) + vault-all-free-form + abstract vault repo/opaque IDs (§0.2) + schema (§4.1) + collision-free key; **DARK DUAL-WRITE** | A | **BUILT 2026-08-01** (same-DB; cross-system fencing §4.2 lands with the separate-vault B form at TG3d) |
-| **TG3b** | rehydration + integrity + versioning (§4.3) + state machine w/ concurrency + fencing (§4.2) + **finalized dependency manifest (§5.1)** + **system-access audit (§3.2)**; only then flip operational to safe-only | A | after the finalized manifest + attempt model |
+| **TG3b.1** | rehydration read-back (§4.3) + integrity + **system-access audit (§3.2)**, fail-closed | A | **BUILT 2026-08-01** (additive; validated against inline) |
+| **TG3b.2** | the write flip (flag-gated): persist safe-only + durable-or-fail (§4.2) + rehydrate on resume/fork + read-surface merge + finalized dependency manifest (§5.1) | A | scoped; needs the `trace_projection` extraction first |
 | **TG3c** | backfill + mixed-version cutover + zero-raw verifier + retention/expiry state (§5.1) + fork lineage + **cross-org-fork prohibition (§5.2)** | A | after §5.2 rule (done) |
 | **TG3d-1** | B1 boundary: per-org envelope encryption (keys outside the DB role, BYOK-ready `key_id`), AEAD-bound ciphertext, narrow decrypt identity; dual-control grant; THREAT_MODEL §5a amended (DB-operator-resistant, infra-operator-trusted residual) | **B1** | own design doc; the shippable external-org gate for a B1-accepting customer |
 | **TG3d-2** | B2 boundary: move the decrypt identity into an attested/enclaved runtime OR external/customer-mediated key release; THREAT_MODEL §5a amended (host-operator-resistant) | **B2** | own threat-model + infra design; pulled forward when a customer contract requires operator-non-decrypt |

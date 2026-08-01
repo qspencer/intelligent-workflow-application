@@ -646,13 +646,23 @@ The reviewer executed the code against the contracts and found 6 items.
   immutable step-attempt; the engine vaults trigger + each attempt's raw
   output/error while inline stays authoritative (vault failure logged, never
   raised). Additive, non-behavioral for readers. test_raw_trace_vault.
-  **Next cut: TG3b** — the flip: rehydration from the vault + operational
-  store goes safe-only + durable-or-fail + finalized dependency manifest
-  (§5.1) + system-access audit (§3.2). Then TG3c (backfill + zero-raw
-  verifier) and TG3d (the B-contract boundary; cross-system fencing +
-  `partial`/vault outcomes + delivery-observed land there). Deferred within
-  TG1: memory facts-mode-under-grant. Ship to an external org stays
-  trigger-gated + needs the chosen B-contract (TG3d).
+  **TG3b PART 1 BUILT (2026-08-01):** the read-back foundation —
+  `RawTraceRehydrator` reconstructs full output/trigger from the vault (§4.3)
+  + the system-access audit (§3.2, `raw_trace_system_access_attempted/
+  _completed`, engine workload identity, audit-before-fetch, fail-closed),
+  validated against the inline copy (test_raw_trace_rehydrate). Additive.
+  **TG3b PART 2 (the write flip) — next, scoped:** persist safe-only
+  (step.output/trigger/context/audit) + durable-or-fail (vault-first) +
+  rehydrate on resume/fork + read-surface raw-merge for grant-holders +
+  finalized dependency manifest (§5.1), behind a `trace_safe_only` flag
+  (default OFF = today's dark dual-write; the default flips at the gate).
+  Prerequisite: extract `redact_tool_data`/`safe_trigger_payload` from
+  `api/redaction` to a domain `trace_projection` module (engine must not
+  import api). Then TG3c (backfill + zero-raw verifier) and TG3d (the
+  B-contract boundary; cross-system fencing + `partial`/vault outcomes +
+  delivery-observed land there). Deferred within TG1: memory
+  facts-mode-under-grant. Ship to an external org stays trigger-gated + needs
+  the chosen B-contract (TG3d).
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
