@@ -430,6 +430,15 @@ tenant isolation, mail-surface injection defenses, memory quarantine,
 secrets handling, WS auth). Trigger: same as G19 — it is the
 reviewer's requested bundle item 3.
 
+### G24 — Verification-index self-validator — **Done 2026-08-01** (`backend/tools/check_verification_index.py`)
+
+External review finding 11: a CI-gated checker that fails if the code-review
+handoff index (`VERIFICATION_INDEX.md`) cites a file or test that no longer
+exists, or marks a CONTRADICTED row as verified. Line numbers deliberately
+unchecked (they drift — the reviewer's own point); symbol misses warn, not
+fail. Wired as a CI step. Guards against the recurring 'doc edits drift from
+code' pattern that produced three rounds of review findings.
+
 ### G23 — Triage acting/codify hardening → platform controls (external review 2026-07-31)
 
 The three-plan review's lesson: turn production-discovered conventions

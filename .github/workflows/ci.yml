@@ -63,6 +63,13 @@ jobs:
       - name: Type check
         run: uv run mypy src tests
 
+      - name: Verification-index integrity
+        # External review 2026-08-01 finding 11: fail if the code-review
+        # handoff index cites a file/test that no longer exists, or marks a
+        # CONTRADICTED row as verified. Line numbers are deliberately not
+        # checked (they drift). Symbol misses are warnings, not failures.
+        run: uv run python tools/check_verification_index.py
+
       - name: Test (unit)
         run: uv run pytest -m "not integration" --cov=workflow_platform --cov-report=term-missing
 
