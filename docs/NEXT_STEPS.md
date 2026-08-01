@@ -438,11 +438,13 @@ preservation in the record; lock-serialized disable overlay). Remaining,
 by theme:
 
 **Acting-path safety (high priority — "the trigger has effectively fired"):**
-- **Tool-parameter pinning** — the engine binds `message_id =
-  trigger.message_id` and `labels = steps.record.apply_labels`; the model
-  may request the call but cannot choose/alter those fields (today
-  message_id is a free tool param — the agent could label another message
-  in the mailbox).
+- **Tool-parameter pinning — DONE 2026-08-01.** `pin_params` on
+  AgenticStep maps a tool-param name to a context path the engine resolves
+  and forces on every tool call; the model may request the call but pinned
+  params are overwritten before dispatch, and an override attempt audits
+  `tool_param_override_blocked`. Live on the apply step
+  (`message_id`←trigger, `labels`←record). Steered-agent e2e proves it
+  labels the real message with the validated label only.
 - **Apply postcondition** — a step whose tool call errored then finished
   in prose must be FAILED, not silently successful (`success_requires:
   tool_call{name,result:success,count:1}`), or make the tool the

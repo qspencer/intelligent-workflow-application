@@ -69,6 +69,13 @@ class AgenticStep(BaseModel):
     # trigger + all prior outputs. Load-bearing for tool-holding steps that
     # must never see attacker-influenced text. Absent = legacy behavior.
     inputs: list[str] | None = None
+    # Tool-parameter pinning (external review 2026-07-31, finding 2): maps a
+    # tool-call parameter name to a context path the ENGINE resolves and
+    # forces. The model may request the tool call, but pinned params are
+    # overwritten from context before dispatch — it cannot choose or alter
+    # them (e.g. message_id: trigger.message_id, labels:
+    # steps.record.apply_labels). An override attempt is audited.
+    pin_params: dict[str, str] | None = None
     policy: AgenticStepPolicy = Field(default_factory=AgenticStepPolicy)
     outputs: list[str] = Field(default_factory=list)
     capabilities: CapabilityPolicy | None = None

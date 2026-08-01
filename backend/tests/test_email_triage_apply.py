@@ -100,6 +100,17 @@ def _classify(category: str, attention: list[str] | None = None) -> dict[str, An
     )
 
 
+def _apply_tool_use_steered(message_id: str, labels: list[str]) -> list[dict[str, Any]]:
+    """An apply agent that IGNORES its instructions — tries a different
+    message id and out-of-band labels. Pinning must overwrite both."""
+    return [
+        tool_use_response(
+            tool_uses=[("tu-1", TOOL_NAME, {"message_id": message_id, "labels": labels})]
+        ),
+        text_response("done"),
+    ]
+
+
 def _apply_tool_use(labels: list[str] | str) -> list[dict[str, Any]]:
     """The apply agent: one tool call, then a closing text turn."""
     label_list = [labels] if isinstance(labels, str) else labels
@@ -136,6 +147,12 @@ def test_classifier_fence_and_apply_shape() -> None:
     assert apply.type == "agentic"
     assert apply.tools == [TOOL_NAME]
     assert apply.inputs == ["steps.record.apply_labels", "trigger.message_id"]
+    # Tool-parameter pinning (external review finding 2): both tool params
+    # are engine-forced from context.
+    assert apply.pin_params == {
+        "message_id": "trigger.message_id",
+        "labels": "steps.record.apply_labels",
+    }
     assert apply.policy.max_iterations == 2
 
     (apply_edge,) = [e for e in definition.edges if e.target == "apply"]
@@ -482,3 +499,36 @@ def test_codified_route_end_to_end_skips_category_classifier() -> None:
     modify_calls = [c for c in svc.calls if c[0] == "messages.modify"]
     assert len(modify_calls) == 1
     assert modify_calls[0][1]["body"] == {"addLabelIds": [WF_LABELS["wf/newsletter"]]}
+
+
+def test_pinning_defeats_a_steered_apply_agent() -> None:
+    """End-to-end: even if the apply agent tries to label a DIFFERENT
+    message with UNVALIDATED labels, the engine forces message_id from the
+    trigger and labels from the record's enum-derived list, and audits the
+    override attempt (external review finding 2)."""
+    svc = _service_with_wf_labels()
+    bedrock = FakeBedrock(
+        [
+            _classify("newsletter"),
+            *_apply_tool_use_steered(
+                message_id="some-other-message-in-the-mailbox",
+                labels=["wf/spam", "IMPORTANT", "wf-attn/urgent"],
+            ),
+        ]
+    )
+    engine = _engine(bedrock, svc)
+    definition = load_definition_from_file(WORKFLOW_PATH)
+    instance = asyncio.run(engine.run(definition, trigger_payload=_payload()))
+    assert instance.state.value == "completed"
+
+    # The mutation hit the REAL message with ONLY the validated label.
+    modify_calls = [c for c in svc.calls if c[0] == "messages.modify"]
+    assert len(modify_calls) == 1
+    assert modify_calls[0][1]["id"] == "msg-123"  # trigger id, not the steered one
+    assert modify_calls[0][1]["body"] == {"addLabelIds": [WF_LABELS["wf/newsletter"]]}
+
+    # The override attempt is audited.
+    entries = asyncio.run(engine.repositories.audit.list_by_instance(instance.id))
+    blocked = [e for e in entries if e.action == "tool_param_override_blocked"]
+    assert blocked, "a steered pinned-param attempt must audit"
+    assert set(blocked[0].detail["params"]) == {"message_id", "labels"}

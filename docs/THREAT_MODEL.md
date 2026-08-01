@@ -93,6 +93,11 @@ tenant boundary itself.
 4. Write-path fences: 8-label allowlist at the tool boundary + Gmail
    no-create (mailbox label list is a physical allowlist) + add-only
    (removal exists only in operator CLIs).
+   Plus **tool-parameter pinning** (finding 2, built 2026-08-01): the
+   engine forces `message_id` + `labels` from context, so a steered
+   apply agent cannot label a different message or an out-of-allowlist
+   label even by choosing the tool params; override attempts audit
+   `tool_param_override_blocked`.
 5. Memory: agents have **no memory tools** (COALA N1); the ENGINE
    writes provenance-tagged observations; third-party claims are
    quarantined and rendered under a never-assert fence injected

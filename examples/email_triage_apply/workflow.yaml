@@ -161,6 +161,13 @@ steps:
     inputs:
       - steps.record.apply_labels
       - trigger.message_id
+    # Tool-parameter pinning (external review finding 2): the engine forces
+    # both tool params from context — the agent cannot label a different
+    # message or apply a label outside the validated list even if steered.
+    # An override attempt audits `tool_param_override_blocked`.
+    pin_params:
+      message_id: trigger.message_id
+      labels: steps.record.apply_labels
     goal: |
       Apply the given Gmail labels to one message, then stop.
 

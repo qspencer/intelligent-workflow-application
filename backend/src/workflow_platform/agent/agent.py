@@ -54,6 +54,12 @@ class ToolCallRecord(BaseModel):
     name: str
     input: dict[str, Any]
     result: dict[str, Any]
+    # Params the engine forced from context (external review finding 2).
+    pinned: list[str] = []
+    # Pinned params where the MODEL supplied a DIFFERENT value that was
+    # overwritten — a probing signal worth auditing (never the raw values,
+    # which could be attacker-chosen).
+    pin_overrides: list[str] = []
 
 
 class AgentResult(BaseModel):
@@ -85,6 +91,11 @@ class Agent:
     model_id: str
     bedrock: BedrockClient
     policy: AgentPolicy = field(default_factory=AgentPolicy)
+    # {tool_param_name: resolved_value} the engine forces on EVERY tool call
+    # this agent makes (external review finding 2). The model's value for a
+    # pinned param is overwritten before dispatch; an attempt to supply a
+    # different value is recorded on the ToolCallRecord (pin_overrides).
+    pinned_tool_params: dict[str, Any] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         self.registry: ToolRegistry = (
@@ -179,10 +190,28 @@ class Agent:
             tool_input = dict(tu.get("input") or {})
             tool_use_id = str(tu["toolUseId"])
 
+            # Pin params from context (security-critical): overwrite whatever
+            # the model chose for a pinned param. Record which pins the model
+            # tried to set to a DIFFERENT value (a probing signal) — never
+            # the raw values, which may be attacker-chosen.
+            pinned: list[str] = []
+            pin_overrides: list[str] = []
+            for key, value in self.pinned_tool_params.items():
+                pinned.append(key)
+                if key in tool_input and tool_input[key] != value:
+                    pin_overrides.append(key)
+                tool_input[key] = value
+
             result = await self._dispatch(tool_name, tool_input, context)
             usage.tool_calls += 1
             tool_calls_log.append(
-                ToolCallRecord(name=tool_name, input=tool_input, result=result.model_dump())
+                ToolCallRecord(
+                    name=tool_name,
+                    input=tool_input,
+                    result=result.model_dump(),
+                    pinned=pinned,
+                    pin_overrides=pin_overrides,
+                )
             )
 
             tool_results.append(

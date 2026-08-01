@@ -1032,6 +1032,18 @@ class WorkflowEngine:
                 f"markers) ---\n{recalled.context}"
             )
 
+        # Tool-parameter pinning (external review finding 2): resolve each
+        # pinned param's value from context so the engine — not the model —
+        # supplies it on every tool call. A pin whose path resolves to None
+        # is dropped (the tool sees the model's value or its own default),
+        # so a missing upstream field can't silently pin null.
+        pinned_tool_params: dict[str, Any] = {}
+        if step.pin_params:
+            for param, path in step.pin_params.items():
+                value = _resolve_context_value(context, path)
+                if value is not None:
+                    pinned_tool_params[param] = value
+
         agent = Agent(
             system_prompt=system_prompt,
             tools=registry,
@@ -1042,6 +1054,7 @@ class WorkflowEngine:
                 max_total_tokens=step.policy.max_total_tokens,
                 inference_config=step.policy.inference_config,
             ),
+            pinned_tool_params=pinned_tool_params,
         )
 
         user_message = _build_user_message(step, context)
@@ -1061,8 +1074,25 @@ class WorkflowEngine:
                 actor_id=agent_id,
                 instance_id=instance_id,
                 step_id=step.id,
-                detail={"name": call.name, "input": call.input, "result": call.result},
+                detail={
+                    "name": call.name,
+                    "input": call.input,
+                    "result": call.result,
+                    "pinned": call.pinned,
+                    "pin_overrides": call.pin_overrides,
+                },
             )
+            # A model that tried to set a pinned param to a different value
+            # is probing the action surface — audit it as its own signal.
+            if call.pin_overrides:
+                await self._audit(
+                    "tool_param_override_blocked",
+                    actor_type="agent",
+                    actor_id=agent_id,
+                    instance_id=instance_id,
+                    step_id=step.id,
+                    detail={"name": call.name, "params": call.pin_overrides},
+                )
 
         usage_dict = result.usage.model_dump()
         cost_usd = cost_for_usage(usage_dict, step.model)
