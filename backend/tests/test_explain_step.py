@@ -8,11 +8,14 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from workflow_platform.auth.raw_trace_grants import RawTraceGrantService
 from workflow_platform.main import create_app
 from workflow_platform.persistence import (
     AuditEntry,
+    RawTraceReasonCode,
     StepExecution,
     StepExecutionState,
+    User,
     WorkflowInstance,
     WorkflowInstanceState,
     in_memory_repositories,
@@ -38,9 +41,29 @@ _WF = {
     "edges": [{"from": "classify", "to": "route"}],
 }
 
-# Forensic explain content is admin-tier only (F3); these tests
-# verify the raw view an operator sees.
+# Forensic explain content needs a raw-trace GRANT (TG1); these tests
+# verify the raw view a grant-holder sees.
 _H = {"X-Dev-User": "a", "X-Dev-Groups": "org-admins"}
+
+
+def _grant_admin_raw(repos: Any) -> None:
+    """Seed user 'a' + an active org-'default' raw-trace grant (the seeded
+    instance is org 'default')."""
+
+    async def go() -> None:
+        await repos.users.save(
+            User(iss="dev", sub="a", org_id="default", roles=["Organization Administrator"])
+        )
+        row = await repos.users.get_by_identity("dev", "a")
+        assert row is not None
+        await RawTraceGrantService(repos).request(
+            principal_id=row.id,
+            org_id="default",
+            requested_by="grantor",
+            reason_code=RawTraceReasonCode.DEBUGGING,
+        )
+
+    asyncio.run(go())
 
 
 def _seed(repos: Any) -> str:
@@ -111,6 +134,7 @@ def test_explain_agentic_step(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     repos = in_memory_repositories()
     inst_id = _seed(repos)
+    _grant_admin_raw(repos)
 
     body = (
         _client(repos)

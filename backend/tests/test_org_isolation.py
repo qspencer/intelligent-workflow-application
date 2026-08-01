@@ -16,23 +16,51 @@ data migration — in test_role_migration_mapping below.)
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
+from workflow_platform.auth.raw_trace_grants import RawTraceGrantService
 from workflow_platform.events import EventBus
 from workflow_platform.main import create_app
 from workflow_platform.persistence import (
     AuditEntry,
     Organization,
+    RawTraceReasonCode,
     StepExecution,
     User,
     WorkflowInstance,
     in_memory_repositories,
 )
 from workflow_platform.workflow import load_definition
+
+
+async def _grant_raw(repos: Any, sub: str, org: str | None) -> None:
+    """Give the (dev, sub) user an ACTIVE raw-trace grant covering `org`
+    (None = platform-wide). Two distinct synthetic Administrators authorize."""
+    row = await repos.users.get_by_identity("dev", sub)
+    assert row is not None, f"user {sub} not seeded"
+    svc = RawTraceGrantService(repos)
+    if org is not None:
+        await svc.request(
+            principal_id=row.id,
+            org_id=org,
+            requested_by="grantor-1",
+            reason_code=RawTraceReasonCode.DEBUGGING,
+        )
+    else:
+        grant = await svc.request(
+            principal_id=row.id,
+            org_id=None,
+            requested_by="grantor-1",
+            reason_code=RawTraceReasonCode.DEBUGGING,
+            expires_at=datetime.now(UTC) + timedelta(days=1),
+        )
+        await svc.approve(grant_id=grant.id, approved_by="grantor-2")
+
 
 _ADMIN = {"X-Dev-User": "root", "X-Dev-Groups": "admins"}
 _ACME_USER = {"X-Dev-User": "acme-u", "X-Dev-Groups": "org-users"}
@@ -383,11 +411,12 @@ def test_event_deliverable_primitive_negative_and_positive() -> None:
         assert event_deliverable({**ev, "action": "x"}, None) is True
 
 
-def test_raw_tool_payloads_hidden_from_non_admin_audit(monkeypatch: pytest.MonkeyPatch) -> None:
-    """External review 2026-08-01 finding 3: raw tool input/result (email
+def test_raw_tool_payloads_hidden_without_grant(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TG1 (docs/TRACE_GOVERNANCE_PLAN.md §2): raw tool input/result (email
     bodies, file contents, error text) must NOT appear in ordinary audit
-    responses — audit access must not become an intra-org read escalation.
-    Admin-tier sees raw; Org User/Viewer see projected metadata."""
+    responses without a covering raw-trace GRANT — role no longer implies
+    raw. An Org Admin WITHOUT a grant sees projected metadata; the same Org
+    Admin WITH an org-covering grant sees raw (criterion 1 + 2)."""
     client, repos, _ = _two_org_app(monkeypatch)
 
     async def _seed_tool_call() -> None:
@@ -410,7 +439,7 @@ def test_raw_tool_payloads_hidden_from_non_admin_audit(monkeypatch: pytest.Monke
 
     asyncio.run(_seed_tool_call())
 
-    # Org User (read-only-ish, below admin tier): raw values withheld.
+    # Org User (below-grant): raw values withheld.
     user_view = client.get("/api/workflow-instances/i-acme2/audit", headers=_ACME_USER).json()
     tc = next(e for e in user_view if e["action"] == "tool_call")
     blob = str(tc["detail"])
@@ -418,10 +447,20 @@ def test_raw_tool_payloads_hidden_from_non_admin_audit(monkeypatch: pytest.Monke
     assert tc["detail"]["_redacted"]
     assert tc["detail"]["input_keys"] == ["body", "subject", "to"]  # keys ok, values not
 
-    # Org Admin (admin tier): full raw payload.
+    # Org Admin WITHOUT a grant is ALSO below-grant (the TG1 operational break).
+    admin_nogrant = client.get("/api/workflow-instances/i-acme2/audit", headers=_ACME_ADMIN).json()
+    tc_nogrant = next(e for e in admin_nogrant if e["action"] == "tool_call")
+    assert "PRIVATE" not in str(tc_nogrant["detail"])
+
+    # Grant the Org Admin raw for acme → now full raw payload.
+    asyncio.run(_grant_raw(repos, "acme-a", org="acme"))
     admin_view = client.get("/api/workflow-instances/i-acme2/audit", headers=_ACME_ADMIN).json()
     tc_admin = next(e for e in admin_view if e["action"] == "tool_call")
     assert tc_admin["detail"]["input"]["body"] == "PRIVATE"
+    # An org-acme grant does NOT let them read another org's raw (scope-bound):
+    # the global /audit surface returns projected (needs a platform-wide grant).
+    global_view = client.get("/api/audit", headers=_ACME_ADMIN).json()
+    assert all("PRIVATE" not in str(e["detail"]) for e in global_view)
 
 
 def test_ws_rejects_non_admin_with_unresolvable_org(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -440,11 +479,15 @@ def test_ws_rejects_non_admin_with_unresolvable_org(monkeypatch: pytest.MonkeyPa
         pass  # accepted
 
 
-def test_ws_redacts_tool_secrets_for_non_admin_subscriber(monkeypatch: pytest.MonkeyPatch) -> None:
-    """External review 2026-08-01 F3 round 3: WS events mirror audit incl.
-    step_completed carrying tool_calls AND an echoed output_text. A
-    below-admin subscriber must receive neither; an Administrator gets raw."""
-    client, _, events = _two_org_app(monkeypatch)
+def test_ws_redacts_tool_secrets_without_grant(monkeypatch: pytest.MonkeyPatch) -> None:
+    """TG1: WS events mirror audit incl. step_completed carrying tool_calls
+    AND an echoed output_text. A below-GRANT subscriber (incl. an ungranted
+    Administrator — the operational break) receives neither; a grant-holder
+    gets raw."""
+    client, repos, events = _two_org_app(monkeypatch)
+    asyncio.run(
+        repos.users.save(User(iss="dev", sub="root", org_id="default", roles=["Administrator"]))
+    )
     secret_in = "WS-SENTINEL-IN"
     secret_out = "WS-SENTINEL-OUT"
     step_event = {
@@ -460,7 +503,7 @@ def test_ws_redacts_tool_secrets_for_non_admin_subscriber(monkeypatch: pytest.Mo
         },
     }
 
-    # Below-admin (org user): redacted.
+    # Below-grant (org user): redacted.
     with client.websocket_connect("/ws/events?user=acme-u&groups=org-users") as ws:
         asyncio.run(events.publish(dict(step_event)))
         got = ws.receive_json()
@@ -468,8 +511,13 @@ def test_ws_redacts_tool_secrets_for_non_admin_subscriber(monkeypatch: pytest.Mo
         assert secret_in not in blob and secret_out not in blob
         assert got["detail"]["output"]["output_text"].startswith("[redacted")
 
-    # Administrator: raw.
+    # Administrator WITHOUT a grant is also below-grant.
     with client.websocket_connect("/ws/events?user=root&groups=admins") as ws:
         asyncio.run(events.publish(dict(step_event)))
-        got = ws.receive_json()
-        assert secret_out in str(got)
+        assert secret_out not in str(ws.receive_json())
+
+    # Grant the Administrator platform-wide → raw on the WS.
+    asyncio.run(_grant_raw(repos, "root", org=None))
+    with client.websocket_connect("/ws/events?user=root&groups=admins") as ws:
+        asyncio.run(events.publish(dict(step_event)))
+        assert secret_out in str(ws.receive_json())

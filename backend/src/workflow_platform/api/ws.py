@@ -26,7 +26,8 @@ from workflow_platform.auth import OidcValidator, UserIdentity, assign_roles, au
 from workflow_platform.auth.local import SESSION_COOKIE, LocalAuthService
 from workflow_platform.auth.middleware import origin_allowed
 from workflow_platform.auth.provisioning import current_issuer
-from workflow_platform.auth.rbac import ORG_ADMIN_ROLES, Role
+from workflow_platform.auth.raw_trace_grants import RawTraceGrantService
+from workflow_platform.auth.rbac import Role
 from workflow_platform.events import EventBus
 from workflow_platform.persistence import Repositories
 
@@ -85,24 +86,26 @@ def build_ws_router(
 ) -> APIRouter:
     router = APIRouter()
     ws_validator = validator or OidcValidator()
+    grant_service = RawTraceGrantService(repositories) if repositories is not None else None
 
-    async def _subscriber_org(user: UserIdentity) -> str | None:
-        """The org this subscriber's events are filtered to. None =
-        unscoped (Administrator). FAIL-CLOSED (external review 2026-08-01
-        finding 5): a non-Administrator whose platform user row can't be
-        resolved is REJECTED, not assigned "default" — the WS must not
-        manufacture tenant membership (matching the HTTP scope resolver's
-        403 on a missing row). Raises `_OrgUnresolved`; the handler closes."""
-        if Role.ADMINISTRATOR.value in user.roles:
-            return None
+    async def _subscriber_identity(user: UserIdentity) -> tuple[str | None, str | None]:
+        """(org, principal_id) for this subscriber. org is None = unscoped
+        (Administrator). FAIL-CLOSED (external review 2026-08-01 finding 5): a
+        non-Administrator whose platform user row can't be resolved is
+        REJECTED, not assigned "default" — the WS must not manufacture tenant
+        membership. Raises `_OrgUnresolved`; the handler closes. `principal_id`
+        (the user row id) is None when no row exists — the grant check then
+        fails closed to projected traces."""
         row = (
             await repositories.users.get_by_identity(current_issuer(), user.sub)
             if repositories is not None
             else None
         )
+        if Role.ADMINISTRATOR.value in user.roles:
+            return None, (row.id if row is not None else None)
         if row is None:
             raise _OrgUnresolved(user.sub)
-        return row.org_id
+        return row.org_id, row.id
 
     def _deliver(event: dict[str, Any], subscriber_org: str | None) -> bool:
         return event_deliverable(event, subscriber_org)
@@ -127,12 +130,22 @@ def build_ws_router(
             await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="auth required")
             return
 
-        raw_reader = any(r.value in user.roles for r in ORG_ADMIN_ROLES)
         try:
-            subscriber_org = await _subscriber_org(user)
+            subscriber_org, principal_id = await _subscriber_identity(user)
         except _OrgUnresolved:
             await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="organization unresolved")
             return
+        # Raw tool payloads ride WS events too; a subscriber reads them only
+        # with a covering raw-trace GRANT (TRACE_GOVERNANCE_PLAN §2, TG1 —
+        # NOT a role). An unscoped Administrator (subscriber_org None) needs a
+        # platform-wide grant; a scoped subscriber needs one covering their
+        # org. No row / no grant → projected. `covers()` gives both exactly.
+        raw_reader = (
+            principal_id is not None
+            and grant_service is not None
+            and (await grant_service.covering(principal_id=principal_id, target_org=subscriber_org))
+            is not None
+        )
         await ws.accept()
         queue = events.subscribe()
         # Race the event queue against ws.receive(): receive() is how we

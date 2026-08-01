@@ -31,6 +31,7 @@ from workflow_platform.api.redaction import redact_tool_data
 from workflow_platform.auth import auth_mode, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.auth.provisioning import current_issuer
+from workflow_platform.auth.raw_trace_grants import RawTraceGrantService
 from workflow_platform.auth.rbac import ANY_ROLE, ORG_ADMIN_ROLES, ORG_WRITE_ROLES, Role
 from workflow_platform.auth.scope import OrgScope, resolve_org_scope
 from workflow_platform.catalog import build_catalog
@@ -485,9 +486,10 @@ def build_router(
         return await repositories.instances.count_by_workflow(org_id=scope.org_id)
 
     _MEMORY_ADMIN_ROLES = (Role.ADMINISTRATOR, Role.ORG_ADMIN)
-    # Roles that read RAW tool payloads in audit (finding 3); others get the
-    # projected metadata.
-    ADMIN_TIER = {Role.ADMINISTRATOR.value, Role.ORG_ADMIN.value}
+    # Raw tool payloads are read only with a covering raw-trace GRANT
+    # (docs/TRACE_GOVERNANCE_PLAN.md §2, TG1) — a per-user privilege distinct
+    # from administration, NOT a role. See `_raw_reader_for_org`.
+    grant_service = RawTraceGrantService(repositories)
     _CATEGORIES_BYTE_CAP = 262_144
 
     @router.get("/memory/summary")
@@ -1001,9 +1003,9 @@ def build_router(
     ) -> dict[str, Any]:
         instance = await _visible_instance(instance_id, scope)
         steps = await repositories.steps.list_by_instance(instance_id)
-        admin = _raw_trace_reader(user)
+        admin = await _raw_reader_for_org(user, instance.org_id)
         # Both the step rows AND instance.context.steps carry raw tool_calls;
-        # redact both for below-admin readers (F3).
+        # redact both for below-grant readers (F3).
         return {
             "instance": redact_tool_data(instance.model_dump(), admin),
             "steps": [redact_tool_data(s.model_dump(), admin) for s in steps],
@@ -1253,20 +1255,28 @@ def build_router(
             "deleted_steps": deleted_steps,
         }
 
-    def _raw_trace_reader(user: UserIdentity) -> bool:
-        """Only ADMIN-TIER roles read RAW tool payloads (external review
-        2026-08-01 F3). This is the single raw-trace privilege applied
-        across every read surface."""
-        return any(r in ADMIN_TIER for r in user.roles)
+    async def _raw_reader_for_org(user: UserIdentity, target_org: str | None) -> bool:
+        """Whether `user` may read RAW tool payloads of a resource in
+        `target_org`. The privilege is a per-user GRANT distinct from
+        administration (docs/TRACE_GOVERNANCE_PLAN.md §2, TG1) — NOT a role.
+        An org-scoped grant covers only its org; a platform-wide grant covers
+        any (incl. `target_org is None`, the cross-org/global surfaces). An
+        unresolvable user, or no covering grant, reads only projected traces."""
+        row = await repositories.users.get_by_identity(current_issuer(), user.sub)
+        if row is None:
+            return False
+        return (
+            await grant_service.covering(principal_id=row.id, target_org=target_org)
+        ) is not None
 
-    def _project_audit(entries: list[AuditEntry], user: UserIdentity) -> list[AuditEntry]:
+    def _project_audit(entries: list[AuditEntry], raw_ok: bool) -> list[AuditEntry]:
         """Raw tool payloads (mail bodies, file contents, error text) are
-        stored in full but only ADMIN-TIER roles read them. Below that, ANY
-        tool-call data — whether in a `tool_call` entry OR nested in a
-        `step_completed` entry's step output — is projected to safe metadata,
-        so audit access can't become an intra-org read escalation. Storage is
-        unchanged (a response-layer projection)."""
-        if _raw_trace_reader(user):
+        stored in full but read only with a covering raw-trace grant. Below
+        that, ANY tool-call data — whether in a `tool_call` entry OR nested in
+        a `step_completed` entry's step output — is projected to safe
+        metadata, so audit access can't become an intra-org read escalation.
+        Storage is unchanged (a response-layer projection)."""
+        if raw_ok:
             return entries
         return [
             e.model_copy(update={"detail": redact_tool_data(e.detail, admin=False)})
@@ -1282,8 +1292,9 @@ def build_router(
         user: UserIdentity = Depends(require_roles(*ANY_ROLE)),
         scope: OrgScope = Depends(_org_scope),
     ) -> list[AuditEntry]:
-        await _visible_instance(instance_id, scope)
-        return _project_audit(await repositories.audit.list_by_instance(instance_id), user)
+        instance = await _visible_instance(instance_id, scope)
+        raw_ok = await _raw_reader_for_org(user, instance.org_id)
+        return _project_audit(await repositories.audit.list_by_instance(instance_id), raw_ok)
 
     @router.get("/audit", response_model=list[AuditEntry])
     async def list_recent_audit(
@@ -1296,12 +1307,17 @@ def build_router(
         `instance_id` was accepted here, passing it was silently ignored and
         the global list came back — misleading for audit consumers."""
         if instance_id is not None:
-            await _visible_instance(instance_id, scope)
+            instance = await _visible_instance(instance_id, scope)
+            raw_ok = await _raw_reader_for_org(user, instance.org_id)
             entries = await repositories.audit.list_by_instance(instance_id)
-            return _project_audit(entries[: min(limit, 500)], user)
+            return _project_audit(entries[: min(limit, 500)], raw_ok)
+        # The global list spans orgs — only a PLATFORM-WIDE grant reads raw
+        # here (an org-scoped grant covers only its own org's entries), which
+        # `covering(target_org=None)` returns exactly.
+        raw_ok = await _raw_reader_for_org(user, None)
         return _project_audit(
             await repositories.audit.list_recent(limit=min(limit, 500), org_id=scope.org_id),
-            user,
+            raw_ok,
         )
 
     if webhook_registry is not None:
@@ -1668,7 +1684,7 @@ def build_router(
             for a in await repositories.audit.list_by_instance(instance_id)
             if a.step_id == step_id
         ]
-        admin = _raw_trace_reader(user)
+        admin = await _raw_reader_for_org(user, instance.org_id)
         tool_calls = [
             {
                 "name": a.detail.get("name"),
