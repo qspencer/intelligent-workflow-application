@@ -575,7 +575,29 @@ The reviewer executed the code against the contracts and found 6 items.
   vault. Load-bearing invariant: per-org (BYOK-ready) keys from the first
   encrypted write. TG3d split into TG3d-1 (B1, shippable gate for a
   B1-accepting customer) + TG3d-2 (B2, pulled forward when a contract
-  requires it).
+  requires it). **External review v4 folded — architecture FROZEN without
+  qualification; a narrow v5 folds six representability/semantics fixes:**
+  (1) the grant becomes a STATE MACHINE (pending/active/rejected/revoked/
+  expired + requested_by/approved_by/external_approval_ref) — a flat record
+  couldn't represent a two-person platform-wide approval; uniqueness applies
+  to ACTIVE grants only, activation is atomic compare-and-set;
+  (2) the vault idempotency key was colliding — `hash(instance,attempt,kind)`
+  collides for two steps both on attempt 1, fixed to
+  `hash(org,instance,step_attempt_id,kind)` + a separate instance-level
+  space; (3) the execution dependency graph is now PERSISTED
+  (`raw_trace_dependencies`) at execution time, not inferred from serialized
+  context; the recovery snapshot = the required_for_recovery set;
+  (4) the audit boundary is RELEASE not receipt (append-only can't prove
+  client receipt) — `raw_trace_release_decided` commits before any raw byte
+  crosses the boundary; delivery-observed is telemetry only; (5) internal
+  engine vault reads (resume/fork/retry/migration/erasure) get their own
+  `raw_trace_system_accessed` records under the narrow runtime identity;
+  (6) cross-org fork PROHIBITED first build. Plus: closed reason_code (grant
+  metadata can't leak raw), explicit snapshot-expiry state
+  (recovery_state/resume_available_until), and reconciliation concurrency
+  (compare-and-set + lease). Criteria 24→31. TG1 (grant state machine) and
+  TG2 (release model) authorizable pending re-review; TG3 awaits the
+  dependency manifest + EXECUTION_SEMANTICS attempt model.
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
