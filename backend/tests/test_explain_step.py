@@ -38,7 +38,9 @@ _WF = {
     "edges": [{"from": "classify", "to": "route"}],
 }
 
-_H = {"X-Dev-User": "a", "X-Dev-Groups": "org-viewers"}
+# Forensic explain content is admin-tier only (F3); these tests
+# verify the raw view an operator sees.
+_H = {"X-Dev-User": "a", "X-Dev-Groups": "org-admins"}
 
 
 def _seed(repos: Any) -> str:

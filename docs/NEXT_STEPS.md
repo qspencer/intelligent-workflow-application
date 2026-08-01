@@ -492,15 +492,23 @@ backfill/rollback stated up front.
 
 The reviewer executed the code against the contracts and found 6 items.
 **Resolved this pass** (against HEAD, not the frozen 1d2ef25 baseline):
-- **F1 (HIGH)** unexpected branch exceptions now cancel in-flight siblings
-  — the whole dispatch-loop body is guarded, not just `StepFailure`; a
-  mutating sibling can no longer run after the workflow FAILED. Pinned.
+- **F1 (HIGH)** unexpected branch exceptions: siblings cancel AND the
+  originating step now persists FAILED (was stranded RUNNING — round-2
+  follow-up). Whole dispatch-loop body guarded; `_run_step_once` catches
+  unexpected `Exception` → step FAILED + `unexpected: true` audit → re-raise
+  (not CancelledError, so siblings stay CANCELLED). Test asserts a FAILED,
+  b CANCELLED. Closed.
 - **F2 (HIGH)** tool pins **fail closed** — an unresolved pin path FAILS
   the step before dispatch + audits `tool_pin_unresolved`. Pinned.
-- **F3 (HIGH-before-ext-org)** raw tool payloads (mail bodies, file
-  contents) are **projected to safe metadata** in audit responses for
-  below-admin-tier roles; admin-tier sees raw. Pinned. *Gate:* project at
-  STORAGE not just response, and separately audit raw-trace access.
+- **F3 (HIGH-before-ext-org)** raw tool payloads projected across ALL
+  read surfaces via one shared `redact_tool_data` (round-2 follow-up — the
+  first fix only covered `tool_call` entries; raw data also flowed through
+  `step_completed` audit, `StepExecution.output`, `instance.context`,
+  explain, and WS events). End-to-end test runs a real tool call with
+  sentinel secrets and proves Viewer/User recover nothing from
+  `/audit`, instance-audit, the instance endpoint, or explain; admin-tier
+  still sees raw. Closed for the read surfaces. *Gate:* storage-level
+  separation + separately-audited raw access.
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC

@@ -932,6 +932,32 @@ class WorkflowEngine:
                 detail={"error": error_msg, "attempt": attempt},
             )
             raise StepFailure(error_msg) from exc
+        except Exception as exc:
+            # An UNEXPECTED exception (SDK error, bug) must still persist the
+            # originating step as FAILED — otherwise it's stranded RUNNING
+            # while the workflow fails (external review 2026-08-01, F1 part 2).
+            # `except Exception` deliberately excludes CancelledError, so a
+            # sibling cancelled by this failure still becomes CANCELLED.
+            error_msg = str(exc)
+            execution.state = StepExecutionState.FAILED
+            execution.error = error_msg
+            completed_at = _utcnow()
+            execution.completed_at = completed_at
+            await self.repositories.steps.update(execution)
+            self.metrics.step_finished(
+                step.type,
+                StepExecutionState.FAILED.value,
+                (completed_at - started_at).total_seconds(),
+            )
+            await self._audit(
+                "step_failed",
+                actor_type="engine",
+                actor_id=f"step:{step.id}",
+                instance_id=instance_id,
+                step_id=step.id,
+                detail={"error": error_msg, "attempt": attempt, "unexpected": True},
+            )
+            raise
 
         context.record_step_output(step.id, output)
         execution.state = StepExecutionState.COMPLETED

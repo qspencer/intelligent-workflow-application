@@ -21,11 +21,12 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
+from workflow_platform.api.redaction import redact_tool_data
 from workflow_platform.auth import OidcValidator, UserIdentity, assign_roles, auth_mode
 from workflow_platform.auth.local import SESSION_COOKIE, LocalAuthService
 from workflow_platform.auth.middleware import origin_allowed
 from workflow_platform.auth.provisioning import current_issuer
-from workflow_platform.auth.rbac import Role
+from workflow_platform.auth.rbac import ORG_ADMIN_ROLES, Role
 from workflow_platform.events import EventBus
 from workflow_platform.persistence import Repositories
 
@@ -60,6 +61,16 @@ async def _oidc_user_from_query(ws: WebSocket, validator: OidcValidator) -> User
         return await validator.validate(token)
     except Exception:
         return None
+
+
+def _redact_ws_event(event: dict[str, Any]) -> dict[str, Any]:
+    """Project raw tool data out of a pushed event for below-admin
+    subscribers (external review 2026-08-01 F3) — WS events mirror audit
+    entries, incl. `step_completed` carrying step output with tool_calls."""
+    detail = event.get("detail")
+    if not isinstance(detail, dict):
+        return event
+    return {**event, "detail": redact_tool_data(detail, admin=False)}
 
 
 class _OrgUnresolved(Exception):
@@ -116,6 +127,7 @@ def build_ws_router(
             await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="auth required")
             return
 
+        raw_reader = any(r.value in user.roles for r in ORG_ADMIN_ROLES)
         try:
             subscriber_org = await _subscriber_org(user)
         except _OrgUnresolved:
@@ -148,7 +160,8 @@ def build_ws_router(
                     event = get_task.result()
                     get_task = None
                     if _deliver(event, subscriber_org):
-                        await ws.send_json(event)
+                        payload = event if raw_reader else _redact_ws_event(event)
+                        await ws.send_json(payload)
         except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
             pass
         finally:

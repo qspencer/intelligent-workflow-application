@@ -27,6 +27,7 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
 
+from workflow_platform.api.redaction import redact_tool_data
 from workflow_platform.auth import auth_mode, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.auth.provisioning import current_issuer
@@ -973,11 +974,19 @@ def build_router(
 
     @router.get("/workflow-instances/{instance_id}")
     async def get_instance(
-        instance_id: str, scope: OrgScope = Depends(_org_scope)
+        instance_id: str,
+        user: UserIdentity = Depends(require_roles(*ANY_ROLE)),
+        scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         instance = await _visible_instance(instance_id, scope)
         steps = await repositories.steps.list_by_instance(instance_id)
-        return {"instance": instance.model_dump(), "steps": [s.model_dump() for s in steps]}
+        admin = _raw_trace_reader(user)
+        # Both the step rows AND instance.context.steps carry raw tool_calls;
+        # redact both for below-admin readers (F3).
+        return {
+            "instance": redact_tool_data(instance.model_dump(), admin),
+            "steps": [redact_tool_data(s.model_dump(), admin) for s in steps],
+        }
 
     @router.post("/workflow-instances/{instance_id}/pause")
     async def pause_instance(
@@ -1223,39 +1232,25 @@ def build_router(
             "deleted_steps": deleted_steps,
         }
 
+    def _raw_trace_reader(user: UserIdentity) -> bool:
+        """Only ADMIN-TIER roles read RAW tool payloads (external review
+        2026-08-01 F3). This is the single raw-trace privilege applied
+        across every read surface."""
+        return any(r in ADMIN_TIER for r in user.roles)
+
     def _project_audit(entries: list[AuditEntry], user: UserIdentity) -> list[AuditEntry]:
-        """Raw tool payloads (email bodies, file contents, error text) are
-        stored in full but only ADMIN-TIER roles read them (external review
-        2026-08-01 finding 3). Below that, `tool_call` detail is projected to
-        safe metadata — keys, status, content hash/size — so audit access
-        cannot become an intra-org read-privilege escalation. Storage is
-        unchanged (operators/admins keep forensics); this is a response-layer
-        projection."""
-        if any(r in ADMIN_TIER for r in user.roles):
+        """Raw tool payloads (mail bodies, file contents, error text) are
+        stored in full but only ADMIN-TIER roles read them. Below that, ANY
+        tool-call data — whether in a `tool_call` entry OR nested in a
+        `step_completed` entry's step output — is projected to safe metadata,
+        so audit access can't become an intra-org read escalation. Storage is
+        unchanged (a response-layer projection)."""
+        if _raw_trace_reader(user):
             return entries
-        projected: list[AuditEntry] = []
-        for e in entries:
-            if e.action != "tool_call":
-                projected.append(e)
-                continue
-            d = e.detail
-            result = d.get("result") or {}
-            content = result.get("content")
-            safe: dict[str, Any] = {
-                "name": d.get("name"),
-                "input_keys": sorted((d.get("input") or {}).keys()),
-                "result_ok": not result.get("error"),
-                "error_present": bool(result.get("error")),
-                "pinned": d.get("pinned", []),
-                "pin_overrides": d.get("pin_overrides", []),
-                "_redacted": "raw tool input/result withheld (admin-tier only)",
-            }
-            if content is not None:
-                blob = json.dumps(content, sort_keys=True, default=str).encode()
-                safe["content_sha256"] = hashlib.sha256(blob).hexdigest()[:16]
-                safe["content_bytes"] = len(blob)
-            projected.append(e.model_copy(update={"detail": safe}))
-        return projected
+        return [
+            e.model_copy(update={"detail": redact_tool_data(e.detail, admin=False)})
+            for e in entries
+        ]
 
     @router.get(
         "/workflow-instances/{instance_id}/audit",
@@ -1614,6 +1609,7 @@ def build_router(
     async def explain_step(
         instance_id: str,
         step_id: str,
+        user: UserIdentity = Depends(require_roles(*ANY_ROLE)),
         scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         """Forensic view of one step in a run (C6.4): for an agent step, what it
@@ -1651,12 +1647,14 @@ def build_router(
             for a in await repositories.audit.list_by_instance(instance_id)
             if a.step_id == step_id
         ]
+        admin = _raw_trace_reader(user)
         tool_calls = [
             {
                 "name": a.detail.get("name"),
-                "input": _excerpt(a.detail.get("input")),
-                "result": _excerpt(a.detail.get("result")),
+                "input": _excerpt(a.detail.get("input")) if admin else None,
+                "result": _excerpt(a.detail.get("result")) if admin else None,
                 "timestamp": _iso(a.timestamp),
+                **({} if admin else {"_redacted": "admin-tier only"}),
             }
             for a in audit
             if a.action == "tool_call"

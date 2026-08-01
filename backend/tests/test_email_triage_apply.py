@@ -600,3 +600,67 @@ def test_postcondition_passes_when_tool_call_succeeds() -> None:
     assert instance.state.value == "completed"
     entries = asyncio.run(engine.repositories.audit.list_by_instance(instance.id))
     assert not [e for e in entries if e.action == "step_postcondition_failed"]
+
+
+def test_postcondition_fails_when_tool_call_returns_error_then_prose() -> None:
+    """External review 2026-08-01 F4 EXACT case: the tool IS called, RETURNS
+    AN ERROR, and the model then finishes in prose. The postcondition counts
+    only no-error calls, so the step must FAIL — distinct from the
+    no-call-at-all case."""
+    from typing import ClassVar
+
+    from workflow_platform.engine import FunctionRegistry, ToolCatalog, WorkflowEngine
+    from workflow_platform.persistence import in_memory_repositories
+    from workflow_platform.tools import Tool, ToolContext, ToolResult
+    from workflow_platform.workflow import load_definition
+    from workflow_platform.world import mock_world
+
+    class _ErroringTool(Tool):
+        name = "act_tool"
+        description = "always errors"
+        parameters_schema: ClassVar[dict[str, Any]] = {"type": "object"}
+        effect = "mutating"
+
+        async def execute(
+            self, params: dict[str, Any], context: ToolContext | None = None
+        ) -> ToolResult:
+            return ToolResult(error="external system rejected the call")
+
+    repos = in_memory_repositories()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=FunctionRegistry(),
+        tools=ToolCatalog([_ErroringTool()]),
+        bedrock=FakeBedrock(
+            [
+                tool_use_response(tool_uses=[("t1", "act_tool", {})]),
+                text_response("I have applied it."),  # prose after the error
+            ]
+        ),
+        world=mock_world(),
+    )
+    definition = load_definition(
+        {
+            "id": "wf",
+            "name": "wf",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {
+                    "id": "act",
+                    "type": "agentic",
+                    "goal": "call it",
+                    "model": "claude-haiku-4-5",
+                    "tools": ["act_tool"],
+                    "require_tool_call": {"name": "act_tool", "min_success": 1},
+                }
+            ],
+            "edges": [],
+        }
+    )
+    instance = asyncio.run(engine.run(definition, trigger_payload={}))
+    assert instance.state.value == "failed"
+    entries = asyncio.run(repos.audit.list_by_instance(instance.id))
+    pc = [e for e in entries if e.action == "step_postcondition_failed"]
+    assert pc and pc[0].detail["actual_success"] == 0
+    # The tool WAS called (and errored) — the failure is "no SUCCESSFUL call".
+    assert [e for e in entries if e.action == "tool_call"], "tool was called"

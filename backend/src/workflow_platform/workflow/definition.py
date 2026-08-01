@@ -61,8 +61,8 @@ class RequireToolCall(BaseModel):
     review finding 3): the step must have made at least `min_success`
     successful calls to the named tool, else it FAILS."""
 
-    name: str
-    min_success: int = 1
+    name: str = Field(min_length=1)
+    min_success: int = Field(default=1, ge=1)  # 0 would silently disable the control
 
 
 class AgenticStep(BaseModel):

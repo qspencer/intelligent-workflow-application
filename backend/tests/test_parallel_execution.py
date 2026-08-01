@@ -226,4 +226,8 @@ async def test_unexpected_exception_cancels_mutating_sibling() -> None:
     assert instance.state == WorkflowInstanceState.FAILED
     assert sentinel["sibling_mutated"] is False, "mutating sibling ran after failure"
     steps = {s.step_id: s for s in await repos.steps.list_by_instance(instance.id)}
+    # The originating step is FAILED (not stranded RUNNING) with its error;
+    # the cancelled sibling is CANCELLED (external review 2026-08-01 F1 pt 2).
+    assert steps["a"].state == StepExecutionState.FAILED
+    assert steps["a"].error == "not a StepFailure"
     assert steps["b"].state == StepExecutionState.CANCELLED
