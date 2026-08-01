@@ -131,3 +131,31 @@ class AuthSessionRow(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+
+class RawTraceGrantRow(Base):
+    """The raw-trace read privilege (docs/TRACE_GOVERNANCE_PLAN.md §2, TG1).
+    `org_id` NULL = platform-wide. Active-grant uniqueness per (principal,
+    scope) is enforced authoritatively in the grant service's activation
+    compare-and-set; the migration adds a partial unique index on the
+    org-scoped case for defense-in-depth."""
+
+    __tablename__ = "raw_trace_grants"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    principal_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True
+    )
+    org_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    approval_mode: Mapped[str] = mapped_column(String(32), nullable=False)
+    requested_by: Mapped[str] = mapped_column(String(64), nullable=False)
+    requested_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+    approved_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    external_approval_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    reason_code: Mapped[str] = mapped_column(String(64), nullable=False)
+    ticket_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    revoked_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

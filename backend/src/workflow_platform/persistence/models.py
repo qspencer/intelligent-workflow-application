@@ -159,3 +159,80 @@ class AuthSession(BaseModel):
     created_at: datetime = Field(default_factory=_utcnow)
     expires_at: datetime
     last_seen_at: datetime = Field(default_factory=_utcnow)
+
+
+class RawTraceGrantState(StrEnum):
+    """Grant lifecycle (docs/TRACE_GOVERNANCE_PLAN.md §2, TG1). Legal
+    transitions: pending → {active, rejected, cancelled};
+    active → {revoked, expired}."""
+
+    PENDING = "pending"
+    ACTIVE = "active"
+    REJECTED = "rejected"
+    CANCELLED = "cancelled"
+    REVOKED = "revoked"
+    EXPIRED = "expired"
+
+
+class RawTraceApprovalMode(StrEnum):
+    """How a platform-wide grant activates (TRACE_GOVERNANCE_PLAN §2.1). An
+    org-scoped grant always uses `dual_administrator` (a different Admin as
+    grantor); `tenant_authorized` requires an external approval artifact and
+    is only meaningful once a real external tenant exists."""
+
+    DUAL_ADMINISTRATOR = "dual_administrator"
+    TENANT_AUTHORIZED = "tenant_authorized"
+
+
+class RawTraceReasonCode(StrEnum):
+    """CLOSED reason enum — NOT free-form prose (TRACE_GOVERNANCE_PLAN §2/F2:
+    a bounded note would still hold a pasted email body). Governance detail
+    that carries customer content lives in a separately-governed record."""
+
+    INCIDENT_INVESTIGATION = "incident_investigation"
+    CUSTOMER_SUPPORT = "customer_support"
+    COMPLIANCE_AUDIT = "compliance_audit"
+    DEBUGGING = "debugging"
+
+
+class RawTraceGrant(BaseModel):
+    """The raw-trace read privilege, distinct from ordinary administration
+    (TRACE_GOVERNANCE_PLAN §2). A grant is a state machine, not a boolean:
+    default-off for everyone including Administrators. `org_id is None` means
+    platform-wide (covers every org); otherwise it covers only that org."""
+
+    id: str = Field(default_factory=_new_id)
+    principal_id: str  # the User.id the grant is for
+    org_id: str | None = None  # None = platform-wide (exactly one of org/platform)
+    state: RawTraceGrantState = RawTraceGrantState.PENDING
+    approval_mode: RawTraceApprovalMode = RawTraceApprovalMode.DUAL_ADMINISTRATOR
+    requested_by: str
+    requested_at: datetime = Field(default_factory=_utcnow)
+    approved_by: str | None = None
+    approved_at: datetime | None = None
+    external_approval_ref: str | None = None
+    expires_at: datetime | None = None  # mandatory (non-null) for platform-wide
+    reason_code: RawTraceReasonCode = RawTraceReasonCode.DEBUGGING
+    ticket_ref: str | None = None  # OPAQUE internal id, never free-form prose
+    revoked_by: str | None = None
+    revoked_at: datetime | None = None
+
+    @property
+    def is_platform_wide(self) -> bool:
+        return self.org_id is None
+
+    def is_active(self, now: datetime) -> bool:
+        """ACTIVE and not past expiry. Expiry is authoritative at check time
+        even before the row is transitioned to EXPIRED (TRACE_GOVERNANCE_PLAN
+        §2/F6)."""
+        if self.state is not RawTraceGrantState.ACTIVE:
+            return False
+        return self.expires_at is None or self.expires_at > now
+
+    def covers(self, target_org: str | None, now: datetime) -> bool:
+        """Active AND scope-covers the target org. A platform-wide grant
+        covers any org; an org-scoped grant covers only its own — an org-A
+        grant does NOT travel to org B (TRACE_GOVERNANCE_PLAN §2)."""
+        if not self.is_active(now):
+            return False
+        return self.is_platform_wide or self.org_id == target_org

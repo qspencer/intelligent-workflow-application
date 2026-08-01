@@ -15,6 +15,7 @@ from workflow_platform.persistence.models import (
     AuditEntry,
     AuthSession,
     Organization,
+    RawTraceGrant,
     StepExecution,
     TriggerCursorState,
     User,
@@ -26,6 +27,7 @@ from workflow_platform.persistence.repository import (
     DefinitionRepo,
     InstanceRepo,
     OrganizationRepo,
+    RawTraceGrantRepo,
     Repositories,
     StepExecutionRepo,
     TriggerCursorRepo,
@@ -343,6 +345,35 @@ class InMemoryAuthSessionRepo(AuthSessionRepo):
         return len(doomed)
 
 
+class InMemoryRawTraceGrantRepo(RawTraceGrantRepo):
+    def __init__(self) -> None:
+        self._items: dict[str, RawTraceGrant] = {}
+
+    async def create(self, grant: RawTraceGrant) -> RawTraceGrant:
+        self._items[grant.id] = grant.model_copy(deep=True)
+        return grant
+
+    async def get(self, grant_id: str) -> RawTraceGrant | None:
+        g = self._items.get(grant_id)
+        return g.model_copy(deep=True) if g else None
+
+    async def list_for_principal(self, principal_id: str) -> list[RawTraceGrant]:
+        return [
+            g.model_copy(deep=True) for g in self._items.values() if g.principal_id == principal_id
+        ]
+
+    async def list_all(self) -> list[RawTraceGrant]:
+        return sorted(
+            (g.model_copy(deep=True) for g in self._items.values()),
+            key=lambda g: g.requested_at,
+            reverse=True,
+        )
+
+    async def save(self, grant: RawTraceGrant) -> RawTraceGrant:
+        self._items[grant.id] = grant.model_copy(deep=True)
+        return grant
+
+
 def in_memory_repositories() -> Repositories:
     instances = InMemoryInstanceRepo()
     return Repositories(
@@ -354,4 +385,5 @@ def in_memory_repositories() -> Repositories:
         organizations=InMemoryOrganizationRepo(),
         users=InMemoryUserRepo(),
         auth_sessions=InMemoryAuthSessionRepo(),
+        raw_trace_grants=InMemoryRawTraceGrantRepo(),
     )

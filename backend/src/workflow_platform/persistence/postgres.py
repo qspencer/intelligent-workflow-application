@@ -15,6 +15,10 @@ from workflow_platform.persistence.models import (
     AuditEntry,
     AuthSession,
     Organization,
+    RawTraceApprovalMode,
+    RawTraceGrant,
+    RawTraceGrantState,
+    RawTraceReasonCode,
     StepExecution,
     TriggerCursorState,
     User,
@@ -26,6 +30,7 @@ from workflow_platform.persistence.repository import (
     DefinitionRepo,
     InstanceRepo,
     OrganizationRepo,
+    RawTraceGrantRepo,
     Repositories,
     StepExecutionRepo,
     TriggerCursorRepo,
@@ -35,6 +40,7 @@ from workflow_platform.persistence.sqlalchemy_models import (
     AuditLogRow,
     AuthSessionRow,
     OrganizationRow,
+    RawTraceGrantRow,
     StepExecutionRow,
     TriggerCursorRow,
     UserRow,
@@ -414,6 +420,83 @@ def _row_to_auth_session(row: AuthSessionRow) -> AuthSession:
     )
 
 
+def _row_to_grant(row: RawTraceGrantRow) -> RawTraceGrant:
+    return RawTraceGrant(
+        id=row.id,
+        principal_id=row.principal_id,
+        org_id=row.org_id,
+        state=RawTraceGrantState(row.state),
+        approval_mode=RawTraceApprovalMode(row.approval_mode),
+        requested_by=row.requested_by,
+        requested_at=row.requested_at,
+        approved_by=row.approved_by,
+        approved_at=row.approved_at,
+        external_approval_ref=row.external_approval_ref,
+        expires_at=row.expires_at,
+        reason_code=RawTraceReasonCode(row.reason_code),
+        ticket_ref=row.ticket_ref,
+        revoked_by=row.revoked_by,
+        revoked_at=row.revoked_at,
+    )
+
+
+def _apply_grant(row: RawTraceGrantRow, grant: RawTraceGrant) -> None:
+    row.principal_id = grant.principal_id
+    row.org_id = grant.org_id
+    row.state = grant.state.value
+    row.approval_mode = grant.approval_mode.value
+    row.requested_by = grant.requested_by
+    row.requested_at = grant.requested_at
+    row.approved_by = grant.approved_by
+    row.approved_at = grant.approved_at
+    row.external_approval_ref = grant.external_approval_ref
+    row.expires_at = grant.expires_at
+    row.reason_code = grant.reason_code.value
+    row.ticket_ref = grant.ticket_ref
+    row.revoked_by = grant.revoked_by
+    row.revoked_at = grant.revoked_at
+
+
+class PostgresRawTraceGrantRepo(RawTraceGrantRepo):
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sf = session_factory
+
+    async def create(self, grant: RawTraceGrant) -> RawTraceGrant:
+        async with self._sf() as s, s.begin():
+            row = RawTraceGrantRow(id=grant.id)
+            _apply_grant(row, grant)
+            s.add(row)
+        return grant
+
+    async def get(self, grant_id: str) -> RawTraceGrant | None:
+        async with self._sf() as s:
+            row = await s.get(RawTraceGrantRow, grant_id)
+            return _row_to_grant(row) if row else None
+
+    async def list_for_principal(self, principal_id: str) -> list[RawTraceGrant]:
+        async with self._sf() as s:
+            result = await s.execute(
+                select(RawTraceGrantRow).where(RawTraceGrantRow.principal_id == principal_id)
+            )
+            return [_row_to_grant(r) for r in result.scalars()]
+
+    async def list_all(self) -> list[RawTraceGrant]:
+        async with self._sf() as s:
+            result = await s.execute(
+                select(RawTraceGrantRow).order_by(RawTraceGrantRow.requested_at.desc())
+            )
+            return [_row_to_grant(r) for r in result.scalars()]
+
+    async def save(self, grant: RawTraceGrant) -> RawTraceGrant:
+        async with self._sf() as s, s.begin():
+            row = await s.get(RawTraceGrantRow, grant.id)
+            if row is None:
+                row = RawTraceGrantRow(id=grant.id)
+                s.add(row)
+            _apply_grant(row, grant)
+        return grant
+
+
 class PostgresUserRepo(UserRepo):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sf = session_factory
@@ -554,6 +637,7 @@ def postgres_repositories(session_factory: async_sessionmaker[AsyncSession]) -> 
         organizations=PostgresOrganizationRepo(session_factory),
         users=PostgresUserRepo(session_factory),
         auth_sessions=PostgresAuthSessionRepo(session_factory),
+        raw_trace_grants=PostgresRawTraceGrantRepo(session_factory),
     )
 
 

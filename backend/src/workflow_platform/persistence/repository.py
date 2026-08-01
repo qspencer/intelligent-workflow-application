@@ -16,6 +16,7 @@ from workflow_platform.persistence.models import (
     AuditEntry,
     AuthSession,
     Organization,
+    RawTraceGrant,
     StepExecution,
     TriggerCursorState,
     User,
@@ -204,6 +205,34 @@ class AuthSessionRepo(ABC):
         ...
 
 
+class RawTraceGrantRepo(ABC):
+    """Raw-trace read grants (docs/TRACE_GOVERNANCE_PLAN.md §2, TG1). The
+    grant service holds the lifecycle; this repo is plain persistence."""
+
+    @abstractmethod
+    async def create(self, grant: RawTraceGrant) -> RawTraceGrant: ...
+
+    @abstractmethod
+    async def get(self, grant_id: str) -> RawTraceGrant | None: ...
+
+    @abstractmethod
+    async def list_for_principal(self, principal_id: str) -> list[RawTraceGrant]:
+        """Every grant (all states) for a principal — the privilege check
+        filters to active+covering, and activation scans for a stale active
+        row to expire."""
+        ...
+
+    @abstractmethod
+    async def list_all(self) -> list[RawTraceGrant]:
+        """All grants, newest first (admin listing; API applies org scope)."""
+        ...
+
+    @abstractmethod
+    async def save(self, grant: RawTraceGrant) -> RawTraceGrant:
+        """Insert or fully update by id (state transitions)."""
+        ...
+
+
 class TriggerCursorRepo(ABC):
     """Poll-position persistence for polling triggers (G9). Keyed by a
     trigger identity string (e.g. `email:<workflow_id>:<account>`) so a
@@ -242,3 +271,4 @@ class Repositories:
     organizations: OrganizationRepo
     users: UserRepo
     auth_sessions: AuthSessionRepo
+    raw_trace_grants: RawTraceGrantRepo
