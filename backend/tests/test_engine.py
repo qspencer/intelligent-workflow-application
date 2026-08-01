@@ -231,3 +231,40 @@ async def test_agentic_step_unknown_tool_fails() -> None:
     assert instance.state == WorkflowInstanceState.FAILED
     assert instance.error is not None
     assert "does_not_exist" in instance.error
+
+
+async def test_instance_inherits_definition_org() -> None:
+    """Trigger-fired runs scope correctly because the instance copies its
+    definition's org forward (ROLES_PLAN §2.6; executor.py). Verification-
+    index gap: the isolation suite pre-seeds org_id, so this copy-forward
+    branch was never driven by a test."""
+    repos = in_memory_repositories()
+    fns = FunctionRegistry()
+
+    async def noop(config: dict[str, Any], ctx: Any, world: Any) -> dict[str, Any]:
+        return {"ok": True}
+
+    fns.register("noop", noop)
+    definition = load_definition(
+        {
+            "id": "wf-acme",
+            "name": "wf",
+            "trigger": {"type": "manual"},
+            "steps": [{"id": "a", "type": "deterministic", "function": "noop"}],
+            "edges": [],
+        }
+    )
+    # Definition owned by 'acme' — the instance must inherit it, not default.
+    await repos.definitions.save(definition, org_id="acme")
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=fns,
+        tools=ToolCatalog(),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+    )
+    instance = await engine.run(definition, trigger_payload={})
+    assert instance.state == WorkflowInstanceState.COMPLETED
+    assert instance.org_id == "acme"
+    stored = await repos.instances.get(instance.id)
+    assert stored is not None and stored.org_id == "acme"

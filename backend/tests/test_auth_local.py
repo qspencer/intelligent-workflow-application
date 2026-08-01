@@ -98,6 +98,12 @@ def test_login_sets_cookie_and_authenticates(monkeypatch: pytest.MonkeyPatch) ->
     response = _login(client)
     assert response.status_code == 200
     assert SESSION_COOKIE in response.cookies
+    # Cookie hardening flags are set (verification-index gap: previously
+    # only presence was asserted). HttpOnly blocks JS access; SameSite=lax
+    # is the CSRF baseline.
+    set_cookie = response.headers["set-cookie"].lower()
+    assert "httponly" in set_cookie
+    assert "samesite=lax" in set_cookie
 
     me = client.get("/api/me")
     assert me.status_code == 200

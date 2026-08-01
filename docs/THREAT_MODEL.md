@@ -88,8 +88,11 @@ tenant boundary itself.
    an **enum-derived label list**, never free text (hostile-payload
    fixtures pinned).
 3. Tool-holder input minimization: `inputs:` strips trigger content,
-   rubric memory, and recall from the apply step (leak test-pinned;
-   token counts asserted).
+   rubric memory, and recall from the apply step (leak test-pinned: the
+   test asserts the hostile subject/body, the rubric marker, and the
+   recall marker are ABSENT from the minimized step's messages —
+   content-absence, not a token-count assertion, which the earlier
+   wording overstated).
 4. Write-path fences: 8-label allowlist at the tool boundary + Gmail
    no-create (mailbox label list is a physical allowlist) + add-only
    (removal exists only in operator CLIs).
