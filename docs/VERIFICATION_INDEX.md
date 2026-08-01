@@ -60,7 +60,7 @@ finding 4; collection ≠ passing):
 |---|---|
 | commit | this doc's commit (see manifest) |
 | command | `cd backend && uv run pytest -q` |
-| passed | **905** |
+| passed | **907** |
 | skipped | 14 (live/integration, self-skip without creds) |
 | failed | 0 |
 | python | 3.12.3 |
@@ -77,9 +77,9 @@ VERIFIED-CODE+TEST):**
 
 | Claim | Implementation | Test |
 |---|---|---|
-| F1 ANY branch exception cancels in-flight siblings (not just StepFailure) | `executor.py` dispatch loop body guarded → `_cancel_pending` on any exception | `test_parallel_execution.py::test_unexpected_exception_cancels_mutating_sibling` (RuntimeError branch; slow sibling never mutates; row CANCELLED) |
+| F1 ANY branch exception cancels siblings AND the origin step persists FAILED | `executor.py` loop body guarded; `_run_step_once` catches unexpected `Exception` → step FAILED + `unexpected:true` audit → re-raise (not CancelledError) | `test_parallel_execution.py::test_unexpected_exception_cancels_mutating_sibling` (asserts step a FAILED w/ error, sibling b CANCELLED, no mutation) |
 | F2 tool pins FAIL CLOSED on unresolved path | `executor.py` pin resolution → `StepFailure` + audit `tool_pin_unresolved` if a path resolves None | `test_tool_param_pinning.py::test_unresolved_pin_fails_step_closed` |
-| F3 raw tool payloads projected for below-admin roles | `api/workflows.py::_project_audit` (admin-tier sees raw; else keys/status/hash) on both audit endpoints | `test_org_isolation.py::test_raw_tool_payloads_hidden_from_non_admin_audit` |
+| F3 raw tool payloads projected across EVERY read surface | ONE `api/redaction.py::redact_tool_data` applied to: both audit endpoints, instance endpoint (dump + step rows + context), explain, WS delivery | `test_audit_redaction.py::test_below_admin_cannot_recover_tool_secrets_anywhere` (real tool call w/ sentinel in+out secrets; Viewer+User recover nothing from all 4 surfaces; admin sees raw) |
 | F5 WS org resolution fails closed | `api/ws.py::_subscriber_org` raises `_OrgUnresolved` on missing row → upgrade rejected | `test_org_isolation.py::test_ws_rejects_non_admin_with_unresolvable_org` |
 
 Reproducibility (external review note): the suite needs the locked deps
