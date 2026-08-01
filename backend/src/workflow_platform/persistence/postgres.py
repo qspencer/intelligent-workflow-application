@@ -15,10 +15,13 @@ from workflow_platform.persistence.models import (
     AuditEntry,
     AuthSession,
     Organization,
+    RawTrace,
     RawTraceApprovalMode,
     RawTraceGrant,
     RawTraceGrantState,
+    RawTraceKind,
     RawTraceReasonCode,
+    RawTraceState,
     StepExecution,
     TriggerCursorState,
     User,
@@ -31,6 +34,7 @@ from workflow_platform.persistence.repository import (
     InstanceRepo,
     OrganizationRepo,
     RawTraceGrantRepo,
+    RawTraceVaultRepo,
     Repositories,
     StepExecutionRepo,
     TriggerCursorRepo,
@@ -41,6 +45,7 @@ from workflow_platform.persistence.sqlalchemy_models import (
     AuthSessionRow,
     OrganizationRow,
     RawTraceGrantRow,
+    RawTraceRow,
     StepExecutionRow,
     TriggerCursorRow,
     UserRow,
@@ -457,6 +462,72 @@ def _apply_grant(row: RawTraceGrantRow, grant: RawTraceGrant) -> None:
     row.revoked_at = grant.revoked_at
 
 
+def _row_to_raw_trace(row: RawTraceRow) -> RawTrace:
+    return RawTrace(
+        id=row.id,
+        org_id=row.org_id,
+        instance_id=row.instance_id,
+        step_attempt_id=row.step_attempt_id,
+        kind=RawTraceKind(row.kind),
+        state=RawTraceState(row.state),
+        idempotency_key=row.idempotency_key,
+        raw_schema_version=row.raw_schema_version,
+        projection_schema_version=row.projection_schema_version,
+        projector_version=row.projector_version,
+        payload=_as_dict(row.payload) if isinstance(row.payload, dict) else row.payload,
+        created_at=row.created_at,
+    )
+
+
+class PostgresRawTraceVaultRepo(RawTraceVaultRepo):
+    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+        self._sf = session_factory
+
+    async def put(self, trace: RawTrace) -> RawTrace:
+        # Idempotent on idempotency_key: a retry re-addresses the same object.
+        async with self._sf() as s, s.begin():
+            stmt = (
+                pg_insert(RawTraceRow)
+                .values(
+                    id=trace.id,
+                    org_id=trace.org_id,
+                    instance_id=trace.instance_id,
+                    step_attempt_id=trace.step_attempt_id,
+                    kind=trace.kind.value,
+                    state=trace.state.value,
+                    idempotency_key=trace.idempotency_key,
+                    raw_schema_version=trace.raw_schema_version,
+                    projection_schema_version=trace.projection_schema_version,
+                    projector_version=trace.projector_version,
+                    payload=trace.payload,
+                    created_at=trace.created_at,
+                )
+                .on_conflict_do_nothing(index_elements=["idempotency_key"])
+            )
+            await s.execute(stmt)
+        stored = await self.get_by_idempotency_key(trace.idempotency_key)
+        assert stored is not None  # just inserted or already present
+        return stored
+
+    async def get(self, trace_id: str) -> RawTrace | None:
+        async with self._sf() as s:
+            row = await s.get(RawTraceRow, trace_id)
+            return _row_to_raw_trace(row) if row else None
+
+    async def get_by_idempotency_key(self, key: str) -> RawTrace | None:
+        async with self._sf() as s:
+            result = await s.execute(select(RawTraceRow).where(RawTraceRow.idempotency_key == key))
+            row = result.scalar_one_or_none()
+            return _row_to_raw_trace(row) if row else None
+
+    async def list_by_instance(self, instance_id: str) -> list[RawTrace]:
+        async with self._sf() as s:
+            result = await s.execute(
+                select(RawTraceRow).where(RawTraceRow.instance_id == instance_id)
+            )
+            return [_row_to_raw_trace(r) for r in result.scalars()]
+
+
 class PostgresRawTraceGrantRepo(RawTraceGrantRepo):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
         self._sf = session_factory
@@ -638,6 +709,7 @@ def postgres_repositories(session_factory: async_sessionmaker[AsyncSession]) -> 
         users=PostgresUserRepo(session_factory),
         auth_sessions=PostgresAuthSessionRepo(session_factory),
         raw_trace_grants=PostgresRawTraceGrantRepo(session_factory),
+        raw_trace_vault=PostgresRawTraceVaultRepo(session_factory),
     )
 
 

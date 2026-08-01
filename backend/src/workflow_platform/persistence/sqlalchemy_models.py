@@ -162,3 +162,33 @@ class RawTraceGrantRow(Base):
     ticket_ref: Mapped[str | None] = mapped_column(String(128), nullable=True)
     revoked_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class RawTraceRow(Base):
+    """The raw-trace vault (docs/TRACE_GOVERNANCE_PLAN.md §4.1, TG3a). Keyed on
+    the immutable step-attempt (`step_attempt_id` = StepExecution.id; NULL for
+    instance-level trigger payloads). `idempotency_key` is the deterministic
+    natural key — unique, so a retry re-addresses the same object and two
+    different steps on the same attempt number never collide (F2)."""
+
+    __tablename__ = "raw_traces"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    org_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    instance_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("workflow_instances.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    step_attempt_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    state: Mapped[str] = mapped_column(String(32), nullable=False)
+    idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
+    raw_schema_version: Mapped[int] = mapped_column(Integer, nullable=False, server_default="1")
+    projection_schema_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="1"
+    )
+    projector_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    payload: Mapped[Any] = mapped_column(JsonColumn, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

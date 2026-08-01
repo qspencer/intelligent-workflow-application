@@ -16,6 +16,7 @@ from workflow_platform.persistence.models import (
     AuditEntry,
     AuthSession,
     Organization,
+    RawTrace,
     RawTraceGrant,
     StepExecution,
     TriggerCursorState,
@@ -233,6 +234,26 @@ class RawTraceGrantRepo(ABC):
         ...
 
 
+class RawTraceVaultRepo(ABC):
+    """The raw-trace vault (docs/TRACE_GOVERNANCE_PLAN.md §4.1/§0.2, TG3a). An
+    abstract repository over OPAQUE object ids so the separate-vault (B) form
+    slots in without rewriting callers. `put` is idempotent on
+    `idempotency_key` — re-vaulting the same (org, instance, step-attempt,
+    kind) returns the existing object rather than duplicating."""
+
+    @abstractmethod
+    async def put(self, trace: RawTrace) -> RawTrace: ...
+
+    @abstractmethod
+    async def get(self, trace_id: str) -> RawTrace | None: ...
+
+    @abstractmethod
+    async def get_by_idempotency_key(self, key: str) -> RawTrace | None: ...
+
+    @abstractmethod
+    async def list_by_instance(self, instance_id: str) -> list[RawTrace]: ...
+
+
 class TriggerCursorRepo(ABC):
     """Poll-position persistence for polling triggers (G9). Keyed by a
     trigger identity string (e.g. `email:<workflow_id>:<account>`) so a
@@ -272,3 +293,4 @@ class Repositories:
     users: UserRepo
     auth_sessions: AuthSessionRepo
     raw_trace_grants: RawTraceGrantRepo
+    raw_trace_vault: RawTraceVaultRepo

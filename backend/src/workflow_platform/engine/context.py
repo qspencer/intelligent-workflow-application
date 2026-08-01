@@ -27,6 +27,7 @@ class WorkflowContext(BaseModel):
 
     instance_id: str
     workflow_id: str
+    org_id: str = "default"
     trigger: dict[str, Any] = Field(default_factory=dict)
     steps: dict[str, dict[str, Any]] = Field(default_factory=dict)
     capabilities: ResolvedCapabilities | None = None

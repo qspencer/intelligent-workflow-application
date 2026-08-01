@@ -55,6 +55,7 @@ from workflow_platform.persistence.models import _new_id, _utcnow
 from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.security.capabilities import ResolvedCapabilities
 from workflow_platform.tools import Tool, ToolContext
+from workflow_platform.trace_vault import RawTraceVault
 from workflow_platform.workflow import (
     AgenticStep,
     DeterministicStep,
@@ -158,6 +159,12 @@ class WorkflowEngine:
     # that returns a fake instead so no real Chromium is launched.
     browser_downloads_dir: Path = field(default_factory=lambda: Path("./downloads"))
     browser_connector_factory: Callable[[], BrowserConnector] | None = None
+    # Raw-trace vault write path (TG3a). Dark dual-write: raw is copied here
+    # while the operational store stays authoritative until the TG3b flip.
+    _vault: RawTraceVault = field(init=False)
+
+    def __post_init__(self) -> None:
+        self._vault = RawTraceVault(self.repositories)
 
     # --- public API ---
 
@@ -193,7 +200,15 @@ class WorkflowEngine:
         context = WorkflowContext(
             instance_id=instance.id,
             workflow_id=definition.id,
+            org_id=instance.org_id,
             trigger=dict(instance.trigger_payload),
+        )
+        # Dark dual-write (TG3a): vault the raw trigger payload while the
+        # inline copy stays authoritative (the flip to safe-only is TG3b).
+        await self._vault.record_trigger(
+            org_id=instance.org_id,
+            instance_id=instance.id,
+            payload=instance.trigger_payload,
         )
         result = await self._drive(definition, instance, context, already_done=set())
         self._record_workflow_finished(definition.id, result, started)
@@ -222,6 +237,7 @@ class WorkflowEngine:
         context = WorkflowContext(
             instance_id=instance.id,
             workflow_id=definition.id,
+            org_id=instance.org_id,
             trigger=dict(instance.trigger_payload),
             steps=dict(instance.context.get("steps", {}) or {}),
         )
@@ -312,6 +328,7 @@ class WorkflowEngine:
         context = WorkflowContext(
             instance_id=new_instance.id,
             workflow_id=definition.id,
+            org_id=new_instance.org_id,
             trigger=dict(new_instance.trigger_payload),
             steps={sid: dict(out) for sid, out in usable_outputs.items()},
         )
@@ -919,6 +936,12 @@ class WorkflowEngine:
             completed_at = _utcnow()
             execution.completed_at = completed_at
             await self.repositories.steps.update(execution)
+            await self._vault.record_error(
+                org_id=context.org_id,
+                instance_id=instance_id,
+                step_attempt_id=execution.id,
+                error=error_msg,
+            )
             self.metrics.step_finished(
                 step.type,
                 StepExecutionState.FAILED.value,
@@ -966,6 +989,15 @@ class WorkflowEngine:
         completed_at = _utcnow()
         execution.completed_at = completed_at
         await self.repositories.steps.update(execution)
+        # Dark dual-write (TG3a): vault this attempt's raw output kinds
+        # (tool_calls / model output / recall) keyed on the immutable
+        # step-attempt id; inline stays authoritative until the TG3b flip.
+        await self._vault.record_step_output(
+            org_id=context.org_id,
+            instance_id=instance_id,
+            step_attempt_id=execution.id,
+            output=output,
+        )
         self.metrics.step_finished(
             step.type,
             StepExecutionState.COMPLETED.value,

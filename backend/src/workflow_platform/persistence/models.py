@@ -240,3 +240,58 @@ class RawTraceGrant(BaseModel):
         if not self.is_active(now):
             return False
         return self.is_platform_wide or self.org_id == target_org
+
+
+class RawTraceKind(StrEnum):
+    """The raw asset a vault row holds (docs/TRACE_GOVERNANCE_PLAN.md §1/§4.1).
+    Unknown kinds are default-deny → vault-only (§1.2), never operational."""
+
+    TOOL_CALLS = "tool_calls"
+    MODEL_OUTPUT = "model_output"  # free-form model text (taint, §1.1)
+    TRIGGER_PAYLOAD = "trigger_payload"
+    RECALL = "recall"
+    ERROR = "error"
+
+
+class RawTraceState(StrEnum):
+    """Vault object lifecycle (docs/TRACE_GOVERNANCE_PLAN.md §4.2). Under
+    Contract A (same-DB) the states collapse into one transaction and a row is
+    written directly COMMITTED; RESERVED/STORED/REFERENCED/ABORTED are the
+    separate-vault (B) fencing protocol, carried on the row so the B form
+    slots in without a migration."""
+
+    RESERVED = "reserved"
+    STORED = "stored"
+    REFERENCED = "referenced"
+    COMMITTED = "committed"
+    ABORTED = "aborted"
+
+
+# Version stamps recorded on every vault row + the operational row that
+# references it, so a projector/schema change never makes an old row read as
+# corrupt (docs/TRACE_GOVERNANCE_PLAN.md §4.3, criterion 17/23).
+RAW_SCHEMA_VERSION = 1
+PROJECTION_SCHEMA_VERSION = 1
+PROJECTOR_VERSION = "trace-projector@1"
+
+
+class RawTrace(BaseModel):
+    """One raw asset in the vault, keyed on the immutable step-attempt
+    (docs/TRACE_GOVERNANCE_PLAN.md §4.1). `step_attempt_id` is the
+    `StepExecution.id` of the producing attempt; None for an instance-level
+    trigger payload. The `idempotency_key` (a deterministic hash) is the
+    natural key — a retry re-addresses the SAME object, and two different
+    steps on the same attempt number get DISTINCT objects (F2)."""
+
+    id: str = Field(default_factory=_new_id)
+    org_id: str = DEFAULT_ORG_ID
+    instance_id: str
+    step_attempt_id: str | None = None  # None = instance-level (trigger)
+    kind: RawTraceKind
+    state: RawTraceState = RawTraceState.COMMITTED
+    idempotency_key: str
+    raw_schema_version: int = RAW_SCHEMA_VERSION
+    projection_schema_version: int = PROJECTION_SCHEMA_VERSION
+    projector_version: str = PROJECTOR_VERSION
+    payload: Any = None  # plaintext JSON under Contract A; ciphertext under B (TG3d)
+    created_at: datetime = Field(default_factory=_utcnow)

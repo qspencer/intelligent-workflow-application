@@ -15,6 +15,7 @@ from workflow_platform.persistence.models import (
     AuditEntry,
     AuthSession,
     Organization,
+    RawTrace,
     RawTraceGrant,
     StepExecution,
     TriggerCursorState,
@@ -28,6 +29,7 @@ from workflow_platform.persistence.repository import (
     InstanceRepo,
     OrganizationRepo,
     RawTraceGrantRepo,
+    RawTraceVaultRepo,
     Repositories,
     StepExecutionRepo,
     TriggerCursorRepo,
@@ -374,6 +376,33 @@ class InMemoryRawTraceGrantRepo(RawTraceGrantRepo):
         return grant
 
 
+class InMemoryRawTraceVaultRepo(RawTraceVaultRepo):
+    def __init__(self) -> None:
+        self._items: dict[str, RawTrace] = {}
+        self._by_key: dict[str, str] = {}  # idempotency_key → id
+
+    async def put(self, trace: RawTrace) -> RawTrace:
+        existing_id = self._by_key.get(trace.idempotency_key)
+        if existing_id is not None:
+            return self._items[existing_id].model_copy(deep=True)
+        self._items[trace.id] = trace.model_copy(deep=True)
+        self._by_key[trace.idempotency_key] = trace.id
+        return trace
+
+    async def get(self, trace_id: str) -> RawTrace | None:
+        t = self._items.get(trace_id)
+        return t.model_copy(deep=True) if t else None
+
+    async def get_by_idempotency_key(self, key: str) -> RawTrace | None:
+        tid = self._by_key.get(key)
+        return self._items[tid].model_copy(deep=True) if tid else None
+
+    async def list_by_instance(self, instance_id: str) -> list[RawTrace]:
+        return [
+            t.model_copy(deep=True) for t in self._items.values() if t.instance_id == instance_id
+        ]
+
+
 def in_memory_repositories() -> Repositories:
     instances = InMemoryInstanceRepo()
     return Repositories(
@@ -386,4 +415,5 @@ def in_memory_repositories() -> Repositories:
         users=InMemoryUserRepo(),
         auth_sessions=InMemoryAuthSessionRepo(),
         raw_trace_grants=InMemoryRawTraceGrantRepo(),
+        raw_trace_vault=InMemoryRawTraceVaultRepo(),
     )
