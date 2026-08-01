@@ -625,13 +625,19 @@ The reviewer executed the code against the contracts and found 6 items.
   `_raw_reader_for_org` at every read surface (instance/explain/audit/WS),
   Administrator-gated grants API, revoke-on-deactivation/org-transfer.
   Criteria 1/2/5/11 test-pinned; the intended operational break is live
-  (an Administrator without a grant reads no raw). **Next cut: TG2-human
-  release-boundary audit** (§3.1 — raw_trace_access_attempted +
-  raw_trace_release_decided, release-before-send at every raw surface,
-  explicit partial/degradation); then TG3 (gated on the immutable-attempt
-  model landing in EXECUTION_SEMANTICS). Deferred within TG1: memory
-  facts-mode-under-grant (rides the memory endpoint's own cut). Ship to an
-  external org stays trigger-gated + needs the chosen B-contract (TG3d).
+  (an Administrator without a grant reads no raw). **TG2-human BUILT
+  (2026-08-01):** the release-boundary audit — `decide_raw_release` emits the
+  append-only raw_trace_access_attempted + raw_trace_release_decided pair
+  (one correlation id) at every raw surface (instance/explain/audit/WS)
+  before any raw byte leaves; fail-closed to projected +
+  redaction_reason=access_audit_unavailable on audit-append failure; a
+  below-grant read emits no access event; detail/explain carry raw_included.
+  Criteria 2/3/28 test-pinned (test_raw_trace_release_audit). **Next cut:
+  TG3** (storage inversion — gated on the immutable-attempt model landing in
+  EXECUTION_SEMANTICS; `partial`/vault outcomes + delivery-observed telemetry
+  land there). Deferred within TG1: memory facts-mode-under-grant (rides the
+  memory endpoint's own cut). Ship to an external org stays trigger-gated +
+  needs the chosen B-contract (TG3d).
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC

@@ -29,9 +29,21 @@ deactivation/org-transfer. Criteria 1, 2, 5, 11 (and 21/25/32/33's lifecycle
 content) test-pinned across `test_raw_trace_grants{,_api}.py`,
 `test_audit_redaction.py`, `test_org_isolation.py`. **The intended
 operational break is live: an Administrator without a grant reads no raw.**
-Next: the approved **TG2 human-release audit** (§3.1), then TG3 (gated on the
-`EXECUTION_SEMANTICS` immutable-attempt model). Trigger to ship to an
-external org is unchanged (§0).
+
+**Build status: TG2-human BUILT (2026-08-01).** The release-boundary audit
+(§3.1): `api/raw_trace_audit.py::decide_raw_release` emits the append-only
+`raw_trace_access_attempted` + `raw_trace_release_decided` pair (one
+correlation id) at every raw surface — instance detail, explain, both audit
+endpoints, WS (one pair per raw-bearing delivered frame) — before any raw
+byte leaves; fail-closed to projected + `redaction_reason:
+access_audit_unavailable` on any audit-append failure; a below-grant read
+emits no access event. Detail/explain responses carry `raw_included`.
+Criteria 2/3/28 test-pinned (`test_raw_trace_release_audit.py`). Scoped to
+pre-TG3 (raw inline/atomic → outcomes `released` | degraded-`projected`;
+`partial`/`retrieval_failed`/`integrity_failed` + delivery-observed arrive
+with the vault). **Next: TG3** (gated on the `EXECUTION_SEMANTICS`
+immutable-attempt model). Trigger to ship to an external org is unchanged
+(§0) and still requires the B-contract (TG3d).
 
 The coupled design for the three F3 pre-external-organization gates the
 external code review left open after the read-surface redaction closed
@@ -750,7 +762,7 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
 | Cut | Contents | Contract | Authorization |
 |---|---|---|---|
 | **TG1** | grant **state machine** (§2) + two `approval_mode`s (§2.1) + closed reason_code/opaque ticket_ref + expiry transition (§2/F6) + target-org bypass + read-site `ADMIN_TIER`→grant (incl. WS) + grants admin API + revoke-on-deactivation/transfer | A | **BUILT 2026-08-01** (memory facts-mode-under-grant deferred to the memory endpoint's own cut) |
-| **TG2 (human release)** | raw-access audit: **release-boundary model (§3.1)** + cardinality + explicit partial/degradation, HTTP + WS release-before-send | A | **design-APPROVED (external review v6); independently authorizable** |
+| **TG2 (human release)** | raw-access audit: **release-boundary model (§3.1)** + cardinality + explicit degradation, HTTP + WS release-before-send | A | **BUILT 2026-08-01** (`partial`/vault outcomes arrive with TG3) |
 | **TG2 (system access)** | `raw_trace_system_access_attempted`-before-decrypt + fail-closed (§3.2) | A | **authorizable (v6 audit-before-decrypt folded — pending re-review)** |
 | **TG3a** | typed registry (§1.2) + safe-output contract (§1.4) + vault-all-free-form + abstract vault repo/opaque IDs (§0.2) + schema (§4.1) + collision-free key + **cross-system fencing (§4.2)**; **DARK DUAL-WRITE** | A | after the EXECUTION_SEMANTICS attempt model |
 | **TG3b** | rehydration + integrity + versioning (§4.3) + state machine w/ concurrency + fencing (§4.2) + **finalized dependency manifest (§5.1)** + **system-access audit (§3.2)**; only then flip operational to safe-only | A | after the finalized manifest + attempt model |
