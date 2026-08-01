@@ -595,9 +595,25 @@ The reviewer executed the code against the contracts and found 6 items.
   (6) cross-org fork PROHIBITED first build. Plus: closed reason_code (grant
   metadata can't leak raw), explicit snapshot-expiry state
   (recovery_state/resume_available_until), and reconciliation concurrency
-  (compare-and-set + lease). Criteria 24→31. TG1 (grant state machine) and
-  TG2 (release model) authorizable pending re-review; TG3 awaits the
-  dependency manifest + EXECUTION_SEMANTICS attempt model.
+  (compare-and-set + lease). Criteria 24→31. **External review v6 folded —
+  TG2's human release path is design-APPROVED; six implementable-semantics
+  fixes:** (1) grant activation picks EXACTLY ONE `approval_mode`
+  (dual_administrator | tenant_authorized) with per-mode required fields —
+  v5 left both paths ambiguous; `cancelled` added to the enum; (2)
+  `reason_note` REMOVED (a bounded string still holds a pasted email body,
+  violating the safe-output contract) → closed reason_code + opaque
+  ticket_ref; (3) internal engine vault access is now audit-BEFORE-decrypt +
+  fail-closed (`raw_trace_system_access_attempted` commits before any
+  fetch/decrypt; failure pauses/fails the op) — v5 only recorded it after;
+  (4) the external-vault reconciler gets a real cross-system fencing/intent
+  protocol (a delayed writer can't commit a reference to an aborted object;
+  referenced-but-not-committed reads lazily promote, never read
+  missing/corrupt); (5) the dependency manifest is FINALIZED
+  (snapshot_generation/hash, append-only, fork binds a finalized generation,
+  retention only on finalized, erasure atomically flips recovery_state); (6)
+  grant expiry is a durable DB transition (an active-but-past-expiry row
+  can't block a replacement — Postgres can't use now() in a partial index).
+  Criteria 31→36. TG1, TG2-system, TG3 await re-review; TG2-human approved.
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC

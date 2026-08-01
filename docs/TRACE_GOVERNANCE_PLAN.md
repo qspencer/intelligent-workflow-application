@@ -1,16 +1,15 @@
 # Trace Governance — Design
 
-Status: **architecture FROZEN without qualification (external review v4); a
-narrow v5 folds six representability/semantics corrections; no cut yet
-authorized.** Internal review folded (7 conditions). External reviews v1
-("adopt architecture, revise before build"), v2 ("architecture accepted;
-TG3 blocked"), v3 ("architecture approved; freeze five contracts"), and v4
-("architecture can be frozen without qualification; narrow v5 required") all
-folded. Not built; build is trigger-gated (§0). TG1 authorizes after the
-grant-approval **state machine** (§2.1); TG2 after the **release-boundary**
-audit model (§3.1); TG3a/b after collision-free object identity (§4.1/§4.2)
-+ the persisted dependency manifest (§5.1) + system-access audit (§3.2);
-TG3c after the cross-org fork rule (§5.2).
+Status: **architecture FROZEN (external review v4); narrow v5 + v6 fold the
+implementable-semantics corrections; no cut yet authorized.** Internal
+review folded (7 conditions). External reviews v1–v4 folded (v4 froze the
+architecture); v5 folded six representability fixes; v6 folds six
+implementable-semantics fixes (grant approval modes, arbitrary-prose removal,
+system audit-before-decrypt, cross-system fencing, manifest finalization,
+grant-expiry transition). **The TG2 human release path is design-approved
+(external review v6);** TG2's system-access sub-path (§3.2) and TG1 remain
+blocked pending the v6 folds below; TG3 stays gated. Not built; build is
+trigger-gated (§0).
 
 The coupled design for the three F3 pre-external-organization gates the
 external code review left open after the read-surface redaction closed
@@ -169,30 +168,54 @@ raw_trace_grants
   id
   principal_id
   scope                    -- exactly one of: org_id | platform_wide
-  state                    -- pending | active | rejected | revoked | expired
+  state                    -- pending | active | rejected | cancelled | revoked | expired
+  approval_mode            -- dual_administrator | tenant_authorized   (§2.1)
   requested_by
   requested_at
-  approved_by   nullable   -- distinct from requested_by AND principal_id (platform-wide)
+  approved_by   nullable   -- required iff dual_administrator
   approved_at   nullable
-  external_approval_ref nullable   -- FK to a structured approval record (§2.1, amendment 7)
+  external_approval_ref nullable   -- required iff tenant_authorized; FK to a structured approval record
   expires_at    nullable   -- mandatory (non-null) for platform-wide
-  reason_code              -- CLOSED enum, NOT free text (amendment 7)
-  reason_note   nullable   -- short, bounded, explicit no-raw-content policy
+  reason_code              -- CLOSED enum, NOT free text
+  ticket_ref    nullable   -- OPAQUE internal ticket id (NOT free-form prose — v6 F2)
   revoked_by    nullable
   revoked_at    nullable
 ```
 
+`reason_note` is REMOVED (external review v6 F2): a "bounded string with a
+no-raw-content policy" is not an enforcement boundary — an Administrator can
+paste a message body into it, reopening the exact free-form-string path
+Contract 1 (§1.4) closes. Governance rationale is now a closed `reason_code`
+plus an opaque internal `ticket_ref`; any evidence that itself carries
+customer content stays in the separately-governed approval record, never an
+ordinary column.
+
+**Legal transitions (external review v6 F1):**
+
+```
+pending → active      pending → rejected      pending → cancelled
+active  → revoked      active  → expired
+```
+
 Default: no grant for anyone. DB constraints: exactly one of
 `org_id`/`platform_wide`; **uniqueness applies to ACTIVE grants only** — a
-partial unique index on `(principal_id, scope) WHERE state = 'active'` (a
-pending request must not block a second request, and a revoked/expired row
-must not block a re-grant); expired grants inactive; expiry + revocation
-enforced next HTTP request AND next WS event; expiry visible in grant
-history (audited). Lifecycle: request/approve/revoke/expiry each separately
-audited; revoked on deactivation + org transfer; no silent self-escalation.
-**Activation is an atomic compare-and-set** (`pending → active`) that proves
-issuer, approver, and recipient are distinct and that no concurrent approval
-bypasses recipient exclusion (criterion 25).
+partial unique index on `(principal_id, scope) WHERE state = 'active'`.
+Lifecycle: request/approve/revoke/expiry each separately audited; revoked on
+deactivation + org transfer; no silent self-escalation. **Activation is an
+atomic compare-and-set** (`pending → active`) that validates the approval
+artifact, expiry, and the distinctness/exclusion rules of the chosen
+`approval_mode` (§2.1) in ONE operation (criterion 25).
+
+**Expiry is a durable DB transition, not a dynamic index predicate
+(external review v6 F6).** An `active` row whose `expires_at` has passed
+still matches the `WHERE state = 'active'` partial index — Postgres cannot
+use `now()` as a reliable partial-index predicate — so an expired-but-not-
+transitioned row would block a replacement grant. Therefore, before
+activating a new grant for the same `(principal, scope)`, one atomic step:
+lock the existing active row; if `expires_at <= now` transition it to
+`expired` + emit the expiry audit; then activate the new grant. A background
+sweeper gives timely visibility, but the **request-time expiry check remains
+authoritative**.
 
 **Administrator bypass is scope-constrained:** raw allowed only when base
 resource authz succeeds AND an active grant covers the **target** org. An
@@ -202,29 +225,35 @@ target-org grant.
 Replace `ADMIN_TIER` at all four consult sites (audit projection, instance,
 `explain`, `ws.py:130`'s independent `raw_reader`).
 
-### 2.1 CONTRACT 4 — platform-wide grant authorization (external review v3 F4) — FROZEN
+### 2.1 CONTRACT 4 — platform-wide grant authorization (external review v3 F4, v6 F1) — FROZEN
+
+A platform-wide grant activates through EXACTLY ONE of two explicit modes
+(v5 left both paths in the schema without saying which fields each requires):
 
 ```
-Org-scoped grant:
-  issued by a DIFFERENT Administrator than the recipient
-  audited (grantor, recipient, org, reason)
+approval_mode = dual_administrator | tenant_authorized
 
-Platform-wide grant:
-  requires TWO distinct Administrators (issuer + approver)
-  the recipient may NOT be issuer or approver
-  mandatory expiry + reason (no standing platform-wide grants)
+dual_administrator:
+  approved_by REQUIRED;  external_approval_ref NULL
+  requester, approver, recipient ALL distinct
   UNAVAILABLE in a single-Administrator deployment
-  each step (issue, approve) separately audited
 
-External-organization approval (alternative to the 2nd Administrator, when
-the gate's contract requires the tenant to authorize raw access):
-  the approving identity + evidence are MACHINE-RECORDED (a stored approval
-  record referenced by the grant), never procedural prose.
+tenant_authorized:              -- the gate's contract requires the tenant to authorize
+  external_approval_ref REQUIRED;  approved_by NULL (or a defined internal activator)
+  requester and recipient distinct
+  the approving TENANT identity is not the recipient
+  the approval artifact's scope EXACTLY matches the grant scope
+
+Both modes: mandatory expiry + reason_code; each step separately audited.
 ```
 
-This closes the "who may issue one is named in TG1" placeholder. A single-
-Administrator deployment therefore cannot mint a platform-wide (cross-org)
-raw grant at all — consistent with the §0.1 dual-control precondition.
+Org-scoped grant: issued by a DIFFERENT Administrator than the recipient;
+audited. The activation compare-and-set (§2) validates the approval artifact,
+expiry, and the chosen mode's distinctness/exclusion predicate in ONE
+operation — exactly one mode must be satisfied. A single-Administrator
+deployment cannot mint a platform-wide grant via `dual_administrator`, and
+`tenant_authorized` is available only when a real external tenant exists to
+approve — consistent with the §0.1 dual-control precondition.
 
 **Governance metadata must not become a raw-data leak (external review v4
 amendment 7).** An Administrator could paste a message body or customer name
@@ -285,26 +314,37 @@ begins streaming. `raw_trace_delivery_observed` is operational telemetry and
 Caveats: audit-of-the-auditors deferred; under B2, access logs live outside
 the accessor's deletion authority.
 
-### 3.2 CONTRACT 5b — internal engine vault access is audited too (external review v4 F5) — FROZEN
+### 3.2 CONTRACT 5b — internal engine vault access is audit-BEFORE-decrypt and fail-closed (external review v4 F5, v6 F3) — FROZEN
 
 Resume, retry, fork, migration, and erasure fetch (and under B1/B2 decrypt)
 raw content on the engine's own path — not a human read, but still access to
-the protected asset, and a defective/compromised engine path would otherwise
-touch tenant content with no governance evidence. The vault layer emits:
+the protected asset. v5 recorded it AFTER the fact; v6 requires the same
+before-access, fail-closed discipline as the human release path, else a
+defective/compromised path could touch plaintext and then fail to record it.
+Two events, mirroring §3.1:
 
 ```
-raw_trace_system_accessed
-  workload_identity                -- the narrow runtime capability, not a user
+raw_trace_system_access_attempted     -- committed BEFORE any fetch/decrypt
+  workload_identity                   -- the narrow runtime capability, not a user
   purpose ∈ { execute, resume, fork, retry, migration, erasure }
-  org_id  instance_id  step_attempt_id  kinds
-  outcome  correlation_id
+  org_id  instance_id  step_attempt_id  kinds  correlation_id
+
+raw_trace_system_access_completed
+  correlation_id
+  outcome ∈ { succeeded, retrieval_failed, integrity_failed,
+              authorization_failed, operation_failed }
 ```
 
-No human grant is required, but the record MUST prove the caller held the
-narrow engine capability and that its stated purpose matched an allowed
-operation. Under B1 the decrypt identity and these records live **outside
-the ordinary application DB role**; under B2 they belong at the external
-trust boundary.
+Fail-closed rules: **no plaintext enters application memory before the
+attempted-access record commits.** If that append fails: a resume/retry/fork
+**fails or pauses explicitly**; migration and erasure **report incomplete
+work**, never silently skip. The attempted record MUST prove the caller held
+the narrow engine capability and its purpose matched an allowed operation.
+(Alternative accepted: the attempted append mints a short-lived vault access
+permit the fetch must present.) Under B1/B2, both the workload-identity
+authorization AND the attempted-access record live **outside the ordinary
+application DB role**. This §3.2 sub-path is what keeps the *bundled* TG2
+blocked; the human release path (§3.1) is independently design-approved.
 
 ## 4. Decision 3 — storage-level trace separation
 
@@ -369,8 +409,41 @@ STORED   → ABORTED           (no operational reference exists)
 ```
 
 Same-DB (Contract A): the REFERENCED+payload write share one transaction;
-STORED/COMMITTED collapse into it. Separate-vault (B1/B2): the five-step
-protocol, with these **recovery rules** (the part v3 required):
+`RESERVED → STORED → REFERENCED → COMMITTED` collapse into a **single
+explicit atomic transition** for that backend (external review v6 F4 — the
+"only legal transitions" list gains this same-DB direct edge rather than
+pretending the intermediate states persist separately). Separate-vault
+(B1/B2): the protocol below, with these **recovery rules**:
+
+**Cross-system fencing/intent protocol (external review v6 F4).** For a
+separate vault + operational DB, "the reference-check and `→ ABORTED` are one
+atomic decision" is NOT obtainable from an ordinary transaction — a vault
+lease alone can't stop a delayed writer from later committing a reference to
+an object the reconciler just aborted. The frozen fencing mechanism:
+
+```
+1. Operational DB: create an authoritative raw_reference_intent
+     (intent_id, fencing_generation, (org,instance,step_attempt,kind), state)
+2. Vault: persist the object carrying the SAME intent_id + fencing_generation
+3. Operational DB: commit the reference AND consume the intent atomically
+     — the writer first re-verifies its intent + vault generation are current
+4. Reconciler may ABORT an object ONLY when ALL hold:
+     no committed reference exists
+     AND no live intent exists
+     AND the intent is terminal or expired
+     AND the reconciler holds the current fencing_generation
+```
+
+Conservative alternative (acceptable): never abort an uncertain object until
+an authoritative operational-side **tombstone** says no future reference can
+be committed for that identity.
+
+**Referenced-but-not-committed reads (external review v6 F4).** The normal
+crash state `vault=STORED, operational row durably REFERENCES it, COMMITTED
+marker absent` must NOT read as missing/corrupt. A resume/fork arriving
+before the reconciler either does an **idempotent lazy promotion** to
+COMMITTED, or recognizes the valid operational reference and treats the
+object as recoverable while scheduling promotion.
 
 - **Idempotency key is deterministic and collision-free** (external review v4
   F2): step-level = `hash(org_id, instance_id, step_attempt_id, kind)` —
@@ -459,8 +532,27 @@ raw_trace_dependencies
 The **recovery snapshot is exactly the set of `required_for_recovery`
 objects** — never a later inference. The engine writes the dependency edge
 **before** the consuming step is reported durably complete (same
-durable-or-fail discipline as §4.2). Retention, resumability, fork-binding,
-and erasure traversal are all computed from this manifest.
+durable-or-fail discipline as §4.2).
+
+**The manifest is FINALIZED into an immutable recovery claim (external
+review v6 F5)** — persisting the edges is not enough if they can be added,
+deleted, duplicated, or read half-written. A step-attempt carries:
+
+```
+  snapshot_generation
+  snapshot_finalized_at
+  snapshot_manifest_hash
+```
+
+Rules: dependency rows are **append-only**; a uniqueness rule forbids
+duplicate equivalent edges; every referenced raw object must be in a
+recoverable state at finalization; the **step-attempt completion transaction
+records the finalized manifest generation** (so recovery reads a frozen
+generation, never a moving query); a **fork binds a specific finalized
+generation**; retention operates **only on finalized manifests**; erasure may
+remove objects but must **atomically** flip affected instances to
+`recovery_state = incomplete` (or an erasure-terminal state); any change to
+recovery availability is audited.
 
 A separate **diagnostic copy** (full tool I/O, model output, errors NOT in
 the manifest) may have a shorter window — but **deleting it must not delete
@@ -580,9 +672,11 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
     REFERENCED / COMMITTED boundary; no REFERENCED object is deleted as an
     orphan; a retry re-addresses the same object; one attempt cannot claim
     another's object.
-21. **(Contract 4)** Platform-wide grants follow the frozen approval rule
-    (two distinct Administrators, recipient excluded, mandatory expiry,
-    unavailable single-admin); org-scoped grants require a different grantor.
+21. **(Contract 4)** Platform-wide grants activate via EXACTLY ONE
+    `approval_mode` — `dual_administrator` (approver required, distinct from
+    requester + recipient) or `tenant_authorized` (approval artifact required,
+    scope-matched, approver ≠ recipient); org-scoped grants require a
+    different grantor.
 22. **(Contract 5)** Audit distinguishes released / partial / projected /
     retrieval_failed / integrity_failed under one shared correlation id;
     partial access is explicit, never a silent merge.
@@ -602,23 +696,42 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
 28. **(v4 F4)** No raw byte crosses the HTTP or WebSocket release boundary
     unless the immutable `raw_trace_release_decided` event has committed;
     `raw_trace_delivery_observed` is telemetry, never asserted as receipt.
-29. **(v4 F5)** Engine resume / retry / fork / migration / erasure vault
-    accesses produce purpose-bound `raw_trace_system_accessed` records under
-    the narrow runtime identity.
+29. **(v4 F5, v6 F3)** Engine resume / retry / fork / migration / erasure
+    vault access commits a `raw_trace_system_access_attempted` record BEFORE
+    any fetch/decrypt; if that append fails, no plaintext is read and the
+    operation fails/pauses (or reports incomplete for migration/erasure).
 30. **(v4 F6)** A cross-organization fork is explicitly rejected with an
     authorization error (first build).
 31. **(v4 amendment 9)** A reconciliation race cannot abort a STORED object
     while a valid operational reference is being committed (conditional
     transition + reconciliation lease).
+32. **(v6 F1)** A grant with neither/both approval paths satisfied cannot
+    activate; `cancelled` is a reachable state; a `tenant_authorized` grant
+    whose approval-artifact scope ≠ grant scope is rejected.
+33. **(v6 F2)** No free-form governance prose is persisted in a grant row — a
+    sentinel secret placed where `reason_note` used to be cannot be recovered
+    from the grant surface.
+34. **(v6 F4)** A delayed writer CANNOT commit an operational reference to an
+    object the reconciler aborted (fencing generation); a
+    `STORED`+`REFERENCED`+no-`COMMITTED` object reads as recoverable (lazy
+    promotion), never missing/corrupt.
+35. **(v6 F5)** A fork binds a specific FINALIZED manifest generation; adding
+    a dependency edge after finalization does not change the bound snapshot;
+    retention runs only on finalized manifests; erasure atomically sets
+    `recovery_state=incomplete` and audits it.
+36. **(v6 F6)** An `active` grant past `expires_at` is transitioned to
+    `expired` (with audit) during the activation of a replacement for the same
+    `(principal, scope)`, and does not block that replacement.
 
 ## 9. Cut plan — architecture approved; freezes gate authorization
 
 | Cut | Contents | Contract | Authorization |
 |---|---|---|---|
-| **TG1** | grant **state machine** (§2) + platform-wide approval flow (§2.1) + closed reason_code + target-org bypass rule + read-site `ADMIN_TIER`→grant (incl. WS) + memory facts-mode under grant | A | **authorizable (v5 grant state machine folded — pending re-review)** |
-| **TG2** | raw-access audit: **release-boundary model (§3.1)** + system-access audit (§3.2) + cardinality + explicit partial/degradation, HTTP + WS release-before-send | A | **authorizable (v5 release model folded — pending re-review)** |
-| **TG3a** | typed registry (§1.2) + safe-output contract (§1.4) + vault-all-free-form + abstract vault repo/opaque IDs (§0.2) + schema (§4.1) w/ **collision-free key (§4.2)**; **DARK DUAL-WRITE** | A | after the EXECUTION_SEMANTICS attempt model |
-| **TG3b** | rehydration + integrity + versioning (§4.3) + durable-or-fail state machine w/ concurrency (§4.2) + **persisted dependency manifest (§5.1)** + **system-access audit (§3.2)**; only then flip operational to safe-only | A | after the manifest + attempt model |
+| **TG1** | grant **state machine** (§2) + two `approval_mode`s (§2.1) + closed reason_code/opaque ticket_ref + expiry transition (§2/F6) + target-org bypass + read-site `ADMIN_TIER`→grant (incl. WS) + memory facts-mode under grant | A | **authorizable (v6 grant modes + expiry folded — pending re-review)** |
+| **TG2 (human release)** | raw-access audit: **release-boundary model (§3.1)** + cardinality + explicit partial/degradation, HTTP + WS release-before-send | A | **design-APPROVED (external review v6); independently authorizable** |
+| **TG2 (system access)** | `raw_trace_system_access_attempted`-before-decrypt + fail-closed (§3.2) | A | **authorizable (v6 audit-before-decrypt folded — pending re-review)** |
+| **TG3a** | typed registry (§1.2) + safe-output contract (§1.4) + vault-all-free-form + abstract vault repo/opaque IDs (§0.2) + schema (§4.1) + collision-free key + **cross-system fencing (§4.2)**; **DARK DUAL-WRITE** | A | after the EXECUTION_SEMANTICS attempt model |
+| **TG3b** | rehydration + integrity + versioning (§4.3) + state machine w/ concurrency + fencing (§4.2) + **finalized dependency manifest (§5.1)** + **system-access audit (§3.2)**; only then flip operational to safe-only | A | after the finalized manifest + attempt model |
 | **TG3c** | backfill + mixed-version cutover + zero-raw verifier + retention/expiry state (§5.1) + fork lineage + **cross-org-fork prohibition (§5.2)** | A | after §5.2 rule (done) |
 | **TG3d-1** | B1 boundary: per-org envelope encryption (keys outside the DB role, BYOK-ready `key_id`), AEAD-bound ciphertext, narrow decrypt identity; dual-control grant; THREAT_MODEL §5a amended (DB-operator-resistant, infra-operator-trusted residual) | **B1** | own design doc; the shippable external-org gate for a B1-accepting customer |
 | **TG3d-2** | B2 boundary: move the decrypt identity into an attested/enclaved runtime OR external/customer-mediated key release; THREAT_MODEL §5a amended (host-operator-resistant) | **B2** | own threat-model + infra design; pulled forward when a customer contract requires operator-non-decrypt |
