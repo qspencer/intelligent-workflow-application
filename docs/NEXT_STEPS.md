@@ -548,8 +548,27 @@ The reviewer executed the code against the contracts and found 6 items.
   attempt) + attempt-isolation; exact disagreement predicate w/ projector
   versioning + AEAD binding; `workflow_instances.context` + errors + cost
   tags added to the zero-raw inventory; retention coupled to resume/fork. 17
-  criteria. Build stays trigger-gated; **no external org until the gate's
-  required contract (up to TG3d) is in effect** — not merely TG1–TG3c.
+  criteria. **External review v3 folded: architecture APPROVED.** The
+  reviewer reduced the remainder to FIVE frozen contracts, all now written
+  into the plan: (1) safe structured output = a registered versioned
+  projection, not schema validation (`{"summary":"...SSN..."}` validates but
+  is raw) — persist only closed enums/booleans/bounded-numerics/opaque-IDs/
+  status; vault all free-form + errors; (2) the durable execution snapshot is
+  defined by the actual context dependency graph, NOT by raw kind (a tool
+  result is execution-critical when pinned/branched-on, diagnostic otherwise);
+  (3) a vault crash-recovery state machine (RESERVED→STORED→REFERENCED→
+  COMMITTED, deterministic idempotency key, reconciler checks references
+  before delete, a REFERENCED object is promoted after a crash never
+  orphan-deleted); (4) platform-wide grant authorization = two distinct
+  Administrators, recipient excluded, mandatory expiry, unavailable
+  single-admin; (5) an append-only two-event audit model (attempted-before-
+  fetch + completion-with-outcome, explicit partial, per-delivered-WS-event
+  correlation id). Plus schema-version fields on both rows, the immutable-
+  attempt execution model destined for EXECUTION_SEMANTICS, and persisted
+  queryable fork lineage for erasure. Criteria 17→24. **TG1 (freeze 4) and
+  TG2 (freeze 5) are now authorizable; TG3a–d await freezes 1/2/3 + the
+  attempt model.** Build stays trigger-gated; no external org until the gate's
+  required contract (up to TG3d) is in effect.
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
