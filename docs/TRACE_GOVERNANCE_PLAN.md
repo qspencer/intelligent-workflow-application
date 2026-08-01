@@ -56,9 +56,30 @@ then the host operator and Administrators are trusted (§5a).
   separate authority / attested execution / customer-mediated decrypt. Its
   own threat-model + infra design (TG3d).
 
-The external-org gate **names** which it requires (B1-with-residual or B2 —
-a business/threat decision, not silently made here). `THREAT_MODEL` §5a is
-amended only in the commit that lands the chosen boundary.
+**Decision (2026-08-01): B2 is the destination contract; delivered
+B1-first.** The gate's ultimate requirement is B2 (the operator running the
+platform cannot obtain a tenant's raw mail) — that is the C6 trust-wedge
+differentiator and where regulated buyers are heading, and B1-terminal would
+stop one step short of it. But B2's mechanism (attested/enclaved runtime or
+external decrypt authority) is speculative infra spend before a first
+external org, so the build ships **B1 first** (envelope encryption, keys
+outside the DB role) and pulls B2 forward when a customer contract requires
+it. This is only non-throwaway because of §0.2's vault abstraction and the
+§4.1 encryption fields: the B1→B2 delta is the *decrypt-runtime* boundary,
+not the data model.
+
+**Load-bearing invariant, decided now:** the first encrypted write uses
+**per-organization keys** (customer-managed-capable / BYOK-ready), never a
+single platform-wide key. A platform key would make the B1→B2 upgrade a full
+re-encryption of the most sensitive table; per-org keys make it a
+key-custody + runtime change. `key_id` (§4.1) is per-row and per-org from the
+first ciphertext.
+
+**Interim residual, stated:** under B1 the infrastructure operator remains
+trusted with plaintext. Acceptable pre-first-external-org; an external org is
+never provisioned until the gate's *named* contract is in effect (the plan
+forbids shipping the residual to a customer who wasn't told). `THREAT_MODEL`
+§5a is amended only in the commit that lands each boundary (B1, then B2).
 
 ### 0.2 The vault abstraction precedes schema lock-in (approved)
 
@@ -477,7 +498,8 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
 | **TG3a** | typed registry (§1.2) + **safe-output contract (§1.4)** governing model output/errors + vault-all-free-form + abstract vault repo/opaque IDs (§0.2) + schema (§4.1); **DARK DUAL-WRITE** (vault raw, keep inline) | A | after freeze 1 + 3 + the EXECUTION_SEMANTICS attempt model |
 | **TG3b** | rehydration + integrity + projector versioning (§4.3) + durable-or-fail state machine (§4.2); only then flip operational to safe-only | A | after freeze 2 + 3 |
 | **TG3c** | backfill + mixed-version cutover + zero-raw verifier + retention/deletion + fork lineage (§5.1/§5.2) | A | after freeze 2 |
-| **TG3d** | the chosen B1/B2 boundary as its own threat-model + infra design; dual-control grant; THREAT_MODEL §5a amended | B1/B2 | own design doc |
+| **TG3d-1** | B1 boundary: per-org envelope encryption (keys outside the DB role, BYOK-ready `key_id`), AEAD-bound ciphertext, narrow decrypt identity; dual-control grant; THREAT_MODEL §5a amended (DB-operator-resistant, infra-operator-trusted residual) | **B1** | own design doc; the shippable external-org gate for a B1-accepting customer |
+| **TG3d-2** | B2 boundary: move the decrypt identity into an attested/enclaved runtime OR external/customer-mediated key release; THREAT_MODEL §5a amended (host-operator-resistant) | **B2** | own threat-model + infra design; pulled forward when a customer contract requires operator-non-decrypt |
 
 **Sequencing invariant:** TG3a must not flip the operational store to
 safe-only before TG3b (else an instance born between them resumes/forks

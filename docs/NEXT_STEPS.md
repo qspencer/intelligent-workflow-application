@@ -568,7 +568,14 @@ The reviewer executed the code against the contracts and found 6 items.
   queryable fork lineage for erasure. Criteria 17→24. **TG1 (freeze 4) and
   TG2 (freeze 5) are now authorizable; TG3a–d await freezes 1/2/3 + the
   attempt model.** Build stays trigger-gated; no external org until the gate's
-  required contract (up to TG3d) is in effect.
+  required contract (up to TG3d) is in effect. **B1-vs-B2 decided
+  (2026-08-01):** B2 (operator-cannot-decrypt) is the destination contract,
+  delivered B1-first (per-org envelope encryption) — the B1→B2 delta is the
+  decrypt-runtime boundary, not the data model, so it never re-migrates the
+  vault. Load-bearing invariant: per-org (BYOK-ready) keys from the first
+  encrypted write. TG3d split into TG3d-1 (B1, shippable gate for a
+  B1-accepting customer) + TG3d-2 (B2, pulled forward when a contract
+  requires it).
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
