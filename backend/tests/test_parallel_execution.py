@@ -113,6 +113,14 @@ async def test_failure_in_one_branch_cancels_pending_siblings() -> None:
     assert instance.state == WorkflowInstanceState.FAILED
     assert sentinel["slow_completed"] is False  # the slow task was cancelled
 
+    # The cancelled sibling is persisted CANCELLED — distinct from the
+    # failing step's FAILED and from an unscheduled PENDING (external review
+    # 2026-08-01). Previously it was stranded RUNNING.
+    steps = {s.step_id: s for s in await repos.steps.list_by_instance(instance.id)}
+    assert steps["a"].state == StepExecutionState.FAILED
+    assert steps["b"].state == StepExecutionState.CANCELLED
+    assert steps["b"].completed_at is not None
+
 
 async def test_diamond_topology_runs_branches_in_parallel() -> None:
     """A → {B, C} → D : B and C must run in parallel."""

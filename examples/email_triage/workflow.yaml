@@ -1,6 +1,15 @@
 id: email-triage
-name: Email Triage
+name: Email Triage (legacy combined shape — reference only, NOT deployed)
 description: |
+  ⚠ DEPRECATED / NON-DEPLOYED (external review 2026-08-01, finding 7). This
+  is the ORIGINAL combined shape: one content-reading agentic step holds
+  BOTH email_send and email_label_apply while reading hostile mail — the
+  exact privilege-coupling the acting variant fixed. It is kept only as a
+  before/after reference and its trigger is `manual` so the orchestrator
+  never registers or polls it (a manual trigger is a deliberate no-op — it
+  cannot become a live attack surface). The deployed, privilege-split
+  workflows are `email_triage_apply` (production) and `email_triage_live`.
+
   Triages an inbound Gmail message using the rubric in `agent_memory.md`.
   The agent decides a category (urgent / fyi / spam / personal /
   awaiting-reply), optionally drafts a reply via `email_send`, and applies
@@ -11,13 +20,13 @@ description: |
   Trigger payload shape matches `EmailMessage.model_dump()` — what
   `GmailPollTrigger` emits when the connector polls inbox.
 
+# Neutralized to manual (external review finding 7): a manual trigger is a
+# no-op in the orchestrator, so this legacy combined-tool workflow is NOT
+# auto-registered or polled. Runnable only via an explicit engine.run for
+# the before/after reference.
 trigger:
-  type: email
-  config:
-    provider: gmail
-    account: intelligent.workflow.engine@quentinspencer.com
-    poll_interval_seconds: 60
-    label: INBOX
+  type: manual
+  config: {}
   # EmailMessage shape — what `GmailPollTrigger` emits per message.
   example_payload:
     provider: "gmail"

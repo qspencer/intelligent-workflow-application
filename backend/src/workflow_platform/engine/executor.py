@@ -653,7 +653,7 @@ class WorkflowEngine:
                 try:
                     task.result()  # raises if step failed
                 except StepFailure:
-                    await self._cancel_pending(in_progress)
+                    await self._cancel_pending(in_progress, instance_id)
                     raise
 
                 # Step succeeded; check the workflow budget before resolving
@@ -770,7 +770,7 @@ class WorkflowEngine:
                 instance_id=instance_id,
                 detail=detail,
             )
-        await self._cancel_pending(in_progress)
+        await self._cancel_pending(in_progress, instance_id)
         raise _PauseRequested()
 
     async def _maybe_pause(
@@ -780,20 +780,33 @@ class WorkflowEngine:
         if fresh is None:
             return
         if fresh.state == WorkflowInstanceState.PAUSED:
-            await self._cancel_pending(in_progress)
+            await self._cancel_pending(in_progress, instance_id)
             raise _PauseRequested()
         if fresh.state == WorkflowInstanceState.KILLED:
-            await self._cancel_pending(in_progress)
+            await self._cancel_pending(in_progress, instance_id)
             raise _KillRequested()
 
-    @staticmethod
-    async def _cancel_pending(in_progress: dict[str, asyncio.Task[Any]]) -> None:
+    async def _cancel_pending(
+        self, in_progress: dict[str, asyncio.Task[Any]], instance_id: str
+    ) -> None:
+        cancelled_step_ids = set(in_progress)
         for task in in_progress.values():
             if not task.done():
                 task.cancel()
         if in_progress:
             await asyncio.gather(*in_progress.values(), return_exceptions=True)
         in_progress.clear()
+        # Persist CANCELLED for the in-flight step rows so a cancelled sibling
+        # isn't stranded as RUNNING (external review 2026-08-01). Best-effort:
+        # a persistence hiccup here must not mask the original failure/kill.
+        try:
+            for ex in await self.repositories.steps.list_by_instance(instance_id):
+                if ex.step_id in cancelled_step_ids and ex.state == StepExecutionState.RUNNING:
+                    ex.state = StepExecutionState.CANCELLED
+                    ex.completed_at = _utcnow()
+                    await self.repositories.steps.update(ex)
+        except Exception:
+            logger.exception("Failed to mark cancelled steps for instance %s", instance_id)
 
     @staticmethod
     def _is_edge_active(edge: Edge, context: WorkflowContext) -> bool:

@@ -17,9 +17,14 @@ StepExecution:     PENDING → RUNNING → {COMPLETED | FAILED | CANCELLED}
                    PENDING → SKIPPED
 ```
 
-A **sibling cancelled** by another branch's failure is distinct from
-FAILED (its own execution failed), SKIPPED (graph conditions made it
-unnecessary), and PENDING (never began). Orthogonal to workflow state are **recovery-reasoning categories** an
+A **sibling cancelled** by another branch's failure — or by a pause/kill
+mid-flight — is persisted as `CANCELLED` (implemented + test-pinned
+2026-08-01; the external review correctly found the earlier version
+claimed a state the enum lacked). It is distinct from FAILED (its own
+execution failed), SKIPPED (graph conditions made it unnecessary), and
+PENDING (never began), so recovery and audit can tell a started-and-
+cancelled step from an unscheduled one. A paused instance re-runs its
+CANCELLED steps on resume (CANCELLED is not in `already_done`). Orthogonal to workflow state are **recovery-reasoning categories** an
 operator applies when interpreting a failed/cancelled step —
 `not_dispatched` (safe to retry) · `dispatched_outcome_unknown`
 (timeout/cancel mid-call) · `effect_confirmed` · `effect_failed`. **These
@@ -219,7 +224,17 @@ delivery overwrites by basename.
   definition identity (content hash) on every instance — the prerequisite
   for correct recovery, replay, forensics, AND the fork guard below — is a
   high-priority G21 item.
-- Deleting a definition **now requires `force=true` when any run history
+- **Definition deletion, exact contract** (external review 2026-08-01 #6):
+  *No history* → deletes freely. *History present* → **409 unless
+  `force=true`** (the delete then cascades that definition's instances +
+  step_executions; audit entries are immutable and preserved). *Any
+  non-terminal run (pending/running/paused)* → **409 regardless of
+  `force`** (never delete rows out from under the engine). *Role* →
+  **Organization Administrator or Administrator only** (tightened from Org
+  User, external review finding 5 — an ordinary user must not erase
+  forensic history). *Audit* → a `workflow_deleted` entry records the
+  cascade counts. Summarized here; the prose below is the rationale.
+  Deleting a definition **requires `force=true` when any run history
   exists** (changed 2026-07-31 per external review §8 — a plain delete no
   longer silently cascades the audit trail; a history-free draft still
   deletes freely, and non-terminal runs still 409 regardless). Full

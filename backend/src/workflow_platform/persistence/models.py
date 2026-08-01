@@ -38,6 +38,12 @@ class StepExecutionState(StrEnum):
     COMPLETED = "completed"
     FAILED = "failed"
     SKIPPED = "skipped"
+    # A step cancelled because a sibling branch failed, or the instance was
+    # paused/killed mid-flight (external review 2026-08-01). Distinct from
+    # FAILED (its own failure) and PENDING (never scheduled) so recovery and
+    # audit can tell a started-and-cancelled step from an unscheduled one.
+    # Not in `already_done`, so a paused instance re-runs it on resume.
+    CANCELLED = "cancelled"
 
 
 class WorkflowInstance(BaseModel):

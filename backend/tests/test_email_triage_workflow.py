@@ -82,7 +82,12 @@ def _build_engine(bedrock: FakeBedrock, svc: FakeGmailService | None = None) -> 
 def test_workflow_yaml_loads_and_has_expected_shape() -> None:
     definition = load_definition_from_file(WORKFLOW_PATH)
     assert definition.id == "email-triage"
-    assert definition.trigger.type == "email"
+    # Legacy combined shape is NEUTRALIZED to manual (external review finding
+    # 7): its content-reading step holds mutating tools, so it must NOT be an
+    # auto-registered polling surface. Manual = orchestrator no-op.
+    assert definition.trigger.type == "manual", (
+        "the legacy combined-tool workflow must not have a live trigger"
+    )
     assert [s.id for s in definition.steps] == ["triage", "record"]
     triage = definition.steps[0]
     assert triage.type == "agentic"

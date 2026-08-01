@@ -1,4 +1,12 @@
-# Verification Index — prose-to-code map for external review
+# Load-Bearing Verification Index — prose-to-code map for external review
+
+**Selective by design (external review finding 13):** this maps the
+**load-bearing** correctness/security claims of the two contract docs, not
+every control. Controls NOT mapped here (Bedrock data boundary, raw-trace
+default, webhook production-registration, secret-file perms, resource-
+exhaustion limits, audit completeness, same-org authz, admin/host trust,
+supply-chain) are covered as narrative in `THREAT_MODEL.md` §§7a-9 with
+their own dispositions — this index does not re-verify them.
 
 Status: written 2026-08-01. Purpose: let a reviewer verify that the two
 contract docs (`docs/EXECUTION_SEMANTICS.md`, `docs/THREAT_MODEL.md`)
@@ -6,14 +14,30 @@ match the code, without scavenger-hunting ~198 files. Every `file:line`
 and every test name below was confirmed by reading the file at the pinned
 commit; unverified claims are flagged, not papered over.
 
-**Pinned review commit: `9a9f822`** (`feat(engine): tool-parameter pinning`).
-Hand off with `git archive HEAD` — that snapshot excludes `.secrets/`,
-`.env`, and the untracked local stores, so it is the secret-clean tarball.
+**Pinned review commit: see the handoff manifest** (this doc's own commit
+— archive THAT sha, never `HEAD`, so late commits can't desync the index
+from the code; external review finding 1):
 
-Status legend:
-- **VERIFIED-IN-CODE** — code found and read; a test found and read that asserts the claim.
-- **VERIFIED-NO-TEST** — code found and read; no test pins the specific claim.
-- **DOC-ONLY** — claimed in prose, no implementing code (or no test) found. Flagged loudly.
+    git archive --format=tar.gz --output=review-<sha>.tar.gz <sha>
+    sha256sum review-<sha>.tar.gz   # record in the handoff note
+
+The sha256 is published in the handoff note, NOT here (a hash cannot live
+inside the file it hashes). The archive excludes `.secrets/`, `.env`, and
+the untracked local stores; verified 0 secret-pattern entries via
+`git archive <sha> | tar -t | grep -iE 'secret|refresh_token|\.env'`.
+
+Status legend (expanded per external review finding 2 — evidence
+existence AND quality):
+- **VERIFIED-CODE+TEST** — code read AND a test read that asserts the claim.
+- **VERIFIED-CODE** — code read; no test pins the specific claim.
+- **VERIFIED-ABSENCE** — an intentional NON-feature, confirmed absent in
+  code (e.g. compensation, machine-recorded effect outcomes). Not a defect.
+- **PARTIAL** — the claim has multiple parts; some pinned, some not.
+  Named per row.
+- **CONTRADICTED** — the contract asserts X; the code does not do X. A
+  defect to fix (none open as of this revision — the CANCELLED case the
+  reviewer found is now implemented + pinned).
+- **FUTURE/UNBUILT** — designed, tracked (G-item), no code yet.
 
 All paths are relative to repo root `/home/ubuntu/Dev/intelligent-workflow-application`.
 Backend source: `backend/src/workflow_platform/`. Tests: `backend/tests/`.
@@ -29,7 +53,24 @@ defaults to `replay` in `tests/conftest.py:10`):
 cd backend && uv sync && uv run pytest
 ```
 
-**910 tests collected** at commit `9a9f822` (`uv run pytest -q --co | tail -1`).
+**Frozen execution record — the default (replay) suite** (external review
+finding 4; collection ≠ passing):
+
+| field | value |
+|---|---|
+| commit | this doc's commit (see manifest) |
+| command | `cd backend && uv run pytest -q` |
+| passed | **899** |
+| skipped | 14 (live/integration, self-skip without creds) |
+| failed | 0 |
+| python | 3.12.3 |
+| uv | 0.12.0 |
+| os | Ubuntu 24.04 |
+| duration | ~47s |
+
+The gated suites (Postgres / schema / live Bedrock+Gmail+browser) run
+separately — their pass records live in the CI run for this commit
+(`.github/workflows/ci.yml` + `live-tests.yml`), not reproduced here.
 CI runs `uv run pytest -m "not integration"` (`.github/workflows/ci.yml:67`).
 
 Opt-in gated suites (markers declared in `backend/pyproject.toml:59-64`;
@@ -102,8 +143,8 @@ All confirmed present.
 | § | Claim | Code (verified) | Test (verified) | Status |
 |---|---|---|---|---|
 | §1 | Instance states PENDING→RUNNING→{COMPLETED\|FAILED\|KILLED}, ↕PAUSED | `persistence/models.py:26-33` (`WorkflowInstanceState`) | many; e.g. `test_pause_resume.py::test_pause_then_resume_completes_remaining_steps` | VERIFIED-IN-CODE |
-| §1 | Step states incl. FAILED vs SKIPPED vs (sibling) CANCELLED | `models.py:35-40` (no `CANCELLED` value — a cancelled sibling surfaces as the run FAILING, not a distinct step row) | `test_parallel_execution.py::test_failure_in_one_branch_cancels_pending_siblings` (L69: slow sibling task cancelled, instance FAILED) | VERIFIED-IN-CODE (see gap: no persisted `CANCELLED` step state — §5) |
-| §1 | Retry of FAILED instance: FAILED→PAUSED then `resume()`; failed step re-runs (already_done = COMPLETED+SKIPPED only) | `api/workflows.py:1050-1052` (sets PAUSED, calls `engine.resume`); `executor.py:229-234` (`already_done` filters COMPLETED+SKIPPED) | `test_lifecycle_endpoints.py::test_retry_failed_instance_returns_resume_started` (L137 — pins only the 200/"retry_started" surface); resume mechanics in `test_pause_resume.py` | VERIFIED-IN-CODE (endpoint test does not assert the failed step re-runs — the re-run is code-verified, not test-pinned) |
+| §1 | Step states: FAILED vs SKIPPED vs (sibling) CANCELLED, persisted distinctly | `models.py` `StepExecutionState.CANCELLED` (added 2026-08-01); `executor.py::_cancel_pending` marks in-flight rows CANCELLED on sibling-failure/pause/kill | `test_parallel_execution.py::test_failure_in_one_branch_cancels_pending_siblings` (now asserts sibling row is CANCELLED, failing step FAILED, completed_at set) | **VERIFIED-CODE+TEST** (the reviewer correctly found this CONTRADICTED in the prior revision — the state didn't exist; now implemented + pinned) |
+| §1 | Retry of FAILED instance: FAILED→PAUSED then `resume()`; failed step re-runs (already_done = COMPLETED+SKIPPED only) | `api/workflows.py:1050-1052` (sets PAUSED, calls `engine.resume`); `executor.py:229-234` (`already_done` filters COMPLETED+SKIPPED) | retry endpoint test pins the 200/"retry_started" surface; resume mechanics in `test_pause_resume.py` | **PARTIAL** — (a) FAILED→PAUSED→resume: CODE+TEST; (b) the failed step actually re-runs while COMPLETED/SKIPPED don't: CODE only (no dedicated test asserts the re-execution) |
 | §1 | KILLED terminal/non-resumable | `executor.py:74-78` (`_KillRequested`), `_maybe_pause` L785-787 | `test_lifecycle_endpoints.py::test_kill_running_instance` (L106), `::test_kill_terminal_instance_rejected` (L117) | VERIFIED-IN-CODE |
 | §1 | recovery-reasoning categories NOT machine-recorded | (doc self-declares "Not provided") — no such field exists in `models.py` | n/a | DOC-ONLY *by the doc's own admission* (G21); not a defect |
 | §2 | email trigger: at-least-once, persisted cursor + last-500 seen-id ring | `triggers/gmail_poll.py:166-167` (`deque(maxlen=500)`), `_persist_cursor` L277, `_mark_seen` L291; `TriggerCursorState` `models.py:88-99` | `test_trigger_cursor.py::test_restart_fires_missed_mail_exactly_once` (L101: m-2 fires once, boundary m-1 not re-fired) + `::test_poll_persists_cursor_and_seen_ids` | VERIFIED-IN-CODE |
@@ -115,7 +156,7 @@ All confirmed present.
 | §3 | `on_error: inactive` opt-out marks target skipped (NOT safety-checked yet) | `executor.py:812-817` (returns False) | `test_conditional_edges.py::test_condition_eval_error_opt_out_marks_target_skipped` (L196: asserts COMPLETED, target skipped) | VERIFIED-IN-CODE (the "validate_definition should reject unsafe opt-out" part is G21, unbuilt — DOC-ONLY future) |
 | §3 | All-inactive incoming edges → SKIPPED; skip propagates downstream | `executor.py:_schedule_or_skip` L697-715 | `test_conditional_edges.py::test_skip_propagates_through_chain` (L86), `::test_target_runs_if_at_least_one_incoming_edge_active` (L127) | VERIFIED-IN-CODE |
 | §3 | Step failure after retries cancels in-flight siblings; effects not undone | `executor.py:655-657` (`_cancel_pending` then raise) | `test_parallel_execution.py::test_failure_in_one_branch_cancels_pending_siblings` (L69) | VERIFIED-IN-CODE |
-| §3 | **Persistence NOT atomic across records** (separate transactions) | `persistence/postgres.py` — each repo method opens its own `async with self._sf() as s, s.begin()`: instance update L141, step create L219 / update L224, audit append L288 — no shared txn wrapping step+instance+audit | none | **VERIFIED-NO-TEST** (code confirms separate transactions; no test exercises the crash-window — accepted, hard to pin) |
+| §3 | **Persistence NOT atomic across records** (separate transactions) | `persistence/postgres.py` — each repo method opens its own `async with self._sf() as s, s.begin()`: instance update L141, step create L219 / update L224, audit append L288 — no shared txn wrapping step+instance+audit | none | **VERIFIED-CODE** (code confirms separate transactions; no test exercises the crash-window — accepted, hard to pin, G21) |
 | §4 | `runtime.retries` default 0; retry re-runs the whole step | `workflow/definition.py:35` (`retries: int = 0`); `executor.py:838` (`attempts = runtime.retries + 1`) | `test_retries_and_timeouts.py::test_step_retries_succeed_on_second_attempt` (L34), `::test_step_retries_exhausted_fails_workflow` (L73) | VERIFIED-IN-CODE |
 | §4 | Retries NOT engine-gated on error class / `Tool.effect` (authoring rule only) | `executor.py:830-860` (retries any `StepFailure`, no effect check) | The bundled-example rule ("retries>0 only on idempotent") is asserted for `apply` (retries=2) via workflow shape tests, not a general engine gate | VERIFIED-IN-CODE (absence-of-gate is the honest claim; static check is G21, unbuilt — DOC-ONLY future) |
 | §5 | Token budget checked AFTER each step; `notify`/`pause`/`escalate` | `executor.py:_check_budget` L725-774 (called at L661 after step success) | `test_cost_metering.py::test_budget_pause_action_pauses_after_breach` (L160: PAUSED, `budget_exceeded`+`workflow_paused` audited, step b never ran), `::test_budget_notify_action_continues_with_audit`, `::test_budget_escalate_emits_special_action` | VERIFIED-IN-CODE |
@@ -137,17 +178,17 @@ All confirmed present.
 | Rung | Claim | Code (verified) | Test (verified) | Status |
 |---|---|---|---|---|
 | 1 | Content readers hold NO tools (`tools: []`) | `examples/email_triage_apply/workflow.yaml` classifier + attention both `tools: []`; `examples/email_triage_live/workflow.yaml:47-49` | `test_email_triage_apply.py::test_classifier_fence_and_apply_shape` (L128: `triage.tools == []`, caps `[]`, `classify_attention.tools == []`); `test_email_triage_workflow.py::test_live_validation_workflow_is_read_only` (L92) | VERIFIED-IN-CODE |
-| 1 | *(nuance)* the non-split `examples/email_triage/workflow.yaml` single `triage` step still holds `email_send`+`email_label_apply` | that file L47 | — | Not a fence violation: it is the pre-split combined shape; the fenced variants are `_apply` / `_live` |
+| 1 | *(disposition — finding 7)* the pre-split `examples/email_triage/workflow.yaml` content-reading step holds `email_send`+`email_label_apply` | **now trigger `manual`** (orchestrator no-op → NOT auto-registered/polled = not a live surface) + deprecation banner | `test_email_triage_workflow.py::test_workflow_yaml_loads_and_has_expected_shape` (now asserts `trigger.type == "manual"`) | **VERIFIED-CODE+TEST** — neutralized; deployed fenced variants are `_apply` (prod) / `_live` |
 | 2 | Enum vocab gates: `category_valid` / `attention_valid` against enums | `engine/functions.py` `record_email_triage` L411, `TRIAGE_CATEGORIES` L384-390, `ATTENTION_LEVELS` L393, `category_valid` L464, `attention_valid` L469-483 | `test_email_triage_apply.py::test_record_email_triage_category_valid_field` (L172), `::test_two_axis_apply_labels_composition` (L198) | VERIFIED-IN-CODE |
 | 2 | Tool-holder gets enum-derived `apply_labels` list, never free text | `functions.py:487-491` (`wf/{category}` gated on `category_valid`, `wf-attn/{value}` on `attention_valid`) | `test_email_triage_apply.py::test_two_axis_apply_labels_composition` (L198: invalid category → `["wf-attn/review"]`, etc.) | VERIFIED-IN-CODE |
 | 3 | Input minimization: `inputs:` strips trigger content, rubric memory, recall from apply step | `executor.py:1002` (`minimized = step.inputs is not None` → no memory, no recall), `_build_user_message` L1352 (only named paths) | `test_email_triage_apply.py::test_hostile_trigger_text_never_reaches_apply_step` (L268: hostile subject/body, "Prior agent memory", "Learned memory about this correspondent" all absent from apply prompt) | VERIFIED-IN-CODE |
 | 3 | Hostile content / rubric / recall absent from minimized apply step | `executor.py` `inputs:` handling + `_build_user_message` | `test_hostile_trigger_text_never_reaches_apply_step` (asserts hostile subject/body/rubric/recall markers ABSENT) | **VERIFIED-IN-CODE** (the earlier "token counts asserted" clause was an overstatement — corrected in THREAT_MODEL §4 to "content-absence, not a token-count assertion" on 2026-08-01) |
-| 4 | 8-label `wf/*` allowlist at tool boundary | `tools/email.py` `EmailLabelApplyTool` L103, `allowed_labels` L130/142, refusal L156-159; the 8 built in `main.py:138-140` | `test_email_triage_apply.py::test_allowed_labels_refuses_outside_namespace` (L336: `["INBOX"]` → error "allowlist", 0 modifies) | VERIFIED-IN-CODE (no test asserts the literal count "8") |
+| 4 | 8-label `wf/*` allowlist at tool boundary | `tools/email.py` `EmailLabelApplyTool`, `allowed_labels`, refusal; the 8 built in `main.py:138-140` | outside-namespace refusal: `::test_allowed_labels_refuses_outside_namespace`; **exact set**: `::test_label_allowlist_is_exactly_the_intended_eight` (added 2026-08-01 — pins the literal 8, no INBOX/TRASH/wildcard) | **VERIFIED-CODE+TEST** |
 | 4 | Gmail no-create fence: unknown label raises, never creates | `connectors/email/gmail.py:_resolve_label_id` L308-318 (raises `GmailLabelNotFound` L317; `create_label` L295 unreachable from the tool) | `test_gmail_connector.py::test_apply_labels_unknown_label_raises_gmail_label_not_found` (L395) | VERIFIED-IN-CODE |
 | 4 | Tool-param pinning: engine forces `message_id`+`labels`; override → `tool_param_override_blocked` audit | AGENT: `agent/agent.py:199-213` (overwrites `tool_input[key]`, records `pin_overrides`, `pinned`); ENGINE audit: `executor.py:1087-1095` | `test_tool_param_pinning.py::test_pinned_param_overrides_model_value` (L51), `::test_pin_injected_when_model_omits_it`, `::test_no_override_flagged_when_model_agrees`; end-to-end audit: `test_email_triage_apply.py::test_pinning_defeats_a_steered_apply_agent` (L504: `tool_param_override_blocked` with `params=={"message_id","labels"}`) | VERIFIED-IN-CODE |
 | 5 | Agents have NO memory-write tool; engine writes provenance-tagged observations | `memory/learned.py:176` `observe` is a service method, called only from `executor.py:1225`+; no `Tool` subclass writes memory (enumerated) | `test_learned_memory.py::test_engine_observes_after_completed_run` (L188: actor_type "engine"), `::test_workflow_without_spec_makes_no_memory_calls` | VERIFIED-IN-CODE |
 | 5 | Third-party claims quarantined; never-assert fence injected VERBATIM | `executor.py:1024-1033` (injects `recalled.context` verbatim); `memory/learned.py:279-304` returns veracium's fenced block unchanged; provenance `observe(author=…)` L187-197 | `test_learned_memory.py::test_engine_injects_recall_verbatim_with_fence` (L495: fence text "UNVERIFIED THIRD-PARTY CLAIMS (never assert as fact)" present in system prompt), `::test_recall_context_returns_fenced_block` (L460), `::test_observe_writes_episode_and_meters_usage` (quarantined==1) | VERIFIED-IN-CODE |
-| 5 | Recall entity normalized (attacker display names never key anything) | `memory/learned.py:normalize_entity` L51-64 (lowercase, strip `+tag` plus-addressing on email-shaped); applied at `executor.py:356,1157` | `test_learned_memory.py::test_normalize_entity` (L404: `Promo+Deals@Vendor.COM`→`promo@vendor.com`) | VERIFIED-IN-CODE |
+| 5 | Recall entity normalized (attacker display names never key anything) | `memory/learned.py:normalize_entity` (lowercase, strip `+tag`); recall/observe key off `trigger.from_address.address`, not the display name | `test_learned_memory.py::test_normalize_entity` pins address canonicalization | **PARTIAL** — address normalization is CODE+TEST; the end-to-end "hostile `From: display <x@y.com>` keys ONLY by `x@y.com`" call-path is CODE-verified but not pinned by a dedicated test. Named gap. |
 | 6 | Codify bypass requires DKIM/DMARC-aligned auth; ordered AR parse defeats appended headers | `connectors/email/auth_results.py:authentication_pass` L41-60 (first trusted `mx.google.com` entry decides, returns without falling through) | `test_auth_results.py::test_first_trusted_entry_decides_attacker_appended_ignored` (Gmail fail topmost + attacker pass below → False) — **8 tests confirmed** in file | VERIFIED-IN-CODE |
 | 6 | Codified runtime: auth gate + drift-disable overlay + fail-open | `engine/functions.py:codified_sender_check` L1244 (auth L1266, fail-open on missing rules L1278, combined gate L1311); overlay writer `_disable_codified_sender` L569 | `test_codified_runtime.py::test_unauthenticated_listed_sender_gets_judgment` (auth gate), `::test_schema_mismatch_expiry_inactivity_and_overlay_disable`, `::test_unlisted_and_missing_file_fail_open` | VERIFIED-IN-CODE |
 
@@ -166,8 +207,8 @@ labels a hostile mail steers) is explicitly *empirical, not pinned*
 | WS events carry org_id from emit; filter per subscriber; fail-closed | `api/ws.py:33` `event_deliverable`, `:74` `_subscriber_org` | `test_org_isolation.py::test_ws_never_delivers_foreign_org_events`, `::test_event_deliverable_primitive_negative_and_positive` | VERIFIED-IN-CODE |
 | Administrator cross-org access audited as `org_bypass` | `api/workflows.py:187` `_bypass` + `_note_bypass` | `test_org_isolation.py::test_admin_cross_org_mutation_audits_bypass` | VERIFIED-IN-CODE |
 | Learned memory namespaced `org:<org>:user:<key>` | `memory/learned.py:42-48` `memory_namespace` | `test_learned_memory.py::test_engine_observes_after_completed_run` (L189 uses `memory_namespace("default",…)`) | VERIFIED-IN-CODE |
-| Escalation guards: last-Administrator + per-org last-org-admin; Org Admins can't touch Administrators; roles exclusive per mode | `api/users.py:96,237` (last-admin 409), `107,250` (per-org 409), `118,183` (forbid Administrator grant); `middleware.py:139` (no local JIT) | pinned in `test_users_api.py` (guard code confirmed; users_api tests not re-read here) | VERIFIED-IN-CODE |
-| Seven isolation invariants | — | `test_org_isolation.py` (10 test fns covering numbered criteria 1,2,4,5,6,6b,7; criterion 3 = user-mgmt guards, pinned in `test_users_api.py`) | VERIFIED-IN-CODE (the "seven" are numbered acceptance criteria, all present) |
+| Escalation guards: last-Administrator + per-org last-org-admin; Org Admins can't touch Administrators; roles exclusive per mode | `api/users.py:96,237` (last-admin 409), `107,250` (per-org 409), `118,183` (forbid Administrator grant); `middleware.py:139` (no local JIT) | `test_users_api.py` exists + CI-passes; its exact test fns were **not re-read for this index** | **VERIFIED-CODE** (guard code read; pinning tests named but not individually re-confirmed here) |
+| Seven isolation invariants | — | `test_org_isolation.py` (1,2,4,5,6,6b,7 — WS now forbidden-first + direct `event_deliverable` primitive test); criterion 3 in `test_users_api.py` (not re-read, row above) | **PARTIAL** — 1,2,4,5,6,6b,7 CODE+TEST here; 3 CODE-only. All against IN-MEMORY repos; the Postgres §4b joins are NOT exercised (G22) |
 | Intra-org isolation is coarse (role-graded, not per-owner) | (by design — no per-owner filter) | n/a (honest scope statement) | VERIFIED-IN-CODE (named boundary, §5) |
 
 ### Auth surface (§6)
@@ -239,11 +280,15 @@ These are honestly not covered. Cross-referenced to the G-numbers in
    concurrency keys; fork def-hash version-binding guard; persisted inbound
    queue + idempotency key. Each is prose-only today — do not expect code.
 
-9. **G23 (`skip_if` fail-closed for memory writes) / runtime rubric-hash
-   rule invalidation** are part of the not-yet-built two-axis/codify slice
-   (`EMAIL_TRIAGE_TWO_AXIS_PLAN`, `EMAIL_TRIAGE_CODIFY_PLAN`, both marked
-   "Proposed, not yet built"). The codify runtime overlay that IS built is
-   pinned (`test_codified_runtime.py`); the full codify slice is not.
+9. **Two-axis + codify ARE built and cut over** (correcting a stale claim
+   the earlier revision got backwards — external review finding 3):
+   `EMAIL_TRIAGE_TWO_AXIS_PLAN` is **BUILT + CUT OVER 2026-07-26**,
+   `EMAIL_TRIAGE_CODIFY_PLAN` **BUILT + CUT OVER 2026-07-30**. What remains
+   **FUTURE/UNBUILT within codify (G23)** is narrow: runtime **rubric-hash
+   enforcement** (schema version IS checked) and the **`skip_if`** engine
+   surface (the decision_source query contract is the live anti-feedback
+   guard). The codify runtime path — precheck routing, auth gate, disable
+   overlay, sampling — is built and pinned (`test_codified_runtime.py`).
 
 10. **Recovery-reasoning categories, compensation, exactly-once, mid-step
     budget, schedule catch-up, approval expiry** — all explicitly "Not

@@ -532,3 +532,25 @@ def test_pinning_defeats_a_steered_apply_agent() -> None:
     blocked = [e for e in entries if e.action == "tool_param_override_blocked"]
     assert blocked, "a steered pinned-param attempt must audit"
     assert set(blocked[0].detail["params"]) == {"message_id", "labels"}
+
+
+def test_label_allowlist_is_exactly_the_intended_eight() -> None:
+    """External review finding 9: pin the EXACT allowlist set, not just the
+    outside-namespace refusal. A future edit that added INBOX / TRASH / a
+    wildcard / a stale category would pass the refusal test but fail here."""
+    from workflow_platform.engine.functions import ATTENTION_LEVELS, TRIAGE_CATEGORIES
+
+    allowlist = {f"wf/{c}" for c in TRIAGE_CATEGORIES} | {f"wf-attn/{v}" for v in ATTENTION_LEVELS}
+    assert allowlist == {
+        "wf/personal",
+        "wf/notification",
+        "wf/newsletter",
+        "wf/promotion",
+        "wf/spam",
+        "wf-attn/urgent",
+        "wf-attn/awaiting-reply",
+        "wf-attn/review",
+    }
+    assert len(allowlist) == 8
+    # No system labels, no wildcards.
+    assert not any(lbl in allowlist for lbl in ("INBOX", "TRASH", "SPAM", "*"))
