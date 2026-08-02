@@ -19,7 +19,8 @@ import logging
 import uuid
 from typing import Any
 
-from workflow_platform.persistence import AuditEntry, RawTraceKind, Repositories
+from workflow_platform.persistence import AuditEntry, RawTrace, RawTraceKind, Repositories
+from workflow_platform.trace_cipher import build_trace_cipher
 from workflow_platform.trace_vault import idempotency_key
 
 logger = logging.getLogger(__name__)
@@ -46,6 +47,24 @@ class RawTraceRehydrator:
     ) -> None:
         self._repos = repositories
         self._workload = workload_identity
+        # Contract B1: decrypt sealed vault payloads (matches the vault's cipher
+        # via the shared env master key). None = plaintext vault.
+        self._cipher = build_trace_cipher()
+
+    def _payload_of(self, row: RawTrace) -> Any:
+        """The row's raw content — decrypted + integrity-verified when sealed
+        (the AEAD binds it to org/instance/attempt/kind, so a substituted or
+        edited row fails to open)."""
+        if self._cipher is not None and self._cipher.is_sealed(row.payload):
+            return self._cipher.open(
+                row.payload,
+                org_id=row.org_id,
+                instance_id=row.instance_id,
+                step_attempt_id=row.step_attempt_id,
+                kind=row.kind.value,
+                schema_version=row.raw_schema_version,
+            )
+        return row.payload
 
     async def _begin(
         self,
@@ -129,7 +148,7 @@ class RawTraceRehydrator:
                 raise RawTraceUnavailable(
                     f"missing vault raw for {kind.value} of {step_attempt_id}"
                 )
-            merged[_OUTPUT_FIELD[kind]] = row.payload
+            merged[_OUTPUT_FIELD[kind]] = self._payload_of(row)
         await self._complete(request_id=request_id, instance_id=instance_id, outcome="succeeded")
         return merged
 
@@ -153,7 +172,8 @@ class RawTraceRehydrator:
         await self._complete(request_id=request_id, instance_id=instance_id, outcome="succeeded")
         if row is None:
             return safe_trigger
-        return row.payload if isinstance(row.payload, dict) else safe_trigger
+        opened = self._payload_of(row)
+        return opened if isinstance(opened, dict) else safe_trigger
 
     async def merge_output(
         self, *, org_id: str, instance_id: str, step_attempt_id: str, safe_output: dict[str, Any]
@@ -169,7 +189,7 @@ class RawTraceRehydrator:
             key = idempotency_key(org_id, instance_id, step_attempt_id, kind)
             row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
             if row is not None:
-                merged[_OUTPUT_FIELD[kind]] = row.payload
+                merged[_OUTPUT_FIELD[kind]] = self._payload_of(row)
         return merged
 
     async def merge_trigger(
@@ -179,8 +199,10 @@ class RawTraceRehydrator:
         `merge_output`)."""
         key = idempotency_key(org_id, instance_id, None, RawTraceKind.TRIGGER_PAYLOAD)
         row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
-        if row is not None and isinstance(row.payload, dict):
-            return row.payload
+        if row is not None:
+            opened = self._payload_of(row)
+            if isinstance(opened, dict):
+                return opened
         return safe_trigger
 
 

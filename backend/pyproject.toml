@@ -30,6 +30,7 @@ dependencies = [
     "json-repair>=0.59.10",
     "veracium==0.4.3",
     "argon2-cffi>=25.1.0",
+    "cryptography>=41",
 ]
 
 [dependency-groups]

@@ -21,6 +21,8 @@ import logging
 from typing import Any
 
 from workflow_platform.persistence import RawTrace, RawTraceKind, Repositories
+from workflow_platform.persistence.models import RAW_SCHEMA_VERSION
+from workflow_platform.trace_cipher import build_trace_cipher
 
 logger = logging.getLogger(__name__)
 
@@ -66,6 +68,9 @@ def raw_kinds_of_output(output: dict[str, Any]) -> dict[RawTraceKind, Any]:
 class RawTraceVault:
     def __init__(self, repositories: Repositories) -> None:
         self._repos = repositories
+        # Contract B1 (TG3d-1): when a master key is configured, vault payloads
+        # are sealed (per-org AES-GCM, AEAD-bound). None = Contract-A plaintext.
+        self._cipher = build_trace_cipher()
 
     async def _record(
         self,
@@ -79,13 +84,23 @@ class RawTraceVault:
     ) -> RawTrace | None:
         if _empty(payload):
             return None
+        stored = payload
+        if self._cipher is not None:
+            stored = self._cipher.seal(
+                payload,
+                org_id=org_id,
+                instance_id=instance_id,
+                step_attempt_id=step_attempt_id,
+                kind=kind.value,
+                schema_version=RAW_SCHEMA_VERSION,
+            )
         trace = RawTrace(
             org_id=org_id,
             instance_id=instance_id,
             step_attempt_id=step_attempt_id,
             kind=kind,
             idempotency_key=idempotency_key(org_id, instance_id, step_attempt_id, kind),
-            payload=payload,
+            payload=stored,
         )
         try:
             return await self._repos.raw_trace_vault.put(trace)
