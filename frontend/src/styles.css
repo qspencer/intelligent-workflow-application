@@ -1915,3 +1915,27 @@ table.compare td.diff { background: #fff8e6; }
 /* Memory transparency page */
 .memory-detail { margin-top: 1.5rem; }
 .memory-raw { max-height: 60vh; overflow: auto; font-size: 12px; background: var(--panel, rgba(127,127,127,0.08)); padding: 0.8rem; border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
+
+/* Raw-trace grants (the trust wedge). Reuses .badge / .table / .muted. */
+.page-grants .grant-request {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  align-items: end;
+  margin: 0.75rem 0 1.25rem;
+  padding: 0.75rem;
+  border: 1px solid var(--border, #ddd);
+  border-radius: 6px;
+}
+.page-grants .grant-request label {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  font-size: 0.85rem;
+}
+.page-grants .grant-request .req {
+  color: var(--warn, #b45309);
+}
+.page-grants h3 {
+  margin-top: 2rem;
+}

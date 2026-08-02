@@ -7,6 +7,7 @@ import { getMe } from '../lib/me';
 import { AutomationsHome } from './AutomationsHome';
 import { CostDashboard } from './CostDashboard';
 import { ErrorBadge } from './ErrorBadge';
+import { GrantsAdmin } from './GrantsAdmin';
 import { InstanceDetail } from './InstanceDetail';
 import { InstancesList } from './InstancesList';
 import { LoginPage } from './LoginPage';
@@ -87,6 +88,11 @@ export function App() {
               <NavLink to="/users" className={navClass}>
                 Users
               </NavLink>
+              {hasRole(['admins']) && (
+                <NavLink to="/grants" className={navClass}>
+                  Grants
+                </NavLink>
+              )}
             </>
           )}
         </nav>
@@ -120,6 +126,7 @@ export function App() {
           <Route path="/cost" element={<CostDashboard />} />
           <Route path="/memory" element={<MemoryPage />} />
           <Route path="/users" element={<UsersAdmin />} />
+          <Route path="/grants" element={<GrantsAdmin />} />
         </Routes>
       </main>
     </>

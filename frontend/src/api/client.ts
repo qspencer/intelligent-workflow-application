@@ -6,6 +6,7 @@ import type {
   Organization,
   PlatformUser,
   AuditEntry,
+  RawTraceGrant,
   BatchRunResult,
   CapabilityReport,
   CostRowByDay,
@@ -210,6 +211,35 @@ export const api = {
     display_name?: string;
   }): Promise<PlatformUser> {
     return postJson('/users', payload);
+  },
+
+  // --- Raw-trace grants (the trust wedge, docs/TRACE_GOVERNANCE_PLAN.md §2) ---
+
+  listRawTraceGrants(): Promise<RawTraceGrant[]> {
+    return request('GET', '/raw-trace-grants');
+  },
+
+  requestRawTraceGrant(payload: {
+    principal_id: string;
+    org_id: string | null;
+    reason_code: string;
+    expires_at?: string | null;
+    ticket_ref?: string | null;
+  }): Promise<RawTraceGrant> {
+    return postJson('/raw-trace-grants', payload);
+  },
+
+  approveRawTraceGrant(id: string): Promise<RawTraceGrant> {
+    return postJson(`/raw-trace-grants/${id}/approve`, {});
+  },
+
+  revokeRawTraceGrant(id: string): Promise<RawTraceGrant> {
+    return postJson(`/raw-trace-grants/${id}/revoke`, {});
+  },
+
+  /** Recent audit entries (used for the raw-access governance log). */
+  listRecentAudit(limit = 100): Promise<AuditEntry[]> {
+    return request('GET', `/audit?limit=${limit}`);
   },
 
   listOrganizations(): Promise<Organization[]> {

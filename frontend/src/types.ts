@@ -370,6 +370,25 @@ export interface PlatformUser {
   last_seen_at: string;
 }
 
+/** Raw-trace read grant (docs/TRACE_GOVERNANCE_PLAN.md §2). `org_id` null =
+ *  platform-wide. State machine: pending → {active, rejected, cancelled};
+ *  active → {revoked, expired}. */
+export interface RawTraceGrant {
+  id: string;
+  principal_id: string;
+  org_id: string | null;
+  state: 'pending' | 'active' | 'rejected' | 'cancelled' | 'revoked' | 'expired';
+  approval_mode: 'dual_administrator' | 'tenant_authorized';
+  requested_by: string;
+  approved_by: string | null;
+  external_approval_ref: string | null;
+  expires_at: string | null;
+  reason_code: string;
+  ticket_ref: string | null;
+  revoked_by: string | null;
+  revoked_at: string | null;
+}
+
 /** GET /api/me — IdP identity + JIT-persisted platform user + org. */
 export interface Me {
   auth_mode: string;
