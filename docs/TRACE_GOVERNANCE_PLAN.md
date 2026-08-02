@@ -119,12 +119,19 @@ per-org encrypted vault, grant-gated + AEAD-bound read-back, and a 1,340-
 instance historical backfill (execution-state tables now zero-raw; only
 append-only pre-flip `tool_call` audit remains, read-protected).
 
-**Remaining:** the finalized dependency manifest (§5.1, retention/erasure);
-and **TG3d-2 (Contract B2 — host-operator resistance)**, its own
-infrastructure design (attested/enclaved runtime or external key release),
-NOT a code module. The external-org gate (§0) also requires the other §5a
-release gates (secret-manager, backup encryption, G22 inventory, intra-org
-boundary, resource limits) — the trace boundary is one of them, now satisfiable.
+**Secret-manager gate DONE (2026-08-02):** the vault master key is sourced
+from AWS Secrets Manager at startup (`WORKFLOW_PLATFORM_TRACE_MASTER_KEY_SECRET`,
+`main.py::_resolve_trace_master_key`, installed off-disk), decoupled from the
+global secret backend. An external CODE review is queued
+(`docs/TRACE_CODE_REVIEW_GUIDE.md`).
+
+**Remaining (deferred, waiting on an actual external tenant):** (1) **TG3d-2
+(Contract B2 — host-operator resistance)** — attested/enclaved runtime or
+external key release; its own infrastructure design, NOT a code module; the
+biggest security gap. (2) The **finalized dependency manifest (§5.1,
+retention/erasure)**. (3) The other §5a release gates (backup encryption,
+credential rotation, G22 inventory, intra-org boundary, resource limits) — the
+trace + secret-manager boundaries are two of them, now satisfied; these are not.
 
 The coupled design for the three F3 pre-external-organization gates the
 external code review left open after the read-surface redaction closed

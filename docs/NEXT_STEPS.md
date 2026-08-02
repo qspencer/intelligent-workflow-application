@@ -669,13 +669,30 @@ The reviewer executed the code against the contracts and found 6 items.
   envelope encryption of the vault, AEAD-bound to (org,instance,attempt,kind),
   keys from WORKFLOW_PLATFORM_TRACE_MASTER_KEY held outside the DB (a DB dump
   is ciphertext-only), transparent seal-on-write / decrypt-on-read
-  (test_trace_cipher). **Remaining:** per-call tool_call audit-at-rest
-  projection + finalized dependency manifest (§5.1) + the TG3d gate-wiring
-  (dual-control grants + THREAT_MODEL §5a amendment); **TG3d-2 (Contract B2 —
-  host-operator resistance)** is its own infra design (attested runtime /
-  external key release), not a code module. Deferred within TG1: memory
-  facts-mode-under-grant. Ship to an external org stays trigger-gated + needs
-  the chosen B-contract in effect.
+  (test_trace_cipher). **Gate-wiring DONE (2026-08-01/02):** per-call
+  tool_call audit-at-rest projection + explain rehydration; dual-control
+  enforcement (`WORKFLOW_PLATFORM_RAW_GRANT_DUAL_CONTROL`); THREAT_MODEL §5a
+  amendment; **secret-manager migration** — the vault master key is sourced
+  from AWS Secrets Manager (`WORKFLOW_PLATFORM_TRACE_MASTER_KEY_SECRET`,
+  `main.py::_resolve_trace_master_key`, off-disk), which is itself a §5a
+  release gate. **Validated live** (two-org dry-run + 1,340-instance backfill,
+  2026-08-02); external CODE-review archive prepared
+  (`docs/TRACE_CODE_REVIEW_GUIDE.md` + `~/Documents/trace-governance-review-*.tar.gz`).
+  **REMAINING before a real external tenant** (deferred, documented, waiting
+  on an actual pull):
+  1. **TG3d-2 (Contract B2 — host-operator resistance)** — attested/enclaved
+     runtime or external/customer-mediated key release so the infra operator
+     can't reach the key at decrypt time. Its own threat-model + infra design,
+     NOT a code module. Biggest remaining security gap.
+  2. **Finalized dependency manifest (§5.1)** — the persisted
+     `raw_trace_dependencies` + `snapshot_generation` retention/erasure
+     machinery (execution snapshot vs. shorter-lived diagnostic).
+  3. **The other §5a release gates** (see THREAT_MODEL §5a) — backup
+     encryption, credential-rotation design, the G22 tenant-surface inventory,
+     resource-exhaustion limits. The trace boundary is one gate, now
+     satisfiable; these are not.
+  Deferred within TG1: memory facts-mode-under-grant. Ship to an external org
+  stays trigger-gated + needs the chosen B-contract in effect + these gates.
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
