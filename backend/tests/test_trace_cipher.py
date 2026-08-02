@@ -14,7 +14,12 @@ from tests._bedrock_fakes import FakeBedrock, text_response, tool_use_response
 from workflow_platform.engine import FunctionRegistry, ToolCatalog, WorkflowEngine
 from workflow_platform.persistence import WorkflowInstanceState, in_memory_repositories
 from workflow_platform.tools import Tool, ToolContext, ToolResult
-from workflow_platform.trace_cipher import ENV_MASTER_KEY, TraceCipher, TraceCipherError
+from workflow_platform.trace_cipher import (
+    ENV_MASTER_KEY,
+    TraceCipher,
+    TraceCipherError,
+    build_trace_cipher,
+)
 from workflow_platform.trace_rehydrate import RawTraceRehydrator
 from workflow_platform.workflow import load_definition
 from workflow_platform.world import mock_world
@@ -54,6 +59,25 @@ def test_aad_binding_and_tamper_and_org_isolation() -> None:
     tampered = {**sealed, "ct": base64.b64encode(b"garbage" * 8).decode()}
     with pytest.raises(TraceCipherError):
         c.open(tampered, **_AAD)
+
+
+def test_installed_key_takes_precedence_over_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A key installed from a secret store at startup wins over the env
+    fallback — so the master key can live in a manager, not on disk (§5a)."""
+    import workflow_platform.trace_cipher as tc
+
+    monkeypatch.setenv(ENV_MASTER_KEY, base64.b64encode(b"E" * 32).decode())
+    tc.install_master_key(base64.b64encode(b"I" * 32).decode())
+    try:
+        built = build_trace_cipher()
+        assert built is not None
+        sealed = built.seal({"x": SECRET}, **_AAD)
+        # the installed-key cipher opens it; a cipher from ONLY the env key cannot
+        assert built.open(sealed, **_AAD) == {"x": SECRET}
+        with pytest.raises(TraceCipherError):
+            TraceCipher(b"E" * 32).open(sealed, **_AAD)
+    finally:
+        tc._installed_key = None
 
 
 def test_per_org_keys_differ() -> None:

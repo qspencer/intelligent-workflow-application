@@ -30,6 +30,22 @@ from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 _ALG = "AESGCM-HKDF-1"
 _HKDF_SALT = b"workflow-platform/trace-vault/v1"
 ENV_MASTER_KEY = "WORKFLOW_PLATFORM_TRACE_MASTER_KEY"
+# When set, the master key is fetched from AWS Secrets Manager under this name
+# at startup and installed off-disk (§5a secret-manager gate) — takes
+# precedence over the env fallback.
+ENV_MASTER_KEY_SECRET = "WORKFLOW_PLATFORM_TRACE_MASTER_KEY_SECRET"
+
+# Key resolved from a secret store at process startup (see
+# `install_master_key`). Kept in process memory only — never on disk.
+_installed_key: bytes | None = None
+
+
+def install_master_key(raw_b64: str) -> None:
+    """Install the master key resolved from a secret store at startup. Takes
+    precedence over `ENV_MASTER_KEY`, so a deployment can hold the key in a
+    manager (AWS Secrets Manager) instead of an env file / disk."""
+    global _installed_key
+    _installed_key = _b64d(raw_b64.strip())
 
 
 class TraceCipherError(Exception):
@@ -131,9 +147,12 @@ class TraceCipher:
 
 
 def build_trace_cipher() -> TraceCipher | None:
-    """A cipher iff `WORKFLOW_PLATFORM_TRACE_MASTER_KEY` (base64) is set, else
-    None (the Contract-A plaintext vault). Reference key custody = the
-    environment; a production deployment swaps in a KMS-backed master."""
+    """A cipher iff a master key is available, else None (the Contract-A
+    plaintext vault). Key custody, in precedence order: a key installed from a
+    secret store at startup (`install_master_key`, the production path — key
+    off disk), then the `WORKFLOW_PLATFORM_TRACE_MASTER_KEY` env fallback (dev)."""
+    if _installed_key is not None:
+        return TraceCipher(_installed_key)
     raw = os.environ.get(ENV_MASTER_KEY)
     if not raw:
         return None

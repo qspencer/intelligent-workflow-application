@@ -8,6 +8,7 @@ so it remains usable without a database for early development.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -63,6 +64,7 @@ from workflow_platform.tools import (
     Tool,
 )
 from workflow_platform.tools.email import account_label_tool_name
+from workflow_platform.trace_cipher import ENV_MASTER_KEY_SECRET, install_master_key
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.world import real_world
 
@@ -160,6 +162,20 @@ def _default_secret_store() -> SecretStore:
     return EnvSecretStore()
 
 
+def _resolve_trace_master_key() -> None:
+    """When `WORKFLOW_PLATFORM_TRACE_MASTER_KEY_SECRET` names a secret, fetch
+    the raw-trace vault master key from AWS Secrets Manager at startup and
+    install it in process memory — so the key lives in a manager, not an env
+    file on disk (§5a secret-manager gate). Decoupled from the GLOBAL secret
+    backend on purpose, so it doesn't disturb Gmail credential resolution. No
+    secret name → the `WORKFLOW_PLATFORM_TRACE_MASTER_KEY` env fallback stays."""
+    secret_name = os.environ.get(ENV_MASTER_KEY_SECRET)
+    if not secret_name:
+        return
+    key_b64 = asyncio.run(AwsSecretsManagerStore().get(secret_name))
+    install_master_key(key_b64)
+
+
 _DEV_ERROR_BUFFER: ErrorBuffer | None = None
 
 
@@ -203,6 +219,7 @@ def create_app(
     memory_dir = os.environ.get("WORKFLOW_PLATFORM_MEMORY_DIR", ".memory")
     memory = MemoryManager(memory_dir)
     secret_store = secret_store or _default_secret_store()
+    _resolve_trace_master_key()  # install the vault key off-disk, BEFORE the engine builds its cipher
     engine = engine or _default_engine(repositories, metrics, events, memory, secret_store)
 
     # Default-on in production; off in tests unless a test explicitly opts in.
