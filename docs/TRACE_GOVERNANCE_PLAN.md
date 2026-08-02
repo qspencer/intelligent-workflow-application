@@ -105,11 +105,26 @@ dump holds ciphertext only; keys live outside the DB role. `RawTraceVault`
 seals on write, `RawTraceRehydrator` decrypts on read — no caller changes.
 `test_trace_cipher.py`.
 
-**Remaining:** per-call `tool_call` audit-at-rest projection + the finalized
-dependency manifest (§5.1); and **TG3d-2 (Contract B2 — host-operator
-resistance)**, which is its own infrastructure design (attested/enclaved
-runtime or external key release), NOT a code module. The external-org gate
-(§0) requires the chosen B-contract in effect and dual-control grants.
+**Gate-wiring BUILT (2026-08-02):** per-call `tool_call` audit-at-rest
+projection under the flip (explain rebuilds a grant-holder's per-call raw
+from the vaulted step output); **dual-control enforcement**
+(`WORKFLOW_PLATFORM_RAW_GRANT_DUAL_CONTROL` — no raw grant activates on a
+single Administrator, even org-scoped); and the **`THREAT_MODEL` §5a
+amendment** narrowing operator trust (Administrator ≠ raw reader; DB/backup
+operator ≠ raw reader under B1; honest infra-operator-trusted residual).
+
+**Validated end-to-end on the live backend (2026-08-02):** a two-external-org
+dry-run — isolation + switching, full flip (zero-raw operational store),
+per-org encrypted vault, grant-gated + AEAD-bound read-back, and a 1,340-
+instance historical backfill (execution-state tables now zero-raw; only
+append-only pre-flip `tool_call` audit remains, read-protected).
+
+**Remaining:** the finalized dependency manifest (§5.1, retention/erasure);
+and **TG3d-2 (Contract B2 — host-operator resistance)**, its own
+infrastructure design (attested/enclaved runtime or external key release),
+NOT a code module. The external-org gate (§0) also requires the other §5a
+release gates (secret-manager, backup encryption, G22 inventory, intra-org
+boundary, resource limits) — the trace boundary is one of them, now satisfiable.
 
 The coupled design for the three F3 pre-external-organization gates the
 external code review left open after the read-surface redaction closed
