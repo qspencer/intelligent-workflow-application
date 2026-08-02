@@ -1,16 +1,17 @@
 # Trace Governance — Design
 
-> ## ⚠️ EXTERNAL CODE REVIEW FAILED (2026-08-02) — major security revision required
+> ## ⚠️ EXTERNAL CODE REVIEW (2026-08-02) — all 10 findings remediated, awaiting re-review
 >
-> An external **code** review of the build (`e397b8b`) reproduced real bypasses.
-> **The delivered implementation does NOT satisfy Contract A or Contract B1**,
-> despite the "BUILT" / "validated end-to-end" statuses below (those describe
-> design completeness, not verified security). **Do not describe this as
-> "zero-raw at rest" or "DB-operator-resistant," and do not onboard an external
-> tenant, until remediation completes.** Ten critical findings + high-priority
-> issues; tracking in `docs/NEXT_STEPS.md` (G-Trace-Review). Fixed so far:
-> F6 (cipher identity binding) + F7 (trigger fail-open). The live-box posture
-> (flip + encryption) is likewise **not** delivering the claimed protection.
+> An external **code** review of the build (`e397b8b`) reproduced real bypasses:
+> the delivered implementation did NOT satisfy Contract A or B1. **All ten
+> findings + the high-priority nits are now fixed**, each with an adversarial
+> regression test (`tests/test_trace_review_fixes.py`; 970 backend tests green) —
+> see `docs/NEXT_STEPS.md` (G-Trace-Review) for the per-finding map. **Until a
+> re-review confirms the fixes, do not re-claim "zero-raw at rest" /
+> "DB-operator-resistant" and do not onboard an external tenant.** Known residual
+> (documented, not a bypass): append-only pre-flip `audit_log` raw is reported by
+> the verifier but not yet encrypted/migrated. The live box needs a re-backfill
+> (pre-F1 vault rows were per-kind) before its posture means anything.
 
 Status: **architecture FROZEN (external review v4); narrow v5 + v6 fold the
 implementable-semantics corrections; no cut yet authorized.** Internal

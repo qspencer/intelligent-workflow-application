@@ -547,6 +547,29 @@ def build_router(
         if (org_id, account) not in known:
             raise HTTPException(status_code=404, detail="No such memory namespace")
 
+        # F3 (external code review 2026-08-02): `categories` renders fact
+        # CONTENT verbatim — attacker-authored mail — so it is a raw release,
+        # requiring a covering raw-trace GRANT (not merely a role) with the
+        # attempt/release audit protocol. A cross-org read needs a target-org
+        # or platform-wide grant (`_raw_reader_for_org` keys on org_id).
+        # `summary` (counts only) stays role-gated.
+        release_request_id: str | None = None
+        if mode == "categories":
+            if not await _raw_reader_for_org(user, org_id):
+                raise HTTPException(
+                    status_code=403, detail="categories mode requires a covering raw-trace grant"
+                )
+            release_request_id, _rr = await begin_raw_release(
+                repositories,
+                raw_ok=True,
+                surface="memory",
+                actor_id=user.sub,
+                instance_id=None,
+                kinds=["memory_facts"],
+            )
+            if release_request_id is None:
+                mode = "summary"  # attempt audit unavailable → fail closed to counts
+
         result = await engine.learned_memory.introspect_namespace(namespace, mode=mode)
         truncated = False
         if mode == "categories" and len(json.dumps(result)) > _CATEGORIES_BYTE_CAP:
@@ -555,6 +578,17 @@ def build_router(
             # operator hitting this.
             result = await engine.learned_memory.introspect_namespace(namespace, mode="summary")
             truncated = True
+        if release_request_id is not None:
+            facts_released = mode == "categories" and not truncated
+            await commit_raw_release(
+                repositories,
+                request_id=release_request_id,
+                surface="memory",
+                actor_id=user.sub,
+                instance_id=None,
+                returned_kinds=["memory_facts"] if facts_released else (),
+                withheld_kinds=() if facts_released else ["memory_facts"],
+            )
         await repositories.audit.append(
             AuditEntry(
                 actor_type="human",

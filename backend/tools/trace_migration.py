@@ -21,7 +21,7 @@ from typing import Any
 from workflow_platform.persistence import Repositories, in_memory_repositories
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
-from workflow_platform.trace_migration import backfill_all, find_raw_in_operational_store
+from workflow_platform.trace_migration import backfill_all, verify_zero_raw
 
 
 def _build_repos() -> tuple[Repositories, Any | None]:
@@ -33,15 +33,24 @@ def _build_repos() -> tuple[Repositories, Any | None]:
 
 
 async def _verify(repos: Repositories) -> int:
-    findings = await find_raw_in_operational_store(repos)
-    if not findings:
-        print("zero-raw: OK — no raw found in the operational store")
+    report = await verify_zero_raw(repos)
+    if report.clean:
+        print(f"zero-raw: OK — no raw found (scanned {report.scanned} instances, exhaustive)")
         return 0
-    print(f"zero-raw: FAIL — {len(findings)} raw finding(s):")
-    for f in findings[:50]:
-        print(f"  {f.table}.{f.column}  row={f.row_id}")
-    if len(findings) > 50:
-        print(f"  … and {len(findings) - 50} more")
+    if report.capped:
+        # A truncated scan can't certify what it didn't read (F10).
+        print(f"zero-raw: FAIL — scan CAPPED at {report.scanned}; store exceeds the scan ceiling")
+    if report.audit_findings:
+        print(
+            f"zero-raw: {len(report.audit_findings)} of the findings are append-only pre-flip "
+            "audit_log raw — backfill does not rewrite it; encrypt/migrate before certifying"
+        )
+    if report.findings:
+        print(f"zero-raw: FAIL — {len(report.findings)} raw finding(s):")
+        for f in report.findings[:50]:
+            print(f"  {f.table}.{f.column}  row={f.row_id}")
+        if len(report.findings) > 50:
+            print(f"  … and {len(report.findings) - 50} more")
     return 1
 
 

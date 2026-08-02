@@ -2,13 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import pytest
 from fastapi.testclient import TestClient
 
+from workflow_platform.auth.raw_trace_grants import RawTraceGrantService
 from workflow_platform.main import create_app
-from workflow_platform.persistence import in_memory_repositories
+from workflow_platform.persistence import RawTraceReasonCode, in_memory_repositories
 
 ADMIN = {"X-Dev-User": "admin", "X-Dev-Groups": "admins"}
 ORG_ADMIN = {"X-Dev-User": "oa", "X-Dev-Groups": "org-admins"}
@@ -96,8 +98,34 @@ def test_introspect_scoping_audit_and_bypass(client: TestClient) -> None:
     assert any(e["detail"].get("org_bypass") for e in introspected)
 
 
-def test_categories_mode_and_bad_mode(client: TestClient) -> None:
+def _grant_raw(client: TestClient, sub: str, org_id: str) -> None:
+    """Give the dev user `sub` a covering (org-scoped) raw-trace grant."""
+    repos = client.app.state.engine.repositories  # type: ignore[attr-defined]
+
+    async def go() -> None:
+        row = await repos.users.get_by_identity("dev", sub)
+        assert row is not None, "user row must be provisioned by a prior request"
+        await RawTraceGrantService(repos).request(
+            principal_id=row.id,
+            org_id=org_id,
+            requested_by="grantor",
+            reason_code=RawTraceReasonCode.DEBUGGING,
+        )
+
+    asyncio.run(go())
+
+
+def test_categories_mode_requires_raw_grant(client: TestClient) -> None:
     fake = _wire_fake(client)
+    # F3: categories renders fact CONTENT verbatim — a role is NOT enough; an
+    # Administrator without a covering raw-trace grant is DENIED (and no facts
+    # are introspected). This provisions the admin user row too.
+    denied = client.get("/api/memory/summary/default/q@x.com?mode=categories", headers=ADMIN)
+    assert denied.status_code == 403
+    assert fake.introspect_calls == []
+
+    # WITH a covering grant, facts release + the release-boundary audit fires.
+    _grant_raw(client, "admin", "default")
     resp = client.get("/api/memory/summary/default/q@x.com?mode=categories", headers=ADMIN)
     assert resp.status_code == 200
     body = resp.json()
@@ -106,7 +134,15 @@ def test_categories_mode_and_bad_mode(client: TestClient) -> None:
     # DATA; rendering safety is the frontend's text-node-only contract.
     assert "<script>" in str(body["facts"])
     assert ("org:default:user:q@x.com", "categories") in fake.introspect_calls
+    audit = client.get("/api/audit?limit=20", headers=ADMIN).json()
+    assert any(
+        e["action"] == "raw_trace_release_decided" and e["detail"].get("surface") == "memory"
+        for e in audit
+    )
 
+
+def test_bad_mode_is_400(client: TestClient) -> None:
+    _wire_fake(client)
     assert (
         client.get("/api/memory/summary/default/q@x.com?mode=wat", headers=ADMIN).status_code == 400
     )

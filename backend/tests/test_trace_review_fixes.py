@@ -144,6 +144,41 @@ async def test_f2_no_flip_keeps_error_inline() -> None:
     assert RAW_ERR in (step.error or "")  # dark dual-write keeps raw inline
 
 
+# --- F10: exhaustive zero-raw verifier ---
+
+
+async def test_f10_verifier_catches_error_raw_and_flags_audit() -> None:
+    from workflow_platform.trace_migration import backfill_all, verify_zero_raw
+
+    engine = _failing_engine(safe_only=False)  # raw error kept inline
+    await engine.run(_failing_def(), trigger_payload={})
+    repos = engine.repositories
+
+    report = await verify_zero_raw(repos)
+    cols = {(f.table, f.column) for f in report.findings}
+    assert ("workflow_instances", "error") in cols  # instance error scanned (F2/F10)
+    assert ("step_executions", "error") in cols  # step error scanned
+    assert report.audit_findings  # append-only audit raw is surfaced, not ignored
+    assert not report.clean
+
+    # Backfill migrates the instance + step columns; append-only audit raw stays
+    # (reported, so the gate still fails until it's encrypted/migrated).
+    await backfill_all(repos)
+    report2 = await verify_zero_raw(repos)
+    assert [f for f in report2.findings if f.table != "audit_log"] == []
+
+
+async def test_f10_capped_scan_never_certifies() -> None:
+    from workflow_platform.trace_migration import verify_zero_raw
+
+    engine = _failing_engine(safe_only=True)
+    await engine.run(_failing_def(), trigger_payload={})
+    await engine.run(_failing_def(), trigger_payload={})
+    # A scan that hits its ceiling can't certify what it didn't read.
+    report = await verify_zero_raw(engine.repositories, limit=1)
+    assert report.capped and not report.clean
+
+
 # --- F8: release audit reflects the ACTUAL retrieval outcome ---
 
 

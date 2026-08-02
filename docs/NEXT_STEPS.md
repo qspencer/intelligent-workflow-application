@@ -694,61 +694,47 @@ The reviewer executed the code against the contracts and found 6 items.
   Deferred within TG1: memory facts-mode-under-grant. Ship to an external org
   stays trigger-gated + needs the chosen B-contract in effect + these gates.
 
-### G-Trace-Review — external CODE review (2026-08-02) — **MAJOR REVISION, in progress**
+### G-Trace-Review — external CODE review (2026-08-02) — **ALL 10 REMEDIATED, awaiting re-review**
 
-The code review of `e397b8b` reproduced real bypasses; **Contract A and B1 are
-NOT delivered.** Ten findings + high-priority issues. Each fix needs an
-adversarial regression test (`tests/test_trace_review_fixes.py`). Priority order
-and status:
+The code review of `e397b8b` reproduced real bypasses. All ten findings +
+high-priority nits are now fixed, each with an adversarial regression test in
+`tests/test_trace_review_fixes.py` (970 backend tests green). Status:
 
-1. **Projector is default-ALLOW, not default-deny** — `redact_tool_data` only
-   redacts known keys; a no-tool step's `output_text` and any free-form/unknown
-   field (`{"summary": "...SSN..."}`) pass through, in the store AND the vault,
-   and the verifier certifies it clean. Needs a typed, versioned, default-deny
-   projector (unknown/free-form → vault). **OPEN — highest priority** (F1; also
-   defeats #4-verifier and part of #2).
-2. **Error text leaks + not projected** — `instance.error`/`step.error` +
-   `step_failed`/`workflow_failed` audit hold raw error below-grant and at rest
-   under the flip; the list endpoint returns `i.error` raw. Make error a
-   first-class raw kind (vault-before-persist, projected reads, asset-map +
-   migration columns). **OPEN.**
-3. **Memory introspection bypasses the grant** — `/api/memory/summary/{org}/{acct}`
-   facts render verbatim attacker-authored mail, role-gated only. Grant-gate +
-   release-audit facts mode; counts stay role-gated. **OPEN** (was the deferred
-   "facts-mode-under-grant").
-4. **Dual-control bypass via `tenant_authorized`** — approve accepts any
-   non-null string and skips the distinct-approver check; one admin
-   self-activates. Require a structured/authenticated tenant approval record,
-   distinct activator, scope-match. **OPEN.**
-5. **Grant activation not atomic** — check-then-set + partial index excludes
-   platform-wide (NULL org); two concurrent platform-wide grants both activate.
-   Needs a conditional/CAS activation + a normalized/discriminated scope key.
-   **OPEN.**
-6. **B1 cipher binding bypassable at the rehydrator** — decrypted with the
-   row's own metadata, and plaintext returned when unsealed → substitution +
-   downgrade by a DB operator. **FIXED** (verify expected tuple, decrypt with
-   expected AAD, reject unsealed; regression-tested).
-7. **Trigger rehydration fails open + false success** — a projected trigger
-   with no vault row returned projected input + audited `succeeded`. **FIXED**
-   (retrieval_failed + raise on the `_redacted` marker; regression-tested).
-8. **Release audit declares success before retrieval** — `release_decided`
-   committed with `released` + all kinds before the best-effort merge;
-   `raw_included:true` on missing rows. Reorder: fetch → determine
-   returned/withheld → `released|partial|retrieval_failed|integrity_failed` →
-   then release. **OPEN.**
-9. **WS auth cached for the connection** — `raw_reader` computed once pre-accept;
-   a revoked grant still gets raw frames. Re-evaluate per raw-bearing frame (or
-   a short-lived revocable permit). **OPEN.**
-10. **Verifier can certify nonzero-raw** — `limit=1000` cap, no error columns,
-    inherits #1's blind spots, hand-listed columns, backfill skips audit.
-    Exhaustive pagination + asset-map-driven inventory + errors/audit +
-    explicit unsupported-legacy category; fail the gate until covered. **OPEN.**
+1. **Projector default-ALLOW → default-deny** — `_SAFE_KEYS` allowlist; free-form
+   / unknown / `output_text` (tool or not) redacted; vault holds the FULL output
+   so default-deny is lossless. **FIXED** (`0732503`).
+2. **Error text leaks + not projected** — `redact_error` on the read surfaces
+   (list/explain; detail+audit via default-deny); under the flip error is
+   vaulted-before-persist + stored as a marker + grant-holder rehydrates
+   (`merge_error`). **FIXED** (`280d900`).
+3. **Memory introspection bypasses the grant** — `categories` mode now requires
+   a covering raw grant (403 without) + the release-audit protocol; `summary`
+   counts stay role-gated. **FIXED**.
+4. **Dual-control bypass via `tenant_authorized`** — activator must be distinct
+   from requester+recipient for BOTH modes, approver recorded, ref must be an
+   opaque token. **FIXED** (`344ad42`).
+5. **Grant activation not atomic** — in-process activation lock + migration 0009
+   expression unique index over `COALESCE(org_id,'__platform_wide__')`. **FIXED**.
+6. **B1 cipher binding bypassable** — verify expected tuple, decrypt with expected
+   AAD, reject unsealed. **FIXED** (`f920555`).
+7. **Trigger rehydration fails open** — projected-but-missing trigger →
+   retrieval_failed + raise. **FIXED** (`f920555`).
+8. **Release audit success-before-retrieval** — split begin/commit; the
+   `release_decided` outcome (released/partial/retrieval_failed) is determined
+   AFTER the fetch; `raw_included` honest; fail-closed. **FIXED** (`40ff847`).
+9. **WS auth cached for the connection** — grant re-evaluated per raw-bearing
+   frame. **FIXED** (`40ff847`).
+10. **Verifier can certify nonzero-raw** — `verify_zero_raw` returns a
+    `ZeroRawReport` that is `clean` only on an EXHAUSTIVE scan (capped → fail) +
+    scans errors + surfaces append-only audit raw as its own category; backfill
+    migrates error columns. **FIXED**.
 
-Also: failure-ordering cleanup (durable-or-fail holds only on the happy path);
-`from.address` preserved below grant (project to opaque or reclassify);
-`ticket_ref`/`external_approval_ref` arbitrary strings (opaque id + existence
-check). Full report in the review; do NOT re-claim Contract A/B1 or "zero-raw"
-until 1–10 close + re-review.
+Nits also folded: `from.address` dropped from the safe trigger; `external_approval_ref`
+is an opaque token. **Residual (documented, not a bypass):** append-only pre-flip
+`audit_log` raw is reported by the verifier but NOT rewritten by backfill (encrypt/
+migrate is the remaining B1 at-rest work); the verifier's coarse partial-vs-complete
+signal (marker scan) rather than exact per-kind accounting. Re-review before
+re-claiming Contract A/B1 or "zero-raw".
 
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
