@@ -8,7 +8,6 @@ so it remains usable without a database for early development.
 
 from __future__ import annotations
 
-import asyncio
 import logging
 import os
 from collections.abc import AsyncIterator
@@ -172,8 +171,10 @@ def _resolve_trace_master_key() -> None:
     secret_name = os.environ.get(ENV_MASTER_KEY_SECRET)
     if not secret_name:
         return
-    key_b64 = asyncio.run(AwsSecretsManagerStore().get(secret_name))
-    install_master_key(key_b64)
+    # Use the SYNC boto3 client directly — create_app runs inside uvicorn's
+    # running event loop, so asyncio.run() is unavailable here.
+    response = AwsSecretsManagerStore().client.get_secret_value(SecretId=secret_name)
+    install_master_key(str(response["SecretString"]))
 
 
 _DEV_ERROR_BUFFER: ErrorBuffer | None = None
