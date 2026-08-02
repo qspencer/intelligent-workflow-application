@@ -174,7 +174,9 @@ async def test_tenant_authorized_requires_artifact() -> None:
     )
     active = await svc.approve(grant_id=pending.id, approved_by=ADMIN_B, now=NOW)
     assert active.state is RawTraceGrantState.ACTIVE
-    assert active.approved_by is None  # tenant-authorized, not a 2nd admin
+    # F4: the distinct internal activator IS recorded (an unverified external
+    # ref is no longer sufficient on its own).
+    assert active.approved_by == ADMIN_B
     assert active.external_approval_ref == "tenant-approval-123"
 
 

@@ -10,6 +10,12 @@ from typing import Any
 import pytest
 
 from tests._bedrock_fakes import FakeBedrock
+from workflow_platform.auth.raw_trace_grants import (
+    ApproverConflict,
+    DuplicateActiveGrant,
+    MissingApprovalArtifact,
+    RawTraceGrantService,
+)
 from workflow_platform.engine import FunctionRegistry, StepFailure, ToolCatalog, WorkflowEngine
 from workflow_platform.persistence import (
     RawTrace,
@@ -17,6 +23,7 @@ from workflow_platform.persistence import (
     WorkflowInstanceState,
     in_memory_repositories,
 )
+from workflow_platform.persistence.models import RawTraceApprovalMode, RawTraceReasonCode
 from workflow_platform.trace_cipher import ENV_MASTER_KEY
 from workflow_platform.trace_projection import redact_error, redact_tool_data
 from workflow_platform.trace_rehydrate import RawTraceRehydrator, RawTraceUnavailable
@@ -186,6 +193,78 @@ async def test_f6_plaintext_downgrade_is_rejected(monkeypatch: pytest.MonkeyPatc
         RawTraceRehydrator(repos)._payload_of(
             row, org_id="orgA", instance_id="i1", step_attempt_id="s1", kind="output"
         )
+
+
+# --- F4 + F5: dual-control bypass + atomic activation ---
+
+
+def _grant_service() -> RawTraceGrantService:
+    return RawTraceGrantService(in_memory_repositories(), require_dual_control=False)
+
+
+async def test_f4_tenant_authorized_cannot_be_self_activated() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    svc = _grant_service()
+    now = datetime(2026, 8, 2, tzinfo=UTC)
+    pending = await svc.request(
+        principal_id="p",
+        org_id=None,
+        requested_by="admin-a",
+        reason_code=RawTraceReasonCode.DEBUGGING,
+        approval_mode=RawTraceApprovalMode.TENANT_AUTHORIZED,
+        external_approval_ref="ticket-1",
+        expires_at=now + timedelta(hours=1),
+        now=now,
+    )
+    # the requester (the only admin so far) cannot activate their own request
+    with pytest.raises(ApproverConflict):
+        await svc.approve(grant_id=pending.id, approved_by="admin-a", now=now)
+
+
+async def test_f4_rejects_free_text_approval_ref() -> None:
+    from datetime import UTC, datetime, timedelta
+
+    svc = _grant_service()
+    now = datetime(2026, 8, 2, tzinfo=UTC)
+    with pytest.raises(MissingApprovalArtifact):
+        await svc.request(
+            principal_id="p",
+            org_id=None,
+            requested_by="admin-a",
+            reason_code=RawTraceReasonCode.DEBUGGING,
+            approval_mode=RawTraceApprovalMode.TENANT_AUTHORIZED,
+            external_approval_ref="see the email I sent about the customer",  # free text
+            expires_at=now + timedelta(hours=1),
+            now=now,
+        )
+
+
+async def test_f5_concurrent_platform_activations_only_one_wins() -> None:
+    import asyncio
+    from datetime import UTC, datetime, timedelta
+
+    svc = _grant_service()
+    now = datetime(2026, 8, 2, tzinfo=UTC)
+    kw = {
+        "principal_id": "p",
+        "org_id": None,
+        "requested_by": "admin-a",
+        "reason_code": RawTraceReasonCode.DEBUGGING,
+        "expires_at": now + timedelta(hours=1),
+        "now": now,
+    }
+    g1 = await svc.request(**kw)  # type: ignore[arg-type]
+    g2 = await svc.request(**kw)  # type: ignore[arg-type]
+    results = await asyncio.gather(
+        svc.approve(grant_id=g1.id, approved_by="admin-b", now=now),
+        svc.approve(grant_id=g2.id, approved_by="admin-c", now=now),
+        return_exceptions=True,
+    )
+    active = [r for r in results if not isinstance(r, Exception)]
+    errs = [r for r in results if isinstance(r, Exception)]
+    assert len(active) == 1  # exactly one activation wins
+    assert len(errs) == 1 and isinstance(errs[0], DuplicateActiveGrant)
 
 
 # --- F7: projected trigger with a missing vault row must fail closed ---

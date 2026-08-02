@@ -8,16 +8,18 @@ Actor ids are the raw `sub` string, matching audit `actor_id`.
 Legal transitions: pending → {active, rejected, cancelled};
 active → {revoked, expired}.
 
-Note on atomicity: activation performs a check-then-set at the service
-level; the migration's partial unique index on active org-scoped grants is
-the DB backstop against a duplicate active org grant. A conditional
-(compare-and-set) UPDATE is the production hardening for the platform-wide
-NULL-scope case — logged here rather than silently assumed.
+Atomicity (external code review 2026-08-02 F5): the duplicate-check → set-active
+critical section runs under an in-process `asyncio.Lock` (with a re-read of the
+grant state under the lock), and migration 0009's EXPRESSION unique index over
+`COALESCE(org_id, '__platform_wide__')` is the cross-process backstop — covering
+the platform-wide NULL-scope case the old partial index missed.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
+import re
 from datetime import UTC, datetime
 
 from workflow_platform.persistence import RawTraceGrant, Repositories
@@ -27,6 +29,12 @@ from workflow_platform.persistence.models import (
     RawTraceGrantState,
     RawTraceReasonCode,
 )
+
+# An approval reference is an OPAQUE token (a ticket/authorization id), never
+# free-form text — external code review 2026-08-02: an arbitrary string is a
+# route for customer content into operational storage AND (with the F4 fix) is
+# no longer the sole activation gate. Bounded charset + length.
+_APPROVAL_REF_RE = re.compile(r"^[A-Za-z0-9._:/-]{1,128}$")
 
 
 class GrantError(ValueError):
@@ -54,7 +62,20 @@ class MissingExpiry(GrantError):
 
 
 class MissingApprovalArtifact(GrantError):
-    """A tenant_authorized grant needs an external approval reference."""
+    """A tenant_authorized grant needs a valid external approval reference."""
+
+
+def _validate_approval_ref(ref: str | None) -> str:
+    """A tenant approval reference must be present and an opaque token (F4 +
+    review nit). Rejects None/empty and any free-form string."""
+    if ref is None or not ref.strip():
+        raise MissingApprovalArtifact("tenant_authorized requires an external approval ref")
+    ref = ref.strip()
+    if not _APPROVAL_REF_RE.match(ref):
+        raise MissingApprovalArtifact(
+            "external approval ref must be an opaque token, not free text"
+        )
+    return ref
 
 
 class GrantNotFound(GrantError):
@@ -87,6 +108,11 @@ class RawTraceGrantService:
                 "WORKFLOW_PLATFORM_RAW_GRANT_DUAL_CONTROL", ""
             ).lower() in ("1", "true", "yes")
         self._dual_control = require_dual_control
+        # F5: serialize the activation critical section (check-for-duplicate →
+        # set active) so two concurrent activations for the same principal/scope
+        # can't both win in-process. The DB expression unique index (migration
+        # 0009) is the cross-process backstop, incl. the platform-wide NULL case.
+        self._activation_lock = asyncio.Lock()
 
     async def _audit(
         self,
@@ -163,20 +189,18 @@ class RawTraceGrantService:
         if not is_platform and not self._dual_control:
             # Single-control (default): the distinct issuing Administrator IS
             # the authorization — activate immediately.
-            await self._clear_stale_active(principal_id, org_id, now, requested_by)
-            grant.state = RawTraceGrantState.ACTIVE
-            grant.approved_by = requested_by
-            grant.approved_at = now
-            await self._repos.raw_trace_grants.create(grant)
+            async with self._activation_lock:
+                await self._clear_stale_active(principal_id, org_id, now, requested_by)
+                grant.state = RawTraceGrantState.ACTIVE
+                grant.approved_by = requested_by
+                grant.approved_at = now
+                await self._repos.raw_trace_grants.create(grant)
             await self._audit(requested_by, "raw_grant_granted", grant, {"org_scoped": True})
             return grant
         # Dual-control enforced (or platform-wide): stays PENDING until a
         # distinct second Administrator approves (§2.1).
-        if (
-            approval_mode is RawTraceApprovalMode.TENANT_AUTHORIZED
-            and external_approval_ref is None
-        ):
-            raise MissingApprovalArtifact("tenant_authorized requires an external approval ref")
+        if approval_mode is RawTraceApprovalMode.TENANT_AUTHORIZED:
+            grant.external_approval_ref = _validate_approval_ref(external_approval_ref)
         await self._repos.raw_trace_grants.create(grant)
         await self._audit(requested_by, "raw_grant_requested", grant)
         return grant
@@ -189,9 +213,12 @@ class RawTraceGrantService:
         external_approval_ref: str | None = None,
         now: datetime | None = None,
     ) -> RawTraceGrant:
-        """Second authorization for a PENDING platform-wide grant. Recipient
-        excluded from both roles; dual_administrator requires an approver
-        distinct from the requester (§2.1)."""
+        """Second authorization for a PENDING grant. The activator must be a
+        DISTINCT administrator — never the recipient, never the requester — for
+        BOTH modes (external code review 2026-08-02 F4: an unverified external
+        ref is NOT sufficient on its own, so tenant_authorized no longer lets a
+        single admin self-activate; the accountable internal approver is always
+        recorded). tenant_authorized additionally needs a valid opaque ref."""
         now = now or datetime.now(UTC)
         grant = await self._repos.raw_trace_grants.get(grant_id)
         if grant is None:
@@ -200,20 +227,23 @@ class RawTraceGrantService:
             raise InvalidGrantTransition(f"grant {grant_id} is {grant.state.value}, not pending")
         if approved_by == grant.principal_id:
             raise SelfEscalation("the recipient cannot approve their own grant")
-        if grant.approval_mode is RawTraceApprovalMode.DUAL_ADMINISTRATOR:
-            if approved_by == grant.requested_by:
-                raise ApproverConflict("approver must be distinct from the requester")
+        if approved_by == grant.requested_by:
+            raise ApproverConflict("approver must be distinct from the requester")
+        if grant.approval_mode is RawTraceApprovalMode.TENANT_AUTHORIZED:
+            grant.external_approval_ref = _validate_approval_ref(
+                external_approval_ref or grant.external_approval_ref
+            )
+        # F5: the duplicate-check + activation is one critical section. Re-read
+        # under the lock so a concurrent activation of a sibling grant is seen.
+        async with self._activation_lock:
+            fresh = await self._repos.raw_trace_grants.get(grant_id)
+            if fresh is None or fresh.state is not RawTraceGrantState.PENDING:
+                raise InvalidGrantTransition(f"grant {grant_id} is no longer pending")
+            await self._clear_stale_active(grant.principal_id, grant.org_id, now, approved_by)
             grant.approved_by = approved_by
-        else:  # tenant_authorized
-            ref = external_approval_ref or grant.external_approval_ref
-            if ref is None:
-                raise MissingApprovalArtifact("tenant_authorized requires an external approval ref")
-            grant.external_approval_ref = ref
-            grant.approved_by = None
-        await self._clear_stale_active(grant.principal_id, grant.org_id, now, approved_by)
-        grant.state = RawTraceGrantState.ACTIVE
-        grant.approved_at = now
-        await self._repos.raw_trace_grants.save(grant)
+            grant.state = RawTraceGrantState.ACTIVE
+            grant.approved_at = now
+            await self._repos.raw_trace_grants.save(grant)
         await self._audit(approved_by, "raw_grant_granted", grant)
         return grant
 
