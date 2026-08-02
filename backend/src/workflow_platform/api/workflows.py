@@ -31,9 +31,11 @@ from workflow_platform.api.raw_trace_audit import (
     SURFACE_AUDIT,
     SURFACE_DETAIL,
     SURFACE_EXPLAIN,
+    begin_raw_release,
+    commit_raw_release,
     decide_raw_release,
 )
-from workflow_platform.api.redaction import redact_error, redact_tool_data
+from workflow_platform.api.redaction import has_redaction_marker, redact_error, redact_tool_data
 from workflow_platform.auth import auth_mode, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.auth.provisioning import current_issuer
@@ -1017,23 +1019,24 @@ def build_router(
         instance = await _visible_instance(instance_id, scope)
         steps = await repositories.steps.list_by_instance(instance_id)
         raw_ok = await _raw_reader_for_org(user, instance.org_id)
-        released, reason = await decide_raw_release(
+        kinds = ("tool_calls", "output_text", "trigger_payload", "recall", "error")
+        # F8: audit the ATTEMPT before any fetch; the release DECISION lands
+        # after, reflecting what the vault actually returned.
+        request_id, reason = await begin_raw_release(
             repositories,
             raw_ok=raw_ok,
             surface=SURFACE_DETAIL,
             actor_id=user.sub,
             instance_id=instance_id,
-            kinds=("tool_calls", "output_text", "trigger_payload", "recall"),
+            kinds=kinds,
         )
-        # Both the step rows AND instance.context.steps carry raw tool_calls;
-        # redact both when raw isn't released (below-grant, or the release
-        # audit was unavailable → fail-closed to projected, F3/TG2).
         instance_dump = instance.model_dump()
         step_dumps = [s.model_dump() for s in steps]
-        if released:
+        released = False
+        if request_id is not None:
             # Grant-holder: restore raw from the vault (TG3b.3). A no-op under
             # the default dark dual-write; under the flip it re-merges the
-            # projected operational rows. Human access already audited (§3.1).
+            # projected operational rows.
             instance_dump["trigger_payload"] = await rehydrator.merge_trigger(
                 org_id=instance.org_id,
                 instance_id=instance_id,
@@ -1059,10 +1062,49 @@ def build_router(
                     step_attempt_id=sd["id"],
                     safe_error=sd.get("error"),
                 )
+            # instance.context echoes the trigger + each step's output (projected
+            # at rest under the flip) — restore those too so the grant-holder
+            # response is genuinely complete (not just the top-level fields).
+            ctx = instance_dump.get("context")
+            if isinstance(ctx, dict):
+                if isinstance(ctx.get("trigger"), dict):
+                    ctx["trigger"] = await rehydrator.merge_trigger(
+                        org_id=instance.org_id, instance_id=instance_id, safe_trigger=ctx["trigger"]
+                    )
+                ctx_steps = ctx.get("steps")
+                if isinstance(ctx_steps, dict):
+                    latest_attempt = {s.step_id: s.id for s in steps}
+                    for sid, out in list(ctx_steps.items()):
+                        if isinstance(out, dict) and sid in latest_attempt:
+                            ctx_steps[sid] = await rehydrator.merge_output(
+                                org_id=instance.org_id,
+                                instance_id=instance_id,
+                                step_attempt_id=latest_attempt[sid],
+                                safe_output=out,
+                            )
+            # Which kinds actually came back: if a marker still remains after
+            # merge, at least one vault object was missing (partial/failed).
+            complete = not has_redaction_marker(instance_dump) and not any(
+                has_redaction_marker(sd) for sd in step_dumps
+            )
+            audit_ok, reason = await commit_raw_release(
+                repositories,
+                request_id=request_id,
+                surface=SURFACE_DETAIL,
+                actor_id=user.sub,
+                instance_id=instance_id,
+                returned_kinds=kinds if complete else (),
+                withheld_kinds=() if complete else kinds,
+            )
+            # Release the (possibly partial) raw only after release_decided
+            # committed; a failed decision audit fails closed to projected.
+            released = audit_ok
         body: dict[str, Any] = {
+            # released keeps whatever merged (raw + any residual markers where
+            # retrieval failed); raw_included is honest — full release only.
             "instance": redact_tool_data(instance_dump, released),
             "steps": [redact_tool_data(sd, released) for sd in step_dumps],
-            "raw_included": released,
+            "raw_included": released and reason is None,
         }
         if reason is not None:
             body["redaction_reason"] = reason
@@ -1766,13 +1808,16 @@ def build_router(
             if a.step_id == step_id
         ]
         raw_ok = await _raw_reader_for_org(user, instance.org_id)
-        released, reason = await decide_raw_release(
+        exp_kinds = ("tool_calls", "output_text")
+        # F8: attempt-audit before the vault fetch; the release decision lands
+        # after and reflects whether the raw actually came back.
+        request_id, reason = await begin_raw_release(
             repositories,
             raw_ok=raw_ok,
             surface=SURFACE_EXPLAIN,
             actor_id=user.sub,
             instance_id=instance_id,
-            kinds=("tool_calls", "output_text"),
+            kinds=exp_kinds,
         )
         audit_tcs = [a for a in audit if a.action == "tool_call"]
         # Under the flip the tool_call audit entries are projected at rest, so a
@@ -1782,14 +1827,27 @@ def build_router(
         # merge_output is a no-op — either way `raw_tcs[i]` aligns with the
         # i-th tool_call audit entry.
         raw_tcs: list[Any] = []
-        if released:
+        released = False
+        if request_id is not None:
             merged = await rehydrator.merge_output(
                 org_id=instance.org_id,
                 instance_id=instance_id,
                 step_attempt_id=exe.id,
                 safe_output=output,
             )
-            raw_tcs = merged.get("tool_calls") or []
+            complete = not has_redaction_marker(merged)
+            audit_ok, reason = await commit_raw_release(
+                repositories,
+                request_id=request_id,
+                surface=SURFACE_EXPLAIN,
+                actor_id=user.sub,
+                instance_id=instance_id,
+                returned_kinds=exp_kinds if complete else (),
+                withheld_kinds=() if complete else exp_kinds,
+            )
+            released = audit_ok and complete
+            if released:
+                raw_tcs = merged.get("tool_calls") or []
         tool_calls = []
         for i, a in enumerate(audit_tcs):
             fallback = raw_tcs[i] if i < len(raw_tcs) and isinstance(raw_tcs[i], dict) else {}

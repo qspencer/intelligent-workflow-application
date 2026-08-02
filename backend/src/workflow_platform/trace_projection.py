@@ -156,6 +156,22 @@ def safe_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
     return safe
 
 
+def has_redaction_marker(obj: Any) -> bool:
+    """Whether a (possibly already grant-merged) structure still carries ANY
+    default-deny redaction marker — a `[redacted …` string or a dict with
+    `_redacted` (external code review 2026-08-02 F8: lets a read surface tell
+    whether a raw retrieval was COMPLETE before it commits the release audit)."""
+    if isinstance(obj, str):
+        return obj.startswith("[redacted") or obj == _REDACTED_TRIGGER
+    if isinstance(obj, dict):
+        if "_redacted" in obj:
+            return True
+        return any(has_redaction_marker(v) for v in obj.values())
+    if isinstance(obj, list):
+        return any(has_redaction_marker(v) for v in obj)
+    return False
+
+
 def redact_error(error: str | None, admin: bool) -> str | None:
     """Error text is RAW (external code review 2026-08-02 F2 — it can echo tool
     output or mail content). A grant-holder (admin=True) reads it unchanged;

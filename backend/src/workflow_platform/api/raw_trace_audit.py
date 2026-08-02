@@ -50,6 +50,79 @@ async def _append(repositories: Repositories, entry: AuditEntry) -> bool:
         return False
 
 
+async def begin_raw_release(
+    repositories: Repositories,
+    *,
+    raw_ok: bool,
+    surface: str,
+    actor_id: str,
+    instance_id: str | None,
+    kinds: Sequence[str],
+) -> tuple[str | None, str | None]:
+    """Phase 1 (external code review 2026-08-02 F8): commit
+    `raw_trace_access_attempted` BEFORE any vault fetch. Returns
+    `(request_id, redaction_reason)`. `request_id is None` with reason None →
+    below-grant (project, no audit); with `ACCESS_AUDIT_UNAVAILABLE` → the
+    attempt audit failed, degrade to projected. A non-None request_id must be
+    finished with `commit_raw_release` once the actual outcome is known."""
+    if not raw_ok:
+        return None, None
+    request_id = uuid.uuid4().hex
+    ok = await _append(
+        repositories,
+        AuditEntry(
+            actor_type="human",
+            actor_id=actor_id,
+            action="raw_trace_access_attempted",
+            workflow_instance_id=instance_id,
+            detail={"request_id": request_id, "surface": surface, "intended_kinds": sorted(kinds)},
+        ),
+    )
+    return (request_id, None) if ok else (None, ACCESS_AUDIT_UNAVAILABLE)
+
+
+async def commit_raw_release(
+    repositories: Repositories,
+    *,
+    request_id: str,
+    surface: str,
+    actor_id: str,
+    instance_id: str | None,
+    returned_kinds: Sequence[str],
+    withheld_kinds: Sequence[str],
+) -> tuple[bool, str | None]:
+    """Phase 2 (F8): commit `raw_trace_release_decided` with the ACTUAL outcome,
+    determined AFTER the fetch — `released` (all present), `partial` (some
+    missing), or `retrieval_failed` (none) — and the exact returned/withheld
+    kind lists. Returns `(audit_ok, redaction_reason)`; `audit_ok False` fails
+    closed, `redaction_reason` is None only when everything was released."""
+    if withheld_kinds and returned_kinds:
+        outcome = "partial"
+    elif withheld_kinds:
+        outcome = "retrieval_failed"
+    else:
+        outcome = "released"
+    ok = await _append(
+        repositories,
+        AuditEntry(
+            actor_type="human",
+            actor_id=actor_id,
+            action="raw_trace_release_decided",
+            workflow_instance_id=instance_id,
+            detail={
+                "request_id": request_id,
+                "surface": surface,
+                "outcome": outcome,
+                "released_kinds": sorted(returned_kinds),
+                "withheld_kinds": sorted(withheld_kinds),
+            },
+        ),
+    )
+    if not ok:
+        return False, ACCESS_AUDIT_UNAVAILABLE
+    return True, (None if outcome == "released" else outcome)
+
+
 async def decide_raw_release(
     repositories: Repositories,
     *,
@@ -59,40 +132,27 @@ async def decide_raw_release(
     instance_id: str | None,
     kinds: Sequence[str],
 ) -> tuple[bool, str | None]:
-    """Decide whether raw may be released, emitting the attempt+release pair.
-
-    Returns `(released, redaction_reason)`. `released` is the flag the caller
-    uses to project (False) or include raw (True). When `raw_ok` is False the
-    caller is below-grant — nothing is released and NO audit is emitted (an
-    ordinary projected read is not a raw-access event). When `raw_ok` is True
-    but an audit append fails, returns `(False, ACCESS_AUDIT_UNAVAILABLE)`.
-    """
-    if not raw_ok:
-        return False, None
-    request_id = uuid.uuid4().hex
-    detail = {"request_id": request_id, "surface": surface, "intended_kinds": sorted(kinds)}
-    attempted = await _append(
+    """Atomic release for surfaces whose raw is inline and COMPLETE (WS frames,
+    the audit endpoint) — begin + commit(all-returned) in one call. Vault-fetch
+    surfaces (instance detail, explain) use begin/commit directly so the
+    decided outcome reflects what was actually retrieved (F8)."""
+    request_id, reason = await begin_raw_release(
         repositories,
-        AuditEntry(
-            actor_type="human",
-            actor_id=actor_id,
-            action="raw_trace_access_attempted",
-            workflow_instance_id=instance_id,
-            detail=detail,
-        ),
+        raw_ok=raw_ok,
+        surface=surface,
+        actor_id=actor_id,
+        instance_id=instance_id,
+        kinds=kinds,
     )
-    if not attempted:
-        return False, ACCESS_AUDIT_UNAVAILABLE
-    released = await _append(
+    if request_id is None:
+        return False, reason
+    ok, reason = await commit_raw_release(
         repositories,
-        AuditEntry(
-            actor_type="human",
-            actor_id=actor_id,
-            action="raw_trace_release_decided",
-            workflow_instance_id=instance_id,
-            detail={**detail, "outcome": "released", "released_kinds": sorted(kinds)},
-        ),
+        request_id=request_id,
+        surface=surface,
+        actor_id=actor_id,
+        instance_id=instance_id,
+        returned_kinds=kinds,
+        withheld_kinds=(),
     )
-    if not released:
-        return False, ACCESS_AUDIT_UNAVAILABLE
-    return True, None
+    return ok, reason

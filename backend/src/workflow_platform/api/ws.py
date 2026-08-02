@@ -136,17 +136,26 @@ def build_ws_router(
         except _OrgUnresolved:
             await ws.close(code=status.WS_1008_POLICY_VIOLATION, reason="organization unresolved")
             return
+
         # Raw tool payloads ride WS events too; a subscriber reads them only
         # with a covering raw-trace GRANT (TRACE_GOVERNANCE_PLAN §2, TG1 —
         # NOT a role). An unscoped Administrator (subscriber_org None) needs a
         # platform-wide grant; a scoped subscriber needs one covering their
-        # org. No row / no grant → projected. `covers()` gives both exactly.
-        raw_reader = (
-            principal_id is not None
-            and grant_service is not None
-            and (await grant_service.covering(principal_id=principal_id, target_org=subscriber_org))
-            is not None
-        )
+        # org. The grant is re-evaluated PER raw-bearing frame (external code
+        # review 2026-08-02 F9), NOT cached at accept — so a revoked/expired
+        # grant stops raw on the next frame.
+        async def _covers_now() -> bool:
+            return (
+                principal_id is not None
+                and grant_service is not None
+                and (
+                    await grant_service.covering(
+                        principal_id=principal_id, target_org=subscriber_org
+                    )
+                )
+                is not None
+            )
+
         await ws.accept()
         queue = events.subscribe()
         # Race the event queue against ws.receive(): receive() is how we
@@ -175,18 +184,21 @@ def build_ws_router(
                     get_task = None
                     if _deliver(event, subscriber_org):
                         projected = _redact_ws_event(event)
-                        if not raw_reader or projected == event:
-                            # Below-grant, or the event carries no raw at all
-                            # (projected is identical) — no raw is released, so
-                            # no access audit. Send the event as-is / projected.
-                            await ws.send_json(event if projected == event else projected)
+                        if projected == event:
+                            # The event carries no raw at all — no grant needed,
+                            # no access audit. Send as-is.
+                            await ws.send_json(event)
+                        elif not await _covers_now():
+                            # Below grant NOW (never granted, or revoked/expired
+                            # since accept, F9) — send the projected frame.
+                            await ws.send_json(projected)
                         else:
                             # A grant-holder receiving a raw-bearing event: emit
                             # the release-boundary audit pair BEFORE the frame is
                             # sent, one pair per delivered raw event (§3.1). A
                             # failed audit degrades THIS frame to projected
                             # without closing the connection.
-                            assert repositories is not None  # raw_reader ⟹ repos
+                            assert repositories is not None  # covers_now ⟹ repos
                             released, _ = await decide_raw_release(
                                 repositories,
                                 raw_ok=True,

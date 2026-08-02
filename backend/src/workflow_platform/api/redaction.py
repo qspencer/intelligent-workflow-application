@@ -12,10 +12,17 @@ it without importing `api`. Re-exported here for the existing API callers.
 from __future__ import annotations
 
 from workflow_platform.trace_projection import (
+    has_redaction_marker,
     redact_error,
     redact_tool_data,
     safe_tool_call,
     safe_trigger_payload,
 )
 
-__all__ = ["redact_error", "redact_tool_data", "safe_tool_call", "safe_trigger_payload"]
+__all__ = [
+    "has_redaction_marker",
+    "redact_error",
+    "redact_tool_data",
+    "safe_tool_call",
+    "safe_trigger_payload",
+]

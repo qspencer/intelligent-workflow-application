@@ -144,6 +144,54 @@ async def test_f2_no_flip_keeps_error_inline() -> None:
     assert RAW_ERR in (step.error or "")  # dark dual-write keeps raw inline
 
 
+# --- F8: release audit reflects the ACTUAL retrieval outcome ---
+
+
+async def test_f8_release_outcome_is_honest_after_fetch() -> None:
+    from workflow_platform.api.raw_trace_audit import begin_raw_release, commit_raw_release
+
+    repos = in_memory_repositories()
+    rid, reason = await begin_raw_release(
+        repos,
+        raw_ok=True,
+        surface="detail",
+        actor_id="a",
+        instance_id="i",
+        kinds=["output", "error"],
+    )
+    assert rid is not None and reason is None
+    # some kinds missing → partial (NOT "released")
+    ok, r = await commit_raw_release(
+        repos,
+        request_id=rid,
+        surface="detail",
+        actor_id="a",
+        instance_id="i",
+        returned_kinds=["output"],
+        withheld_kinds=["error"],
+    )
+    assert ok and r == "partial"
+    # nothing retrieved → retrieval_failed
+    ok2, r2 = await commit_raw_release(
+        repos,
+        request_id=rid,
+        surface="detail",
+        actor_id="a",
+        instance_id="i",
+        returned_kinds=[],
+        withheld_kinds=["output", "error"],
+    )
+    assert ok2 and r2 == "retrieval_failed"
+    # the release_decided audit records the REAL outcome, never a false "released"
+    decided = [
+        e
+        for e in await repos.audit.list_by_instance("i")
+        if e.action == "raw_trace_release_decided"
+    ]
+    outcomes = {e.detail.get("outcome") for e in decided}
+    assert outcomes == {"partial", "retrieval_failed"} and "released" not in outcomes
+
+
 # --- F6: cipher binding at the rehydrator (substitution + downgrade) ---
 
 
