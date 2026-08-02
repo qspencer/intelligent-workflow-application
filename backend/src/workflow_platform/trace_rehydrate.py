@@ -20,6 +20,7 @@ import uuid
 from typing import Any
 
 from workflow_platform.persistence import AuditEntry, RawTrace, RawTraceKind, Repositories
+from workflow_platform.persistence.models import RAW_SCHEMA_VERSION
 from workflow_platform.trace_cipher import build_trace_cipher
 from workflow_platform.trace_vault import idempotency_key
 
@@ -51,18 +52,45 @@ class RawTraceRehydrator:
         # via the shared env master key). None = plaintext vault.
         self._cipher = build_trace_cipher()
 
-    def _payload_of(self, row: RawTrace) -> Any:
-        """The row's raw content — decrypted + integrity-verified when sealed
-        (the AEAD binds it to org/instance/attempt/kind, so a substituted or
-        edited row fails to open)."""
-        if self._cipher is not None and self._cipher.is_sealed(row.payload):
+    def _payload_of(
+        self,
+        row: RawTrace,
+        *,
+        org_id: str,
+        instance_id: str,
+        step_attempt_id: str | None,
+        kind: str,
+    ) -> Any:
+        """The row's raw content, bound to the EXPECTED identity the caller
+        asked for — never to metadata trusted from the row (external code
+        review 2026-08-02 F6). Two DB-operator attacks this closes:
+
+        - **Substitution:** the fetched row's `(org, instance, attempt, kind)`
+          MUST equal the expected tuple, else raise — a row moved under another
+          key is rejected.
+        - **Downgrade:** under encryption an unsealed payload is REJECTED (a DB
+          operator cannot slip plaintext past the cipher).
+
+        Decryption uses the EXPECTED tuple as AEAD associated data (+ the
+        constant schema version we sealed with), so a relabeled/wrong-org
+        ciphertext fails to open even if its stored metadata was tampered."""
+        if (row.org_id, row.instance_id, row.step_attempt_id, row.kind.value) != (
+            org_id,
+            instance_id,
+            step_attempt_id,
+            kind,
+        ):
+            raise RawTraceUnavailable(f"vault row identity mismatch for {kind}")
+        if self._cipher is not None:
+            if not self._cipher.is_sealed(row.payload):
+                raise RawTraceUnavailable("unsealed vault payload under encryption (downgrade)")
             return self._cipher.open(
                 row.payload,
-                org_id=row.org_id,
-                instance_id=row.instance_id,
-                step_attempt_id=row.step_attempt_id,
-                kind=row.kind.value,
-                schema_version=row.raw_schema_version,
+                org_id=org_id,
+                instance_id=instance_id,
+                step_attempt_id=step_attempt_id,
+                kind=kind,
+                schema_version=RAW_SCHEMA_VERSION,
             )
         return row.payload
 
@@ -148,7 +176,13 @@ class RawTraceRehydrator:
                 raise RawTraceUnavailable(
                     f"missing vault raw for {kind.value} of {step_attempt_id}"
                 )
-            merged[_OUTPUT_FIELD[kind]] = self._payload_of(row)
+            merged[_OUTPUT_FIELD[kind]] = self._payload_of(
+                row,
+                org_id=org_id,
+                instance_id=instance_id,
+                step_attempt_id=step_attempt_id,
+                kind=kind.value,
+            )
         await self._complete(request_id=request_id, instance_id=instance_id, outcome="succeeded")
         return merged
 
@@ -167,12 +201,26 @@ class RawTraceRehydrator:
             kinds=[RawTraceKind.TRIGGER_PAYLOAD.value],
         )
         row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
-        # A trigger with no vaulted row simply had no sensitive content — not
-        # a failure; the safe trigger is complete.
-        await self._complete(request_id=request_id, instance_id=instance_id, outcome="succeeded")
         if row is None:
+            # A trigger the projection MARKED as redacted but the vault lacks is
+            # a retrieval failure — must NOT resume on projected input while the
+            # audit says success (external code review 2026-08-02 F7). A trigger
+            # with no marker simply had no sensitive content.
+            if "_redacted" in safe_trigger:
+                await self._complete(
+                    request_id=request_id, instance_id=instance_id, outcome="retrieval_failed"
+                )
+                raise RawTraceUnavailable(f"missing vault raw for projected trigger of {instance_id}")
+            await self._complete(request_id=request_id, instance_id=instance_id, outcome="succeeded")
             return safe_trigger
-        opened = self._payload_of(row)
+        opened = self._payload_of(
+            row,
+            org_id=org_id,
+            instance_id=instance_id,
+            step_attempt_id=None,
+            kind=RawTraceKind.TRIGGER_PAYLOAD.value,
+        )
+        await self._complete(request_id=request_id, instance_id=instance_id, outcome="succeeded")
         return opened if isinstance(opened, dict) else safe_trigger
 
     async def merge_output(
@@ -189,7 +237,13 @@ class RawTraceRehydrator:
             key = idempotency_key(org_id, instance_id, step_attempt_id, kind)
             row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
             if row is not None:
-                merged[_OUTPUT_FIELD[kind]] = self._payload_of(row)
+                merged[_OUTPUT_FIELD[kind]] = self._payload_of(
+                    row,
+                    org_id=org_id,
+                    instance_id=instance_id,
+                    step_attempt_id=step_attempt_id,
+                    kind=kind.value,
+                )
         return merged
 
     async def merge_trigger(
@@ -200,7 +254,13 @@ class RawTraceRehydrator:
         key = idempotency_key(org_id, instance_id, None, RawTraceKind.TRIGGER_PAYLOAD)
         row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
         if row is not None:
-            opened = self._payload_of(row)
+            opened = self._payload_of(
+                row,
+                org_id=org_id,
+                instance_id=instance_id,
+                step_attempt_id=None,
+                kind=RawTraceKind.TRIGGER_PAYLOAD.value,
+            )
             if isinstance(opened, dict):
                 return opened
         return safe_trigger

@@ -1,5 +1,17 @@
 # Trace Governance — Design
 
+> ## ⚠️ EXTERNAL CODE REVIEW FAILED (2026-08-02) — major security revision required
+>
+> An external **code** review of the build (`e397b8b`) reproduced real bypasses.
+> **The delivered implementation does NOT satisfy Contract A or Contract B1**,
+> despite the "BUILT" / "validated end-to-end" statuses below (those describe
+> design completeness, not verified security). **Do not describe this as
+> "zero-raw at rest" or "DB-operator-resistant," and do not onboard an external
+> tenant, until remediation completes.** Ten critical findings + high-priority
+> issues; tracking in `docs/NEXT_STEPS.md` (G-Trace-Review). Fixed so far:
+> F6 (cipher identity binding) + F7 (trigger fail-open). The live-box posture
+> (flip + encryption) is likewise **not** delivering the claimed protection.
+
 Status: **architecture FROZEN (external review v4); narrow v5 + v6 fold the
 implementable-semantics corrections; no cut yet authorized.** Internal
 review folded (7 conditions). External reviews v1–v4 folded (v4 froze the

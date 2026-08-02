@@ -693,6 +693,63 @@ The reviewer executed the code against the contracts and found 6 items.
      satisfiable; these are not.
   Deferred within TG1: memory facts-mode-under-grant. Ship to an external org
   stays trigger-gated + needs the chosen B-contract in effect + these gates.
+
+### G-Trace-Review — external CODE review (2026-08-02) — **MAJOR REVISION, in progress**
+
+The code review of `e397b8b` reproduced real bypasses; **Contract A and B1 are
+NOT delivered.** Ten findings + high-priority issues. Each fix needs an
+adversarial regression test (`tests/test_trace_review_fixes.py`). Priority order
+and status:
+
+1. **Projector is default-ALLOW, not default-deny** — `redact_tool_data` only
+   redacts known keys; a no-tool step's `output_text` and any free-form/unknown
+   field (`{"summary": "...SSN..."}`) pass through, in the store AND the vault,
+   and the verifier certifies it clean. Needs a typed, versioned, default-deny
+   projector (unknown/free-form → vault). **OPEN — highest priority** (F1; also
+   defeats #4-verifier and part of #2).
+2. **Error text leaks + not projected** — `instance.error`/`step.error` +
+   `step_failed`/`workflow_failed` audit hold raw error below-grant and at rest
+   under the flip; the list endpoint returns `i.error` raw. Make error a
+   first-class raw kind (vault-before-persist, projected reads, asset-map +
+   migration columns). **OPEN.**
+3. **Memory introspection bypasses the grant** — `/api/memory/summary/{org}/{acct}`
+   facts render verbatim attacker-authored mail, role-gated only. Grant-gate +
+   release-audit facts mode; counts stay role-gated. **OPEN** (was the deferred
+   "facts-mode-under-grant").
+4. **Dual-control bypass via `tenant_authorized`** — approve accepts any
+   non-null string and skips the distinct-approver check; one admin
+   self-activates. Require a structured/authenticated tenant approval record,
+   distinct activator, scope-match. **OPEN.**
+5. **Grant activation not atomic** — check-then-set + partial index excludes
+   platform-wide (NULL org); two concurrent platform-wide grants both activate.
+   Needs a conditional/CAS activation + a normalized/discriminated scope key.
+   **OPEN.**
+6. **B1 cipher binding bypassable at the rehydrator** — decrypted with the
+   row's own metadata, and plaintext returned when unsealed → substitution +
+   downgrade by a DB operator. **FIXED** (verify expected tuple, decrypt with
+   expected AAD, reject unsealed; regression-tested).
+7. **Trigger rehydration fails open + false success** — a projected trigger
+   with no vault row returned projected input + audited `succeeded`. **FIXED**
+   (retrieval_failed + raise on the `_redacted` marker; regression-tested).
+8. **Release audit declares success before retrieval** — `release_decided`
+   committed with `released` + all kinds before the best-effort merge;
+   `raw_included:true` on missing rows. Reorder: fetch → determine
+   returned/withheld → `released|partial|retrieval_failed|integrity_failed` →
+   then release. **OPEN.**
+9. **WS auth cached for the connection** — `raw_reader` computed once pre-accept;
+   a revoked grant still gets raw frames. Re-evaluate per raw-bearing frame (or
+   a short-lived revocable permit). **OPEN.**
+10. **Verifier can certify nonzero-raw** — `limit=1000` cap, no error columns,
+    inherits #1's blind spots, hand-listed columns, backfill skips audit.
+    Exhaustive pagination + asset-map-driven inventory + errors/audit +
+    explicit unsupported-legacy category; fail the gate until covered. **OPEN.**
+
+Also: failure-ordering cleanup (durable-or-fail holds only on the happy path);
+`from.address` preserved below grant (project to opaque or reclassify);
+`ticket_ref`/`external_approval_ref` arbitrary strings (opaque id + existence
+check). Full report in the review; do NOT re-claim Contract A/B1 or "zero-raw"
+until 1–10 close + re-review.
+
 - **F4** the apply postcondition — already shipped (4fc8721), acknowledged.
 - **F5 (MED)** WS org resolution **fails closed** — a non-admin with no
   user row is rejected, not assigned "default". Pinned. *Gate:* OIDC
