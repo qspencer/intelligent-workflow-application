@@ -23,18 +23,17 @@ from typing import Any
 from workflow_platform.persistence import RawTrace, RawTraceKind, Repositories
 from workflow_platform.persistence.models import RAW_SCHEMA_VERSION
 from workflow_platform.trace_cipher import build_trace_cipher
+from workflow_platform.trace_projection import redact_tool_data
 
 logger = logging.getLogger(__name__)
 
-# Keys on an agentic step output that are RAW (default-deny for free-form).
-# `tool_calls` carries raw input/result; `output_text` is free-form model
-# text (taint: any raw-influenced output is raw); `recall` is third-party
-# correspondent history.
-_OUTPUT_RAW_KINDS: tuple[tuple[str, RawTraceKind], ...] = (
-    ("tool_calls", RawTraceKind.TOOL_CALLS),
-    ("output_text", RawTraceKind.MODEL_OUTPUT),
-    ("recall", RawTraceKind.RECALL),
-)
+
+def output_has_raw(output: dict[str, Any]) -> bool:
+    """Whether a step output carries anything the below-grant projection would
+    redact — i.e. whether it needs a vault object at all (external code review
+    2026-08-02 F1). Uses the SAME default-deny projector as the read surface,
+    so nothing the operational store would strip is left unvaulted."""
+    return bool(redact_tool_data(output, admin=False) != output)
 
 
 def idempotency_key(
@@ -52,17 +51,6 @@ def idempotency_key(
 
 def _empty(value: Any) -> bool:
     return value is None or value == "" or value == [] or value == {}
-
-
-def raw_kinds_of_output(output: dict[str, Any]) -> dict[RawTraceKind, Any]:
-    """The raw assets present in a step output (the parts a below-grant reader
-    must not see). Structured fields are left out — they are safe."""
-    found: dict[RawTraceKind, Any] = {}
-    for field, kind in _OUTPUT_RAW_KINDS:
-        value = output.get(field)
-        if not _empty(value):
-            found[kind] = value
-    return found
 
 
 class RawTraceVault:
@@ -137,15 +125,19 @@ class RawTraceVault:
         output: dict[str, Any],
         durable: bool = False,
     ) -> None:
-        for kind, payload in raw_kinds_of_output(output).items():
-            await self._record(
-                org_id=org_id,
-                instance_id=instance_id,
-                step_attempt_id=step_attempt_id,
-                kind=kind,
-                payload=payload,
-                durable=durable,
-            )
+        # Vault the FULL output (not per-field), so the default-deny projection
+        # is lossless — ANY redacted field is recoverable on rehydration (F1).
+        # A structured-only output with nothing to redact needs no vault row.
+        if not output_has_raw(output):
+            return
+        await self._record(
+            org_id=org_id,
+            instance_id=instance_id,
+            step_attempt_id=step_attempt_id,
+            kind=RawTraceKind.OUTPUT,
+            payload=output,
+            durable=durable,
+        )
 
     async def record_error(
         self,

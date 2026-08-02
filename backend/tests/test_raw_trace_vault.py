@@ -11,7 +11,7 @@ from tests._bedrock_fakes import FakeBedrock, text_response, tool_use_response
 from workflow_platform.engine import FunctionRegistry, ToolCatalog, WorkflowEngine
 from workflow_platform.persistence import RawTraceKind, in_memory_repositories
 from workflow_platform.tools import Tool, ToolContext, ToolResult
-from workflow_platform.trace_vault import idempotency_key, raw_kinds_of_output
+from workflow_platform.trace_vault import idempotency_key, output_has_raw
 from workflow_platform.workflow import load_definition
 from workflow_platform.world import mock_world
 
@@ -70,23 +70,18 @@ def _definition() -> Any:
 # --- projector + key (pure) ---
 
 
-def test_projector_vaults_raw_leaves_structured() -> None:
-    kinds = raw_kinds_of_output(
-        {
-            "tool_calls": [{"name": "t"}],
-            "output_text": "free text",
-            "recall": "prior thread",
-            "category": "urgent",  # structured/safe — NOT vaulted
-            "cost_usd": 0.01,
-        }
+def test_output_has_raw_default_deny() -> None:
+    # DEFAULT-DENY (F1): any free-form / unknown field means the output needs a
+    # vault row — not just the three legacy kinds.
+    assert output_has_raw({"tool_calls": [{"name": "t"}]})
+    assert output_has_raw({"output_text": "free text"})
+    assert output_has_raw({"recall": "prior thread"})
+    assert output_has_raw({"summary": "arbitrary model prose"})  # unknown free-form
+    assert output_has_raw({"key_concepts": ["a", "b"]})  # arbitrary list
+    # purely structured/allowlisted output → nothing to redact → no vault row
+    assert not output_has_raw(
+        {"category": "urgent", "cost_usd": 0.01, "model": "m", "parse_ok": True}
     )
-    assert set(kinds) == {
-        RawTraceKind.TOOL_CALLS,
-        RawTraceKind.MODEL_OUTPUT,
-        RawTraceKind.RECALL,
-    }
-    # empty raw fields are skipped
-    assert raw_kinds_of_output({"tool_calls": [], "output_text": ""}) == {}
 
 
 def test_idempotency_key_is_collision_free() -> None:
@@ -116,18 +111,14 @@ async def test_run_dark_dual_writes_raw_and_keeps_inline() -> None:
     vault = await engine.repositories.raw_trace_vault.list_by_instance(instance.id)
     kinds = {v.kind for v in vault}
     assert RawTraceKind.TRIGGER_PAYLOAD in kinds
-    assert RawTraceKind.TOOL_CALLS in kinds
-    assert RawTraceKind.MODEL_OUTPUT in kinds
+    assert RawTraceKind.OUTPUT in kinds  # F1: the FULL output, one row per attempt
     # every vault row is keyed + stamped
     assert all(v.idempotency_key and v.projector_version for v in vault)
-    # the trigger row is instance-level; the output rows carry a step-attempt id
+    # the trigger row is instance-level; the output row carries a step-attempt id
     trigger_rows = [v for v in vault if v.kind is RawTraceKind.TRIGGER_PAYLOAD]
     assert trigger_rows and trigger_rows[0].step_attempt_id is None
-    assert all(
-        v.step_attempt_id is not None
-        for v in vault
-        if v.kind in (RawTraceKind.TOOL_CALLS, RawTraceKind.MODEL_OUTPUT)
-    )
+    output_rows = [v for v in vault if v.kind is RawTraceKind.OUTPUT]
+    assert output_rows and all(v.step_attempt_id is not None for v in output_rows)
 
     # DARK: the operational store is UNCHANGED — inline still holds the raw.
     assert instance.trigger_payload["body"] == TRIGGER_BODY

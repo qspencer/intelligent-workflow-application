@@ -3,11 +3,12 @@ the SAFE form of a raw payload — used at READ time as a role-aware backstop
 (re-exported by `api/redaction.py`) AND at WRITE time by the engine's
 safe-only flip (TG3b), so it lives in the domain layer, not under `api`.
 
-Three asset classes are projected, each with its own mechanism (they do NOT
-share keys, so one function can't cover all): tool-call input/result + a
-tool-bearing step's echoing `output_text`; the raw `trigger_payload`/`trigger`
-(routing fields kept, content stripped — F4); and the `recall` correspondent
-history (withheld — F1/F7).
+DEFAULT-DENY (external code review 2026-08-02 F1): a value survives a
+below-grant read only if it is a safe-by-type scalar or its key is in
+`_SAFE_KEYS` (engine/governance metadata or a validated enum). Free-form model
+output, recalled history, error text, and any unknown field are redacted —
+their raw lives in the vault. Tool-call lists and raw trigger payloads keep
+their structural projections (`safe_tool_call` / `safe_trigger_payload`).
 """
 
 from __future__ import annotations
@@ -15,28 +16,113 @@ from __future__ import annotations
 import json
 from typing import Any
 
-_REDACTED_OUTPUT = "[redacted — tool-bearing step output; admin-tier only]"
+_REDACTED_FIELD = "[redacted — raw-trace grant required]"
 _REDACTED_TRIGGER = "raw trigger payload withheld (raw-trace privilege only)"
-_REDACTED_RECALL = "[redacted — recalled correspondent history; raw-trace privilege only]"
 # Routing fields kept in a redacted trigger payload: IDs, never content
-# (subject/body/headers/arbitrary webhook fields are stripped).
+# (subject/body/headers/arbitrary webhook fields — AND the sender address,
+# external code review 2026-08-02 — are stripped).
 _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
+
+# DEFAULT-DENY allowlist (external code review 2026-08-02 F1). A value survives
+# a below-grant read ONLY because its key is here (engine-computed metadata,
+# structural/row identity, engine-authored governance fields, or a VALIDATED
+# closed-enum/numeric business field) — never because no redaction branch
+# recognized it. Everything else (free-form model strings, unknown keys,
+# arbitrary lists) is redacted; its raw lives in the vault. Numbers / bools /
+# null are safe by TYPE regardless of key. Erring toward OMITTING a key
+# over-redacts (safe); including a raw-bearing key would leak, so keep this to
+# fields that cannot carry model- or third-party-authored content.
+_SAFE_KEYS = frozenset(
+    {
+        # structural / row identity
+        "id",
+        "instance_id",
+        "step_id",
+        "step_attempt_id",
+        "workflow_id",
+        "workflow_instance_id",
+        "org_id",
+        "owner_user_id",
+        "state",
+        "attempt",
+        "created_at",
+        "started_at",
+        "completed_at",
+        "updated_at",
+        "last_seen_at",
+        "timestamp",
+        "expires_at",
+        "revoked_at",
+        # audit envelope / actor identity
+        "actor_type",
+        "actor_id",
+        "action",
+        "iss",
+        "sub",
+        # engine-computed run metadata (never model-authored)
+        "model",
+        "usage",
+        "memory_hash",
+        "recall_hash",
+        "parse_ok",
+        "memory_written",
+        "stop_reason",
+        "num_steps",
+        # engine-authored governance metadata (§2/§3/§5)
+        "surface",
+        "outcome",
+        "purpose",
+        "reason_code",
+        "scope",
+        "request_id",
+        "workload_identity",
+        "kinds",
+        "intended_kinds",
+        "released_kinds",
+        "withheld_kinds",
+        "principal_id",
+        "grant_id",
+        "approved_by",
+        "requested_by",
+        "revoked_by",
+        "approval_mode",
+        "raw_included",
+        "redaction_reason",
+        "org_bypass",
+        "era",
+        "schema_version",
+        "budget_action",
+        "content_hash",
+        # projector's own metadata
+        "_redacted",
+        "content_bytes",
+        "input_keys",
+        "result_ok",
+        "error_present",
+        "name",
+        "pinned",
+        "pin_overrides",
+        # VALIDATED closed-enum / numeric business classifications
+        "category",
+        "attention",
+        "complexity",
+        "needs_tests",
+        "document_type",
+        "relevance_bucket",
+    }
+)
 
 
 def safe_trigger_payload(payload: dict[str, Any]) -> dict[str, Any]:
     """A trigger payload (raw inbound mail / webhook body / file event) →
     routing fields only (TRACE_GOVERNANCE_PLAN §1, F4). `redact_tool_data`
-    is a no-op on a trigger payload — none of its keys are tool-call-shaped —
-    so a below-grant caller recovers the raw email via the instance detail
-    endpoint without this. Keeps message_id/thread_id/id (+ sender address)
-    so IDs stay visible; strips subject/body/headers/webhook content."""
+    keeps message_id/thread_id/id so IDs stay visible; strips subject / body /
+    headers / webhook content AND the sender address (external code review
+    2026-08-02: `from.address` is grant-gated, not safe operational metadata)."""
     safe: dict[str, Any] = {"_redacted": _REDACTED_TRIGGER}
     for key in _TRIGGER_ROUTING_KEYS:
         if key in payload:
             safe[key] = payload[key]
-    frm = payload.get("from")
-    if isinstance(frm, dict) and "address" in frm:
-        safe["from"] = {"address": frm["address"]}
     return safe
 
 
@@ -69,39 +155,42 @@ def safe_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
 
 
 def redact_tool_data(obj: Any, admin: bool) -> Any:
-    """admin=True → unchanged. Else redact raw tool data wherever it appears:
-    a `tool_calls` list (in a step output / step_completed detail) or a
-    single tool-call-shaped detail (a `tool_call` audit entry). Recurses so
-    nested `output` blocks are covered."""
+    """The below-grant projection (admin=True → unchanged). DEFAULT-DENY
+    (external code review 2026-08-02 F1): a value survives ONLY because it is
+    a safe-by-TYPE scalar (number/bool/null) or its key is in `_SAFE_KEYS` —
+    NOT because no redaction branch recognized it. So free-form model output
+    (`output_text`, `summary`, `reasoning`, …), recalled correspondent history
+    (`recall`), error text, and any unknown field are redacted, whether or not
+    the step used a tool. Recurses into nested dicts (context / step outputs /
+    audit details); tool-call lists and trigger payloads keep their existing
+    structural projections. IDEMPOTENT on already-safe data (a fixed point —
+    the verifier and backfill rely on it)."""
     if admin or not isinstance(obj, dict):
         return obj
-    out: dict[str, Any] = {}
-    used_tool = False
-    for k, v in obj.items():
-        if k == "tool_calls" and isinstance(v, list):
-            if v:
-                used_tool = True
-            out[k] = [safe_tool_call(c) if isinstance(c, dict) else c for c in v]
-        elif k in ("trigger_payload", "trigger") and isinstance(v, dict):
-            # Instance top-level `trigger_payload`, plus the `trigger` key in
-            # `context` and the `workflow_started` audit detail — all carry the
-            # raw inbound message (TRACE_GOVERNANCE_PLAN §1/§5a, F4).
-            out[k] = safe_trigger_payload(v)
-        elif k == "recall" and v:
-            # Third-party correspondent history injected into an agentic step;
-            # withheld entirely below the grant (F1/F7).
-            out[k] = _REDACTED_RECALL
-        elif isinstance(v, dict):
-            out[k] = redact_tool_data(v, admin)
-        else:
-            out[k] = v
-    if {"input", "result", "name"} <= out.keys() and "tool_calls" not in out:
-        return safe_tool_call(out)
-    # A tool-bearing step's FREE-TEXT output can echo a tool secret the model
-    # read (external review 2026-08-01, F3 round 3 — structural redaction of
-    # tool_calls isn't enough; the model may paraphrase the result into
-    # output_text). Withhold it below the raw-trace privilege whenever the
-    # step actually used a tool.
-    if used_tool and "output_text" in out:
-        out["output_text"] = _REDACTED_OUTPUT
-    return out
+    return _redact_dict(obj)
+
+
+def _redact_dict(obj: dict[str, Any]) -> dict[str, Any]:
+    # A single tool-call-shaped detail (a `tool_call` audit entry).
+    if {"input", "result", "name"} <= obj.keys() and "tool_calls" not in obj:
+        return safe_tool_call(obj)
+    return {k: _redact_value(k, v) for k, v in obj.items()}
+
+
+def _redact_value(key: str, value: Any) -> Any:
+    if key == "tool_calls" and isinstance(value, list):
+        return [safe_tool_call(c) if isinstance(c, dict) else _REDACTED_FIELD for c in value]
+    if key in ("trigger_payload", "trigger") and isinstance(value, dict):
+        # Raw inbound message (instance `trigger_payload`, `context.trigger`,
+        # the `workflow_started` audit detail) → routing IDs only.
+        return safe_trigger_payload(value)
+    if key in _SAFE_KEYS:
+        # Allowlisted: values under these keys are safe by construction
+        # (engine/governance metadata or a validated enum).
+        return value
+    if value is None or isinstance(value, (bool, int, float)):
+        return value  # safe by type
+    if isinstance(value, dict):
+        return _redact_dict(value)  # recurse structure; leaves are default-denied
+    # DEFAULT-DENY: free-form string, list, or any non-allowlisted value.
+    return _REDACTED_FIELD

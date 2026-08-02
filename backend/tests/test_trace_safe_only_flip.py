@@ -108,9 +108,8 @@ async def test_flip_operational_store_is_zero_raw_vault_has_raw() -> None:
     vault = await engine.repositories.raw_trace_vault.list_by_instance(instance.id)
     vblob = str([v.payload for v in vault])
     assert SECRET_IN in vblob and SECRET_OUT in vblob and TRIG in vblob
-    assert {RawTraceKind.TRIGGER_PAYLOAD, RawTraceKind.TOOL_CALLS, RawTraceKind.MODEL_OUTPUT} <= {
-        v.kind for v in vault
-    }
+    # F1: the full output is one OUTPUT row (containing tool_calls + output_text).
+    assert {RawTraceKind.TRIGGER_PAYLOAD, RawTraceKind.OUTPUT} <= {v.kind for v in vault}
 
 
 async def test_flip_projects_tool_call_audit_at_rest() -> None:

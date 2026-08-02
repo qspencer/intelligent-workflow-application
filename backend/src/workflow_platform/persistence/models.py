@@ -246,10 +246,11 @@ class RawTraceKind(StrEnum):
     """The raw asset a vault row holds (docs/TRACE_GOVERNANCE_PLAN.md §1/§4.1).
     Unknown kinds are default-deny → vault-only (§1.2), never operational."""
 
-    TOOL_CALLS = "tool_calls"
-    MODEL_OUTPUT = "model_output"  # free-form model text (taint, §1.1)
+    OUTPUT = "output"  # the FULL step output (default-deny lossless vault, F1)
+    TOOL_CALLS = "tool_calls"  # legacy per-kind (pre-F1 vault rows)
+    MODEL_OUTPUT = "model_output"  # legacy per-kind — free-form model text
     TRIGGER_PAYLOAD = "trigger_payload"
-    RECALL = "recall"
+    RECALL = "recall"  # legacy per-kind
     ERROR = "error"
 
 

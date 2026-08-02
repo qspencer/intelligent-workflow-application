@@ -29,12 +29,22 @@ logger = logging.getLogger(__name__)
 # The engine's narrow runtime identity for vault reads (not a human).
 WORKLOAD_IDENTITY = "engine"
 
-# Which output field each raw kind restores.
-_OUTPUT_FIELD: dict[RawTraceKind, str] = {
-    RawTraceKind.TOOL_CALLS: "tool_calls",
-    RawTraceKind.MODEL_OUTPUT: "output_text",
-    RawTraceKind.RECALL: "recall",
-}
+
+def _output_projected(obj: Any) -> bool:
+    """Whether a safe operational output was projected (so its full raw must be
+    rehydrated from the vault). True if ANY default-deny redaction marker
+    appears anywhere: a `[redacted …` string or a dict carrying `_redacted`
+    (a projected tool-call or trigger). F1: detects redaction of any field,
+    not just the three legacy kinds."""
+    if isinstance(obj, str):
+        return obj.startswith("[redacted")
+    if isinstance(obj, dict):
+        if "_redacted" in obj:
+            return True
+        return any(_output_projected(v) for v in obj.values())
+    if isinstance(obj, list):
+        return any(_output_projected(v) for v in obj)
+    return False
 
 
 class RawTraceUnavailable(Exception):
@@ -152,39 +162,35 @@ class RawTraceRehydrator:
         step_attempt_id: str,
         safe_output: dict[str, Any],
     ) -> dict[str, Any]:
-        """Return the full step output: the safe operational fields with the
-        raw kinds (tool_calls / output_text / recall) overlaid from the vault.
-        Audited + fail-closed; a projected-but-missing kind raises."""
-        kinds = [k for k in _OUTPUT_FIELD if _is_projected(safe_output, k)]
-        if not kinds:
+        """Return the FULL step output from the vault (F1: the vault holds the
+        whole raw output, so any default-deny-redacted field is restored, not
+        just tool_calls/output_text/recall). Audited + fail-closed; a projected
+        output whose vault object is missing raises."""
+        if not _output_projected(safe_output):
             return safe_output
         request_id = await self._begin(
             purpose=purpose,
             org_id=org_id,
             instance_id=instance_id,
             step_attempt_id=step_attempt_id,
-            kinds=[k.value for k in kinds],
+            kinds=[RawTraceKind.OUTPUT.value],
         )
-        merged = dict(safe_output)
-        for kind in kinds:
-            key = idempotency_key(org_id, instance_id, step_attempt_id, kind)
-            row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
-            if row is None:
-                await self._complete(
-                    request_id=request_id, instance_id=instance_id, outcome="retrieval_failed"
-                )
-                raise RawTraceUnavailable(
-                    f"missing vault raw for {kind.value} of {step_attempt_id}"
-                )
-            merged[_OUTPUT_FIELD[kind]] = self._payload_of(
-                row,
-                org_id=org_id,
-                instance_id=instance_id,
-                step_attempt_id=step_attempt_id,
-                kind=kind.value,
+        key = idempotency_key(org_id, instance_id, step_attempt_id, RawTraceKind.OUTPUT)
+        row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        if row is None:
+            await self._complete(
+                request_id=request_id, instance_id=instance_id, outcome="retrieval_failed"
             )
+            raise RawTraceUnavailable(f"missing vault output for {step_attempt_id}")
+        full = self._payload_of(
+            row,
+            org_id=org_id,
+            instance_id=instance_id,
+            step_attempt_id=step_attempt_id,
+            kind=RawTraceKind.OUTPUT.value,
+        )
         await self._complete(request_id=request_id, instance_id=instance_id, outcome="succeeded")
-        return merged
+        return full if isinstance(full, dict) else safe_output
 
     async def rehydrate_trigger(
         self, *, purpose: str, org_id: str, instance_id: str, safe_trigger: dict[str, Any]
@@ -210,8 +216,12 @@ class RawTraceRehydrator:
                 await self._complete(
                     request_id=request_id, instance_id=instance_id, outcome="retrieval_failed"
                 )
-                raise RawTraceUnavailable(f"missing vault raw for projected trigger of {instance_id}")
-            await self._complete(request_id=request_id, instance_id=instance_id, outcome="succeeded")
+                raise RawTraceUnavailable(
+                    f"missing vault raw for projected trigger of {instance_id}"
+                )
+            await self._complete(
+                request_id=request_id, instance_id=instance_id, outcome="succeeded"
+            )
             return safe_trigger
         opened = self._payload_of(
             row,
@@ -232,19 +242,20 @@ class RawTraceRehydrator:
         projected field (the read degrades, it does not 500). A no-op when
         nothing is projected — so it's harmless under the default dark
         dual-write, where the operational row already holds raw."""
-        merged = dict(safe_output)
-        for kind in (k for k in _OUTPUT_FIELD if _is_projected(safe_output, k)):
-            key = idempotency_key(org_id, instance_id, step_attempt_id, kind)
-            row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
-            if row is not None:
-                merged[_OUTPUT_FIELD[kind]] = self._payload_of(
-                    row,
-                    org_id=org_id,
-                    instance_id=instance_id,
-                    step_attempt_id=step_attempt_id,
-                    kind=kind.value,
-                )
-        return merged
+        if not _output_projected(safe_output):
+            return safe_output
+        key = idempotency_key(org_id, instance_id, step_attempt_id, RawTraceKind.OUTPUT)
+        row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        if row is None:
+            return safe_output  # best-effort; the caller reports partial (F8)
+        full = self._payload_of(
+            row,
+            org_id=org_id,
+            instance_id=instance_id,
+            step_attempt_id=step_attempt_id,
+            kind=RawTraceKind.OUTPUT.value,
+        )
+        return full if isinstance(full, dict) else safe_output
 
     async def merge_trigger(
         self, *, org_id: str, instance_id: str, safe_trigger: dict[str, Any]
@@ -264,20 +275,3 @@ class RawTraceRehydrator:
             if isinstance(opened, dict):
                 return opened
         return safe_trigger
-
-
-def _is_projected(safe_output: dict[str, Any], kind: RawTraceKind) -> bool:
-    """Whether the safe operational output has this raw kind projected out
-    (so it must be rehydrated). A tool-call list projected to metadata, a
-    withheld `output_text`, or a redacted `recall` marker all qualify."""
-    field = _OUTPUT_FIELD[kind]
-    value = safe_output.get(field)
-    if value is None:
-        return False
-    if kind is RawTraceKind.TOOL_CALLS and isinstance(value, list):
-        return any(isinstance(c, dict) and "_redacted" in c for c in value)
-    if kind is RawTraceKind.MODEL_OUTPUT and isinstance(value, str):
-        return value.startswith("[redacted")
-    if kind is RawTraceKind.RECALL and isinstance(value, str):
-        return value.startswith("[redacted")
-    return False
