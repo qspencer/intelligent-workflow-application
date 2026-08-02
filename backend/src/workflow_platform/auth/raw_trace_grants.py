@@ -17,6 +17,7 @@ NULL-scope case — logged here rather than silently assumed.
 
 from __future__ import annotations
 
+import os
 from datetime import UTC, datetime
 
 from workflow_platform.persistence import RawTraceGrant, Repositories
@@ -73,8 +74,19 @@ def covering_grant(
 
 
 class RawTraceGrantService:
-    def __init__(self, repositories: Repositories) -> None:
+    def __init__(
+        self, repositories: Repositories, require_dual_control: bool | None = None
+    ) -> None:
         self._repos = repositories
+        # Dual-control ENFORCEMENT gate (external-org posture, §2.1): when on,
+        # NO raw grant activates on a single Administrator — even an org-scoped
+        # grant must be requested by one Admin and approved by a distinct
+        # second. Default reads `WORKFLOW_PLATFORM_RAW_GRANT_DUAL_CONTROL`.
+        if require_dual_control is None:
+            require_dual_control = os.environ.get(
+                "WORKFLOW_PLATFORM_RAW_GRANT_DUAL_CONTROL", ""
+            ).lower() in ("1", "true", "yes")
+        self._dual_control = require_dual_control
 
     async def _audit(
         self,
@@ -148,7 +160,9 @@ class RawTraceGrantService:
             external_approval_ref=external_approval_ref,
             state=RawTraceGrantState.PENDING,
         )
-        if not is_platform:
+        if not is_platform and not self._dual_control:
+            # Single-control (default): the distinct issuing Administrator IS
+            # the authorization — activate immediately.
             await self._clear_stale_active(principal_id, org_id, now, requested_by)
             grant.state = RawTraceGrantState.ACTIVE
             grant.approved_by = requested_by
@@ -156,6 +170,8 @@ class RawTraceGrantService:
             await self._repos.raw_trace_grants.create(grant)
             await self._audit(requested_by, "raw_grant_granted", grant, {"org_scoped": True})
             return grant
+        # Dual-control enforced (or platform-wide): stays PENDING until a
+        # distinct second Administrator approves (§2.1).
         if (
             approval_mode is RawTraceApprovalMode.TENANT_AUTHORIZED
             and external_approval_ref is None

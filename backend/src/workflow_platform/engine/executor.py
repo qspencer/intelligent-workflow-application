@@ -55,7 +55,11 @@ from workflow_platform.persistence.models import _new_id, _utcnow
 from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.security.capabilities import ResolvedCapabilities
 from workflow_platform.tools import Tool, ToolContext
-from workflow_platform.trace_projection import redact_tool_data, safe_trigger_payload
+from workflow_platform.trace_projection import (
+    redact_tool_data,
+    safe_tool_call,
+    safe_trigger_payload,
+)
 from workflow_platform.trace_rehydrate import RawTraceRehydrator
 from workflow_platform.trace_vault import RawTraceVault
 from workflow_platform.workflow import (
@@ -1229,19 +1233,26 @@ class WorkflowEngine:
         result = await agent.run(user_message, context=tool_ctx)
 
         for call in result.tool_calls:
+            call_detail: dict[str, Any] = {
+                "name": call.name,
+                "input": call.input,
+                "result": call.result,
+                "pinned": call.pinned,
+                "pin_overrides": call.pin_overrides,
+            }
+            # Under the safe-only flip, the tool_call audit entry is projected
+            # at rest too (TG3b.3) — the raw input/result is recoverable from
+            # this step-attempt's vaulted output.tool_calls (grant-gated, via
+            # explain). Old entries are append-only and stay as they were.
+            if self.trace_safe_only:
+                call_detail = safe_tool_call(call_detail)
             await self._audit(
                 "tool_call",
                 actor_type="agent",
                 actor_id=agent_id,
                 instance_id=instance_id,
                 step_id=step.id,
-                detail={
-                    "name": call.name,
-                    "input": call.input,
-                    "result": call.result,
-                    "pinned": call.pinned,
-                    "pin_overrides": call.pin_overrides,
-                },
+                detail=call_detail,
             )
             # A model that tried to set a pinned param to a different value
             # is probing the action surface — audit it as its own signal.

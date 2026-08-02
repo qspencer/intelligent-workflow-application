@@ -113,6 +113,18 @@ async def test_flip_operational_store_is_zero_raw_vault_has_raw() -> None:
     }
 
 
+async def test_flip_projects_tool_call_audit_at_rest() -> None:
+    engine = _engine(safe_only=True)
+    instance = await engine.run(_one_step(), trigger_payload={"body": TRIG})
+    audit = await engine.repositories.audit.list_by_instance(instance.id)
+    tcs = [e for e in audit if e.action == "tool_call"]
+    assert tcs  # the leaky tool was called
+    for e in tcs:
+        assert SECRET_IN not in str(e.detail)  # raw input projected out at rest
+        assert e.detail.get("_redacted")  # safe_tool_call metadata marker
+        assert e.detail.get("input_keys") == ["body"]  # keys survive, values don't
+
+
 async def test_default_off_keeps_inline_raw() -> None:
     engine = _engine(safe_only=False)
     instance = await engine.run(_one_step(), trigger_payload={"body": TRIG})

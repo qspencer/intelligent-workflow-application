@@ -178,6 +178,24 @@ async def test_tenant_authorized_requires_artifact() -> None:
     assert active.external_approval_ref == "tenant-approval-123"
 
 
+async def test_dual_control_forces_org_grant_through_a_second_admin() -> None:
+    """Enforcement gate (§2.1): with dual-control on, even an ORG-scoped grant
+    does not activate on a single Administrator — it needs a distinct second."""
+    svc = RawTraceGrantService(in_memory_repositories(), require_dual_control=True)
+    grant = await svc.request(
+        principal_id=PRINCIPAL, org_id="org1", requested_by=ADMIN_A, reason_code=DEBUG, now=NOW
+    )
+    assert grant.state is RawTraceGrantState.PENDING  # not immediately active
+    assert await svc.covering(principal_id=PRINCIPAL, target_org="org1", now=NOW) is None
+    # the requester cannot self-approve
+    with pytest.raises(ApproverConflict):
+        await svc.approve(grant_id=grant.id, approved_by=ADMIN_A, now=NOW)
+    # a distinct second Administrator activates it
+    active = await svc.approve(grant_id=grant.id, approved_by=ADMIN_B, now=NOW)
+    assert active.state is RawTraceGrantState.ACTIVE
+    assert await svc.covering(principal_id=PRINCIPAL, target_org="org1", now=NOW) is not None
+
+
 async def test_lifecycle_is_audited() -> None:
     repos = in_memory_repositories()
     svc = RawTraceGrantService(repos)

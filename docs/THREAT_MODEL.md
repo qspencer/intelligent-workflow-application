@@ -171,6 +171,40 @@ host-administrator disclosure, the intra-org authorization boundary
 (§5), and resource-exhaustion limits (§9). "Gate" means done-before-
 crossing, not considered-after.
 
+**Amendment (2026-08-02) — the raw-content trust assumption is NARROWED by
+the trace-governance boundary (TRACE_GOVERNANCE_PLAN, TG1–TG3d-1).** The
+blanket "Administrator + host operator read everything raw" no longer holds
+for raw trace content (mail bodies, tool I/O, recalled history) once the
+boundary is enabled:
+
+- **Administrator ≠ raw reader.** Raw-trace access is a per-user grant
+  (`can_read`… via `raw_trace_grants`), default-off even for Administrators;
+  under the dual-control enforcement gate (`WORKFLOW_PLATFORM_RAW_GRANT_DUAL_CONTROL`)
+  no single Administrator can activate a raw grant. So an Administrator manages
+  the platform but does not, by role, read tenant raw content.
+- **DB / backup operator ≠ raw reader (Contract B1).** With the safe-only flip
+  (`WORKFLOW_PLATFORM_TRACE_SAFE_ONLY`) + per-org envelope encryption
+  (`WORKFLOW_PLATFORM_TRACE_MASTER_KEY`) enabled, the operational tables hold
+  only the safe projection and the vault holds ciphertext — a database dump or
+  backup reveals no raw plaintext without the key, which lives outside the DB.
+- **Residual (Contract B1, NOT B2):** the *infrastructure* operator running the
+  engine can still reach the derived key at decrypt time (process memory /
+  runtime identity). So the honest post-boundary claim is **DB-operator-
+  resistant, infra-operator-trusted.** Host-operator resistance (B2 — attested
+  runtime / external key release) is a separate infrastructure design, not yet
+  built. And the append-only `audit_log.detail` `tool_call` entries written
+  *before* the flip remain raw at rest (append-only history; read-protected by
+  the grant) — new ones are projected.
+
+**Gate wiring status:** the mechanism (grant + flip + encryption + dual-control)
+is built and validated end-to-end (a live two-org dry-run, 2026-08-02). The row
+`| Compromised Administrator |` and `| Host / DB / backup operator |` in §3
+read "trusted today" for the DEFAULT posture; when the B1 env toggles are set
+they narrow to the amendment above. Provisioning a real external tenant still
+requires the remaining §5a release gates (secret-manager, backup encryption,
+G22 inventory, intra-org boundary, resource limits) — the trace boundary is one
+of them, now satisfiable.
+
 ## 6. Authentication & session surface
 
 `dev` (headers; inert outside dev mode — pinned) · `local` (Argon2id

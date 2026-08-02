@@ -6,6 +6,7 @@ instance-detail read; a below-grant reader still gets the projection."""
 from __future__ import annotations
 
 import asyncio
+import json
 from typing import Any, ClassVar
 
 import pytest
@@ -113,3 +114,16 @@ def test_below_grant_still_projected_under_flip(monkeypatch: pytest.MonkeyPatch)
     assert body["raw_included"] is False
     blob = str(body)
     assert SECRET_IN not in blob and SECRET_OUT not in blob and TRIG not in blob
+
+
+def test_explain_rehydrates_tool_call_raw_under_flip(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Under the flip the tool_call audit is projected at rest; explain rebuilds
+    a grant-holder's per-call raw input from the vaulted step output (TG3b.3)."""
+    client, iid = _setup(monkeypatch)
+    granted = client.get(
+        f"/api/workflow-instances/{iid}/steps/act/explain", headers=_GRANTED
+    ).json()
+    tcs = granted["tool_calls"]
+    assert tcs and any(SECRET_IN in json.dumps(c) for c in tcs)  # raw input restored
+    below = client.get(f"/api/workflow-instances/{iid}/steps/act/explain", headers=_BELOW).json()
+    assert SECRET_IN not in json.dumps(below)  # projected for below-grant

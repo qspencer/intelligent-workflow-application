@@ -1760,17 +1760,38 @@ def build_router(
             instance_id=instance_id,
             kinds=("tool_calls", "output_text"),
         )
-        tool_calls = [
-            {
-                "name": a.detail.get("name"),
-                "input": _excerpt(a.detail.get("input")) if released else None,
-                "result": _excerpt(a.detail.get("result")) if released else None,
-                "timestamp": _iso(a.timestamp),
-                **({} if released else {"_redacted": "raw-trace grant only"}),
-            }
-            for a in audit
-            if a.action == "tool_call"
-        ]
+        audit_tcs = [a for a in audit if a.action == "tool_call"]
+        # Under the flip the tool_call audit entries are projected at rest, so a
+        # grant-holder's raw input/result comes from THIS step-attempt's vaulted
+        # output.tool_calls (rehydrated + decrypted, in call order). Under the
+        # default dark dual-write the audit detail still holds raw and
+        # merge_output is a no-op — either way `raw_tcs[i]` aligns with the
+        # i-th tool_call audit entry.
+        raw_tcs: list[Any] = []
+        if released:
+            merged = await rehydrator.merge_output(
+                org_id=instance.org_id,
+                instance_id=instance_id,
+                step_attempt_id=exe.id,
+                safe_output=output,
+            )
+            raw_tcs = merged.get("tool_calls") or []
+        tool_calls = []
+        for i, a in enumerate(audit_tcs):
+            fallback = raw_tcs[i] if i < len(raw_tcs) and isinstance(raw_tcs[i], dict) else {}
+            tool_calls.append(
+                {
+                    "name": a.detail.get("name"),
+                    "input": _excerpt(a.detail.get("input", fallback.get("input")))
+                    if released
+                    else None,
+                    "result": _excerpt(a.detail.get("result", fallback.get("result")))
+                    if released
+                    else None,
+                    "timestamp": _iso(a.timestamp),
+                    **({} if released else {"_redacted": "raw-trace grant only"}),
+                }
+            )
         # F3 round 3: a tool-bearing step's output_text can echo a tool
         # secret — withhold it below the raw-trace privilege.
         step_used_tool = bool(tool_calls)
