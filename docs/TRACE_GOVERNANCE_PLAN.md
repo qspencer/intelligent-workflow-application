@@ -83,12 +83,33 @@ untouched); the default flips at the gate. Projection extracted to a domain
 `trace_projection` module first (engine must not import `api`).
 `test_trace_safe_only_flip.py`.
 
-**TG3b PART 3 (completing pieces) — next.** Read-surface raw-merge so
-grant-holders regain raw via the API under the flip (rehydrate-on-release, a
-no-op under default) + per-call `tool_call` audit-at-rest projection + the
-finalized dependency manifest (§5.1). All raw stays read-projected via
-TG1/TG2 meanwhile — no regression. Trigger to ship to an external org is
-unchanged (§0) and still requires the chosen B-contract (TG3d).
+**TG3b PART 3 BUILT (2026-08-01) — read-surface raw-merge.** Under the flip,
+the instance-detail read re-merges a grant-holder's raw from the vault
+(`RawTraceRehydrator.merge_output`/`merge_trigger`, no extra system-audit —
+the TG2 release path already audited); a no-op under the default.
+`test_trace_safe_only_read_merge.py`.
+
+**TG3c BUILT (2026-08-02) — backfill + zero-raw verifier.**
+`trace_migration.py`: the verifier (`find_raw_in_operational_store`) is
+STRUCTURAL (a record has raw iff projecting it changes it — the projection is
+now idempotent) and asset-map-driven; the backfill vaults inline raw durably +
+projects the rows in place, idempotent. `tools/trace_migration.py` CLI
+(`verify` = the gate, exit 1 on any raw; `backfill`). `test_trace_migration.py`.
+
+**TG3d-1 BUILT (2026-08-02) — Contract B1 (per-org envelope encryption).**
+`trace_cipher.py`: vault payloads are sealed with AES-256-GCM under a per-org
+HKDF-derived data key, AEAD-bound to (org, instance, attempt, kind, schema) so
+a substituted/edited/wrong-org row fails to open; activated by
+`WORKFLOW_PLATFORM_TRACE_MASTER_KEY` (else plaintext Contract-A vault). A DB
+dump holds ciphertext only; keys live outside the DB role. `RawTraceVault`
+seals on write, `RawTraceRehydrator` decrypts on read — no caller changes.
+`test_trace_cipher.py`.
+
+**Remaining:** per-call `tool_call` audit-at-rest projection + the finalized
+dependency manifest (§5.1); and **TG3d-2 (Contract B2 — host-operator
+resistance)**, which is its own infrastructure design (attested/enclaved
+runtime or external key release), NOT a code module. The external-org gate
+(§0) requires the chosen B-contract in effect and dual-control grants.
 
 The coupled design for the three F3 pre-external-organization gates the
 external code review left open after the read-surface redaction closed
@@ -812,9 +833,9 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
 | **TG3a** | typed registry (§1.2) + safe-output contract (§1.4) + vault-all-free-form + abstract vault repo/opaque IDs (§0.2) + schema (§4.1) + collision-free key; **DARK DUAL-WRITE** | A | **BUILT 2026-08-01** (same-DB; cross-system fencing §4.2 lands with the separate-vault B form at TG3d) |
 | **TG3b.1** | rehydration read-back (§4.3) + integrity + **system-access audit (§3.2)**, fail-closed | A | **BUILT 2026-08-01** (additive; validated against inline) |
 | **TG3b.2** | the write flip (flag-gated `trace_safe_only`): persist safe-only + durable-or-fail (§4.2) + rehydrate on resume/fork | A | **BUILT 2026-08-01** (default OFF; execution-state tables zero-raw at rest) |
-| **TG3b.3** | read-surface raw-merge for grant-holders under the flip + `tool_call` audit-at-rest projection + finalized dependency manifest (§5.1) | A | scoped, next |
-| **TG3c** | backfill + mixed-version cutover + zero-raw verifier + retention/expiry state (§5.1) + fork lineage + **cross-org-fork prohibition (§5.2)** | A | after §5.2 rule (done) |
-| **TG3d-1** | B1 boundary: per-org envelope encryption (keys outside the DB role, BYOK-ready `key_id`), AEAD-bound ciphertext, narrow decrypt identity; dual-control grant; THREAT_MODEL §5a amended (DB-operator-resistant, infra-operator-trusted residual) | **B1** | own design doc; the shippable external-org gate for a B1-accepting customer |
+| **TG3b.3** | read-surface raw-merge for grant-holders under the flip | A | **BUILT 2026-08-01** (tool_call audit-at-rest + manifest §5.1 remain) |
+| **TG3c** | backfill + zero-raw verifier (§8.14) + CLI | A | **BUILT 2026-08-02** (retention/expiry + manifest §5.1 remain; cross-org fork already structurally prohibited) |
+| **TG3d-1** | B1 boundary: per-org envelope encryption (keys outside the DB role), AEAD-bound ciphertext; dual-control grant + THREAT_MODEL §5a amendment remain for the gate | **B1** | **BUILT 2026-08-02** (crypto core; gate-wiring — dual-control + §5a — remains) |
 | **TG3d-2** | B2 boundary: move the decrypt identity into an attested/enclaved runtime OR external/customer-mediated key release; THREAT_MODEL §5a amended (host-operator-resistant) | **B2** | own threat-model + infra design; pulled forward when a customer contract requires operator-non-decrypt |
 
 **Sequencing invariant:** TG3a must not flip the operational store to
