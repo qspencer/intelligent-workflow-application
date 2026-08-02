@@ -1,0 +1,5 @@
+# Code-review handoff archives are binary + reproducible from their SHA
+# (see README.md). Track the README/manifest, not the tarballs.
+*.tar.gz
+*.tgz
+*.zip

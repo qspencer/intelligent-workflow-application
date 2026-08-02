@@ -677,7 +677,7 @@ The reviewer executed the code against the contracts and found 6 items.
   `main.py::_resolve_trace_master_key`, off-disk), which is itself a §5a
   release gate. **Validated live** (two-org dry-run + 1,340-instance backfill,
   2026-08-02); external CODE-review archive prepared
-  (`docs/TRACE_CODE_REVIEW_GUIDE.md` + `~/Documents/trace-governance-review-*.tar.gz`).
+  (`docs/TRACE_CODE_REVIEW_GUIDE.md`; archive in `docs/archives/`, see its README).
   **REMAINING before a real external tenant** (deferred, documented, waiting
   on an actual pull):
   1. **TG3d-2 (Contract B2 — host-operator resistance)** — attested/enclaved
