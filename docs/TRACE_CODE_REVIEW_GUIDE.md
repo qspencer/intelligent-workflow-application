@@ -6,6 +6,16 @@ adversarial review of the *implementation* — the security-critical surfaces
 below. Prior code-level reviews of this project found real bypasses in
 security code, so please execute and probe, not just read.
 
+> **Re-review (SHA `5e0d84b`, 2026-08-02).** The prior code review of `e397b8b`
+> reproduced ten real bypasses; all are now remediated. Start from
+> `backend/tests/test_trace_review_fixes.py` (one adversarial test per finding,
+> F1–F10) and the per-finding → commit map in `docs/NEXT_STEPS.md`
+> (G-Trace-Review). Please re-run the reproductions rather than trusting the
+> tests. Known residual (documented, not a bypass): append-only pre-flip
+> `audit_log` raw is *reported* by the verifier (gate fails on it) but not yet
+> encrypted/migrated; and the detail/explain partial-release signal is a coarse
+> marker-scan, not exact per-kind accounting.
+
 ## What the system protects, and the contract
 
 **Asset:** raw trace content — inbound mail bodies, tool-call input/result,
@@ -14,8 +24,10 @@ free-form model output, recalled correspondent history, error text.
 **Contracts (see `TRACE_GOVERNANCE_PLAN.md` §0.1):**
 - **A** — application governance: raw is grant-gated at every read surface.
 - **B1** — DB-operator resistance: with the flip + encryption on, the
-  operational store is projected (zero-raw at rest) and the vault holds
-  per-org AES-GCM ciphertext, key held outside the DB. **Built.**
+  operational store is projected (intended zero-raw at rest) and the vault
+  holds per-org AES-GCM ciphertext, key held outside the DB. **Built +
+  remediated; awaiting this re-review** — not to be claimed as delivered until
+  confirmed (the append-only `audit_log` residual above is the known gap).
 - **B2** — host-operator resistance: NOT built (infra design). The honest
   residual is *DB-operator-resistant, infra-operator-trusted*.
 
