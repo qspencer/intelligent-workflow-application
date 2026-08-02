@@ -43,7 +43,11 @@ def safe_trigger_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def safe_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
     """One tool-call record → non-sensitive metadata: parameter KEYS (not
     values), result status, and a content hash+size — never raw
-    input/result/error text."""
+    input/result/error text. IDEMPOTENT: an already-projected record (carries
+    `_redacted`) is returned unchanged, so `redact_tool_data` is a fixed point
+    on safe data (the zero-raw verifier and backfill rely on this)."""
+    if "_redacted" in tc:
+        return tc
     result = tc.get("result") or {}
     content = result.get("content")
     safe: dict[str, Any] = {
