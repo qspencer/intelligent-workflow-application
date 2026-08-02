@@ -22,6 +22,7 @@ import re
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 from typing import Any
 
@@ -56,6 +57,7 @@ from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.security.capabilities import ResolvedCapabilities
 from workflow_platform.tools import Tool, ToolContext
 from workflow_platform.trace_projection import (
+    REDACTED_ERROR,
     redact_tool_data,
     safe_tool_call,
     safe_trigger_payload,
@@ -555,15 +557,19 @@ class WorkflowEngine:
             )
             return instance
         except StepFailure as exc:
+            # str(exc) carries the RAW step error — treat it as a raw kind (F2).
+            stored = await self._store_instance_error(
+                context=context, instance_id=instance.id, error_msg=str(exc)
+            )
             instance = await self._mark_instance(
-                instance, WorkflowInstanceState.FAILED, context, error=str(exc)
+                instance, WorkflowInstanceState.FAILED, context, error=stored
             )
             await self._audit(
                 "workflow_failed",
                 actor_type="engine",
                 actor_id="workflow_engine",
                 instance_id=instance.id,
-                detail={"error": str(exc)},
+                detail={"error": stored},
             )
             return instance
         except Exception as exc:
@@ -571,15 +577,18 @@ class WorkflowEngine:
             # mark the instance FAILED — found live when a Bedrock
             # ValidationException stranded a run in RUNNING forever, which is
             # both invisible to retry and lies on the dashboard.
+            stored = await self._store_instance_error(
+                context=context, instance_id=instance.id, error_msg=f"unexpected: {exc}"
+            )
             instance = await self._mark_instance(
-                instance, WorkflowInstanceState.FAILED, context, error=f"unexpected: {exc}"
+                instance, WorkflowInstanceState.FAILED, context, error=stored
             )
             await self._audit(
                 "workflow_failed",
                 actor_type="engine",
                 actor_id="workflow_engine",
                 instance_id=instance.id,
-                detail={"error": str(exc), "unexpected": True},
+                detail={"error": stored, "unexpected": True},
             )
             return instance
 
@@ -958,6 +967,50 @@ class WorkflowEngine:
         if last_error is not None:
             raise last_error
 
+    async def _store_instance_error(
+        self, *, context: WorkflowContext, instance_id: str, error_msg: str
+    ) -> str:
+        """Instance-level counterpart of `_persist_step_failure` (F2): vault the
+        raw workflow error (durable under the flip) and return the marker the
+        operational instance row + audit should keep. Off the flip, unchanged."""
+        await self._vault.record_error(
+            org_id=context.org_id,
+            instance_id=instance_id,
+            step_attempt_id=None,
+            error=error_msg,
+            durable=self.trace_safe_only,
+        )
+        return REDACTED_ERROR if self.trace_safe_only else error_msg
+
+    async def _persist_step_failure(
+        self,
+        *,
+        execution: StepExecution,
+        context: WorkflowContext,
+        instance_id: str,
+        error_msg: str,
+        completed_at: datetime,
+    ) -> str:
+        """Persist a step's FAILED state, treating error text as a raw kind
+        (external code review 2026-08-02 F2). Under the flip the raw error is
+        vaulted DURABLY *before* any failure state is written — a lost vault
+        write raises here, so raw error can never be left behind — and the
+        operational store + audit keep only the marker (raw is grant-gated).
+        Returns what the audit detail should carry. Off the flip, unchanged."""
+        await self._vault.record_error(
+            org_id=context.org_id,
+            instance_id=instance_id,
+            step_attempt_id=execution.id,
+            error=error_msg,
+            durable=self.trace_safe_only,
+        )
+        stored = REDACTED_ERROR if self.trace_safe_only else error_msg
+        execution.state = StepExecutionState.FAILED
+        execution.error = stored
+        execution.completed_at = completed_at
+        await self.repositories.steps.update(execution)
+        return stored
+
     async def _run_step_once(
         self,
         step: DeterministicStep | AgenticStep,
@@ -988,17 +1041,13 @@ class WorkflowEngine:
             output = await self._dispatch_step(step, context, instance_id, capabilities)
         except (StepFailure, TimeoutError) as exc:
             error_msg = "step timeout" if isinstance(exc, TimeoutError) else str(exc)
-            execution.state = StepExecutionState.FAILED
-            execution.error = error_msg
             completed_at = _utcnow()
-            execution.completed_at = completed_at
-            await self.repositories.steps.update(execution)
-            await self._vault.record_error(
-                org_id=context.org_id,
+            stored = await self._persist_step_failure(
+                execution=execution,
+                context=context,
                 instance_id=instance_id,
-                step_attempt_id=execution.id,
-                error=error_msg,
-                durable=self.trace_safe_only,
+                error_msg=error_msg,
+                completed_at=completed_at,
             )
             self.metrics.step_finished(
                 step.type,
@@ -1011,7 +1060,7 @@ class WorkflowEngine:
                 actor_id=f"step:{step.id}",
                 instance_id=instance_id,
                 step_id=step.id,
-                detail={"error": error_msg, "attempt": attempt},
+                detail={"error": stored, "attempt": attempt},
             )
             raise StepFailure(error_msg) from exc
         except Exception as exc:
@@ -1021,11 +1070,14 @@ class WorkflowEngine:
             # `except Exception` deliberately excludes CancelledError, so a
             # sibling cancelled by this failure still becomes CANCELLED.
             error_msg = str(exc)
-            execution.state = StepExecutionState.FAILED
-            execution.error = error_msg
             completed_at = _utcnow()
-            execution.completed_at = completed_at
-            await self.repositories.steps.update(execution)
+            stored = await self._persist_step_failure(
+                execution=execution,
+                context=context,
+                instance_id=instance_id,
+                error_msg=error_msg,
+                completed_at=completed_at,
+            )
             self.metrics.step_finished(
                 step.type,
                 StepExecutionState.FAILED.value,
@@ -1037,7 +1089,7 @@ class WorkflowEngine:
                 actor_id=f"step:{step.id}",
                 instance_id=instance_id,
                 step_id=step.id,
-                detail={"error": error_msg, "attempt": attempt, "unexpected": True},
+                detail={"error": stored, "attempt": attempt, "unexpected": True},
             )
             raise
 

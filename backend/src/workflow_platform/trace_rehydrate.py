@@ -257,6 +257,27 @@ class RawTraceRehydrator:
         )
         return full if isinstance(full, dict) else safe_output
 
+    async def merge_error(
+        self, *, org_id: str, instance_id: str, step_attempt_id: str | None, safe_error: Any
+    ) -> Any:
+        """Read-surface overlay for a grant-holder: restore a step's raw error
+        text from the vault when the operational store holds only the marker
+        (F2, no system-access audit — the human release is audited on the
+        detail path). A no-op when the stored error isn't the marker."""
+        if not (isinstance(safe_error, str) and safe_error.startswith("[redacted")):
+            return safe_error
+        key = idempotency_key(org_id, instance_id, step_attempt_id, RawTraceKind.ERROR)
+        row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        if row is None:
+            return safe_error  # best-effort; caller reports partial (F8)
+        return self._payload_of(
+            row,
+            org_id=org_id,
+            instance_id=instance_id,
+            step_attempt_id=step_attempt_id,
+            kind=RawTraceKind.ERROR.value,
+        )
+
     async def merge_trigger(
         self, *, org_id: str, instance_id: str, safe_trigger: dict[str, Any]
     ) -> dict[str, Any]:

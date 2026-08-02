@@ -17,6 +17,8 @@ import json
 from typing import Any
 
 _REDACTED_FIELD = "[redacted — raw-trace grant required]"
+# Public alias for the write path (the flip stores this in place of raw error).
+REDACTED_ERROR = _REDACTED_FIELD
 _REDACTED_TRIGGER = "raw trigger payload withheld (raw-trace privilege only)"
 # Routing fields kept in a redacted trigger payload: IDs, never content
 # (subject/body/headers/arbitrary webhook fields — AND the sender address,
@@ -152,6 +154,17 @@ def safe_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
         # in ordinary-reader responses).
         safe["content_bytes"] = len(json.dumps(content, sort_keys=True, default=str).encode())
     return safe
+
+
+def redact_error(error: str | None, admin: bool) -> str | None:
+    """Error text is RAW (external code review 2026-08-02 F2 — it can echo tool
+    output or mail content). A grant-holder (admin=True) reads it unchanged;
+    below the grant it becomes the redaction marker (None stays None). Single
+    source of the marker for the read surfaces that carry a bare error string
+    (instance list, step explain)."""
+    if admin or error is None:
+        return error
+    return _REDACTED_FIELD
 
 
 def redact_tool_data(obj: Any, admin: bool) -> Any:

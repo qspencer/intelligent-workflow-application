@@ -33,7 +33,7 @@ from workflow_platform.api.raw_trace_audit import (
     SURFACE_EXPLAIN,
     decide_raw_release,
 )
-from workflow_platform.api.redaction import redact_tool_data
+from workflow_platform.api.redaction import redact_error, redact_tool_data
 from workflow_platform.auth import auth_mode, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.auth.provisioning import current_issuer
@@ -982,7 +982,9 @@ def build_router(
             "workflow_id": i.workflow_id,
             "org_id": i.org_id,
             "state": i.state.value,
-            "error": i.error,
+            # Error text is raw (F2); the bulk list never shows it — the full
+            # error is on the grant-gated detail endpoint.
+            "error": redact_error(i.error, admin=False),
             "created_at": _iso(i.created_at),
             "started_at": _iso(i.started_at),
             "completed_at": _iso(i.completed_at),
@@ -1037,6 +1039,12 @@ def build_router(
                 instance_id=instance_id,
                 safe_trigger=instance_dump.get("trigger_payload") or {},
             )
+            instance_dump["error"] = await rehydrator.merge_error(
+                org_id=instance.org_id,
+                instance_id=instance_id,
+                step_attempt_id=None,
+                safe_error=instance_dump.get("error"),
+            )
             for sd in step_dumps:
                 if isinstance(sd.get("output"), dict):
                     sd["output"] = await rehydrator.merge_output(
@@ -1045,6 +1053,12 @@ def build_router(
                         step_attempt_id=sd["id"],
                         safe_output=sd["output"],
                     )
+                sd["error"] = await rehydrator.merge_error(
+                    org_id=instance.org_id,
+                    instance_id=instance_id,
+                    step_attempt_id=sd["id"],
+                    safe_error=sd.get("error"),
+                )
         body: dict[str, Any] = {
             "instance": redact_tool_data(instance_dump, released),
             "steps": [redact_tool_data(sd, released) for sd in step_dumps],
@@ -1804,7 +1818,7 @@ def build_router(
             "kind": kind,
             "started_at": _iso(exe.started_at),
             "completed_at": _iso(exe.completed_at),
-            "error": exe.error,
+            "error": redact_error(exe.error, admin=released),
             "raw_included": released,
             **({"redaction_reason": reason} if reason is not None else {}),
         }

@@ -5,16 +5,27 @@ here as they land."""
 from __future__ import annotations
 
 import base64
+from typing import Any
 
 import pytest
 
-from workflow_platform.persistence import RawTrace, RawTraceKind, in_memory_repositories
+from tests._bedrock_fakes import FakeBedrock
+from workflow_platform.engine import FunctionRegistry, StepFailure, ToolCatalog, WorkflowEngine
+from workflow_platform.persistence import (
+    RawTrace,
+    RawTraceKind,
+    WorkflowInstanceState,
+    in_memory_repositories,
+)
 from workflow_platform.trace_cipher import ENV_MASTER_KEY
-from workflow_platform.trace_projection import redact_tool_data
+from workflow_platform.trace_projection import redact_error, redact_tool_data
 from workflow_platform.trace_rehydrate import RawTraceRehydrator, RawTraceUnavailable
 from workflow_platform.trace_vault import RawTraceVault, idempotency_key
+from workflow_platform.workflow import load_definition
+from workflow_platform.world import mock_world
 
 SECRET = "REVIEW-FIX-SECRET"
+RAW_ERR = "BOOM-RAW-ERROR-SENTINEL"
 _KEY = base64.b64encode(b"review-fixes-master-key-32-byte!").decode()
 
 
@@ -55,6 +66,75 @@ async def test_f1_redacted_field_is_vaulted_and_rehydrated_lossless() -> None:
         purpose="resume", org_id="o", instance_id="i", step_attempt_id="s", safe_output=safe
     )
     assert full["summary"] == SECRET  # lossless
+
+
+# --- F2: error text is a first-class raw kind ---
+
+
+async def _boom(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
+    raise StepFailure(RAW_ERR)
+
+
+def _failing_engine(*, safe_only: bool) -> WorkflowEngine:
+    engine = WorkflowEngine(
+        repositories=in_memory_repositories(),
+        functions=FunctionRegistry(),
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+        trace_safe_only=safe_only,
+    )
+    engine.functions.register("boom", _boom)
+    return engine
+
+
+def _failing_def() -> Any:
+    return load_definition(
+        {
+            "id": "wf",
+            "name": "wf",
+            "trigger": {"type": "manual"},
+            "steps": [{"id": "s", "type": "deterministic", "function": "boom"}],
+            "edges": [],
+        }
+    )
+
+
+def test_f2_redact_error_unit() -> None:
+    assert redact_error("boom", admin=True) == "boom"
+    assert redact_error(None, admin=False) is None
+    assert (redact_error("boom", admin=False) or "").startswith("[redacted")
+
+
+async def test_f2_flip_error_is_marker_at_rest_raw_in_vault() -> None:
+    engine = _failing_engine(safe_only=True)
+    inst = await engine.run(_failing_def(), trigger_payload={})
+    assert inst.state == WorkflowInstanceState.FAILED
+    # operational store (step + instance) holds only the marker — no raw at rest
+    step = (await engine.repositories.steps.list_by_instance(inst.id))[0]
+    assert step.error and RAW_ERR not in step.error
+    assert inst.error and RAW_ERR not in inst.error
+    # the raw error IS vaulted, and a grant-holder rehydrates it
+    rehy = RawTraceRehydrator(engine.repositories)
+    assert (
+        await rehy.merge_error(
+            org_id=inst.org_id, instance_id=inst.id, step_attempt_id=step.id, safe_error=step.error
+        )
+        == RAW_ERR
+    )
+    assert (
+        await rehy.merge_error(
+            org_id=inst.org_id, instance_id=inst.id, step_attempt_id=None, safe_error=inst.error
+        )
+        == RAW_ERR
+    )
+
+
+async def test_f2_no_flip_keeps_error_inline() -> None:
+    engine = _failing_engine(safe_only=False)
+    inst = await engine.run(_failing_def(), trigger_payload={})
+    step = (await engine.repositories.steps.list_by_instance(inst.id))[0]
+    assert RAW_ERR in (step.error or "")  # dark dual-write keeps raw inline
 
 
 # --- F6: cipher binding at the rehydrator (substitution + downgrade) ---

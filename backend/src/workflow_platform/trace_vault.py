@@ -144,7 +144,7 @@ class RawTraceVault:
         *,
         org_id: str,
         instance_id: str,
-        step_attempt_id: str,
+        step_attempt_id: str | None,
         error: str | None,
         durable: bool = False,
     ) -> None:
