@@ -21,7 +21,8 @@
 > folded (approval now binds the step REVISION under dual control, finite domains,
 > revocation lifecycle, full §1.3 justification); **it awaits external
 > re-approval, and P1's over-redaction STANDS until then.**
-> **P2 / P3a / P4 remain OPEN.**
+> **P2 is BUILT** (explain / escalations / dry-run / run-batch now route through
+> the grant + release audit + projector). **P3a / P4 remain OPEN.**
 >
 > The core findings need **four shared primitives, not more per-surface patches**
 > — and a design review established these are *build-conformance to the v6-frozen

@@ -30,6 +30,7 @@ from pydantic import ValidationError
 from workflow_platform.api.raw_trace_audit import (
     SURFACE_AUDIT,
     SURFACE_DETAIL,
+    SURFACE_ESCALATION,
     SURFACE_EXPLAIN,
     begin_raw_release,
     commit_raw_release,
@@ -112,6 +113,11 @@ def _sandbox_tool(original: Tool) -> Tool:
             )
 
     return _Sandboxed()
+
+
+# Shown in place of a raw field on a below-grant read (P2 — one marker across
+# every raw-capable surface: explain, escalations, dry-run, run-batch).
+_REDACTED_GRANT_ONLY = "[redacted — raw-trace grant required]"
 
 
 def _excerpt(value: Any, limit: int = 800) -> str | None:
@@ -895,8 +901,11 @@ def build_router(
                 # Isolate one row's failure so the rest of the batch still runs.
                 try:
                     inst = await eng.run(definition, trigger_payload=payload)
-                except Exception as exc:
-                    return {"index": index, "ok": False, "error": str(exc)}
+                except Exception:
+                    # P2: the exception text can carry raw (tool/provider
+                    # output). Report failure; the detail endpoint has the rest.
+                    logger.warning("run-batch row %s failed", index, exc_info=True)
+                    return {"index": index, "ok": False, "error": _REDACTED_GRANT_ONLY}
                 return {
                     "index": index,
                     "ok": True,
@@ -1008,7 +1017,10 @@ def build_router(
             "instance_id": instance.id,
             "state": instance.state.value,
             "dry_run": True,
-            "error": instance.error,
+            # P2: a failed dry run's error carries whatever the step raised —
+            # tool/provider text included. The full error is on the grant-gated
+            # instance-detail endpoint; this surface only reports failure.
+            "error": redact_error(instance.error, admin=False),
             "sandbox": "MockWorld; external tools (email/connector/browser) disabled; live Bedrock",
         }
 
@@ -1551,6 +1563,7 @@ def build_router(
     async def list_escalations(
         state: str = "pending",
         limit: int = 50,
+        user: UserIdentity = Depends(require_roles(*ANY_ROLE)),
         scope: OrgScope = Depends(_org_scope),
     ) -> list[dict[str, Any]]:
         # Walk the recent audit log; pair `escalation_requested` with
@@ -1573,18 +1586,35 @@ def build_router(
                 if await _instance_org(e.workflow_instance_id, org_cache) == scope.org_id:
                     scoped.append(e)
             requested = scoped
+        rows = requested[: max(1, min(limit, 200))]
+        # P2 (re-review finding 2): `reason` + `context` come from
+        # `request_human_review`, whose arguments an agent writes while reading
+        # hostile third-party content — they are raw, not operator metadata, and
+        # were previously returned in full to any Org Viewer. Grant-gate them.
+        released, reason_code = (False, None)
+        if rows:
+            released, reason_code = await decide_raw_release(
+                repositories,
+                raw_ok=await _raw_reader_for_org(user, scope.org_id),
+                surface=SURFACE_ESCALATION,
+                actor_id=user.sub,
+                instance_id=None,
+                kinds=("escalation_reason", "escalation_context"),
+            )
         return [
             {
                 "id": e.id,
                 "instance_id": e.workflow_instance_id,
                 "step_id": e.step_id,
                 "actor_id": e.actor_id,
-                "reason": e.detail.get("reason"),
-                "context": e.detail.get("context"),
+                "reason": e.detail.get("reason") if released else _REDACTED_GRANT_ONLY,
+                "context": redact_tool_data(e.detail.get("context"), released),
                 "created_at": e.timestamp.isoformat(),
                 "resolved": e.id in resolved_ids,
+                "raw_included": released,
+                **({"redaction_reason": reason_code} if reason_code else {}),
             }
-            for e in requested[: max(1, min(limit, 200))]
+            for e in rows
         ]
 
     @router.post("/escalations/{escalation_id}/resolve")
@@ -1905,10 +1935,6 @@ def build_router(
                     **({} if released else {"_redacted": "raw-trace grant only"}),
                 }
             )
-        # F3 round 3: a tool-bearing step's output_text can echo a tool
-        # secret — withhold it below the raw-trace privilege.
-        step_used_tool = bool(tool_calls)
-
         common: dict[str, Any] = {
             "instance_id": instance_id,
             "step_id": step_id,
@@ -1933,10 +1959,11 @@ def build_router(
                 "cost_usd": output.get("cost_usd"),
                 "goal": _excerpt(getattr(step_def, "goal", None)),
                 "system_prompt": _excerpt(getattr(step_def, "system_prompt", None)),
+                # P2/§1.1: free-form model output is raw BY TAINT — whether or
+                # not the step called a tool. The old `or not step_used_tool`
+                # released it to any below-grant reader (re-review finding 2).
                 "output_text": (
-                    _excerpt(output.get("output_text"))
-                    if (released or not step_used_tool)
-                    else "[redacted — tool-bearing step output; raw-trace grant only]"
+                    _excerpt(output.get("output_text")) if released else _REDACTED_GRANT_ONLY
                 ),
                 "tool_calls": tool_calls,
             }
@@ -1944,7 +1971,9 @@ def build_router(
             **common,
             "function": getattr(step_def, "function", None),
             "config": _excerpt(getattr(step_def, "config", None)),
-            "output": _excerpt(output),
+            # P2: a deterministic step's output is NOT automatically safe — it
+            # carries whatever the function returned. Project it below grant.
+            "output": _excerpt(redact_tool_data(output, released)),
         }
 
     return router

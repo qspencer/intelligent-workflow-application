@@ -172,7 +172,7 @@ _SAFE_FIELDS: dict[str, _Validator] = {
     "truncated": _boolean,
     "type": _opaque,
     # engine-authored governance metadata (§2/§3/§5)
-    "surface": _enum("detail", "explain", "audit", "ws", "memory"),
+    "surface": _enum("detail", "explain", "audit", "ws", "memory", "escalation", "dry_run"),
     "outcome": _opaque,
     "purpose": _opaque,
     "reason_code": _opaque,

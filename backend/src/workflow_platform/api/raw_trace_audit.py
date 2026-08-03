@@ -36,6 +36,9 @@ SURFACE_DETAIL = "detail"
 SURFACE_EXPLAIN = "explain"
 SURFACE_AUDIT = "audit"
 SURFACE_WS = "ws"
+SURFACE_MEMORY = "memory"
+SURFACE_ESCALATION = "escalation"
+SURFACE_DRY_RUN = "dry_run"
 
 ACCESS_AUDIT_UNAVAILABLE = "access_audit_unavailable"
 

@@ -768,12 +768,20 @@ plan already defers — must NOT gate the leak fix).
      identically, **NL scaffold forbidden from emitting the block**;
    - bounds ≤8 fields / ≤16 values / ≤32 chars; required closed-enum `purpose`;
    - `THREAT_MODEL` carries the bounded-channel known-gap row; criteria 37–41.
-2. **Total raw-surface inventory (P2)** — grant bypasses on surfaces the
-   projector never sees: step **explain** returns no-tool `output_text` +
-   deterministic `output` via `_excerpt`; **/api/escalations** returns
-   `reason`+`context`; **dry-run** + **run-batch** return `str(exc)`/`instance.error`.
-   Every raw-capable response field must route through the central grant +
-   release-audit + projector. **OPEN.**
+2. **Total raw-surface inventory (P2)** — **DONE.** Every reproduced bypass is
+   closed: step **explain** no longer releases a no-tool step's `output_text`
+   (free-form output is raw BY TAINT — the `or not step_used_tool` escape is
+   deleted) and projects a deterministic step's `output`; **/api/escalations**
+   grant-gates the agent-authored `reason` + `context` (they are written while
+   reading hostile mail, and were returned in full to any Org Viewer) with a new
+   `escalation` release surface + `raw_included`; **dry-run** projects
+   `instance.error` and **run-batch** no longer returns `str(exc)` (it logs and
+   returns the marker — the full error stays on the grant-gated detail
+   endpoint). 5 regression tests in `test_trace_surface_inventory.py`.
+   *Residual:* the inventory is enforced by these fixes + the default-deny
+   projector, not yet by a mechanical enumeration — a new endpoint returning a
+   raw field would still not be caught automatically. Worth a lint/test sweep
+   when P3a lands.
 3. **Rehydration validator (P3)** — integrity is inferred from redaction MARKERS,
    not the design's `project(raw)==stored` predicate: ABORTED vault rows are
    accepted; deleting a marker from an operational row bypasses vault access
