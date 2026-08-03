@@ -58,6 +58,13 @@ class WorkflowInstance(BaseModel):
     trigger_payload: dict[str, Any] = Field(default_factory=dict)
     context: dict[str, Any] = Field(default_factory=dict)
     error: str | None = None
+    # P3a (§4.1): set ONLY when this row was written as a PROJECTION (the
+    # safe-only flip). Its presence — not a redaction marker in the payload —
+    # is what tells rehydration the raw lives in the vault, so deleting a
+    # marker from the row can no longer bypass the vault fetch. None = the row
+    # was never projected.
+    projector_version: str | None = None
+    projection_schema_version: int | None = None
     created_at: datetime = Field(default_factory=_utcnow)
     started_at: datetime | None = None
     completed_at: datetime | None = None
@@ -74,6 +81,13 @@ class StepExecution(BaseModel):
     state: StepExecutionState = StepExecutionState.PENDING
     output: dict[str, Any] | None = None
     error: str | None = None
+    # P3a (§4.1): set ONLY when this row was written as a PROJECTION (the
+    # safe-only flip). Its presence — not a redaction marker in the payload —
+    # is what tells rehydration the raw lives in the vault, so deleting a
+    # marker from the row can no longer bypass the vault fetch. None = the row
+    # was never projected.
+    projector_version: str | None = None
+    projection_schema_version: int | None = None
     started_at: datetime | None = None
     completed_at: datetime | None = None
 

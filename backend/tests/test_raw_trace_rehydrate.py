@@ -15,6 +15,7 @@ from workflow_platform.api.redaction import redact_tool_data
 from workflow_platform.engine import FunctionRegistry, ToolCatalog, WorkflowEngine
 from workflow_platform.persistence import in_memory_repositories
 from workflow_platform.tools import Tool, ToolContext, ToolResult
+from workflow_platform.trace_projection import PROJECTOR_VERSION
 from workflow_platform.trace_rehydrate import RawTraceRehydrator, RawTraceUnavailable
 from workflow_platform.workflow import load_definition
 from workflow_platform.world import mock_world
@@ -88,6 +89,7 @@ async def test_projected_output_rehydrates_to_raw() -> None:
         instance_id=instance.id,
         step_attempt_id=act.id,
         safe_output=safe,
+        projector_version=PROJECTOR_VERSION,
     )
     # raw restored from the vault, matching the original inline output
     assert rehydrated["tool_calls"] == raw_output["tool_calls"]
@@ -111,6 +113,7 @@ async def test_missing_vault_row_fails_closed() -> None:
             instance_id=instance.id,
             step_attempt_id="no-such-attempt",  # no vault row for this attempt
             safe_output=safe,
+            projector_version=PROJECTOR_VERSION,
         )
     outcomes = [
         e.detail.get("outcome")
@@ -161,6 +164,7 @@ async def test_unrecordable_access_fails_closed_before_fetch() -> None:
             instance_id=instance.id,
             step_attempt_id=act.id,
             safe_output=safe,
+            projector_version=PROJECTOR_VERSION,
         )
     # the attempt audit failed → NO vault fetch happened (fail-closed before fetch)
     assert fetched == []

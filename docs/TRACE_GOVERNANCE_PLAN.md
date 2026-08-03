@@ -24,7 +24,10 @@
 > concretely frozen hashing. **It awaits external re-approval, and P1's
 > over-redaction STANDS until then.**
 > **P2 is BUILT** (explain / escalations / dry-run / run-batch now route through
-> the grant + release audit + projector). **P3a / P4 remain OPEN.**
+> the grant + release audit + projector). **P4 is BUILT** (grant + vault CAS).
+> **P3a is BUILT** (persisted projection stamp + the §4.3 agreement predicate).
+> All four primitives are now built; P3b (§5.1 manifest) stays deferred, and
+> **an external code re-review is required before re-claiming either contract.**
 >
 > The core findings need **four shared primitives, not more per-surface patches**
 > — and a design review established these are *build-conformance to the v6-frozen

@@ -44,6 +44,9 @@ class WorkflowInstanceRow(Base):
     trigger_payload: Mapped[dict[str, Any]] = mapped_column(JsonColumn, nullable=False)
     context: Mapped[dict[str, Any]] = mapped_column(JsonColumn, nullable=False)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # P3a (§4.1): stamped only when the row was written as a projection.
+    projector_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    projection_schema_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
@@ -70,6 +73,9 @@ class StepExecutionRow(Base):
     state: Mapped[str] = mapped_column(String(32), nullable=False, index=True)
     output: Mapped[dict[str, Any] | None] = mapped_column(JsonColumn, nullable=True)
     error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # P3a (§4.1): stamped only when the row was written as a projection.
+    projector_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    projection_schema_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

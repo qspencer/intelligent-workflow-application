@@ -57,6 +57,8 @@ from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.security.capabilities import ResolvedCapabilities
 from workflow_platform.tools import Tool, ToolContext
 from workflow_platform.trace_projection import (
+    PROJECTION_SCHEMA_VERSION,
+    PROJECTOR_VERSION,
     REDACTED_ERROR,
     redact_tool_data,
     safe_tool_call,
@@ -205,6 +207,7 @@ class WorkflowEngine:
             trigger_payload=stored_trigger,
             started_at=started,
         )
+        self._stamp_projection(instance)  # P3a: persisted stamp, not a marker
         instance = await self.repositories.instances.create(instance)
         # Vault the RAW trigger (durable under the flip — a lost write would
         # lose the only raw copy, so it must fail the run then).
@@ -331,6 +334,7 @@ class WorkflowEngine:
                     instance_id=source_instance_id,
                     step_attempt_id=source_attempt[step_id].id,
                     safe_output=safe_output,
+                    projector_version=source_attempt[step_id].projector_version,
                 )
 
         started = _utcnow()
@@ -967,6 +971,14 @@ class WorkflowEngine:
         if last_error is not None:
             raise last_error
 
+    def _stamp_projection(self, row: Any) -> None:
+        """P3a (§4.1): mark a row as WRITTEN-PROJECTED. Rehydration keys off
+        this persisted stamp, never a redaction marker in the payload — so an
+        operator deleting a marker cannot make resume/fork skip the vault."""
+        if self.trace_safe_only:
+            row.projector_version = PROJECTOR_VERSION
+            row.projection_schema_version = PROJECTION_SCHEMA_VERSION
+
     async def _store_instance_error(
         self, *, context: WorkflowContext, instance_id: str, error_msg: str
     ) -> str:
@@ -1005,6 +1017,7 @@ class WorkflowEngine:
             durable=self.trace_safe_only,
         )
         stored = REDACTED_ERROR if self.trace_safe_only else error_msg
+        self._stamp_projection(execution)
         execution.state = StepExecutionState.FAILED
         execution.error = stored
         execution.completed_at = completed_at
@@ -1108,6 +1121,7 @@ class WorkflowEngine:
         )
         execution.state = StepExecutionState.COMPLETED
         execution.output = redact_tool_data(output, admin=False) if self.trace_safe_only else output
+        self._stamp_projection(execution)
         completed_at = _utcnow()
         execution.completed_at = completed_at
         await self.repositories.steps.update(execution)
@@ -1569,6 +1583,7 @@ class WorkflowEngine:
                 instance_id=context.instance_id,
                 step_attempt_id=attempt.id,
                 safe_output=safe_output,
+                projector_version=attempt.projector_version,
             )
 
     async def _mark_instance(

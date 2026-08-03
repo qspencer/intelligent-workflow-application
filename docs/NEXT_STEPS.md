@@ -795,11 +795,23 @@ plan already defers — must NOT gate the leak fix).
    projector, not yet by a mechanical enumeration — a new endpoint returning a
    raw field would still not be caught automatically. Worth a lint/test sweep
    when P3a lands.
-3. **Rehydration validator (P3)** — integrity is inferred from redaction MARKERS,
-   not the design's `project(raw)==stored` predicate: ABORTED vault rows are
-   accepted; deleting a marker from an operational row bypasses vault access
-   entirely (resume/fork on tampered data); no state/schema/projector-version
-   check. **OPEN.**
+3. **Rehydration validator (P3a)** — **DONE.** Operational rows now carry a
+   PERSISTED projection stamp (`projector_version` + `projection_schema_version`,
+   Alembic `0011`), set by the engine when it writes a projection. Rehydration
+   keys off that stamp, never a redaction marker, so deleting a marker can no
+   longer make resume/fork skip the vault. After fetching,
+   `verify_projection_agreement` applies the FROZEN §4.3 predicate — re-project
+   the raw under the RECORDED version and require it to reproduce the stored
+   safe row; a mismatch audits `integrity_failed` and raises. `_payload_of` also
+   validates vault lifecycle state (an ABORTED/RESERVED row is rejected) and the
+   raw schema version. An unreproducible older projector returns `unsupported`
+   and degrades with an audited outcome rather than reading as corrupt
+   (criterion 17). 4 regression tests incl. both reviewer probes.
+   *Residual:* the read-surface `merge_output` still falls back to the marker
+   scan when a row has no stamp — required for the 1,340 backfilled rows, and
+   safe there because a miss only means a grant-holder's read does not merge,
+   with no effect on what the workflow executes on. **P3b (§5.1 dependency
+   manifest / `recovery_state`) stays deferred** per the design review.
 4. **DB compare-and-set for grant + vault lifecycle (P4)** — **DONE.** New
    `RawTraceGrantRepo.update_if(grant, expected_state)` is a real CAS in BOTH
    impls (Postgres `UPDATE … WHERE id=? AND state=?` requiring rowcount==1;

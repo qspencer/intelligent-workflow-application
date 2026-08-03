@@ -1108,6 +1108,7 @@ def build_router(
                         instance_id=instance_id,
                         step_attempt_id=sd["id"],
                         safe_output=sd["output"],
+                        projector_version=sd.get("projector_version"),
                     )
                 sd["error"] = await rehydrator.merge_error(
                     org_id=instance.org_id,
@@ -1127,6 +1128,7 @@ def build_router(
                 ctx_steps = ctx.get("steps")
                 if isinstance(ctx_steps, dict):
                     latest_attempt = {s.step_id: s.id for s in steps}
+                    stamp_by_step = {s.step_id: s.projector_version for s in steps}
                     for sid, out in list(ctx_steps.items()):
                         if isinstance(out, dict) and sid in latest_attempt:
                             ctx_steps[sid] = await rehydrator.merge_output(
@@ -1134,6 +1136,7 @@ def build_router(
                                 instance_id=instance_id,
                                 step_attempt_id=latest_attempt[sid],
                                 safe_output=out,
+                                projector_version=stamp_by_step.get(sid),
                             )
             # Which kinds actually came back: if a marker still remains after
             # merge, at least one vault object was missing (partial/failed).
@@ -1905,6 +1908,7 @@ def build_router(
                 instance_id=instance_id,
                 step_attempt_id=exe.id,
                 safe_output=output,
+                projector_version=exe.projector_version,
             )
             complete = not has_redaction_marker(merged)
             audit_ok, reason = await commit_raw_release(

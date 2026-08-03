@@ -46,6 +46,9 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # `error` and every other free-form field (raw by taint, §1.1).
 
 PROJECTOR_VERSION = "2"  # bumped: key-allowlist → validated field registry
+# The SHAPE contract of a safe projection (§4.1). Bumped when the projected
+# structure changes, independently of which fields the registry accepts.
+PROJECTION_SCHEMA_VERSION = 1
 
 # An approved opaque identifier: bounded, no whitespace, no prose. This is what
 # makes id/hash/model/action fields safe — a token of this shape cannot carry a

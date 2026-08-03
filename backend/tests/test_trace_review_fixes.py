@@ -30,7 +30,11 @@ from workflow_platform.persistence.models import (
     RawTraceReasonCode,
 )
 from workflow_platform.trace_cipher import ENV_MASTER_KEY
-from workflow_platform.trace_projection import redact_error, redact_tool_data
+from workflow_platform.trace_projection import (
+    PROJECTOR_VERSION,
+    redact_error,
+    redact_tool_data,
+)
 from workflow_platform.trace_rehydrate import RawTraceRehydrator, RawTraceUnavailable
 from workflow_platform.trace_vault import RawTraceVault, idempotency_key
 from workflow_platform.workflow import load_definition
@@ -154,7 +158,12 @@ async def test_f1_redacted_field_is_vaulted_and_rehydrated_lossless() -> None:
     safe = redact_tool_data(output, admin=False)
     assert safe["model"] == "claude-haiku-4-5" and SECRET not in str(safe)
     full = await RawTraceRehydrator(repos).rehydrate_output(
-        purpose="resume", org_id="o", instance_id="i", step_attempt_id="s", safe_output=safe
+        purpose="resume",
+        org_id="o",
+        instance_id="i",
+        step_attempt_id="s",
+        safe_output=safe,
+        projector_version=PROJECTOR_VERSION,
     )
     assert full["summary"] == SECRET  # lossless
 
@@ -535,3 +544,66 @@ async def test_p4_same_content_re_vault_is_still_idempotent() -> None:
     await vault.record_step_output(org_id="o", instance_id="i", step_attempt_id="s", output=out)
     await vault.record_step_output(org_id="o", instance_id="i", step_attempt_id="s", output=out)
     assert len(await repos.raw_trace_vault.list_by_instance("i")) == 1
+
+
+# --- P3a: rehydration validator (§4.3 predicate, not marker scans) ---
+
+
+async def test_p3a_deleting_a_marker_cannot_bypass_the_vault() -> None:
+    """The reviewer's probe: replacing a projected operational row with
+    marker-free content made rehydration skip the vault entirely and run on
+    the tampered value, with no system-access audit. The PERSISTED stamp — not
+    the payload's own content — now decides."""
+    repos = in_memory_repositories()
+    await RawTraceVault(repos).record_step_output(
+        org_id="o", instance_id="i", step_attempt_id="s", output={"summary": SECRET}, durable=True
+    )
+    tampered = {"summary": "operator-tampered-projection"}  # NO redaction marker
+    with pytest.raises(RawTraceUnavailable):  # disagreement → integrity failure
+        await RawTraceRehydrator(repos).rehydrate_output(
+            purpose="resume",
+            org_id="o",
+            instance_id="i",
+            step_attempt_id="s",
+            safe_output=tampered,
+            projector_version=PROJECTOR_VERSION,
+        )
+
+
+async def test_p3a_aborted_vault_row_is_rejected() -> None:
+    from workflow_platform.persistence.models import RawTraceState
+
+    repos = in_memory_repositories()
+    await RawTraceVault(repos).record_step_output(
+        org_id="o", instance_id="i", step_attempt_id="s", output={"summary": SECRET}, durable=True
+    )
+    row = (await repos.raw_trace_vault.list_by_instance("i"))[0]
+    row.state = RawTraceState.ABORTED
+    with pytest.raises(RawTraceUnavailable):
+        RawTraceRehydrator(repos)._payload_of(
+            row, org_id="o", instance_id="i", step_attempt_id="s", kind="output"
+        )
+
+
+def test_p3a_agreement_predicate() -> None:
+    from workflow_platform.trace_rehydrate import verify_projection_agreement
+
+    raw = {"summary": SECRET, "model": "claude-haiku-4-5"}
+    stored = redact_tool_data(raw, admin=False)
+    assert verify_projection_agreement(raw, stored, PROJECTOR_VERSION) == "ok"
+    assert verify_projection_agreement(raw, {"summary": "other"}, PROJECTOR_VERSION) == "mismatch"
+    # criterion 17: an older projector must NOT read as corrupt
+    assert verify_projection_agreement(raw, stored, "1") == "unsupported"
+
+
+async def test_p3a_unstamped_row_needs_no_vault() -> None:
+    # a row never written as a projection (dark dual-write) holds raw inline
+    out = await RawTraceRehydrator(in_memory_repositories()).rehydrate_output(
+        purpose="resume",
+        org_id="o",
+        instance_id="i",
+        step_attempt_id="s",
+        safe_output={"summary": SECRET},
+        projector_version=None,
+    )
+    assert out["summary"] == SECRET

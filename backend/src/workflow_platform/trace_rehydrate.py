@@ -20,8 +20,9 @@ import uuid
 from typing import Any
 
 from workflow_platform.persistence import AuditEntry, RawTrace, RawTraceKind, Repositories
-from workflow_platform.persistence.models import RAW_SCHEMA_VERSION
+from workflow_platform.persistence.models import RAW_SCHEMA_VERSION, RawTraceState
 from workflow_platform.trace_cipher import build_trace_cipher, is_sealed_payload
+from workflow_platform.trace_projection import PROJECTOR_VERSION, redact_tool_data
 from workflow_platform.trace_vault import idempotency_key
 
 logger = logging.getLogger(__name__)
@@ -50,6 +51,29 @@ def _output_projected(obj: Any) -> bool:
 class RawTraceUnavailable(Exception):
     """A required raw trace could not be read back (missing / audit-closed) —
     rehydration fails closed rather than returning projected content."""
+
+
+PROJECTION_UNSUPPORTED = "projector_version_unsupported"
+
+
+def verify_projection_agreement(
+    raw: Any, stored_safe: Any, recorded_projector_version: str | None
+) -> str:
+    """The FROZEN §4.3 predicate: `project(raw, recorded_version) == stored`.
+
+    Replaces the marker scan (re-review finding 3). Returns:
+      "ok"          — re-projecting the fetched raw reproduces the stored safe
+                      row exactly, so the pair is consistent;
+      "mismatch"    — it does NOT, i.e. the operational row was tampered with or
+                      the vault object does not belong to it → integrity failure;
+      "unsupported" — the row was written by a projector version this build
+                      cannot reproduce. NOT corrupt (criterion 17: a projector
+                      bump must not make pre-change rows read corrupt) — the
+                      caller degrades with an explicit audited outcome.
+    """
+    if recorded_projector_version != PROJECTOR_VERSION:
+        return "unsupported"
+    return "ok" if redact_tool_data(raw, admin=False) == stored_safe else "mismatch"
 
 
 class RawTraceRehydrator:
@@ -91,6 +115,15 @@ class RawTraceRehydrator:
             kind,
         ):
             raise RawTraceUnavailable(f"vault row identity mismatch for {kind}")
+        # P3a (§4.3): the object must be USABLE — a RESERVED/ABORTED row is not
+        # a committed write and must never be handed back as raw (re-review
+        # finding 3 reproduced acceptance of an ABORTED row).
+        if row.state is not RawTraceState.COMMITTED:
+            raise RawTraceUnavailable(f"vault row {row.id} is {row.state.value}, not committed")
+        if row.raw_schema_version != RAW_SCHEMA_VERSION:
+            raise RawTraceUnavailable(
+                f"vault row {row.id} raw_schema_version {row.raw_schema_version} unsupported"
+            )
         sealed = is_sealed_payload(row.payload)
         # F4 (re-review): sealed-ness is decided from the ROW, independent of
         # whether a cipher is configured. A sealed row with no key MUST fail
@@ -167,13 +200,17 @@ class RawTraceRehydrator:
         instance_id: str,
         step_attempt_id: str,
         safe_output: dict[str, Any],
+        projector_version: str | None = None,
     ) -> dict[str, Any]:
-        """Return the FULL step output from the vault (F1: the vault holds the
-        whole raw output, so any default-deny-redacted field is restored, not
-        just tool_calls/output_text/recall). Audited + fail-closed; a projected
-        output whose vault object is missing raises."""
-        if not _output_projected(safe_output):
-            return safe_output
+        """Return the FULL step output from the vault.
+
+        P3a (§4.3): whether raw is REQUIRED is decided by the row's PERSISTED
+        projection stamp (`projector_version`), never by scanning the payload
+        for markers — an operator who deletes a marker can no longer make this
+        skip the vault. After fetching, the raw is re-projected and compared
+        with the stored safe row; a mismatch is an integrity failure."""
+        if projector_version is None:
+            return safe_output  # never written as a projection → nothing vaulted
         request_id = await self._begin(
             purpose=purpose,
             org_id=org_id,
@@ -195,7 +232,22 @@ class RawTraceRehydrator:
             step_attempt_id=step_attempt_id,
             kind=RawTraceKind.OUTPUT.value,
         )
-        await self._complete(request_id=request_id, instance_id=instance_id, outcome="succeeded")
+        # §4.3 agreement: re-project the fetched raw under the RECORDED version
+        # and require it to reproduce the stored safe row.
+        verdict = verify_projection_agreement(full, safe_output, projector_version)
+        if verdict == "mismatch":
+            await self._complete(
+                request_id=request_id, instance_id=instance_id, outcome="integrity_failed"
+            )
+            raise RawTraceUnavailable(
+                f"projection disagreement for {step_attempt_id}: the operational row does not "
+                "match a re-projection of the vaulted raw"
+            )
+        await self._complete(
+            request_id=request_id,
+            instance_id=instance_id,
+            outcome="succeeded" if verdict == "ok" else PROJECTION_UNSUPPORTED,
+        )
         return full if isinstance(full, dict) else safe_output
 
     async def rehydrate_trigger(
@@ -240,15 +292,25 @@ class RawTraceRehydrator:
         return opened if isinstance(opened, dict) else safe_trigger
 
     async def merge_output(
-        self, *, org_id: str, instance_id: str, step_attempt_id: str, safe_output: dict[str, Any]
+        self,
+        *,
+        org_id: str,
+        instance_id: str,
+        step_attempt_id: str,
+        safe_output: dict[str, Any],
+        projector_version: str | None = None,
     ) -> dict[str, Any]:
         """Read-surface overlay for a grant-holder (TG3b.3). The HUMAN access
         is already audited via the release-boundary path (§3.1), so this emits
         NO system-access audit. Best-effort: a missing vault row leaves the
-        projected field (the read degrades, it does not 500). A no-op when
-        nothing is projected — so it's harmless under the default dark
-        dual-write, where the operational row already holds raw."""
-        if not _output_projected(safe_output):
+        projected field (the read degrades, it does not 500).
+
+        P3a: prefers the PERSISTED stamp, but falls back to the marker scan for
+        rows written before the stamp existed (the backfilled corpus carries no
+        `projector_version`). The fallback is acceptable HERE and not on the
+        execution path: a miss only means a grant-holder's read does not merge,
+        with no effect on what the workflow runs on."""
+        if projector_version is None and not _output_projected(safe_output):
             return safe_output
         key = idempotency_key(org_id, instance_id, step_attempt_id, RawTraceKind.OUTPUT)
         row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)

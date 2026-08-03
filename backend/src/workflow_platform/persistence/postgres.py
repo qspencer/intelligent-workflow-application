@@ -160,6 +160,8 @@ class PostgresInstanceRepo(InstanceRepo):
             row.trigger_payload = instance.trigger_payload
             row.context = instance.context
             row.error = instance.error
+            row.projector_version = instance.projector_version
+            row.projection_schema_version = instance.projection_schema_version
             row.started_at = instance.started_at
             row.completed_at = instance.completed_at
         return instance
@@ -242,6 +244,8 @@ class PostgresStepExecutionRepo(StepExecutionRepo):
             row.state = execution.state.value
             row.output = execution.output
             row.error = execution.error
+            row.projector_version = execution.projector_version
+            row.projection_schema_version = execution.projection_schema_version
             row.started_at = execution.started_at
             row.completed_at = execution.completed_at
         return execution
@@ -759,6 +763,8 @@ def _to_instance_row(instance: WorkflowInstance) -> WorkflowInstanceRow:
         trigger_payload=instance.trigger_payload,
         context=instance.context,
         error=instance.error,
+        projector_version=instance.projector_version,
+        projection_schema_version=instance.projection_schema_version,
         created_at=instance.created_at,
         started_at=instance.started_at,
         completed_at=instance.completed_at,
@@ -774,6 +780,8 @@ def _from_instance_row(row: WorkflowInstanceRow) -> WorkflowInstance:
         trigger_payload=_as_dict(row.trigger_payload),
         context=_as_dict(row.context),
         error=row.error,
+        projector_version=row.projector_version,
+        projection_schema_version=row.projection_schema_version,
         created_at=row.created_at,
         started_at=row.started_at,
         completed_at=row.completed_at,
@@ -789,6 +797,8 @@ def _to_step_row(execution: StepExecution) -> StepExecutionRow:
         state=execution.state.value,
         output=execution.output,
         error=execution.error,
+        projector_version=execution.projector_version,
+        projection_schema_version=execution.projection_schema_version,
         started_at=execution.started_at,
         completed_at=execution.completed_at,
     )
@@ -803,6 +813,8 @@ def _from_step_row(row: StepExecutionRow) -> StepExecution:
         state=row.state,
         output=_as_dict(row.output) if row.output is not None else None,
         error=row.error,
+        projector_version=row.projector_version,
+        projection_schema_version=row.projection_schema_version,
         started_at=row.started_at,
         completed_at=row.completed_at,
     )
