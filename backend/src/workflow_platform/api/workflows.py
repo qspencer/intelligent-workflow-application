@@ -580,7 +580,7 @@ def build_router(
             truncated = True
         if release_request_id is not None:
             facts_released = mode == "categories" and not truncated
-            await commit_raw_release(
+            audit_ok, _rr = await commit_raw_release(
                 repositories,
                 request_id=release_request_id,
                 surface="memory",
@@ -589,6 +589,13 @@ def build_router(
                 returned_kinds=["memory_facts"] if facts_released else (),
                 withheld_kinds=() if facts_released else ["memory_facts"],
             )
+            # F3 (re-review): the release-decision audit is a PRECONDITION for
+            # facts crossing the boundary. If it failed to commit, discard the
+            # facts and fall back to counts — no raw byte leaves un-audited.
+            if facts_released and not audit_ok:
+                result = await engine.learned_memory.introspect_namespace(namespace, mode="summary")
+                mode = "summary"
+                truncated = False
         await repositories.audit.append(
             AuditEntry(
                 actor_type="human",

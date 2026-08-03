@@ -1,17 +1,24 @@
 # Trace Governance — Design
 
-> ## ⚠️ EXTERNAL CODE REVIEW (2026-08-02) — all 10 findings remediated, awaiting re-review
+> ## ⚠️ EXTERNAL CODE RE-REVIEW FAILED AGAIN (2026-08-03) — structural rework required
 >
-> An external **code** review of the build (`e397b8b`) reproduced real bypasses:
-> the delivered implementation did NOT satisfy Contract A or B1. **All ten
-> findings + the high-priority nits are now fixed**, each with an adversarial
-> regression test (`tests/test_trace_review_fixes.py`; 970 backend tests green) —
-> see `docs/NEXT_STEPS.md` (G-Trace-Review) for the per-finding map. **Until a
-> re-review confirms the fixes, do not re-claim "zero-raw at rest" /
-> "DB-operator-resistant" and do not onboard an external tenant.** Known residual
-> (documented, not a bypass): append-only pre-flip `audit_log` raw is reported by
-> the verifier but not yet encrypted/migrated. The live box needs a re-backfill
-> (pre-F1 vault rows were per-kind) before its posture means anything.
+> The `2cfacfc` re-review passed the F1–F10 regression suite but reproduced
+> **new, deeper bypasses in the same areas** — Contract A and B1 are still NOT
+> delivered. The reviewer's central, correct point: the first-round fixes patched
+> *surfaces and field-names*, not the boundaries the design promises. **Do not
+> re-claim "zero-raw at rest" / "DB-operator-resistant" and do not onboard an
+> external tenant.**
+>
+> A handful of contained bugs are fixed (re-review F3 memory-audit-discarded, F4
+> sealed-without-key fail-open, F1 forged `_redacted` marker, F6 immediate-path
+> mode + `ticket_ref` validation — all regression-tested). But the core findings
+> need **four shared primitives, not more per-surface patches** (see
+> `docs/NEXT_STEPS.md` G-Trace-Review-2): (1) a TYPED projector registry that
+> validates values, never trusts markers; (2) a total raw-surface inventory
+> applied to HTTP/WS/audit/dry-run/escalation/memory; (3) a rehydration validator
+> driven by persisted dependencies + exact re-projection agreement (not marker
+> scans); (4) DB compare-and-set for grant + vault lifecycle. This is a design +
+> build effort, not a quick fold.
 
 Status: **architecture FROZEN (external review v4); narrow v5 + v6 fold the
 implementable-semantics corrections; no cut yet authorized.** Internal

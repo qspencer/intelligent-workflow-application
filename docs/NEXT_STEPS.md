@@ -694,7 +694,58 @@ The reviewer executed the code against the contracts and found 6 items.
   Deferred within TG1: memory facts-mode-under-grant. Ship to an external org
   stays trigger-gated + needs the chosen B-contract in effect + these gates.
 
-### G-Trace-Review — external CODE review (2026-08-02) — **ALL 10 REMEDIATED, awaiting re-review**
+### G-Trace-Review-2 — external CODE re-review (`2cfacfc`, 2026-08-03) — **FAILED; structural rework required**
+
+The re-review passed the F1–F10 suite but reproduced **new, deeper bypasses in
+the same areas.** The correct meta-point: round 1 patched surfaces/field-names,
+not the boundaries the design promises. Contracts A + B1 still NOT delivered.
+
+**Contained bugs fixed this round** (regression-tested in
+`tests/test_trace_review_fixes.py`, "Re-review" section; 974 backend green):
+- **rr-F3** memory `categories` endpoint discarded `commit_raw_release`'s result
+  → facts returned even when `release_decided` failed. Now fails closed to counts.
+- **rr-F4** rehydration returned the AEAD envelope when a row was sealed but no
+  key was configured. Now `is_sealed_payload` is cipher-independent → sealed +
+  no key raises.
+- **rr-F1(marker)** `safe_tool_call` trusted a forged `_redacted` marker. Now
+  keyed on the safe SHAPE (`input_keys`, no raw `input`/`result`).
+- **rr-F6(partial)** immediate org-scoped activation didn't validate the approval
+  mode (tenant_authorized activated with no artifact); `ticket_ref` took free
+  text. Now mode validated before activation; refs are opaque tokens.
+
+**Structural findings still OPEN — need four shared primitives, NOT per-surface patches:**
+1. **Typed projector registry (P1)** — `_SAFE_KEYS` passes a value through on
+   KEY membership without validating it: `{"category": SECRET}`, `{"usage":
+   [SECRET]}`, `{"ssn": 123456789}` all leak, and safe-only writes them with no
+   vault row. Needs per-field validators (type/enum/range/size/source); unknown
+   or mismatched → vault. **OPEN — foundational.**
+2. **Total raw-surface inventory (P2)** — grant bypasses on surfaces the
+   projector never sees: step **explain** returns no-tool `output_text` +
+   deterministic `output` via `_excerpt`; **/api/escalations** returns
+   `reason`+`context`; **dry-run** + **run-batch** return `str(exc)`/`instance.error`.
+   Every raw-capable response field must route through the central grant +
+   release-audit + projector. **OPEN.**
+3. **Rehydration validator (P3)** — integrity is inferred from redaction MARKERS,
+   not the design's `project(raw)==stored` predicate: ABORTED vault rows are
+   accepted; deleting a marker from an operational row bypasses vault access
+   entirely (resume/fork on tampered data); no state/schema/projector-version
+   check. **OPEN.**
+4. **DB compare-and-set for grant + vault lifecycle (P4)** — activation vs.
+   concurrent revoke races (revoke ignores the lock; blind full-row saves) → a
+   cancelled grant resurrects to active. And durable idempotent vault writes
+   accept an EXISTING key as success without checking the payload matches →
+   OLD raw retained while the engine believes it stored NEW (durable-or-fail
+   violated). Needs conditional `WHERE state=…`/content-commitment CAS. **OPEN.**
+5. **Audit endpoints honest release (rides P2/P3)** — under safe-only the audit
+   endpoints project at rest but `decide_raw_release` still records
+   `outcome=released`+all-kinds; the kind list is also incomplete. Must rehydrate
+   + record actual kinds, or return projected + `outcome=projected`. **OPEN.**
+
+Recommended: build P1–P4 as shared primitives (a design-reviewer pass is
+warranted after two failed rounds) rather than another patch sweep. Re-review
+archive `docs/archives/trace-governance-review-2cfacfc.tar.gz`.
+
+### G-Trace-Review — external CODE review (2026-08-02) — **round-1 fixes (superseded by G-Trace-Review-2)**
 
 The code review of `e397b8b` reproduced real bypasses. All ten findings +
 high-priority nits are now fixed, each with an adversarial regression test in

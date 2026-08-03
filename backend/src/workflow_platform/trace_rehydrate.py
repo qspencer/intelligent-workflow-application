@@ -21,7 +21,7 @@ from typing import Any
 
 from workflow_platform.persistence import AuditEntry, RawTrace, RawTraceKind, Repositories
 from workflow_platform.persistence.models import RAW_SCHEMA_VERSION
-from workflow_platform.trace_cipher import build_trace_cipher
+from workflow_platform.trace_cipher import build_trace_cipher, is_sealed_payload
 from workflow_platform.trace_vault import idempotency_key
 
 logger = logging.getLogger(__name__)
@@ -91,8 +91,14 @@ class RawTraceRehydrator:
             kind,
         ):
             raise RawTraceUnavailable(f"vault row identity mismatch for {kind}")
+        sealed = is_sealed_payload(row.payload)
+        # F4 (re-review): sealed-ness is decided from the ROW, independent of
+        # whether a cipher is configured. A sealed row with no key MUST fail
+        # closed — never return the AEAD envelope as if it were plaintext.
+        if sealed and self._cipher is None:
+            raise RawTraceUnavailable("sealed vault payload but no decryption key available")
         if self._cipher is not None:
-            if not self._cipher.is_sealed(row.payload):
+            if not sealed:
                 raise RawTraceUnavailable("unsealed vault payload under encryption (downgrade)")
             return self._cipher.open(
                 row.payload,

@@ -143,7 +143,15 @@ class TraceCipher:
 
     @staticmethod
     def is_sealed(payload: Any) -> bool:
-        return isinstance(payload, dict) and payload.get("alg") == _ALG
+        return is_sealed_payload(payload)
+
+
+def is_sealed_payload(payload: Any) -> bool:
+    """Whether a stored vault payload is an AEAD envelope — decidable WITHOUT a
+    cipher instance, so a rehydrator with no key can still detect a sealed row
+    and fail closed rather than returning the envelope (external code re-review
+    2026-08-03 F4)."""
+    return isinstance(payload, dict) and payload.get("alg") == _ALG
 
 
 def build_trace_cipher() -> TraceCipher | None:

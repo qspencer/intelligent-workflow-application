@@ -36,6 +36,67 @@ RAW_ERR = "BOOM-RAW-ERROR-SENTINEL"
 _KEY = base64.b64encode(b"review-fixes-master-key-32-byte!").decode()
 
 
+# --- Re-review (2026-08-03) — contained fixes ---
+
+
+def test_rr_f1_forged_redacted_marker_is_not_trusted() -> None:
+    from workflow_platform.trace_projection import safe_tool_call
+
+    forged = {
+        "name": "mail",
+        "input": {"body": SECRET},
+        "result": {"content": SECRET},
+        "_redacted": "forged",
+    }
+    safe = safe_tool_call(forged)
+    assert SECRET not in str(safe)
+    assert "input" not in safe and "result" not in safe
+
+
+async def test_rr_f4_sealed_row_without_key_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
+    import workflow_platform.trace_cipher as tc
+
+    monkeypatch.setenv(ENV_MASTER_KEY, _KEY)
+    tc._installed_key = None
+    repos = in_memory_repositories()
+    await RawTraceVault(repos).record_step_output(
+        org_id="o", instance_id="i", step_attempt_id="s", output={"summary": SECRET}
+    )
+    row = (await repos.raw_trace_vault.list_by_instance("i"))[0]
+    # key vanishes; a rehydrator with no cipher must NOT return the envelope
+    monkeypatch.delenv(ENV_MASTER_KEY, raising=False)
+    tc._installed_key = None
+    with pytest.raises(RawTraceUnavailable):
+        RawTraceRehydrator(repos)._payload_of(
+            row, org_id="o", instance_id="i", step_attempt_id="s", kind="output"
+        )
+
+
+async def test_rr_f6_tenant_authorized_never_immediately_activates() -> None:
+    svc = _grant_service()  # dual-control OFF
+    g = await svc.request(
+        principal_id="p",
+        org_id="org1",  # org-scoped → would take the immediate path for dual_admin
+        requested_by="admin-a",
+        reason_code=RawTraceReasonCode.DEBUGGING,
+        approval_mode=RawTraceApprovalMode.TENANT_AUTHORIZED,
+        external_approval_ref="ticket-1",
+    )
+    assert g.state.value == "pending"  # needs the artifact + a distinct activator
+
+
+async def test_rr_f6_ticket_ref_must_be_opaque() -> None:
+    svc = _grant_service()
+    with pytest.raises(MissingApprovalArtifact):
+        await svc.request(
+            principal_id="p",
+            org_id="org1",
+            requested_by="admin-a",
+            reason_code=RawTraceReasonCode.DEBUGGING,
+            ticket_ref="see the email about the customer account",  # free text
+        )
+
+
 # --- F1: default-deny projector (no-tool output + arbitrary fields) ---
 
 

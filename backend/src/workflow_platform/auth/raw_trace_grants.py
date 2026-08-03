@@ -65,17 +65,21 @@ class MissingApprovalArtifact(GrantError):
     """A tenant_authorized grant needs a valid external approval reference."""
 
 
+def _validate_opaque_ref(ref: str, label: str) -> str:
+    """An opaque internal id (ticket/authorization ref) — bounded charset +
+    length, never free text (re-review F6: prose refs are a content channel)."""
+    ref = ref.strip()
+    if not _APPROVAL_REF_RE.match(ref):
+        raise MissingApprovalArtifact(f"{label} must be an opaque token, not free text")
+    return ref
+
+
 def _validate_approval_ref(ref: str | None) -> str:
     """A tenant approval reference must be present and an opaque token (F4 +
     review nit). Rejects None/empty and any free-form string."""
     if ref is None or not ref.strip():
         raise MissingApprovalArtifact("tenant_authorized requires an external approval ref")
-    ref = ref.strip()
-    if not _APPROVAL_REF_RE.match(ref):
-        raise MissingApprovalArtifact(
-            "external approval ref must be an opaque token, not free text"
-        )
-    return ref
+    return _validate_opaque_ref(ref, "external approval ref")
 
 
 class GrantNotFound(GrantError):
@@ -174,6 +178,13 @@ class RawTraceGrantService:
         is_platform = org_id is None
         if is_platform and expires_at is None:
             raise MissingExpiry("platform-wide grants require an expiry")
+        # F6 (re-review): validate the approval mode + refs BEFORE any activation
+        # path. tenant_authorized needs a valid opaque artifact ref; ticket_ref
+        # is an opaque internal id, never free text.
+        if approval_mode is RawTraceApprovalMode.TENANT_AUTHORIZED:
+            external_approval_ref = _validate_approval_ref(external_approval_ref)
+        if ticket_ref is not None:
+            ticket_ref = _validate_opaque_ref(ticket_ref, "ticket_ref")
         grant = RawTraceGrant(
             principal_id=principal_id,
             org_id=org_id,
@@ -186,9 +197,16 @@ class RawTraceGrantService:
             external_approval_ref=external_approval_ref,
             state=RawTraceGrantState.PENDING,
         )
-        if not is_platform and not self._dual_control:
-            # Single-control (default): the distinct issuing Administrator IS
-            # the authorization — activate immediately.
+        # Immediate single-admin activation is ONLY for dual_administrator mode
+        # (org-scoped, dual-control off). tenant_authorized always routes through
+        # pending→approve so its artifact + a distinct activator are enforced —
+        # a single admin can never immediately activate a tenant_authorized grant
+        # (F6: mode is validated before, not after, activation).
+        if (
+            not is_platform
+            and not self._dual_control
+            and approval_mode is RawTraceApprovalMode.DUAL_ADMINISTRATOR
+        ):
             async with self._activation_lock:
                 await self._clear_stale_active(principal_id, org_id, now, requested_by)
                 grant.state = RawTraceGrantState.ACTIVE
