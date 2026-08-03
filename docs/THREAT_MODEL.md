@@ -276,6 +276,7 @@ the governance-table expansion becomes real at the first external org.*
 
 | Gap | Disposition |
 |---|---|
+| **Declared safe-output is a low-bandwidth channel ACROSS a governance boundary** (TRACE_GOVERNANCE_PLAN §1.4a). A prompt-injected agent steers *selection* among declared enum literals — it cannot author content, but its choices land in the operational store, which Contract B1 treats as readable by an untrusted DB/backup operator. Bound: Σ declared fields × log₂(values) ≈ **32 bits/attempt** at the §1.4a limits, repeated per run, with a hostile sender able to influence run volume. | **[accepted, bounded]** Distinct from the decision-steering residual below: that yields a *wrong decision*, this crosses a *storage boundary*. Compensating controls: bounds (≤8 fields / ≤16 values), no string/regex form ever (permanent non-do), Org-Admin-only declaration + hash-audited, scaffold forbidden from emitting one. Revisit if a workload needs wider vocabularies or a continuous value below grant |
 | Audit is append-only at the app layer, **not tamper-evident** (no hash chain/WORM) | **[gated]** Accepted for single-operator; trigger: first compliance-bound customer (RELEASE_READINESS names it) |
 | Retries not engine-gated on `Tool.effect` | **[planned G21]** Authoring rule in EXECUTION_SEMANTICS §4; trigger: second mutating connector |
 | Schemathesis fuzzes GET only | TESTING.md roadmap item (widen to mutating verbs) |

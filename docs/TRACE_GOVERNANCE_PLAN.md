@@ -9,10 +9,16 @@
 > re-claim "zero-raw at rest" / "DB-operator-resistant" and do not onboard an
 > external tenant.**
 >
-> A handful of contained bugs are fixed (re-review F3 memory-audit-discarded, F4
+> **Progress:** contained bugs fixed (re-review F3 memory-audit-discarded, F4
 > sealed-without-key fail-open, F1 forged `_redacted` marker, F6 immediate-path
-> mode + `ticket_ref` validation — all regression-tested). But the core findings
-> need **four shared primitives, not more per-surface patches** (see
+> mode + `ticket_ref` validation). **P1 is BUILT** (`f63f48b`) — the projector's
+> key-allowlist is now a field→validator registry (§1.4 CONTRACT 1), so
+> per-workflow business vocabularies over-redact until **§1.4a** (design-reviewed
+> 2026-08-03, conditions folded) is built. **P2 / P3a / P4 remain OPEN.**
+>
+> The core findings need **four shared primitives, not more per-surface patches**
+> — and a design review established these are *build-conformance to the v6-frozen
+> contracts the build diverged from*, not a v7 design round (see
 > `docs/NEXT_STEPS.md` G-Trace-Review-2): (1) a TYPED projector registry that
 > validates values, never trusts markers; (2) a total raw-surface inventory
 > applied to HTTP/WS/audit/dry-run/escalation/memory; (3) a rehydration validator
@@ -174,7 +180,7 @@ now frozen at the cited section and gates the named cut:
 
 | # | Contract | Frozen at | Gates |
 |---|---|---|---|
-| 1 | What qualifies as safe structured output | §1.4 | TG3a |
+| 1 | What qualifies as safe structured output | §1.4 + §1.4a (per-workflow declaration) | TG3a |
 | 2 | Which raw belongs to the durable execution snapshot | §5.1 | TG3b/c |
 | 3 | Vault transaction + crash-recovery state machine | §4.2 | TG3a/b (external-vault form) |
 | 4 | Platform-wide grant authorization | §2.1 | TG1 |
@@ -297,6 +303,150 @@ other projector (§4.3).
 
 **Memory-introspection:** facts-mode requires the grant; counts-mode
 role-gated.
+
+### 1.4a Per-workflow safe-output DECLARATION (fills a §1.4 silence — 2026-08-03)
+
+§1.4 froze *what* may persist un-vaulted (closed enums, bounded numbers, bools,
+opaque ids) but never said **who declares a business field as one**, so the
+build hardcoded `category` / `attention` / `relevance_bucket` into a
+platform-global list — fields whose vocabularies are per-workflow, which the
+platform therefore cannot validate. (Design review 2026-08-03 named this as the
+one genuine design gap; the P1 build removed them, so they over-redact today.)
+This is an **amendment filling a silence**, not a reopen of the frozen contract.
+
+*(Design-reviewed 2026-08-03: adopt-with-conditions; all six conditions folded
+below, including two blocking ones — the enum-LIST form and content-addressed
+declaration persistence.)*
+
+**The declaration.** A step may declare business output fields as safe. It is
+part of the workflow definition (org-scoped); authority is **Org Admin**, not
+the definition's ordinary write role — see "Authority" below.
+
+```yaml
+steps:
+  - id: classify
+    type: agentic
+    safe_output:
+      category:
+        enum: [urgent, fyi, spam, personal, awaiting_reply]
+        purpose: routing            # closed enum, see below
+      attention:                     # a LIST of enum members, not a scalar
+        enum: [urgent, awaiting_reply, review, none]
+        max_items: 4
+        purpose: routing
+      relevance:
+        number: { min: 0, max: 5 }
+        purpose: ranking
+      needs_tests:
+        bool: true
+        purpose: display
+```
+
+**Permitted forms are ONLY `enum` / `enum`+`max_items` / `number` / `bool`.**
+The list form (condition 1) is required by the real workloads: two-axis
+`attention`, `apply_labels`, and research-triage `tags` are all deduped
+*lists* of catalog members (`engine/functions.py`), so a scalar-only rule would
+redact every real value of the very field that motivated §1.4a. It remains
+bounded (k·log₂ n) and lands under §1.4's existing "explicitly approved bounded
+metadata" clause — an amendment, not a reopen.
+
+**PERMANENT NON-DO:** there is no `string`, `regex`, `pattern`, or `any` form,
+and there never will be. A declarer must never be able to mark free-form text
+safe — that is precisely the §1.4 rule the build broke. Fields like
+`invoice_number`, filenames, dates, and `rule_evidence` are third-party-derived
+and stay vaulted; over-redaction is the correct answer for them. (Recorded as a
+standing non-do, not an unlisted absence, so it is not re-proposed the first
+time a field over-redacts.)
+
+**Why a declared value is safe even though the AGENT chooses it.** Membership
+means the persisted value must equal a literal already written into the
+definition: a prompt-injected agent can steer *selection*, never *authorship* —
+it cannot smuggle mail content through a closed set. The channel is therefore
+**low-bandwidth but non-zero and aggregate**, not "zero": the honest bound is
+Σ over declared fields per attempt (at the bounds below, ≈ 8 fields × 4 bits ≈
+**32 bits/attempt**), repeated per run, with a hostile sender able to influence
+run volume. This differs from the residual in `THREAT_MODEL.md` §"steer
+decisions within the enum bounds": there the consequence is a *wrong decision*;
+here it is *content crossing a governance boundary* into the operational store
+that Contract B1 (§0.1) treats as readable by an untrusted DB/backup operator.
+Carried as a named known-gap row in `THREAT_MODEL.md` with a disposition.
+
+**Bounds (condition 4).** ≤**8** declared fields per step, ≤**16** enum values
+per field, ≤**32** chars per value, `max_items` ≤ the declared enum size, each
+value matching the opaque-token charset (no whitespace ⇒ no prose). These sit
+~2× above the largest real vocabulary (7) and workload (~8 fields); raise only
+on evidence, per the corpus's bound-first precedent.
+
+**Per-field `purpose` (condition 6, §1.3 discipline).** Every declared field
+carries a required `purpose` from a CLOSED enum — `routing` / `ranking` /
+`display` / `dedupe` / `audit`. Deliberately NOT free prose: a justification
+text field would reopen exactly the hole v6 F2 closed by deleting `reason_note`
+(§2.1).
+
+**Enforcement (never trust the declaration itself).** At projection time the
+runtime value must *pass* the declared rule; a mismatch (not in the enum, out
+of range, wrong type, over `max_items`) is redacted and vaulted like any
+unregistered field. A declaration grants a *validator*, never a bypass.
+
+**Reserved names.** A workflow may not declare: any platform-global registry
+field (`usage`, `model`, `cost_usd`, ids, timestamps, governance fields), the
+projector's own metadata (`_redacted`, `input_keys`, …), or any raw-by-taint
+field (`output_text`, `error`, `recall`, `tool_calls`). Platform-global wins on
+collision; a declaration attempting a reserved name is a **validation error at
+save time**, not a silent ignore.
+
+**Authority + audit (condition 5).** "Designer" is retired vocabulary
+(`ROLES_PLAN`); the definition write role is `ORG_WRITE_ROLES`, which includes
+**Organization User** — a principal who cannot themselves hold a raw-trace
+grant. Letting that role move data from grant-gated to below-grant is
+privilege-shaped, so:
+- creating or editing a `safe_output` block requires **`ORG_ADMIN_ROLES`**
+  (Administrator / Org Admin); other definition edits keep `ORG_WRITE_ROLES`;
+- every create/edit emits an audit entry carrying the canonical declaration
+  hash;
+- `POST /api/workflows/import` validates + authorizes + audits **identically**
+  (same authority, no import back door);
+- the **NL scaffold path is FORBIDDEN from emitting `safe_output` at all** — an
+  LLM authoring a governance boundary is the §1.4 failure mode one level up. A
+  scaffold that emits the block is a validation error, not a silent strip.
+
+**Versioning + persistence (§4.3 coupling — condition 2, blocking).** The
+declaration's canonical hash folds into `projector_version`, but a hash alone
+is not enough: definitions are mutated **in place** and version history is a
+deferred epic (E5), so after an edit a pre-edit row would reference a
+declaration that no longer exists anywhere and `project(raw, recorded_version)`
+would be unevaluable — breaking acceptance criterion 17. Therefore:
+- the canonical declaration is persisted **content-addressed in an append-only
+  table keyed by its hash**; the definition references it;
+- the composite `projector_version` parses legacy `"1"` / `"2"` as **"no
+  declaration"**;
+- an **unknown hash fails closed** — never a fallback to the current
+  declaration;
+- the TG3c zero-raw verifier must **resolve each row's declaration** before
+  judging it. Its check is structural ("projecting it changes it"), so running
+  only the platform-global projector over declaration-projected rows would
+  report false positives across the 1,340 backfilled instances and every future
+  declared row.
+
+Immutable-attempt (`EXECUTION_SEMANTICS` §3a) and fork are compatible **given**
+that persistence: bind the version at attempt-write, re-project under the
+recorded version.
+
+**Criterion 18 equivalence.** Criterion 18 says every field must belong to an
+*approved* safe-output projector. §1.4a defines "approved" as **declared under
+Org Admin authority, validated at save, audited by hash** — stated here
+explicitly rather than silently redefined.
+
+**New acceptance criteria (37+):** a declared-but-mismatched value redacts; a
+reserved-name declaration is a save error; a declaration edit leaves pre-edit
+rows projectable; the scaffold cannot emit `safe_output`; an over-`max_items`
+enum list redacts.
+
+**Deferred, with triggers:** cross-step/workflow-level declarations (trigger:
+duplication becomes painful); per-tenant override of a bundled example's
+declaration (trigger: first external tenant forking a template); numeric
+histogram/bucketing forms (trigger: a workload needing a continuous value
+below grant).
 
 ## 2. Decision 1 — the raw-trace privilege (grant-as-STATE-MACHINE)
 
@@ -864,6 +1014,25 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
 36. **(v6 F6)** An `active` grant past `expires_at` is transitioned to
     `expired` (with audit) during the activation of a replacement for the same
     `(principal, scope)`, and does not block that replacement.
+37. **(§1.4a)** A value that does NOT satisfy its declared rule — not in the
+    enum, out of numeric range, wrong type — is redacted and vaulted exactly
+    like an unregistered field. A declaration is a validator, never a bypass.
+38. **(§1.4a)** A `safe_output` block naming a reserved field (platform-global
+    registry, projector metadata, or a raw-by-taint field such as
+    `output_text` / `error` / `recall` / `tool_calls`) is a **save-time
+    validation error**, not a silent ignore.
+39. **(§1.4a)** Editing a declaration leaves PRE-EDIT rows projectable: the old
+    declaration resolves by content-address, the row re-projects under its
+    recorded version, and criterion 17 still holds. An **unknown** declaration
+    hash fails closed (never falls back to the current declaration).
+40. **(§1.4a)** The NL scaffold path cannot emit a `safe_output` block (a
+    scaffold that does is a validation error), and creating/editing one via any
+    path — including `POST /api/workflows/import` — requires `ORG_ADMIN_ROLES`
+    and emits an audit entry carrying the canonical declaration hash.
+41. **(§1.4a)** An enum-list value exceeding `max_items`, or containing a member
+    outside the declared enum, redacts; and the zero-raw verifier resolves each
+    row's declaration before judging it (no false positives on
+    declaration-projected rows).
 
 ## 9. Cut plan — architecture approved; freezes gate authorization
 

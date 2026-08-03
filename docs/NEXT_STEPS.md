@@ -729,12 +729,26 @@ plan already defers — must NOT gate the leak fix).
    container). The blanket "numbers+bools safe by type" pass is gone, so
    `{"category": SECRET}`, `{"usage": [SECRET]}`, `{"ssn": 123456789}` are all
    redacted + vaulted. `PROJECTOR_VERSION` bumped to `2`.
-   **Follow-up (the real §1.4 gap):** per-workflow business vocabularies
-   (`category`, `attention`, `relevance_bucket`, `document_type`, `complexity`)
-   are deliberately NOT platform-registered, so they now over-redact below
-   grant — including in the dashboard. The per-workflow **safe-schema
-   declaration** (workflow opts a field in with its own enum, validated) is the
-   next slice and restores that UX. Over-redaction is the safe interim.
+   **Follow-up — §1.4a, DESIGNED + REVIEWED, ready to build:** per-workflow
+   business vocabularies (`category`, `attention`, `relevance_bucket`,
+   `document_type`, `complexity`) are deliberately NOT platform-registered, so
+   they over-redact below grant today — including in the dashboard.
+   `TRACE_GOVERNANCE_PLAN` **§1.4a** (written + design-reviewed 2026-08-03,
+   adopt-with-conditions, all six folded) specifies the per-workflow
+   safe-output declaration that restores it. Build notes from the review:
+   - **enum LIST form is required** (`max_items`) — `attention`, `apply_labels`
+     and paper-triage `tags` are deduped *lists* (`engine/functions.py`); a
+     scalar-only rule would redact the very field that motivated §1.4a;
+   - **persist the declaration content-addressed** (append-only, hash-keyed) —
+     definitions mutate in place, so hash-only would make pre-edit rows
+     unprojectable and break criterion 17; unknown hash fails closed;
+   - the **TG3c verifier must resolve each row's declaration**, else it reports
+     false positives across the 1,340 backfilled instances;
+   - authority is **`ORG_ADMIN_ROLES`** (not `ORG_WRITE_ROLES` — that includes
+     Org User, who cannot hold a raw grant), audited by hash, import validates
+     identically, **NL scaffold forbidden from emitting the block**;
+   - bounds ≤8 fields / ≤16 values / ≤32 chars; required closed-enum `purpose`;
+   - `THREAT_MODEL` carries the bounded-channel known-gap row; criteria 37–41.
 2. **Total raw-surface inventory (P2)** — grant bypasses on surfaces the
    projector never sees: step **explain** returns no-tool `output_text` +
    deterministic `output` via `_excerpt`; **/api/escalations** returns
