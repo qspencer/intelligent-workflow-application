@@ -729,9 +729,22 @@ plan already defers — must NOT gate the leak fix).
    container). The blanket "numbers+bools safe by type" pass is gone, so
    `{"category": SECRET}`, `{"usage": [SECRET]}`, `{"ssn": 123456789}` are all
    redacted + vaulted. `PROJECTOR_VERSION` bumped to `2`.
-   **Follow-up — §1.4a: DESIGNED, externally reviewed, BUILD DEFERRED.** An
-   external design review (2026-08-04) approved the direction but **deferred
-   build authorization**. Its central finding: approving the *declaration* alone
+   **Follow-up — §1.4a: DESIGNED, THREE review rounds, BUILD STILL DEFERRED.**
+   Reviews on 2026-08-03 (internal), 08-04 and 08-05 each approved the direction
+   and deferred authorization. Round 3's finding was authorization *identity and
+   lifecycle*: rows bound only declaration content, so revoking approval A1 and
+   re-approving identical bytes as A2 would resurrect withheld rows; the lifecycle
+   had no atomic transitions or revocation-race ruling; both "frozen" hashes were
+   described but not specified; capacity ignored the observable absent/redacted
+   states; the revocation claim overstated what it can retract (backups); and
+   destination scope was stated but absent from the projection identity. All
+   folded — `SafeOutputApproval` is now a first-class object (`approval_id` +
+   generation on every produced row and destination copy), CAS lifecycle with
+   HARD revocation, RFC-8785/SHA-256 hashing frozen concretely, capacity over
+   observable states with `POLICY_BUDGET_BITS = 32`, honest revocation limits,
+   destination-aware `project(...)`, YAML key renamed `safe_output` →
+   `declassify`. Criteria 51-57 added. The earlier (round-2) findings below
+   remain folded. Its central finding: approving the *declaration* alone
    is unsafe, because an ordinary `ORG_WRITE_ROLES` user can edit **only the
    prompt** and repurpose the approved alphabet as an exfiltration codebook —
    no `safe_output` edit, so no admin review, no audit, no grant, no release

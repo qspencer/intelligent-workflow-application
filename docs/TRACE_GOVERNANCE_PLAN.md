@@ -14,13 +14,15 @@
 > mode + `ticket_ref` validation). **P1 is BUILT** (`f63f48b`) — the projector's
 > key-allowlist is now a field→validator registry (§1.4 CONTRACT 1), so
 > per-workflow business vocabularies over-redact. **§1.4a is NOT build-authorized:**
-> an external design review (2026-08-04) approved its *direction* but deferred
-> authorization — it found that approving the declaration alone lets an ordinary
-> Org User repurpose the approved alphabet as an exfiltration codebook by editing
-> only the prompt, and that the channel-capacity claim was wrong. The revision is
-> folded (approval now binds the step REVISION under dual control, finite domains,
-> revocation lifecycle, full §1.3 justification); **it awaits external
-> re-approval, and P1's over-redaction STANDS until then.**
+> **three** external design reviews have run (2026-08-03 internal, 08-04, 08-05).
+> Each approved the direction and deferred authorization; each found real gaps —
+> the declaration-only codebook bypass, a wrong channel-capacity claim, and then
+> authorization *identity/lifecycle* (a revoked approval could be resurrected by
+> re-approving identical declaration bytes). All are folded: the approval is now a
+> first-class object whose `approval_id` + generation binds every produced row,
+> with an atomic CAS lifecycle, hard revocation, destination-scoped projection and
+> concretely frozen hashing. **It awaits external re-approval, and P1's
+> over-redaction STANDS until then.**
 > **P2 is BUILT** (explain / escalations / dry-run / run-batch now route through
 > the grant + release audit + projector). **P3a / P4 remain OPEN.**
 >
@@ -310,242 +312,346 @@ unless **every** field belongs to an approved safe-output projector
 other projector (§4.3).
 
 **Memory-introspection:** facts-mode requires the grant; counts-mode
-role-gated.
-### 1.4a Per-workflow safe-output DECLASSIFICATION APPROVAL (fills a §1.4 silence)
+role-gated.### 1.4a Per-workflow DECLASSIFICATION APPROVAL (fills a §1.4 silence)
 
-*Status: written 2026-08-03; internal design review adopt-with-conditions (six
-folded); **external design review 2026-08-04 — direction APPROVED, BUILD
-AUTHORIZATION DEFERRED** pending the revision below, which is now folded.
-**Nothing here is built.** P1's over-redaction of per-workflow vocabularies
-STANDS until this is externally re-approved.*
+*Status: written 2026-08-03; internal review adopt-with-conditions (folded);
+external design review 2026-08-04 (folded); **external design RE-review
+2026-08-05 — revised direction APPROVED, deferred for the authorization-lifecycle
+amendment now folded below.** **Nothing here is built.** P1's over-redaction of
+per-workflow vocabularies STANDS until §1.4a is build-authorized.*
 
 §1.4 froze *what* may persist un-vaulted (closed enums, bounded numbers, bools,
-opaque ids) but never said **who declares a business field as one**, so the
-build hardcoded `category` / `attention` / `relevance_bucket` platform-global —
-vocabularies that are per-workflow and which the platform therefore cannot
-validate. This section fills that silence. It is an **amendment**, not a reopen
-of the FROZEN §1.4.
+opaque ids) but never said **who declares a business field as one**, so the build
+hardcoded `category` / `attention` / `relevance_bucket` platform-global —
+vocabularies that are per-workflow and which the platform cannot validate. This
+section fills that silence. It is an **amendment**, not a reopen of the FROZEN
+§1.4.
 
-**The reframe (external review 2026-08-04).** `safe_output` is **not a schema**.
-It is a **versioned, scoped DECLASSIFICATION APPROVAL**: an authorization to move
-raw-derived information below the raw-trace boundary. Everything below follows
-from treating it as an authorization rather than a type declaration.
+**The reframe.** This is **not a schema**. It is a **first-class, atomically
+managed AUTHORIZATION object** that declassifies raw-derived information below
+the raw-trace boundary. The YAML key is therefore **`declassify:`** and every
+operator-facing surface says *declassification approval* — never "safe output",
+so nobody mistakes finite validation for confidentiality.
 
 #### 1.4a.1 Why declaration-only approval is unsafe — the codebook attack
 
-Approving only the `safe_output` block does not protect the boundary. The
-emitted value is determined by the *prompt*, not the declaration:
+Approving only the declaration does not protect the boundary, because the
+*prompt* decides the emitted value:
 
-1. An Org Admin approves 8 scalar enum fields, 16 literals each.
+1. Approvers authorize 8 scalar enum fields, 16 literals each.
 2. An **Organization User** later edits **only the step prompt**.
 3. The prompt instructs the model to encode raw input into those 8 selections.
 4. Every declaration validator passes.
 5. That Org User reads the operational output and decodes the raw content.
 
-No `safe_output` edit occurs ⇒ no Org Admin review, no declaration audit, no raw
-grant, no release audit. The approved alphabet has become an exfiltration
-codebook. This contradicts the post-boundary rule that **administration alone
-does not confer raw access** (§2).
+No declaration edit occurs ⇒ no approver review, no audit, no raw grant, no
+release audit. The approved alphabet has become an exfiltration codebook,
+contradicting the rule that **administration alone does not confer raw access**
+(§2).
 
-#### 1.4a.2 Approval binds to the output-producing STEP REVISION
+#### 1.4a.2 The approval object — identity, not just content
 
-Approval attaches to a step revision, never to a declaration hash alone:
+Declaration *content* is reusable; **authorization is not**. An approval is a
+first-class row with its own stable identity and generation:
 
 ```
-SafeOutputApproval = org_id, workflow_id, step_id,
-                     declaration_hash, step_semantic_hash,
-                     approval_mode, approvers, approved_at, status
+SafeOutputApproval = approval_id            # stable, unique — the authorization
+                     generation             # monotonic per (org, workflow, step)
+                     org_id, workflow_id, step_id
+                     declaration_hash       # content-addressed declaration
+                     step_semantic_hash     # the executable step revision
+                     destinations           # §1.4a.7 — scoped, in the identity
+                     capacity_bits          # computed at approval (§1.4a.5)
+                     approval_mode, approvers, tenant_artifact_ref
+                     approved_at, status
 ```
 
-`step_semantic_hash` MUST cover every input capable of changing the emitted
-value: prompt + system instructions; input/context mappings (`inputs:`);
-model / provider / inference settings; tool availability + tool schemas; the
-structured-output schema; result mappings/transformations; and the relevant
-deterministic function identity + version.
+**Why identity, not content, must follow the row** (re-review finding 1):
+approval A1 authorizes declaration D for step revision H; rows are produced; A1
+is **revoked**; the identical D/H is later re-approved as A2. A row that recorded
+only D and H would find an *active* approval and be released — resurrecting a
+withdrawn authorization. Therefore `approval_id` + `generation` (alongside
+`declaration_hash` + `step_semantic_hash`) bind to:
 
-- Changing any covered component **invalidates the prior approval** — the step
-  reverts to vault-by-default until re-approved.
-- The approved revision binds to the attempt **BEFORE model invocation**, not at
-  attempt-write; a concurrent edit has **no effect on an in-flight attempt**.
+- the **step attempt**, before model invocation;
+- the **operational safe row**;
+- the **vault object** (or its authenticated metadata);
+- **every destination-specific copy** (§1.4a.7);
+- **release and revocation audit** records.
 
-#### 1.4a.3 Authority — dual control, matching the raw-grant boundary
+Revoking one approval never revokes another that happens to share declaration
+bytes, and re-approving identical content never reactivates rows produced under
+an earlier approval — that would be a separate, explicitly audited operation.
+
+`step_semantic_hash` covers every input capable of changing the emitted value —
+prompt + system templates, input/context mappings, model/provider + immutable
+settings, tool schemas **and tool implementation identity**, structured-output
+parser/schema, result mappings/transformations, deterministic function identity,
+and the projector + declaration versions. It is computed as a **dependency
+closure over the immutable executable step revision and all transitively
+referenced artifacts** — never a hand-maintained field list, since one missed
+template or parser version recreates the codebook bypass without changing the
+hash. "Function version" is a platform-controlled content/release identity, not
+an author-supplied label.
+
+#### 1.4a.3 Lifecycle — an atomic state machine (not blind row saves)
+
+The prior code review proved authorization transitions cannot be blind row
+saves; the raw grant already uses compare-and-set for exactly this reason (§2,
+§4.2). The same discipline applies here.
+
+```
+pending → active | rejected | cancelled
+active  → revoked | superseded
+```
+
+**Activation is ONE database transaction** that verifies, and fails if any
+check fails: the exact `declaration_hash` + `step_semantic_hash`; both approver
+identities (or the tenant artifact, §1.4a.4); the distinctness rules; artifact
+scope + validity; the computed capacity against the budget; and **no conflicting
+active approval** for the same `(org, workflow, step)`. Exactly one row
+transitions.
+
+**Attempt binding is the linearization point.** Before the output-producing
+operation begins, the attempt atomically observes an ACTIVE approval and
+persists its `approval_id` + `generation`. A concurrent definition edit cannot
+affect an in-flight attempt.
+
+**The revocation race is ruled HARD (not lease).** An attempt that bound an
+approval which is revoked before the attempt durably finishes becomes
+**vault-only** — its operational row is projected as if never declassified. This
+is chosen deliberately: the raw is never lost (it is in the vault), so the entire
+cost of hard revocation is *over-redaction*, which is the safe direction; lease
+semantics would trade that for a residual release the operator must reason about.
+
+**`superseded` vs `revoked` are distinct:**
+
+```
+superseded : no new attempts; historical rows REMAIN authorized
+revoked    : no new attempts; historical rows CEASE ordinary below-grant release
+```
+
+#### 1.4a.4 Authority — dual control, and a narrowly-scoped tenant artifact
 
 A single Org Admin declassifying tenant data is the same unilateral act §2.1
-forbids for raw access. §1.4a therefore adopts the **grant's approval modes**
-(§2.1) rather than narrowing Contract A: a `safe_output` approval requires
-**`dual_administrator`** (two distinct Administrators / Org Admins — requester ≠
-approver) or **`tenant_authorized`** (an opaque tenant approval artifact +
-a distinct internal activator).
+forbids for raw access, so approval requires **`dual_administrator`** (two
+distinct Administrators / Org Admins, requester ≠ approver) or
+**`tenant_authorized`**.
 
-- Ordinary definition edits keep `ORG_WRITE_ROLES`; they simply cannot produce
-  an *approved* declassifying step (they invalidate the approval instead).
-- `POST /api/workflows/import` and clone/template paths follow the identical
-  authorization + audit path — no back door.
-- The **NL scaffold is FORBIDDEN from emitting `safe_output`** (validation error,
-  not a silent strip): an LLM authoring a governance boundary is the §1.4
-  failure mode one level up.
-- Every create / edit / revoke emits an audit entry carrying workflow, step,
-  **old hash, new hash**, `step_semantic_hash`, and approver identities.
+A raw-grant artifact is scoped to a grant; a declassification artifact must be
+**far narrower** — an org-wide "tenant approves safe output" must never authorize
+future prompts or alphabets. The artifact binds exactly:
 
-#### 1.4a.4 Permitted forms — finite, canonical domains only
+```
+organization, workflow, step
+declaration_hash, step_semantic_hash
+destination/consumer scope, roles, retention
+computed capacity_bits + the policy budget it was approved against
+validity period (if any)
+```
+
+Any mismatch **rejects activation**. Reuse for another step, clone, template
+instance, declaration revision, or capacity increase is impossible by
+construction.
+
+Ordinary definition edits keep `ORG_WRITE_ROLES` — they simply *invalidate* the
+approval rather than producing an approved declassifying step.
+`POST /api/workflows/import` and clone/template paths take the identical
+authorization + audit path. The **NL scaffold is FORBIDDEN from emitting a
+`declassify` block** (validation error, not a silent strip): an LLM authoring a
+governance boundary is the §1.4 failure mode one level up. Every create / edit /
+activate / revoke audits workflow, step, `approval_id`, generation, old + new
+hashes, and approver identities.
+
+#### 1.4a.5 Permitted forms + capacity — finite, canonical, budgeted
 
 Permitted: `enum`, enum-**list**, `integer` (finite lattice), `bool`.
 
-The list form is required by the real workloads — two-axis `attention`,
-`apply_labels`, paper-triage `tags` are deduped *lists* of catalog members
-(`engine/functions.py`), so a scalar-only rule would redact the very field that
-motivated this section. It lands under §1.4's existing "explicitly approved
-bounded metadata" clause.
-
-Lists MUST freeze their domain so cardinality is computable: exact JSON array
-type; members unique (**duplicates rejected**); **order canonicalized** (sorted)
-unless order is declared meaningful; `null` prohibited; empty-list semantics
-defined; `max_items` ≤ declared enum size.
-
-The `number: {min,max}` form of the prior draft is **withdrawn** — over floats it
-is not a finite alphabet. Replaced by an explicit finite lattice:
-
 ```yaml
-integer: { min: 0, max: 5, step: 1 }
+steps:
+  - id: classify
+    declassify:
+      category:
+        enum: [urgent, fyi, spam, personal, awaiting_reply]
+        purpose: routing
+        destinations: [step_output, context]
+      attention:                       # a LIST — the field that motivated §1.4a
+        enum: [urgent, awaiting_reply, review, none]
+        max_items: 4
+        ordered: false                 # canonicalized (sorted); duplicates rejected
+        purpose: routing
+        destinations: [step_output]
 ```
 
-integer-typed (bool is not an integer here), finite, no NaN/infinity, canonical
-representation. Continuous values stay vaulted; a numeric category is expressed
-as a numeric enum.
+The list form is required by the real workloads (`attention`, `apply_labels`,
+paper-triage `tags` are deduped *lists* in `engine/functions.py`); it lands under
+§1.4's existing "explicitly approved bounded metadata" clause. Lists freeze:
+exact JSON array type; members unique (**duplicates rejected**); order
+canonicalized unless `ordered: true`; `null` prohibited; empty-list semantics
+defined; `max_items` ≤ enum size.
 
-**PERMANENT NON-DO:** no `string`, `regex`, `pattern`, or `any` form, ever. A
-declarer must never be able to mark free-form text safe — precisely the §1.4
-rule the build broke. `invoice_number`, filenames, dates, `rule_evidence` are
-third-party-derived and stay vaulted; over-redaction is correct for them.
+The float `number: {min,max}` form is **withdrawn** — over floats it is not a
+finite alphabet. Replaced by an integer lattice: `integer: {min, max, step}` with
+`step > 0`, `min ≤ max`, accepted values `min + k·step ≤ max`, bounded integer
+encoding, no NaN/infinity, bool is not an integer. Continuous values stay
+vaulted; a numeric category is a numeric enum.
 
-#### 1.4a.5 Channel capacity — computed, budgeted, and honestly named
+**PERMANENT NON-DO:** no `string`, `regex`, `pattern`, or `any` form, ever.
 
-The prior draft's "≈32 bits/attempt" was **wrong**: it assumed scalar enums. An
-ordered 16-member list with `max_items: 16` carries ~64 bits (unordered-unique
-~16; ordered-unique ~45.7); eight such fields reach ~128–512 bits/attempt.
-
-Capacity is therefore **computed from each field's actual accepted domain**, not
-asserted:
+**Capacity counts every OBSERVABLE state** (re-review finding 5) — not just the
+accepted values. A hostile model can select *valid*, *absent*, or *invalid* to
+encode information, and partial projection (§1.4a.8) makes "redacted" visible:
 
 ```
-capacity(field)  = log2(|accepted domain|)     # list: length × membership × order × duplicate rules
-capacity(step)   = Σ capacity(field)  ≤  POLICY_BUDGET_BITS
+observable(field) = accepted values
+                  + absent            (when optional)
+                  + redacted          (when distinguishable)
+                  + any distinct validation/status representation
+
+capacity(field) = log2(|observable(field)|)
+capacity(step)  = Σ capacity(field)  ≤  POLICY_BUDGET_BITS
 ```
 
+List cardinality is computed exactly — unordered-unique up to *m*: `Σ C(n,k)`;
+ordered-unique: `Σ P(n,k)` — over the declared `k` range including the
+empty-list rule.
+
+**`POLICY_BUDGET_BITS = 32`** for the first build. Bounds: ≤8 declared fields
+per step, ≤16 enum values per field, ≤32 chars per value (opaque-token charset).
 A declaration whose computed capacity exceeds the budget is a **save-time
-error**. Bounds: ≤8 declared fields/step, ≤16 enum values/field, ≤32 chars/value
-(opaque-token charset, no whitespace).
+error**, and **raising the budget requires the same dual-control approval as an
+approval itself** — otherwise the "budget" is a policy hook, not a contract.
 
 **Honest naming.** A per-attempt alphabet is NOT an aggregate confidentiality
-bound — the channel is finite per output but **unbounded over repeated
-execution**, with a hostile sender able to influence run volume. §1.4a therefore
-declares safe output an **explicitly approved declassification channel** (not a
-"safe" one), and carries the aggregate exposure as a named `THREAT_MODEL` gap.
-An enforceable aggregate budget / rate boundary is the named follow-up trigger.
+bound: the channel is finite per output but **unbounded over repeated
+execution**, with a hostile sender able to influence run volume. External
+onboarding stays gated on the separately-named aggregate/rate decision
+(§1.4a.10), and `THREAT_MODEL` carries the exposure.
 
-#### 1.4a.6 Revocation lifecycle — approval ≠ immutable content
+#### 1.4a.6 Revocation — what it does, and what it CANNOT do
 
-Content-addressing solves *historical re-projection*; it must not make an
-approval permanent. A declaration later found to embed a customer identifier, an
-excessive alphabet, a wrongly-approved field, a reserved-name collision, or a
-compromised approval MUST be withdrawable. Content and authorization are split:
+Content-addressing must not make an approval permanent. Content and
+authorization are split:
 
 ```
 declaration content : immutable, permanently resolvable (integrity only)
 approval status     : pending | active | revoked | superseded
-effective authz     : whether rows produced under it stay readable below grant
+effective authz     : whether rows produced under THAT approval_id stay readable
 ```
 
-Revocation MUST: (1) stop new executions using it; (2) stop ordinary below-grant
-reads of existing rows' declared fields; (3) keep historical re-projection for
-integrity verification; (4) drive a backfill that scrubs/re-projects affected
-operational rows; (5) leave the vault copy authoritative; (6) be recognized by
-the zero-raw verifier; (7) audit the revocation and the affected-row count.
+Revocation MUST: stop new attempts binding it; stop ordinary below-grant reads of
+rows bound to that `approval_id`; keep historical re-projection available for
+integrity verification; drive a scrub/re-projection backfill of live operational
+rows; leave the vault copy authoritative; be recognized by the zero-raw verifier;
+and audit the operation.
 
-Without this split, append-only persistence turns an approval mistake into an
-**irreversible below-grant disclosure**.
+**The honest limit (re-review finding 6).** Revocation prevents *new*
+declassification, removes authorization for application reads, and scrubs
+supported **live** operational stores. It **does NOT retract bytes already
+released or already copied into database dumps, backups, replicas, query logs, or
+operator exports** — and the B1 adversary is precisely the database/backup
+operator. **A wrongly-approved declaration is an exposure INCIDENT, not a
+reversible configuration mistake.** Revocation therefore reports:
 
-#### 1.4a.7 Per-field justification — §1.3 in full, not a `purpose` tag
+```
+new executions blocked | in-flight attempts affected | live rows scrubbed
+rows that could NOT be scrubbed | backup/replica retention exposure | completion state
+```
+
+#### 1.4a.7 Destination-scoped authorization is part of the projection identity
+
+§1.3 requires per-field consumer / destination / roles / retention /
+opaque-sufficiency justification, and a field justified for a routing edge is
+**not** thereby authorized into step output, context, audit detail, WS events,
+and explain responses. A single projected object copied everywhere would violate
+exactly that (re-review finding 7), so projection is **destination-aware**:
+
+```
+project(asset_kind, destination, raw_value, approval_id, projector_version)
+```
+
+Each persisted or rendered copy records enough identity to reproduce its own
+decision. The allowed destination set is part of the declaration's canonical
+bytes, the approval scope, the tenant artifact, the step-attempt binding, and the
+verifier's inventory. **P2's raw-surface inventory is the mechanism that proves
+every destination invokes this decision** rather than copying an
+already-projected object by convention.
 
 A closed `purpose` enum (`routing`/`ranking`/`display`/`dedupe`/`audit`) is
-useful summary metadata but does **not** satisfy the FROZEN §1.3 contract. Each
-declared field additionally carries: producer/source path; exact consumers and
-operational destinations; roles allowed per destination; retention; whether the
-value is tenant-authored / platform-authored / externally derived; catalog
-provenance; whether an opaque replacement suffices.
+summary metadata only — it does not replace the §1.3 fields. The lexical rule
+cannot carry that weight either: a 32-char no-whitespace token can still be
+`alice@example.com`, `INV-2026-000184`, or a hex fragment, and §1.4 vaults
+external identifiers unless individually approved. **Non-sensitivity comes from
+the approval's provenance and scope, never from the charset.** The validator
+rejects duplicate enum literals and requires a canonical catalog.
 
-Destinations are **scoped**: a field justified only for a routing edge is not
-thereby authorized into step output, context, audit detail, WS events, and
-explain responses.
+#### 1.4a.8 Canonical encoding + persistence (§4.3 coupling) — FROZEN concretely
 
-The lexical rule cannot carry this weight: a 32-char no-whitespace token can
-still be `alice@example.com`, `INV-2026-000184`, a UUID, or a hex fragment — and
-§1.4 says external identifiers are vaulted unless individually approved.
-**Non-sensitivity comes from the approval's provenance and scope, never from the
-charset.** The validator also rejects duplicate enum literals and requires a
-canonical catalog.
+Both hashes are load-bearing, so the algorithm is specified executably rather
+than described (re-review finding 4):
 
-#### 1.4a.8 Versioning + persistence (§4.3 coupling)
+```
+canonical bytes : RFC 8785 JSON Canonicalization Scheme (JCS), UTF-8,
+                  Unicode NFC, duplicate object keys REJECTED before hashing,
+                  exact integer representation, per-field array-order rules
+digest          : SHA-256 over a domain-separated prefix
+                  ("wp/trace/declaration/v1" | "wp/trace/step-revision/v1")
+                  + canonical bytes
+```
 
-The canonical declaration is persisted **content-addressed in an append-only
-table keyed by its hash**; the definition references it. Definitions mutate in
-place and version history is deferred (E5), so a hash alone would leave pre-edit
-rows unprojectable and break criterion 17.
+The **canonical bytes are stored beside the digest**; a matching digest with
+different stored bytes is a **FATAL integrity event**, never a merge.
 
-- Legacy `projector_version` `"1"` / `"2"` parse as **"no declaration"**.
-- An **unknown hash fails closed** — never a fallback to the current declaration.
-- The TG3c zero-raw verifier **resolves each row's declaration** before judging
-  it; its check is structural, so applying only the platform-global projector
-  would false-positive across the 1,340 backfilled instances.
+The declaration is persisted **content-addressed in an append-only table**;
+definitions mutate in place and version history is deferred (E5), so a hash alone
+would leave pre-edit rows unprojectable and break criterion 17. Legacy
+`projector_version` `"1"` / `"2"` parse as **"no declaration"**; an **unknown
+hash fails closed**; the TG3c zero-raw verifier **resolves each row's declaration
+AND approval** before judging it (its check is structural, so applying only the
+platform-global projector would false-positive across the 1,340 backfilled
+instances).
 
-**Canonical encoding is frozen** (the hash is load-bearing): serialization
-format, hash algorithm, map-key ordering, enum ordering semantics, duplicate-key
-and duplicate-value rejection, numeric encoding, Unicode normalization. **A
-collision — same hash, different bytes — is FATAL, never a merge.**
+**Partial projection is frozen:** one invalid declared field redacts **only that
+field**; independently valid declared fields survive. Deterministic by
+construction — and its observable "redacted" state is counted in §1.4a.5's
+capacity.
 
 #### 1.4a.9 Fork / retry — narrowed claim
 
 Content-addressed persistence makes **historical projection evaluable**. It does
 **not** by itself make retry, resume, or fork compatible across definition
-changes. Per `EXECUTION_SEMANTICS`, retried/resumed runs load the *current*
+changes: per `EXECUTION_SEMANTICS`, retried/resumed runs load the *current*
 definition and forks copy old outputs into the *current* graph, so an old
-`category` can be faithfully re-projected and still routed under new meanings —
-exact re-projection proves integrity, not semantic compatibility.
+`category` can be faithfully re-projected and still routed under new meanings.
+Exact re-projection proves integrity, not semantic compatibility.
 
 For §1.4a-enabled steps, either bind the full source definition revision and
 **reject** retry/fork when it differs, or run an explicit compatibility check
 over declared output schemas + downstream consumers. The §4.3 rehydration
 predicate is unchanged.
 
-#### 1.4a.10 Structural rules
+#### 1.4a.10 Structural rules + deferrals
 
-- **Namespace:** declared business fields live under a dedicated `business`
-  object rather than the flat output root, so the projector validates a nested
-  structure instead of the reserved-name list growing with every new platform
-  field. A later platform release reserving a formerly-permitted name must have
-  a defined response for historical declarations.
-- **Reserved names** (platform-global registry, projector metadata,
-  raw-by-taint `output_text`/`error`/`recall`/`tool_calls`) remain a **save-time
-  validation error**, never a silent ignore. Platform-global wins on collision.
-- **All-or-partial projection is frozen:** one invalid declared field redacts
-  **only that field**; independently valid declared fields survive. Deterministic
-  by construction, since downstream execution and exact re-projection depend on
-  it. The full raw object remains vaulted either way.
+- **Namespace:** declared fields live under a dedicated `business` object rather
+  than the flat output root, so the projector validates a nested structure
+  instead of the reserved-name list growing with every new platform field. A
+  later platform release reserving a formerly-permitted name needs a defined
+  response for historical declarations.
+- **Reserved names** (platform-global registry, projector metadata, raw-by-taint
+  `output_text`/`error`/`recall`/`tool_calls`) are a **save-time validation
+  error**. Platform-global wins on collision.
 - **Enforcement:** a runtime value failing its declared rule is redacted and
   vaulted exactly like an unregistered field. A declaration grants a *validator*,
   never a bypass.
-- **Criterion 18 equivalence:** "approved" means *declared under dual-control
-  authority, bound to a step revision, validated at save, audited by hash* —
-  stated explicitly rather than silently redefined.
-
-#### 1.4a.11 Deferred, with triggers
-
-Cross-step/workflow-level declarations (trigger: duplication becomes painful);
-per-tenant override of a bundled example's declaration (trigger: first external
-tenant forking a template); histogram/bucketing forms for continuous values
-(trigger: a workload needing one below grant); an enforceable **aggregate**
-capacity budget + rate boundary (trigger: first external tenant, or any workload
-raising the per-step budget).
+- **Criterion 18 equivalence:** "approved" means *bound to a step revision under
+  dual-control authority, activated atomically, destination-scoped, validated at
+  save, audited by approval id + hash*.
+- **Deferred, with triggers:** cross-step/workflow-level declarations (trigger:
+  duplication becomes painful); per-tenant override of a bundled template
+  (trigger: first external tenant forking one); histogram/bucketing forms
+  (trigger: a workload needing a continuous value below grant); an enforceable
+  **aggregate** capacity budget + rate boundary (trigger: **first external
+  tenant** — onboarding stays gated on this).
 
 ## 2. Decision 1 — the raw-trace privilege (grant-as-STATE-MACHINE)
 
@@ -1156,9 +1262,33 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
 49. **(§1.4a.9)** Retry / resume / fork across a changed definition for a
     §1.4a-enabled step is REJECTED or compatibility-validated — exact
     re-projection alone is not accepted as semantic compatibility.
-50. **(§1.4a.5)** The computed channel capacity (Σ log₂|domain| over declared
-    fields, including list length/membership/order/duplicate rules) is enforced
-    against the declared policy budget at save time.
+50. **(§1.4a.5)** The computed channel capacity (Σ log₂|observable domain| over
+    declared fields, including list length/membership/order/duplicate rules) is
+    enforced against `POLICY_BUDGET_BITS` at save time.
+51. **(§1.4a.2, ext 2026-08-05)** A row produced under REVOKED approval A1 stays
+    withheld even when an ACTIVE approval A2 exists with **identical declaration
+    bytes** for the same step — rows bind `approval_id` + generation, not
+    declaration content. Re-approval does not resurrect earlier rows.
+52. **(§1.4a.3)** Activation is one transaction: two concurrent activations for
+    the same `(org, workflow, step)` yield exactly one ACTIVE approval, and an
+    activation whose hashes, approver distinctness, artifact scope, or capacity
+    budget fail is rejected atomically.
+53. **(§1.4a.3)** An attempt that bound an approval later REVOKED before the
+    attempt durably finishes is persisted **vault-only** (hard revocation); a
+    SUPERSEDED approval blocks new attempts while its historical rows remain
+    authorized.
+54. **(§1.4a.4)** A tenant artifact scoped to a different step revision,
+    declaration, destination set, or capacity budget **rejects activation**; an
+    artifact cannot be reused for a clone/template instance.
+55. **(§1.4a.5)** Capacity accounting distinguishes absent / valid / redacted
+    states; a declaration whose observable domain exceeds the budget fails at
+    save, and raising `POLICY_BUDGET_BITS` requires the same dual-control path.
+56. **(§1.4a.7)** A field authorized for `context` only is NOT released into
+    audit detail, WS events, or explain — each destination reproduces its own
+    projection decision rather than copying an already-projected object.
+57. **(§1.4a.8)** The canonical hash is reproducible across processes (RFC 8785
+    JCS + NFC + SHA-256, domain-separated), and a stored digest whose canonical
+    bytes differ is a FATAL integrity event, never a merge.
 
 ## 9. Cut plan — architecture approved; freezes gate authorization
 
