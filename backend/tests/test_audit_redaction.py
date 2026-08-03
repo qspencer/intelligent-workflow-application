@@ -182,7 +182,10 @@ def test_redact_projects_trigger_payload_and_recall() -> None:
     assert "SECRET-SUBJ" not in blob and "SECRET-BODY" not in blob
     assert "SECRET-CORRESPONDENT-HISTORY" not in blob
     assert redacted["trigger"]["message_id"] == "m1"  # routing kept
-    assert redacted["steps"]["classify"]["output"]["category"] == "urgent"  # structured kept
+    # `category` is a PER-WORKFLOW vocabulary, so the platform-global registry
+    # cannot validate it — it is redacted by default (re-review 2026-08-03 /
+    # §1.4). The per-workflow safe-schema declaration will opt it back in.
+    assert redacted["steps"]["classify"]["output"]["category"].startswith("[redacted")
 
     # admin=True is unchanged (forensics preserved).
     assert redact_tool_data(obj, admin=True) == obj

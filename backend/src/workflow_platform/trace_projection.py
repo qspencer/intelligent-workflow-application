@@ -3,116 +3,218 @@ the SAFE form of a raw payload — used at READ time as a role-aware backstop
 (re-exported by `api/redaction.py`) AND at WRITE time by the engine's
 safe-only flip (TG3b), so it lives in the domain layer, not under `api`.
 
-DEFAULT-DENY (external code review 2026-08-02 F1): a value survives a
-below-grant read only if it is a safe-by-type scalar or its key is in
-`_SAFE_KEYS` (engine/governance metadata or a validated enum). Free-form model
-output, recalled history, error text, and any unknown field are redacted —
-their raw lives in the vault. Tool-call lists and raw trigger payloads keep
-their structural projections (`safe_tool_call` / `safe_trigger_payload`).
+DEFAULT-DENY via a REGISTERED, VALIDATED field projection (§1.4 CONTRACT 1): a
+value survives a below-grant read only if its field is in `_SAFE_FIELDS` AND the
+value passes that field's validator (approved opaque id / closed enum / bounded
+number / bool / structurally-checked container). Free-form model output, recalled
+history, error text, unknown fields, and registered fields carrying the wrong
+shape are all redacted — their raw lives in the vault. Tool-call lists and raw
+trigger payloads keep their structural projections (`safe_tool_call` /
+`safe_trigger_payload`).
 """
 
 from __future__ import annotations
 
 import json
+import re
+from collections.abc import Callable
+from datetime import datetime
 from typing import Any
 
 _REDACTED_FIELD = "[redacted — raw-trace grant required]"
 # Public alias for the write path (the flip stores this in place of raw error).
 REDACTED_ERROR = _REDACTED_FIELD
 _REDACTED_TRIGGER = "raw trigger payload withheld (raw-trace privilege only)"
+_REDACTED_TOOL = "raw tool input/result withheld (admin-tier only)"
 # Routing fields kept in a redacted trigger payload: IDs, never content
 # (subject/body/headers/arbitrary webhook fields — AND the sender address,
 # external code review 2026-08-02 — are stripped).
 _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 
-# DEFAULT-DENY allowlist (external code review 2026-08-02 F1). A value survives
-# a below-grant read ONLY because its key is here (engine-computed metadata,
-# structural/row identity, engine-authored governance fields, or a VALIDATED
-# closed-enum/numeric business field) — never because no redaction branch
-# recognized it. Everything else (free-form model strings, unknown keys,
-# arbitrary lists) is redacted; its raw lives in the vault. Numbers / bools /
-# null are safe by TYPE regardless of key. Erring toward OMITTING a key
-# over-redacts (safe); including a raw-bearing key would leak, so keep this to
-# fields that cannot carry model- or third-party-authored content.
-_SAFE_KEYS = frozenset(
-    {
-        # structural / row identity
-        "id",
-        "instance_id",
-        "step_id",
-        "step_attempt_id",
-        "workflow_id",
-        "workflow_instance_id",
-        "org_id",
-        "owner_user_id",
-        "state",
-        "attempt",
-        "created_at",
-        "started_at",
-        "completed_at",
-        "updated_at",
-        "last_seen_at",
-        "timestamp",
-        "expires_at",
-        "revoked_at",
-        # audit envelope / actor identity
-        "actor_type",
-        "actor_id",
-        "action",
-        "iss",
-        "sub",
-        # engine-computed run metadata (never model-authored)
-        "model",
-        "usage",
-        "memory_hash",
-        "recall_hash",
-        "parse_ok",
-        "memory_written",
-        "stop_reason",
-        "num_steps",
-        # engine-authored governance metadata (§2/§3/§5)
-        "surface",
-        "outcome",
-        "purpose",
-        "reason_code",
-        "scope",
-        "request_id",
-        "workload_identity",
-        "kinds",
-        "intended_kinds",
-        "released_kinds",
-        "withheld_kinds",
-        "principal_id",
-        "grant_id",
-        "approved_by",
-        "requested_by",
-        "revoked_by",
-        "approval_mode",
-        "raw_included",
-        "redaction_reason",
-        "org_bypass",
-        "era",
-        "schema_version",
-        "budget_action",
-        "content_hash",
-        # projector's own metadata
-        "_redacted",
-        "content_bytes",
-        "input_keys",
-        "result_ok",
-        "error_present",
-        "name",
-        "pinned",
-        "pin_overrides",
-        # VALIDATED closed-enum / numeric business classifications
-        "category",
-        "attention",
-        "complexity",
-        "needs_tests",
-        "document_type",
-        "relevance_bucket",
-    }
-)
+# --- Registered field projections (TRACE_GOVERNANCE_PLAN §1.4 CONTRACT 1) ---
+#
+# "A field is safe-to-persist only via a REGISTERED, VERSIONED projection — not
+# merely a validated type." The prior key-allowlist violated this: it passed any
+# value whose KEY was listed, and any number/bool by TYPE — so `{"category":
+# SECRET}`, `{"usage": [SECRET]}` and `{"ssn": 123456789}` all survived
+# (external code RE-review 2026-08-03). Now every surviving value must pass its
+# field's VALIDATOR: an approved opaque identifier, a closed enum, a bounded
+# number, a bool, or a structurally-checked container. Anything unregistered,
+# mistyped, or out of bounds is redacted and its raw lives in the vault.
+#
+# Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
+# `error` and every other free-form field (raw by taint, §1.1).
+
+PROJECTOR_VERSION = "2"  # bumped: key-allowlist → validated field registry
+
+# An approved opaque identifier: bounded, no whitespace, no prose. This is what
+# makes id/hash/model/action fields safe — a token of this shape cannot carry a
+# mail body or a paragraph of PII.
+_OPAQUE_RE = re.compile(r"^[A-Za-z0-9._:@+/=-]{1,200}$")
+_TS_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9:.+Z-]{0,20}$")
+
+_Validator = Callable[[Any], bool]
+
+
+def _opaque(value: Any) -> bool:
+    return isinstance(value, str) and bool(_OPAQUE_RE.match(value))
+
+
+def _boolean(value: Any) -> bool:
+    return isinstance(value, bool)
+
+
+def _count(value: Any) -> bool:
+    """A bounded non-negative integer (bools excluded — they are their own rule)."""
+    return isinstance(value, int) and not isinstance(value, bool) and 0 <= value <= 10**12
+
+
+def _amount(value: Any) -> bool:
+    return (
+        isinstance(value, (int, float))
+        and not isinstance(value, bool)
+        and 0 <= float(value) <= 10**9
+    )
+
+
+def _score(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and -1 <= value <= 100
+
+
+def _ts(value: Any) -> bool:
+    if isinstance(value, datetime):
+        return True
+    return isinstance(value, str) and len(value) <= 40 and bool(_TS_RE.match(value))
+
+
+def _enum(*allowed: str) -> _Validator:
+    values = frozenset(allowed)
+    return lambda v: isinstance(v, str) and v in values
+
+
+def _opaque_list(value: Any) -> bool:
+    return isinstance(value, list) and len(value) <= 256 and all(_opaque(v) for v in value)
+
+
+def _usage(value: Any) -> bool:
+    """The engine's token-usage struct: short opaque keys → bounded counts."""
+    return (
+        isinstance(value, dict)
+        and len(value) <= 16
+        and all(_opaque(k) and _count(v) for k, v in value.items())
+    )
+
+
+def _marker(value: Any) -> bool:
+    """OUR redaction marker — never an input capability. A forged `_redacted`
+    carrying attacker text fails this and is itself redacted."""
+    return isinstance(value, str) and (
+        value.startswith("[redacted") or value in (_REDACTED_TRIGGER, _REDACTED_TOOL)
+    )
+
+
+# Platform-global registry: engine-computed, governance, and row-identity fields
+# only. NOTE (§1.4 gap named by design review 2026-08-03): per-workflow BUSINESS
+# outputs (`category`, `attention`, `relevance_bucket`, `document_type`,
+# `complexity`) are deliberately ABSENT — their vocabularies are per-workflow, so
+# they cannot be validated here and are vaulted/redacted by default. The
+# per-workflow safe-schema DECLARATION that lets a workflow opt them back in
+# (with its own enum) is the next slice; until then this over-redacts, which is
+# the safe direction.
+_SAFE_FIELDS: dict[str, _Validator] = {
+    # structural / row identity
+    "id": _opaque,
+    "instance_id": _opaque,
+    "step_id": _opaque,
+    "step_attempt_id": _opaque,
+    "workflow_id": _opaque,
+    "workflow_instance_id": _opaque,
+    "org_id": _opaque,
+    "owner_user_id": _opaque,
+    "principal_id": _opaque,
+    "grant_id": _opaque,
+    "namespace": _opaque,
+    "state": _opaque,
+    "attempt": _count,
+    "created_at": _ts,
+    "started_at": _ts,
+    "completed_at": _ts,
+    "updated_at": _ts,
+    "last_seen_at": _ts,
+    "timestamp": _ts,
+    "expires_at": _ts,
+    "revoked_at": _ts,
+    "approved_at": _ts,
+    "requested_at": _ts,
+    # audit envelope / actor identity
+    "actor_type": _enum("human", "engine", "system", "connector"),
+    "actor_id": _opaque,
+    "action": _opaque,
+    "iss": _opaque,
+    "sub": _opaque,
+    # engine-computed run metadata (never model-authored)
+    "model": _opaque,
+    "usage": _usage,
+    "memory_hash": _opaque,
+    "recall_hash": _opaque,
+    "parse_ok": _boolean,
+    "memory_written": _boolean,
+    "stop_reason": _opaque,
+    "num_steps": _count,
+    "iterations": _count,
+    "input_tokens": _count,
+    "output_tokens": _count,
+    "total_tokens": _count,
+    "cost_usd": _amount,
+    "total_cost_usd": _amount,
+    "duration_seconds": _amount,
+    "dry_run": _boolean,
+    "truncated": _boolean,
+    "type": _opaque,
+    # engine-authored governance metadata (§2/§3/§5)
+    "surface": _enum("detail", "explain", "audit", "ws", "memory"),
+    "outcome": _opaque,
+    "purpose": _opaque,
+    "reason_code": _opaque,
+    "scope": _opaque,
+    "mode": _enum("summary", "categories"),
+    "request_id": _opaque,
+    "workload_identity": _opaque,
+    "kinds": _opaque_list,
+    "intended_kinds": _opaque_list,
+    "released_kinds": _opaque_list,
+    "withheld_kinds": _opaque_list,
+    "approved_by": _opaque,
+    "requested_by": _opaque,
+    "revoked_by": _opaque,
+    "approval_mode": _opaque,
+    "raw_included": _boolean,
+    "redaction_reason": _opaque,
+    "org_bypass": _boolean,
+    "org_scoped": _boolean,
+    "era": _count,
+    "schema_version": _opaque,
+    "projector_version": _opaque,
+    "raw_schema_version": _opaque,
+    "budget_action": _opaque,
+    "content_hash": _opaque,
+    "unrecognized_ids": _count,
+    # projector's own metadata
+    "_redacted": _marker,
+    "content_bytes": _count,
+    "input_keys": _opaque_list,
+    "result_ok": _boolean,
+    "error_present": _boolean,
+    "name": _opaque,
+    "pinned": _opaque_list,
+    "pin_overrides": _opaque_list,
+    # bounded numeric evaluation/business scores (numbers, not prose)
+    "faithfulness_score": _score,
+    "category_score": _score,
+    "relevance_score": _score,
+    "concern_count": _count,
+    "needs_tests": _boolean,
+}
 
 
 def safe_trigger_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -148,7 +250,7 @@ def safe_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
         "error_present": bool(result.get("error")),
         "pinned": tc.get("pinned", []),
         "pin_overrides": tc.get("pin_overrides", []),
-        "_redacted": "raw tool input/result withheld (admin-tier only)",
+        "_redacted": _REDACTED_TOOL,
     }
     if content is not None:
         # Byte length only — the truncated hash was dropped (external review
@@ -216,13 +318,14 @@ def _redact_value(key: str, value: Any) -> Any:
         # Raw inbound message (instance `trigger_payload`, `context.trigger`,
         # the `workflow_started` audit detail) → routing IDs only.
         return safe_trigger_payload(value)
-    if key in _SAFE_KEYS:
-        # Allowlisted: values under these keys are safe by construction
-        # (engine/governance metadata or a validated enum).
+    rule = _SAFE_FIELDS.get(key)
+    if rule is not None and rule(value):
+        # Registered AND the value passed its validator (§1.4 CONTRACT 1).
         return value
-    if value is None or isinstance(value, (bool, int, float)):
-        return value  # safe by type
+    if value is None:
+        return None  # absence carries no content
     if isinstance(value, dict):
         return _redact_dict(value)  # recurse structure; leaves are default-denied
-    # DEFAULT-DENY: free-form string, list, or any non-allowlisted value.
+    # DEFAULT-DENY: unregistered field, or a registered field whose value failed
+    # validation (wrong type, out of bounds, prose where an id was expected).
     return _REDACTED_FIELD

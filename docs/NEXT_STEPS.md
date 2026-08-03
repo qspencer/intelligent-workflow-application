@@ -713,12 +713,28 @@ not the boundaries the design promises. Contracts A + B1 still NOT delivered.
   mode (tenant_authorized activated with no artifact); `ticket_ref` took free
   text. Now mode validated before activation; refs are opaque tokens.
 
-**Structural findings still OPEN — need four shared primitives, NOT per-surface patches:**
-1. **Typed projector registry (P1)** — `_SAFE_KEYS` passes a value through on
-   KEY membership without validating it: `{"category": SECRET}`, `{"usage":
-   [SECRET]}`, `{"ssn": 123456789}` all leak, and safe-only writes them with no
-   vault row. Needs per-field validators (type/enum/range/size/source); unknown
-   or mismatched → vault. **OPEN — foundational.**
+**Design review (2026-08-03) reframed this: it is BUILD-CONFORMANCE, not new design.**
+Three of the four primitives are the v6-FROZEN contracts the build diverged from
+— P1 = §1.4 CONTRACT 1, P3(predicate) = §4.3, P2 = criterion 16, P4 = §4.2 +
+criterion 31. **No v7 design round**; hold the build to the sections that exist.
+The one genuine design gap is §1.4's silence on how a workflow *declares* its
+safe business fields. P3 splits: P3a (predicate + §4.1 version columns on
+operational rows) vs P3b (§5.1 dependency manifest / `recovery_state`, which the
+plan already defers — must NOT gate the leak fix).
+
+**Structural findings — status:**
+1. **Typed projector registry (P1)** — **DONE** (this slice). `_SAFE_KEYS` is
+   replaced by `_SAFE_FIELDS`: every survivor must pass its field's VALIDATOR
+   (approved opaque id / closed enum / bounded number / bool / checked
+   container). The blanket "numbers+bools safe by type" pass is gone, so
+   `{"category": SECRET}`, `{"usage": [SECRET]}`, `{"ssn": 123456789}` are all
+   redacted + vaulted. `PROJECTOR_VERSION` bumped to `2`.
+   **Follow-up (the real §1.4 gap):** per-workflow business vocabularies
+   (`category`, `attention`, `relevance_bucket`, `document_type`, `complexity`)
+   are deliberately NOT platform-registered, so they now over-redact below
+   grant — including in the dashboard. The per-workflow **safe-schema
+   declaration** (workflow opts a field in with its own enum, validated) is the
+   next slice and restores that UX. Over-redaction is the safe interim.
 2. **Total raw-surface inventory (P2)** — grant bypasses on surfaces the
    projector never sees: step **explain** returns no-tool `output_text` +
    deterministic `output` via `_excerpt`; **/api/escalations** returns

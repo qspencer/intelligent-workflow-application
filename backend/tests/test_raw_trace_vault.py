@@ -78,10 +78,10 @@ def test_output_has_raw_default_deny() -> None:
     assert output_has_raw({"recall": "prior thread"})
     assert output_has_raw({"summary": "arbitrary model prose"})  # unknown free-form
     assert output_has_raw({"key_concepts": ["a", "b"]})  # arbitrary list
-    # purely structured/allowlisted output → nothing to redact → no vault row
-    assert not output_has_raw(
-        {"category": "urgent", "cost_usd": 0.01, "model": "m", "parse_ok": True}
-    )
+    # a per-workflow business vocabulary is NOT platform-registered → needs a vault row
+    assert output_has_raw({"category": "urgent"})
+    # purely registered+validated engine metadata → nothing to redact → no vault row
+    assert not output_has_raw({"cost_usd": 0.01, "model": "m", "parse_ok": True})
 
 
 def test_idempotency_key_is_collision_free() -> None:

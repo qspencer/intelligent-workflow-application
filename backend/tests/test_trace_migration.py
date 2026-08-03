@@ -66,7 +66,9 @@ async def test_verifier_detects_raw_then_backfill_clears_it() -> None:
     assert SECRET_TOOL in vblob and SECRET_TRIG in vblob
     step = (await repos.steps.list_by_instance(iid))[0]
     assert step.output is not None
-    assert step.output["category"] == "urgent"  # safe field preserved
+    # `category` is a per-workflow vocabulary the platform registry can't
+    # validate → redacted by default (re-review 2026-08-03, §1.4).
+    assert step.output["category"].startswith("[redacted")
     assert SECRET_TOOL not in str(step.output)
 
 

@@ -53,6 +53,24 @@ def test_rr_f1_forged_redacted_marker_is_not_trusted() -> None:
     assert "input" not in safe and "result" not in safe
 
 
+def test_rr_p1_registered_key_with_unvalidated_value_is_redacted() -> None:
+    """The re-review's three reproduced leaks: a KEY allowlist passed values
+    without validating them. Now every survivor passes its field validator."""
+    # a registered field carrying prose instead of its declared shape
+    assert redact_tool_data({"usage": [SECRET]}, admin=False)["usage"] != [SECRET]
+    assert redact_tool_data({"model": f"{SECRET} with spaces"}, admin=False)["model"].startswith(
+        "[redacted"
+    )
+    # an UNREGISTERED numeric field no longer passes "safe by type"
+    assert redact_tool_data({"ssn": 123456789}, admin=False)["ssn"] != 123456789
+    # a per-workflow business vocabulary is not platform-registered
+    assert redact_tool_data({"category": SECRET}, admin=False)["category"].startswith("[redacted")
+    # …while a correctly-shaped registered value still survives
+    assert redact_tool_data({"usage": {"input_tokens": 12}}, admin=False)["usage"] == {
+        "input_tokens": 12
+    }
+
+
 async def test_rr_f4_sealed_row_without_key_fails_closed(monkeypatch: pytest.MonkeyPatch) -> None:
     import workflow_platform.trace_cipher as tc
 
@@ -102,9 +120,9 @@ async def test_rr_f6_ticket_ref_must_be_opaque() -> None:
 
 def test_f1_no_tool_output_text_is_redacted() -> None:
     # the reviewer's repro: a step that used NO tool still leaks output_text
-    safe = redact_tool_data({"output_text": SECRET, "category": "urgent"}, admin=False)
+    safe = redact_tool_data({"output_text": SECRET, "model": "claude-haiku-4-5"}, admin=False)
     assert SECRET not in str(safe["output_text"])
-    assert safe["category"] == "urgent"  # validated enum survives
+    assert safe["model"] == "claude-haiku-4-5"  # registered + validated survives
 
 
 def test_f1_arbitrary_and_nested_fields_are_redacted() -> None:
@@ -118,18 +136,18 @@ def test_f1_arbitrary_and_nested_fields_are_redacted() -> None:
         admin=False,
     )
     assert SECRET not in str(safe)
-    assert safe["cost_usd"] == 0.5  # numeric survives by type
+    assert safe["cost_usd"] == 0.5  # registered + bounded numeric survives
 
 
 async def test_f1_redacted_field_is_vaulted_and_rehydrated_lossless() -> None:
     # a free-form business field is redacted below-grant AND recoverable
     repos = in_memory_repositories()
-    output = {"category": "urgent", "summary": SECRET, "cost_usd": 0.01}
+    output = {"model": "claude-haiku-4-5", "summary": SECRET, "cost_usd": 0.01}
     await RawTraceVault(repos).record_step_output(
         org_id="o", instance_id="i", step_attempt_id="s", output=output, durable=True
     )
     safe = redact_tool_data(output, admin=False)
-    assert safe["category"] == "urgent" and SECRET not in str(safe)
+    assert safe["model"] == "claude-haiku-4-5" and SECRET not in str(safe)
     full = await RawTraceRehydrator(repos).rehydrate_output(
         purpose="resume", org_id="o", instance_id="i", step_attempt_id="s", safe_output=safe
     )
