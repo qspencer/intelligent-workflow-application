@@ -7,6 +7,7 @@ from typing import Any
 
 from sqlalchemy import delete as sql_delete
 from sqlalchemy import func, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -26,6 +27,7 @@ from workflow_platform.persistence.models import (
     TriggerCursorState,
     User,
     WorkflowInstance,
+    vault_fingerprint,
 )
 from workflow_platform.persistence.repository import (
     AuditRepo,
@@ -39,6 +41,7 @@ from workflow_platform.persistence.repository import (
     StepExecutionRepo,
     TriggerCursorRepo,
     UserRepo,
+    VaultConflict,
 )
 from workflow_platform.persistence.sqlalchemy_models import (
     AuditLogRow,
@@ -475,6 +478,7 @@ def _row_to_raw_trace(row: RawTraceRow) -> RawTrace:
         projection_schema_version=row.projection_schema_version,
         projector_version=row.projector_version,
         payload=_as_dict(row.payload) if isinstance(row.payload, dict) else row.payload,
+        content_commitment=row.content_commitment,
         created_at=row.created_at,
     )
 
@@ -500,6 +504,7 @@ class PostgresRawTraceVaultRepo(RawTraceVaultRepo):
                     projection_schema_version=trace.projection_schema_version,
                     projector_version=trace.projector_version,
                     payload=trace.payload,
+                    content_commitment=trace.content_commitment,
                     created_at=trace.created_at,
                 )
                 .on_conflict_do_nothing(index_elements=["idempotency_key"])
@@ -507,6 +512,13 @@ class PostgresRawTraceVaultRepo(RawTraceVaultRepo):
             await s.execute(stmt)
         stored = await self.get_by_idempotency_key(trace.idempotency_key)
         assert stored is not None  # just inserted or already present
+        # P4: on_conflict_do_nothing means an EXISTING row wins silently. That
+        # is correct only for the same immutable write — different content under
+        # the same key must fail, not be swallowed (durable-or-fail, §4.2).
+        if vault_fingerprint(stored) != vault_fingerprint(trace):
+            raise VaultConflict(
+                f"vault object {trace.idempotency_key} exists with different content"
+            )
         return stored
 
     async def get(self, trace_id: str) -> RawTrace | None:
@@ -566,6 +578,28 @@ class PostgresRawTraceGrantRepo(RawTraceGrantRepo):
                 s.add(row)
             _apply_grant(row, grant)
         return grant
+
+    async def update_if(self, grant: RawTraceGrant, *, expected_state: str) -> bool:
+        """Conditional UPDATE ... WHERE id = ? AND state = ? (P4). One
+        statement, so a concurrent transition cannot interleave between the
+        check and the write; rowcount 0 means someone else moved it first."""
+        async with self._sf() as s, s.begin():
+            result = await s.execute(
+                sa_update(RawTraceGrantRow)
+                .where(
+                    RawTraceGrantRow.id == grant.id,
+                    RawTraceGrantRow.state == expected_state,
+                )
+                .values(
+                    state=grant.state.value,
+                    approved_by=grant.approved_by,
+                    approved_at=grant.approved_at,
+                    external_approval_ref=grant.external_approval_ref,
+                    revoked_by=grant.revoked_by,
+                    revoked_at=grant.revoked_at,
+                )
+            )
+            return bool(getattr(result, "rowcount", 0) == 1)
 
 
 class PostgresUserRepo(UserRepo):

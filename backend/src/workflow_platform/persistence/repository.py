@@ -230,19 +230,52 @@ class RawTraceGrantRepo(ABC):
 
     @abstractmethod
     async def save(self, grant: RawTraceGrant) -> RawTraceGrant:
-        """Insert or fully update by id (state transitions)."""
+        """Insert or fully update by id (state transitions).
+
+        WARNING: this is a blind full-row write. Any transition that must not
+        clobber a concurrent one — activation, revocation, expiry — MUST use
+        `update_if` instead (external code re-review 2026-08-03 finding 6)."""
         ...
+
+    @abstractmethod
+    async def update_if(self, grant: RawTraceGrant, *, expected_state: str) -> bool:
+        """COMPARE-AND-SET the grant, conditional on its CURRENT stored state
+        (docs/TRACE_GOVERNANCE_PLAN.md §4.2 + criterion 31). Returns True iff
+        exactly one row matched `(id, expected_state)` and was updated; False
+        means another writer moved it first and the caller MUST NOT proceed.
+
+        This is the fix for the resurrection race: approve() re-read a PENDING
+        grant, a concurrent revoke() set it CANCELLED, and approve()'s blind
+        `save` overwrote the cancellation back to ACTIVE. Implementations must
+        make the check-and-write atomic — Postgres via
+        `UPDATE ... WHERE id = ? AND state = ?` requiring rowcount == 1, and
+        the in-memory repo via a real compare-then-swap under its lock. An
+        in-memory impl that merely overwrites would give tests false assurance
+        the Postgres path does not provide."""
+        ...
+
+
+class VaultConflict(Exception):
+    """A durable vault write hit an existing object under the same idempotency
+    key whose stored content DIFFERS (§4.2 durable-or-fail). Silently keeping
+    the old payload would leave the engine believing it stored the new raw
+    while resume/fork/privileged reads reconstruct something else."""
 
 
 class RawTraceVaultRepo(ABC):
     """The raw-trace vault (docs/TRACE_GOVERNANCE_PLAN.md §4.1/§0.2, TG3a). An
     abstract repository over OPAQUE object ids so the separate-vault (B) form
     slots in without rewriting callers. `put` is idempotent on
-    `idempotency_key` — re-vaulting the same (org, instance, step-attempt,
-    kind) returns the existing object rather than duplicating."""
+    `idempotency_key` — re-vaulting the SAME content returns the existing
+    object rather than duplicating."""
 
     @abstractmethod
-    async def put(self, trace: RawTrace) -> RawTrace: ...
+    async def put(self, trace: RawTrace) -> RawTrace:
+        """Idempotent on `idempotency_key`. An existing row is returned ONLY
+        when it represents the same immutable write; if its stored content
+        differs, raise `VaultConflict` rather than silently retaining the old
+        payload (external code re-review 2026-08-03 finding 7)."""
+        ...
 
     @abstractmethod
     async def get(self, trace_id: str) -> RawTrace | None: ...

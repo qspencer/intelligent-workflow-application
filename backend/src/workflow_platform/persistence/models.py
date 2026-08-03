@@ -7,6 +7,7 @@ look up later goes through one of these.
 
 from __future__ import annotations
 
+import json
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Any
@@ -254,6 +255,24 @@ class RawTraceKind(StrEnum):
     ERROR = "error"
 
 
+def vault_fingerprint(trace: RawTrace) -> tuple[Any, ...]:
+    """Identity + content of a vault object, for idempotent-put conflict
+    detection (P4). Uses the plaintext `content_commitment` when present so
+    re-sealing the same content is NOT a conflict; falls back to the raw
+    payload for legacy plaintext rows."""
+    return (
+        trace.org_id,
+        trace.instance_id,
+        trace.step_attempt_id,
+        trace.kind.value,
+        trace.raw_schema_version,
+        trace.projector_version,
+        trace.content_commitment
+        if trace.content_commitment is not None
+        else json.dumps(trace.payload, sort_keys=True, default=str),
+    )
+
+
 class RawTraceState(StrEnum):
     """Vault object lifecycle (docs/TRACE_GOVERNANCE_PLAN.md §4.2). Under
     Contract A (same-DB) the states collapse into one transaction and a row is
@@ -295,4 +314,10 @@ class RawTrace(BaseModel):
     projection_schema_version: int = PROJECTION_SCHEMA_VERSION
     projector_version: str = PROJECTOR_VERSION
     payload: Any = None  # plaintext JSON under Contract A; ciphertext under B (TG3d)
+    # P4 (re-review finding 7): a hash over the PLAINTEXT content, set by the
+    # vault before sealing. Ciphertext gets a fresh nonce per seal, so it cannot
+    # be compared directly; this commitment lets an idempotent `put` tell "same
+    # immutable write" from "different content under the same key" without the
+    # repository holding any key. None on pre-P4 rows (fall back to payload).
+    content_commitment: str | None = None
     created_at: datetime = Field(default_factory=_utcnow)

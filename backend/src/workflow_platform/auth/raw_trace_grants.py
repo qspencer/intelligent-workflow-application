@@ -254,14 +254,17 @@ class RawTraceGrantService:
         # F5: the duplicate-check + activation is one critical section. Re-read
         # under the lock so a concurrent activation of a sibling grant is seen.
         async with self._activation_lock:
-            fresh = await self._repos.raw_trace_grants.get(grant_id)
-            if fresh is None or fresh.state is not RawTraceGrantState.PENDING:
-                raise InvalidGrantTransition(f"grant {grant_id} is no longer pending")
             await self._clear_stale_active(grant.principal_id, grant.org_id, now, approved_by)
             grant.approved_by = approved_by
             grant.state = RawTraceGrantState.ACTIVE
             grant.approved_at = now
-            await self._repos.raw_trace_grants.save(grant)
+            # P4: CAS from PENDING. A concurrent revoke/cancel that already
+            # moved the row wins — a blind save here would RESURRECT a
+            # cancelled grant to active (external code re-review finding 6).
+            if not await self._repos.raw_trace_grants.update_if(
+                grant, expected_state=RawTraceGrantState.PENDING.value
+            ):
+                raise InvalidGrantTransition(f"grant {grant_id} is no longer pending")
         await self._audit(approved_by, "raw_grant_granted", grant)
         return grant
 
@@ -275,6 +278,7 @@ class RawTraceGrantService:
             raise GrantNotFound(grant_id)
         if grant.state not in (RawTraceGrantState.ACTIVE, RawTraceGrantState.PENDING):
             raise InvalidGrantTransition(f"grant {grant_id} is {grant.state.value}")
+        observed = grant.state
         grant.state = (
             RawTraceGrantState.REVOKED
             if grant.state is RawTraceGrantState.ACTIVE
@@ -282,7 +286,10 @@ class RawTraceGrantService:
         )
         grant.revoked_by = revoked_by
         grant.revoked_at = now
-        await self._repos.raw_trace_grants.save(grant)
+        # P4: CAS from the state we observed — a concurrent activation that
+        # already moved the row must not be silently overwritten either way.
+        if not await self._repos.raw_trace_grants.update_if(grant, expected_state=observed.value):
+            raise InvalidGrantTransition(f"grant {grant_id} changed state concurrently")
         await self._audit(revoked_by, "raw_grant_revoked", grant)
         return grant
 

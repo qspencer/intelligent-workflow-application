@@ -17,11 +17,13 @@ still the source of truth in this phase.
 from __future__ import annotations
 
 import hashlib
+import json
 import logging
 from typing import Any
 
 from workflow_platform.persistence import RawTrace, RawTraceKind, Repositories
 from workflow_platform.persistence.models import RAW_SCHEMA_VERSION
+from workflow_platform.persistence.repository import VaultConflict
 from workflow_platform.trace_cipher import build_trace_cipher
 from workflow_platform.trace_projection import redact_tool_data
 
@@ -72,6 +74,13 @@ class RawTraceVault:
     ) -> RawTrace | None:
         if _empty(payload):
             return None
+        # P4: commit to the PLAINTEXT before sealing, so an idempotent put can
+        # distinguish "same immutable write" from "different content under the
+        # same key" without the repository holding a key (ciphertext nonces
+        # differ per seal, so ciphertext itself can't be compared).
+        commitment = hashlib.sha256(
+            json.dumps(payload, sort_keys=True, default=str).encode()
+        ).hexdigest()
         stored = payload
         if self._cipher is not None:
             stored = self._cipher.seal(
@@ -89,9 +98,16 @@ class RawTraceVault:
             kind=kind,
             idempotency_key=idempotency_key(org_id, instance_id, step_attempt_id, kind),
             payload=stored,
+            content_commitment=commitment,
         )
         try:
             return await self._repos.raw_trace_vault.put(trace)
+        except VaultConflict:
+            # ALWAYS fatal, dark dual-write or not (P4): the same key already
+            # holds DIFFERENT content, so continuing would leave the engine
+            # believing it stored raw the vault does not hold.
+            logger.error("raw-trace vault content conflict", exc_info=True)
+            raise
         except Exception:
             if durable:
                 # DURABLE (safe-only flip, TG3b): the operational store keeps

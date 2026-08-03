@@ -21,6 +21,7 @@ from workflow_platform.persistence.models import (
     TriggerCursorState,
     User,
     WorkflowInstance,
+    vault_fingerprint,
 )
 from workflow_platform.persistence.repository import (
     AuditRepo,
@@ -34,6 +35,7 @@ from workflow_platform.persistence.repository import (
     StepExecutionRepo,
     TriggerCursorRepo,
     UserRepo,
+    VaultConflict,
 )
 from workflow_platform.workflow import WorkflowDefinition
 
@@ -375,6 +377,17 @@ class InMemoryRawTraceGrantRepo(RawTraceGrantRepo):
         self._items[grant.id] = grant.model_copy(deep=True)
         return grant
 
+    async def update_if(self, grant: RawTraceGrant, *, expected_state: str) -> bool:
+        """REAL compare-and-set (P4). The stored state is compared and the swap
+        happens without an await between them, so a concurrent transition
+        cannot interleave — the in-memory repo must not merely overwrite, or
+        tests would pass on assurance the Postgres path doesn't give."""
+        current = self._items.get(grant.id)
+        if current is None or current.state.value != expected_state:
+            return False
+        self._items[grant.id] = grant.model_copy(deep=True)
+        return True
+
 
 class InMemoryRawTraceVaultRepo(RawTraceVaultRepo):
     def __init__(self) -> None:
@@ -384,7 +397,15 @@ class InMemoryRawTraceVaultRepo(RawTraceVaultRepo):
     async def put(self, trace: RawTrace) -> RawTrace:
         existing_id = self._by_key.get(trace.idempotency_key)
         if existing_id is not None:
-            return self._items[existing_id].model_copy(deep=True)
+            existing = self._items[existing_id]
+            # P4: idempotent ONLY for the same immutable write. A different
+            # payload under the same key means the caller believes it stored
+            # content the vault does not hold — durable-or-fail must raise.
+            if vault_fingerprint(existing) != vault_fingerprint(trace):
+                raise VaultConflict(
+                    f"vault object {trace.idempotency_key} exists with different content"
+                )
+            return existing.model_copy(deep=True)
         self._items[trace.id] = trace.model_copy(deep=True)
         self._by_key[trace.idempotency_key] = trace.id
         return trace

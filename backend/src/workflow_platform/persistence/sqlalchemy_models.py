@@ -191,4 +191,8 @@ class RawTraceRow(Base):
     )
     projector_version: Mapped[str] = mapped_column(String(64), nullable=False)
     payload: Mapped[Any] = mapped_column(JsonColumn, nullable=True)
+    # P4: sha256 over the PLAINTEXT content, so an idempotent put can tell the
+    # same immutable write from different content under the same key without
+    # holding a key. NULL on pre-P4 rows.
+    content_commitment: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)

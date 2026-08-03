@@ -13,6 +13,7 @@ from tests._bedrock_fakes import FakeBedrock
 from workflow_platform.auth.raw_trace_grants import (
     ApproverConflict,
     DuplicateActiveGrant,
+    InvalidGrantTransition,
     MissingApprovalArtifact,
     RawTraceGrantService,
 )
@@ -23,7 +24,11 @@ from workflow_platform.persistence import (
     WorkflowInstanceState,
     in_memory_repositories,
 )
-from workflow_platform.persistence.models import RawTraceApprovalMode, RawTraceReasonCode
+from workflow_platform.persistence.models import (
+    RawTraceApprovalMode,
+    RawTraceGrantState,
+    RawTraceReasonCode,
+)
 from workflow_platform.trace_cipher import ENV_MASTER_KEY
 from workflow_platform.trace_projection import redact_error, redact_tool_data
 from workflow_platform.trace_rehydrate import RawTraceRehydrator, RawTraceUnavailable
@@ -450,3 +455,83 @@ async def test_f7_unprojected_trigger_with_no_row_is_fine() -> None:
         purpose="resume", org_id="o", instance_id="i", safe_trigger={"message_id": "m1"}
     )
     assert out == {"message_id": "m1"}
+
+
+# --- P4: grant + vault compare-and-set (re-review finding 6 + 7) ---
+
+
+async def test_p4_concurrent_revoke_is_not_overwritten_by_approve() -> None:
+    """The resurrection race: approve() read a PENDING grant, a concurrent
+    revoke() cancelled it, and approve()'s blind save overwrote the
+    cancellation back to ACTIVE."""
+    from datetime import UTC, datetime, timedelta
+
+    svc = _grant_service()
+    now = datetime(2026, 8, 3, tzinfo=UTC)
+    g = await svc.request(
+        principal_id="p",
+        org_id=None,
+        requested_by="admin-a",
+        reason_code=RawTraceReasonCode.DEBUGGING,
+        expires_at=now + timedelta(hours=1),
+        now=now,
+    )
+    # the concurrent cancel lands first
+    await svc.revoke(grant_id=g.id, revoked_by="admin-c", now=now)
+    with pytest.raises(InvalidGrantTransition):
+        await svc.approve(grant_id=g.id, approved_by="admin-b", now=now)
+    final = await svc._repos.raw_trace_grants.get(g.id)
+    assert final is not None and final.state.value == "cancelled"  # NOT resurrected
+    assert await svc.covering(principal_id="p", target_org="org1", now=now) is None
+
+
+async def test_p4_in_memory_repo_does_real_cas() -> None:
+    """The in-memory repo must actually compare-and-set — an impl that merely
+    overwrites would give the suite false assurance about the Postgres path."""
+    from datetime import UTC, datetime, timedelta
+
+    repos = in_memory_repositories()
+    svc = RawTraceGrantService(repos, require_dual_control=False)
+    now = datetime(2026, 8, 3, tzinfo=UTC)
+    g = await svc.request(
+        principal_id="p",
+        org_id=None,
+        requested_by="admin-a",
+        reason_code=RawTraceReasonCode.DEBUGGING,
+        expires_at=now + timedelta(hours=1),
+        now=now,
+    )
+    stored = await repos.raw_trace_grants.get(g.id)
+    assert stored is not None
+    stored.state = RawTraceGrantState.ACTIVE  # a real transition, not a no-op write
+    assert await repos.raw_trace_grants.update_if(stored, expected_state="pending") is True
+    # the stored row is ACTIVE now, so the same pending-CAS must FAIL
+    assert await repos.raw_trace_grants.update_if(stored, expected_state="pending") is False
+    # and the row was not clobbered back
+    again = await repos.raw_trace_grants.get(g.id)
+    assert again is not None and again.state is RawTraceGrantState.ACTIVE
+
+
+async def test_p4_durable_vault_write_conflict_raises() -> None:
+    """A different payload under the same idempotency key must raise, not
+    silently retain the OLD raw while the engine believes it stored the new."""
+    from workflow_platform.persistence.repository import VaultConflict
+
+    repos = in_memory_repositories()
+    vault = RawTraceVault(repos)
+    await vault.record_step_output(
+        org_id="o", instance_id="i", step_attempt_id="s", output={"summary": "OLD-RAW"}
+    )
+    with pytest.raises(VaultConflict):
+        await vault.record_step_output(
+            org_id="o", instance_id="i", step_attempt_id="s", output={"summary": "NEW-RAW"}
+        )
+
+
+async def test_p4_same_content_re_vault_is_still_idempotent() -> None:
+    repos = in_memory_repositories()
+    vault = RawTraceVault(repos)
+    out = {"summary": "SAME-RAW"}
+    await vault.record_step_output(org_id="o", instance_id="i", step_attempt_id="s", output=out)
+    await vault.record_step_output(org_id="o", instance_id="i", step_attempt_id="s", output=out)
+    assert len(await repos.raw_trace_vault.list_by_instance("i")) == 1

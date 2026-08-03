@@ -800,12 +800,23 @@ plan already defers — must NOT gate the leak fix).
    accepted; deleting a marker from an operational row bypasses vault access
    entirely (resume/fork on tampered data); no state/schema/projector-version
    check. **OPEN.**
-4. **DB compare-and-set for grant + vault lifecycle (P4)** — activation vs.
-   concurrent revoke races (revoke ignores the lock; blind full-row saves) → a
-   cancelled grant resurrects to active. And durable idempotent vault writes
-   accept an EXISTING key as success without checking the payload matches →
-   OLD raw retained while the engine believes it stored NEW (durable-or-fail
-   violated). Needs conditional `WHERE state=…`/content-commitment CAS. **OPEN.**
+4. **DB compare-and-set for grant + vault lifecycle (P4)** — **DONE.** New
+   `RawTraceGrantRepo.update_if(grant, expected_state)` is a real CAS in BOTH
+   impls (Postgres `UPDATE … WHERE id=? AND state=?` requiring rowcount==1;
+   in-memory compares-then-swaps with no await between — the design review's
+   condition, so tests can't pass on assurance Postgres wouldn't give).
+   `approve` CASes from `pending` and `revoke` from its observed state, so a
+   concurrent cancel is no longer resurrected to active. Vault `put` now
+   compares a `content_commitment` (sha256 of the PLAINTEXT, computed before
+   sealing — ciphertext nonces differ per seal) plus the identity tuple, and
+   raises `VaultConflict` on different content under the same key instead of
+   silently retaining the OLD raw; the conflict is fatal in dark dual-write too,
+   since it means the engine believes something false. Alembic `0010` adds the
+   nullable column (pre-P4 rows fall back to payload comparison). 4 regression
+   tests. **Residual:** `_clear_stale_active`'s expiry transition still uses a
+   blind `save`; it is inside the activation lock and only moves an
+   already-expired row, but it should move to CAS when the grant lifecycle next
+   gets touched.
 5. **Audit endpoints honest release (rides P2/P3)** — under safe-only the audit
    endpoints project at rest but `decide_raw_release` still records
    `outcome=released`+all-kinds; the kind list is also incomplete. Must rehydrate
