@@ -729,7 +729,26 @@ plan already defers — must NOT gate the leak fix).
    container). The blanket "numbers+bools safe by type" pass is gone, so
    `{"category": SECRET}`, `{"usage": [SECRET]}`, `{"ssn": 123456789}` are all
    redacted + vaulted. `PROJECTOR_VERSION` bumped to `2`.
-   **Follow-up — §1.4a, DESIGNED + REVIEWED, ready to build:** per-workflow
+   **Follow-up — §1.4a: DESIGNED, externally reviewed, BUILD DEFERRED.** An
+   external design review (2026-08-04) approved the direction but **deferred
+   build authorization**. Its central finding: approving the *declaration* alone
+   is unsafe, because an ordinary `ORG_WRITE_ROLES` user can edit **only the
+   prompt** and repurpose the approved alphabet as an exfiltration codebook —
+   no `safe_output` edit, so no admin review, no audit, no grant, no release
+   record. It also showed the "≈32 bits/attempt" capacity claim was wrong (it
+   assumed scalar enums; an ordered 16-member list with `max_items:16` carries
+   ~64 bits alone), and found three more gaps: no revocation lifecycle (append-
+   only content-addressing made an approval permanent, so a bad approval became
+   an irreversible below-grant disclosure), a closed-enum `purpose` that does not
+   satisfy the FROZEN §1.3 consumer/role/retention contract, and an overstated
+   fork/retry compatibility claim. **The revision is folded into §1.4a.1–.11**
+   (approval binds the step REVISION under dual control; finite integer lattice
+   replacing the float `number` form; computed capacity budget; revocation;
+   full §1.3 justification; narrowed fork claim; frozen canonical encoding;
+   `business` namespace; criteria 42–50). **Awaiting external re-approval —
+   do NOT build; P1's over-redaction stands until then.**
+
+   Original gap statement — per-workflow
    business vocabularies (`category`, `attention`, `relevance_bucket`,
    `document_type`, `complexity`) are deliberately NOT platform-registered, so
    they over-redact below grant today — including in the dashboard.
