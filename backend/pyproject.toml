@@ -30,7 +30,7 @@ dependencies = [
     "json-repair>=0.59.10",
     "veracium==0.4.8",
     "argon2-cffi>=25.1.0",
-    "cryptography>=41",
+    "cryptography>=50",  # >=50: PYSEC-2026-3552 (AES-GCM path, Contract B1)
 ]
 
 [dependency-groups]
