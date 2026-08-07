@@ -694,6 +694,34 @@ The reviewer executed the code against the contracts and found 6 items.
   Deferred within TG1: memory facts-mode-under-grant. Ship to an external org
   stays trigger-gated + needs the chosen B-contract in effect + these gates.
 
+### G27 — veracium store schema v2 migration (upcoming, NOT yet released)
+
+**Not actionable today — logged so it isn't a surprise on upgrade day.**
+veracium `main` is ahead of the released `v0.4.8` with the full `specs/0008`
+implementation, which advances the store to **schema v2** (a `confirmations`
+table, `confirm_edge`, the enum/idempotency contract on `confirm()`). Per the
+veracium coordination doc: *"existing v1 stores now require an explicit
+`migrate_store()` before a v2 build opens them — a deliberate offline-migration
+boundary, not a silent auto-upgrade."*
+
+Our production store is **v1**: `backend/.memory/learned.db` (39 MB, 3,962 edges
+/ 43,625 episodes) reads `PRAGMA user_version = 0` with no `confirmations`
+table — verified 2026-08-07 on 0.4.8.
+
+**So when 0.4.9+ ships, a naive pin bump will fail to open the store.** The
+upgrade is: bump the pin → run veracium's `migrate_store()` against
+`.memory/learned.db` **before** the backend starts → restart. Take a copy of the
+DB first; it holds the only copy of the distilled corpus.
+
+Behaviour changes riding along (both affect us — we are the third-party-email
+ingester): reinforcement no longer clears `needs_confirmation`, and `confirm()`
+gains an enum/idempotency contract. Neither is used by our write-only slice
+today, but the recall path renders what these flags govern.
+
+Ties to `G26.1` — same failure shape as the Alembic drift (code ahead of
+schema), one dependency further out. Whatever mechanical check lands for G26.1
+should cover the veracium store version too, not just Alembic.
+
 ### G26 — Live-box operability gaps surfaced by the DMARC run (2026-08-07)
 
 Both found while actually running `dmarc-ingest` against the real mailbox, not
