@@ -694,6 +694,46 @@ The reviewer executed the code against the contracts and found 6 items.
   Deferred within TG1: memory facts-mode-under-grant. Ship to an external org
   stays trigger-gated + needs the chosen B-contract in effect + these gates.
 
+### G26 — Live-box operability gaps surfaced by the DMARC run (2026-08-07)
+
+Both found while actually running `dmarc-ingest` against the real mailbox, not
+by the test suite — which is the point: the suite never touches the deployed box.
+
+**G26.1 — Schema drift is silent until a run fails. (HIGH — it broke production.)**
+Migrations `0009`/`0010`/`0011` were committed over several days and **never
+applied to the running Postgres**. The systemd service `--reload`s code but not
+schema, so new code wrote `projector_version` / `content_commitment` into tables
+that lacked the columns. **Every workflow run on the live box failed from ~Aug 3
+until Aug 7** — the DMARC viewer silently stopped receiving reports and nothing
+surfaced it. Fixed by restarting (`run-local-be.sh` runs `alembic upgrade head`
+itself), but the failure mode is structural, not a one-off lapse: this is the
+second time the same mistake landed, and "remember to run alembic" demonstrably
+does not work.
+
+Wanted — a MECHANICAL check, not a discipline reminder:
+- a startup/health assertion that the DB revision equals `alembic heads`,
+  surfaced on `/api/health` (or a distinct `/api/ready`) so drift is visible
+  without reading logs;
+- the same check in `tools/fire.py` + `tools/fetch_dmarc.py` pre-flight, so an
+  operator one-shot fails fast with "DB at 0009, code needs 0011" instead of a
+  per-row `UndefinedColumnError`;
+- consider a CI job that applies migrations to a DB seeded at the previous
+  revision (the current Alembic test only round-trips up/down on an empty DB).
+
+**G26.2 — P2 made run-batch failures undiagnosable. (MED — self-inflicted.)**
+P2 correctly stopped `run-batch` returning `str(exc)` (it can carry raw), but it
+substitutes a bare `[redacted — raw-trace grant required]`, so the operator CLI
+printed four identical markers and nothing actionable; the real error only
+existed in `journalctl`. The redaction is right; the *affordance* is missing.
+
+Wanted: return a correlation handle alongside the marker — the `instance_id`
+(already known) plus a pointer to the grant-gated detail endpoint and the server
+log, e.g. `{"ok": false, "instance_id": "...", "error": "[redacted — see
+GET /api/workflow-instances/<id> under a raw-trace grant, or server logs]"}`.
+Same for the dry-run error field. No new raw crosses the boundary; the operator
+just learns *where* to look. Applies to any surface where P2 replaced an
+exception with a marker.
+
 ### G-Trace-Review-2 — external CODE re-review (`2cfacfc`, 2026-08-03) — **FAILED; structural rework required**
 
 The re-review passed the F1–F10 suite but reproduced **new, deeper bypasses in
