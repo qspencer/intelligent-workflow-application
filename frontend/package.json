@@ -13,7 +13,7 @@
     "test:e2e": "playwright test"
   },
   "dependencies": {
-    "@xyflow/react": "^12.3.0",
+    "@xyflow/react": "^12.11.2",
     "dagre": "^0.8.5",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
