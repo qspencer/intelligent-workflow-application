@@ -1,4 +1,4 @@
-# §1.4a — external design review, round 4
+# §1.4a — external design review, round 5
 
 **What to review:** `docs/TRACE_GOVERNANCE_PLAN.md` **§1.4a** (lines ~330–660),
 plus acceptance criteria **37–57** near the end of the same file.
@@ -28,14 +28,26 @@ authorization, and each found something real:
 |---|---|---|
 | 1 (internal) | six conditions incl. enum-list representability | adopt-with-conditions |
 | 2 (external) | **the codebook attack** — approving the declaration alone lets an ordinary Org User repurpose the approved alphabet by editing only the *prompt*; capacity claim wrong | direction approved, deferred |
-| 3 (external) | **authorization identity + lifecycle** — rows bound declaration *content*, so revoke-then-reapprove resurrected withheld rows; no atomic transitions; hashes described but not specified | revised direction approved, deferred for one focused amendment |
+| 3 (external) | **authorization identity + lifecycle** — rows bound declaration *content*, so revoke-then-reapprove resurrected withheld rows; no atomic transitions; hashes described but not specified | revised direction approved, deferred |
+| 4 (external) | **dependency closure + race/lifetime/storage semantics** — the semantic hash stopped at the declassifying step, so the codebook attack moved one edge upstream; hard revocation had no finish-side fence; append-only audit could not be both a declassification destination and a scrubbable store; artifact validity had no approval-expiry consequence | direction approved, deferred for one focused amendment |
 
-Round 3's closing instruction was: *"turn `SafeOutputApproval` into a
-first-class, atomically managed authorization object whose exact ID follows every
-produced row and destination."* That amendment is what this round is being asked
-to confirm.
+Round 4 approved the round-3 amendment as *"the correct architectural center"*
+and explicitly listed 18 decisions **not to reopen**. It then found four
+load-bearing gaps and two contract corrections. **Those are what this round is
+asked to confirm** — the eight-item acceptance bar round 4 set.
 
-## Round-3 findings → where each is addressed
+## Round-4 findings → where each is addressed
+
+| # | Round-4 finding | Now |
+|---|---|---|
+| B1 | **`step_semantic_hash` not closed** — binding only the declassifying step moves the codebook attack upstream. Verified in our code: the email-triage `record` step reads `steps.triage.output_text`, and `_build_user_message` defaults to `prior_steps: context.steps` (ALL prior outputs) when `inputs:` is omitted | **§1.4a.2** — the closure now spans every upstream producer whose output can reach the declassifying computation, their transitive artifacts, the conservative all-prior case for `inputs:`-omitted, and mutable rubrics (`agent_memory.md`). An explicit `steps.foo.category` binds foo's *executable revision*, not the path string. Runtime data values are explicitly NOT hashed. Criterion **42** widened |
+| B2 | **Hard revocation had no finish-side fence** — persistence is not one transaction, so a delayed writer can land a declassified row after revoke's scrub | **§1.4a.3** — a SECOND linearization point at completion: `finish_declassified_attempt(...)` CAS-checks the bound approval inside one transaction, leaving only two legal orderings. Criterion **53** now exercises **both**, including scrub-then-late-writer |
+| B3 | **Append-only audit vs revocation scrub** — three properties not simultaneously satisfiable | **§1.4a.7** — we drop "audit carries business bytes". Audit rows hold content-free governance identity only; an operator view resolves a **revocable projection sidecar**. Criterion **56** pins it |
+| B4 | **Artifact validity had no approval-expiry consequence** — a month-long artifact activated on its last day minted an indefinite approval | **§1.4a.2/.3/.4** — `expires_at` on the approval, capped by `artifact.valid_until`; new `expired` state; **use-time authoritative** (binding refuses a lapsed approval before any sweeper runs). Criterion **54** widened to roles/retention/validity + expiry |
+| C1 | **Criterion 48 required fields the grammar never defined** | **§1.4a.5** — `consumer` / `roles` / `retention` / `provenance` / `opaque_sufficient` frozen as CLOSED ENUMS (no prose, per v6 F2), required per field, and the same values the tenant artifact binds |
+| C2 | **Canonicalization not exact enough** | **§1.4a.8** — integers confined to the **I-JSON safe-integer range**; unordered lists canonicalized by **NFC then Unicode code-point sort** |
+
+## Round-3 findings → where each was addressed (unchanged, for reference)
 
 | # | Round-3 finding | Now |
 |---|---|---|
@@ -50,23 +62,28 @@ to confirm.
 
 ## What we would most like challenged
 
-1. **Is the hard-revocation ruling right?** We chose it over lease semantics
-   because raw is never lost (it is in the vault), so the entire cost of hard
-   revocation is over-redaction — the safe direction. The counter-argument is
-   operational surprise: a long-running attempt can be invalidated mid-flight.
-2. **Is `step_semantic_hash` actually closed?** It is specified as a dependency
-   closure over the immutable executable revision plus transitive artifacts. If
-   there is a reachable input that changes the emitted value and escapes that
-   closure, the codebook attack returns.
-3. **Is `POLICY_BUDGET_BITS = 32` defensible**, given the channel is finite per
-   attempt but unbounded over repeated execution? The aggregate budget + rate
-   boundary is deferred behind "first external tenant" — is that the right
-   trigger, or does it need to precede any build?
-4. **Is the review converging?** Findings have narrowed redesign → capacity
-   math → authorization lifecycle. If round 4 produces only wording-level
-   comments, we would treat the design as terminal and let build-time tests
-   (criteria 37–57) pin the remainder, per our standing "converge specs to
-   build" practice. We would rather be told that explicitly than keep iterating.
+Round 4 answered our previous four questions: hard revocation **approved** (with
+the fence now added), `step_semantic_hash` **not closed** (now extended
+upstream), `POLICY_BUDGET_BITS = 32` **acceptable for the internal build** with
+the external-tenant aggregate gate kept hard, and the review **converging but not
+wording-only**. Carrying forward:
+
+1. **Is the upstream closure now correctly bounded?** It must catch the real
+   attack without becoming "any edit anywhere invalidates every approval". Our
+   rule is *executable producers reachable to the declassifying computation* —
+   with the `inputs:`-omitted case collapsing to all prior producers. Is that the
+   right cut, and is the conservative default going to be usable in practice?
+2. **Is the completion fence sufficient given separate commits?** We serialize
+   the declassified-copy commit with revoke via CAS on the bound approval. The
+   vault write and audit append remain separate commits — we believe that is
+   safe because neither carries declassified business bytes after B3, but that
+   reasoning depends on B3 holding.
+3. **Does the sidecar re-introduce anything?** Moving business content out of
+   append-only audit into a revocable read model solves the scrub conflict, but
+   it is a new store with its own authorization. Is that a net reduction?
+4. **Is it terminal now?** Round 4 said it would treat §1.4a as terminal if this
+   amendment closes the eight items. We believe it does. If any item is only
+   partly closed we would rather hear that than have it pass.
 
 ## The code this design touches
 

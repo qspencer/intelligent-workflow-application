@@ -366,8 +366,13 @@ SafeOutputApproval = approval_id            # stable, unique — the authorizati
                      destinations           # §1.4a.7 — scoped, in the identity
                      capacity_bits          # computed at approval (§1.4a.5)
                      approval_mode, approvers, tenant_artifact_ref
-                     approved_at, status
+                     approved_at, expires_at, status
 ```
+
+`expires_at` is required whenever the tenant artifact carries a validity period,
+and MUST satisfy `approval.expires_at <= artifact.valid_until` (round 4, HIGH:
+otherwise a month-long artifact activated on its last day mints an indefinite
+authorization).
 
 **Why identity, not content, must follow the row** (re-review finding 1):
 approval A1 authorizes declaration D for step revision H; rows are produced; A1
@@ -392,10 +397,38 @@ settings, tool schemas **and tool implementation identity**, structured-output
 parser/schema, result mappings/transformations, deterministic function identity,
 and the projector + declaration versions. It is computed as a **dependency
 closure over the immutable executable step revision and all transitively
-referenced artifacts** — never a hand-maintained field list, since one missed
-template or parser version recreates the codebook bypass without changing the
-hash. "Function version" is a platform-controlled content/release identity, not
-an author-supplied label.
+referenced artifacts** — never a hand-maintained field list. "Function version"
+is a platform-controlled content/release identity, not an author-supplied label.
+
+**The closure extends UPSTREAM (round 4, HIGH).** Binding only the declassifying
+step's own revision moves the codebook attack one edge back, and the shipped
+engine makes that reachable today:
+
+- the real email-triage workflow's deterministic `record` step reads
+  `steps.triage.output_text` — its emitted business vocabulary is produced by an
+  upstream *agentic* step;
+- and `_build_user_message` defaults, when a step declares no `inputs:`, to
+  `{"trigger": …, "prior_steps": context.steps}` — i.e. **every** prior output.
+
+So an ordinary `ORG_WRITE_ROLES` user can edit only the UPSTREAM step's prompt,
+leave the declassifying step byte-identical, and change which approved enum value
+it emits. Therefore:
+
+```
+step_semantic_hash(B) = executable revision of B
+                      + semantic revision of EVERY upstream producer whose
+                        output can reach B's declassifying computation
+                      + those producers' transitive executable artifacts
+```
+
+Rules: an explicit mapping such as `steps.foo.category` binds **the executable
+revision producing `foo`**, not the literal path string. A step with `inputs:`
+omitted takes the **conservative closure — all reachable prior producers**.
+Mutable rubric/system artifacts (`agent_memory.md` and anything else editable
+outside the workflow body) are included whenever they can influence a
+declassifying step. Runtime *data values* are NOT hashed — classifying raw input
+is the channel's whole purpose; what must be bound is the user-editable
+executable semantics that transform it.
 
 #### 1.4a.3 Lifecycle — an atomic state machine (not blind row saves)
 
@@ -405,8 +438,13 @@ saves; the raw grant already uses compare-and-set for exactly this reason (§2,
 
 ```
 pending → active | rejected | cancelled
-active  → revoked | superseded
+active  → revoked | superseded | expired
 ```
+
+**Expiry is use-time authoritative** (round 4, HIGH — same pattern already
+learned for raw grants): attempt binding REFUSES an approval whose `expires_at`
+has passed, whether or not a sweeper has materialized the `expired` row yet. A
+background sweeper exists only for timely visibility, never as the check.
 
 **Activation is ONE database transaction** that verifies, and fails if any
 check fails: the exact `declaration_hash` + `step_semantic_hash`; both approver
@@ -426,6 +464,37 @@ approval which is revoked before the attempt durably finishes becomes
 is chosen deliberately: the raw is never lost (it is in the vault), so the entire
 cost of hard revocation is *over-redaction*, which is the safe direction; lease
 semantics would trade that for a residual release the operator must reason about.
+*(Round 4 approved this ruling.)*
+
+**A start-side binding alone does NOT make that true (round 4, HIGH).**
+Persistence is not one transaction across step row / context / audit / budget —
+the engine commits them separately — so a delayed writer can land a declassified
+row *after* revoke's scrub has already swept:
+
+```
+T1 attempt running under approval A
+T2 revoke A; scrubber scans live rows
+T1 finishes AFTER the scan → writes a declassified operational row
+```
+
+An application-layer read check does not save this: Contract B1 treats the
+DB/backup operator as outside that layer, so bytes that land in the operational
+DB after the scrub are exposed. **There must therefore be a SECOND linearization
+point at completion**, serialized with revoke:
+
+```
+finish_declassified_attempt(attempt_id, bound_approval_id, bound_generation,
+                            projected destination copies)
+  ── one transaction ──
+  lock / CAS-check the bound approval
+    still allowed → persist the below-grant copies
+    revoked/expired → persist vault-only / redacted copies
+```
+
+Revocation takes the compatible lock/CAS ordering, leaving exactly two legal
+outcomes: **completion first** (row may commit; revoke then denies reads and
+scrubs it) or **revocation first** (completion observes revoked; no declassified
+operational copy is ever committed).
 
 **`superseded` vs `revoked` are distinct:**
 
@@ -453,7 +522,10 @@ computed capacity_bits + the policy budget it was approved against
 validity period (if any)
 ```
 
-Any mismatch **rejects activation**. Reuse for another step, clone, template
+Any mismatch **rejects activation** — and validity is not merely an
+activation-window check: an artifact's `valid_until` **caps the approval's
+`expires_at`** (§1.4a.2). A tenant authorization cannot mint a longer-lived
+downstream authorization than itself. Reuse for another step, clone, template
 instance, declaration revision, or capacity increase is impossible by
 construction.
 
@@ -476,8 +548,13 @@ steps:
     declassify:
       category:
         enum: [urgent, fyi, spam, personal, awaiting_reply]
-        purpose: routing
-        destinations: [step_output, context]
+        purpose: routing                 # closed enum (summary only)
+        destinations: [step_output, context]   # closed enum, see §1.4a.7
+        consumer: engine.condition        # closed enum, below
+        roles: [org_admin, org_user]      # closed enum — the platform Role names
+        retention: instance_lifetime      # closed enum, below
+        provenance: model_derived         # closed enum, below
+        opaque_sufficient: false          # bool — could an opaque id serve instead?
       attention:                       # a LIST — the field that motivated §1.4a
         enum: [urgent, awaiting_reply, review, none]
         max_items: 4
@@ -500,6 +577,26 @@ encoding, no NaN/infinity, bool is not an integer. Continuous values stay
 vaulted; a numeric category is a numeric enum.
 
 **PERMANENT NON-DO:** no `string`, `regex`, `pattern`, or `any` form, ever.
+
+**The §1.3 fields are CLOSED ENUMS, not prose (round 4, contract correction 1).**
+Criterion 48 previously required a consumer/role/retention/provenance mapping the
+grammar never defined, so it had no schema to test. Frozen vocabularies:
+
+```
+consumer     : engine.condition | engine.routing | api.read | ui.display
+               | dedupe.key | audit.governance
+roles        : the platform Role names (§ROLES_PLAN), a list
+retention    : instance_lifetime | retention_window | indefinite
+provenance   : model_derived | third_party_derived | platform_computed
+destinations : step_output | context | explain | ws | audit_governance
+opaque_sufficient : bool
+```
+
+All are required per declared field. `purpose` remains a summary tag and does not
+substitute for them. Free text appears nowhere — the v6 F2 rule (no governance
+prose in a persisted row) applies here too. These same values are what the tenant
+artifact binds, so its role/retention scope is mechanically reproducible rather
+than prose-only.
 
 **Capacity counts every OBSERVABLE state** (re-review finding 5) — not just the
 accepted values. A hostile model can select *valid*, *absent*, or *invalid* to
@@ -576,7 +673,25 @@ project(asset_kind, destination, raw_value, approval_id, projector_version)
 Each persisted or rendered copy records enough identity to reproduce its own
 decision. The allowed destination set is part of the declaration's canonical
 bytes, the approval scope, the tenant artifact, the step-attempt binding, and the
-verifier's inventory. **P2's raw-surface inventory is the mechanism that proves
+verifier's inventory.
+
+**`audit` is NOT a destination for declassified business content (round 4,
+HIGH).** Three properties cannot hold at once: *audit carries declassified
+business bytes* · *audit is append-only* (the repo exposes only
+`append`/`list_*`) · *revocation scrubs all live declassified copies*. A
+compensating "redacted" entry does not help — the B1 adversary reads the original
+row directly. We drop the first. An audit row may carry only **content-free
+governance identity**:
+
+```
+approval_id · generation · declaration_hash · field + destination identity
+projection outcome · opaque row/reference id
+```
+
+An operator-facing audit *view* may still display the business value by resolving
+a **revocable projection sidecar / read model**, whose authorization is evaluated
+at read time and which revocation CAN scrub. Criterion 56 pins this
+representation. **P2's raw-surface inventory is the mechanism that proves
 every destination invokes this decision** rather than copying an
 already-projected object by convention.
 
@@ -604,6 +719,16 @@ digest          : SHA-256 over a domain-separated prefix
 
 The **canonical bytes are stored beside the digest**; a matching digest with
 different stored bytes is a **FATAL integrity event**, never a merge.
+
+**Two exactness rules, so criterion 57 is genuinely cross-process (round 4,
+contract correction 2):**
+- **Integer domain.** `min`/`max`/`step` must lie in the **I-JSON safe-integer
+  range** (|n| ≤ 2^53−1); "exact integer representation" is not left to the
+  implementation. Values outside it are a save-time error.
+- **Unordered-list comparator.** For `ordered: false`, the canonical array is
+  produced by **NFC-normalizing each literal, then sorting by Unicode
+  code-point order**. Without naming the comparator, two correct
+  implementations can hash the same set differently.
 
 The declaration is persisted **content-addressed in an append-only table**;
 definitions mutate in place and version history is deferred (E5), so a hash alone
@@ -1241,11 +1366,15 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
     outside the declared enum, redacts; and the zero-raw verifier resolves each
     row's declaration before judging it (no false positives on
     declaration-projected rows).
-42. **(§1.4a.2, ext 2026-08-04)** A prompt-only, model-setting, tool-set,
-    input-mapping, or output-schema edit **invalidates** the safe-output
-    approval — the step reverts to vault-by-default until re-approved. The
-    codebook attack (repurposing an approved alphabet via a prompt edit) is
-    therefore not reachable by `ORG_WRITE_ROLES`.
+42. **(§1.4a.2, ext 08-04; widened 08-08)** A prompt-only, model-setting,
+    tool-set, input-mapping, or output-schema edit **invalidates** the approval —
+    the step reverts to vault-by-default until re-approved. **Widened by round 4:
+    editing only an UPSTREAM producer** (e.g. the agentic step whose
+    `output_text` a declassifying `record` step reads) — leaving the declassifying
+    step byte-identical — must also invalidate it. Includes the `inputs:`-omitted
+    case, where the conservative closure is all prior producers, and edits to
+    `agent_memory.md`. The codebook attack is therefore not reachable by
+    `ORG_WRITE_ROLES` at ANY edge.
 43. **(§1.4a.2)** An in-flight attempt uses the revision bound **before model
     invocation**; a concurrent definition edit does not affect it.
 44. **(§1.4a.3)** A single Org Admin cannot create a declaration-based bypass of
@@ -1276,19 +1405,31 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
     the same `(org, workflow, step)` yield exactly one ACTIVE approval, and an
     activation whose hashes, approver distinctness, artifact scope, or capacity
     budget fail is rejected atomically.
-53. **(§1.4a.3)** An attempt that bound an approval later REVOKED before the
-    attempt durably finishes is persisted **vault-only** (hard revocation); a
+53. **(§1.4a.3; widened 08-08)** An attempt that bound an approval later REVOKED
+    before it durably finishes is persisted **vault-only** (hard revocation); a
     SUPERSEDED approval blocks new attempts while its historical rows remain
-    authorized.
-54. **(§1.4a.4)** A tenant artifact scoped to a different step revision,
-    declaration, destination set, or capacity budget **rejects activation**; an
-    artifact cannot be reused for a clone/template instance.
+    authorized. **Both serializations are exercised**, not just the end state:
+    (a) completion commits first, then revoke denies reads + scrubs it; (b) revoke
+    (including its scrub) completes first, and the delayed writer then commits NO
+    declassified operational copy. Case (b) is the one a start-side binding alone
+    fails.
+54. **(§1.4a.4; widened 08-08)** A tenant artifact scoped to a different step
+    revision, declaration, destination set, capacity budget, **roles, retention,
+    or validity period** rejects activation; an artifact cannot be reused for a
+    clone/template instance. **Plus expiry:** an approval whose `expires_at` has
+    passed refuses attempt binding at USE time, before any sweeper has
+    materialized `expired`; and activation refuses an `expires_at` later than the
+    artifact's `valid_until`.
 55. **(§1.4a.5)** Capacity accounting distinguishes absent / valid / redacted
     states; a declaration whose observable domain exceeds the budget fails at
     save, and raising `POLICY_BUDGET_BITS` requires the same dual-control path.
-56. **(§1.4a.7)** A field authorized for `context` only is NOT released into
-    audit detail, WS events, or explain — each destination reproduces its own
-    projection decision rather than copying an already-projected object.
+56. **(§1.4a.7; widened 08-08)** A field authorized for `context` only is NOT
+    released into **`step_output`**, audit, WS events, or explain — each
+    destination reproduces its own projection decision rather than copying an
+    already-projected object. **And no declassified business value is written into
+    an append-only `audit_log.detail` row at all**: audit carries content-free
+    governance identity only, with any operator-facing value resolved through the
+    revocable projection sidecar (§1.4a.7).
 57. **(§1.4a.8)** The canonical hash is reproducible across processes (RFC 8785
     JCS + NFC + SHA-256, domain-separated), and a stored digest whose canonical
     bytes differ is a FATAL integrity event, never a merge.
