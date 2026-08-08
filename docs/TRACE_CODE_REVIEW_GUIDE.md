@@ -6,7 +6,7 @@ adversarial review of the *implementation* — the security-critical surfaces
 below. Prior code-level reviews of this project found real bypasses in
 security code, so please execute and probe, not just read.
 
-> ## Third code review (SHA `29a42f5`, 2026-08-03)
+> ## Third code review (SHA `d955c84`, 2026-08-08)
 >
 > **This subsystem has FAILED two external code reviews.** Round 1 (`e397b8b`)
 > reproduced ten bypasses; round 2 (`2cfacfc`) passed that regression suite but
@@ -25,6 +25,15 @@ security code, so please execute and probe, not just read.
 > | **P4** | real compare-and-set for grant activation/revocation + a vault content commitment | `auth/raw_trace_grants.py`, `persistence/*`, Alembic `0010` |
 > | **P3a** | persisted projection stamp + the §4.3 `project(raw, recorded_version) == stored` predicate, replacing marker scans | `trace_rehydrate.py`, Alembic `0011` |
 >
+> **The trace surface is byte-identical to when those four primitives landed**
+> (`29a42f5`, 2026-08-03) — verified: `git diff 29a42f5..HEAD` over
+> `trace_*.py`, `auth/raw_trace_grants.py`, `api/raw_trace_audit.py`,
+> `api/redaction.py`, `api/ws.py` and `engine/executor.py` is **empty**. The 28
+> intervening commits are dependency upgrades (veracium 0.6.0, cryptography 50
+> for PYSEC-2026-3552 on the AES-GCM path, ten Dependabot merges) plus an
+> unrelated schema-drift check. So this package is the primitives as built, not a
+> moving target.
+>
 > Start from `backend/tests/test_trace_review_fixes.py` (one adversarial test per
 > reproduced bypass, F1–F10 + the round-2 and P1–P4 findings) and
 > `backend/tests/test_trace_surface_inventory.py`, plus the per-finding → commit
@@ -41,9 +50,18 @@ security code, so please execute and probe, not just read.
 >   not;
 > - `_clear_stale_active`'s expiry transition still uses a blind save;
 > - per-workflow business vocabularies (`category`, `attention`) currently
->   **over-redact** — §1.4a, the declassification-approval design that restores
->   them, has had three design rounds and is **NOT build-authorized**, so it is
->   out of scope for this review except as context.
+>   **over-redact** — §1.4a, the declassification-approval design that would
+>   restore them, has now had **seven design rounds** and remains **NOT
+>   build-authorized and entirely unimplemented**. **It is OUT OF SCOPE here.**
+>   Please do not let it absorb this review: §1.4a governs dashboard visibility of
+>   business vocabularies, whereas *this* review decides whether Contract A and B1
+>   hold. They are independent.
+>
+> **What we are actually asking:** two reviews found real bypasses; four
+> primitives were built in response; **nobody has checked them.** Every current
+> statement that A/B1 hold is our own assertion — which is precisely the position
+> both prior reviews found to be wrong. A verdict either way is the useful
+> outcome.
 
 ## What the system protects, and the contract
 
@@ -127,7 +145,7 @@ review-driven suites: **`test_trace_review_fixes.py`** (one adversarial test per
 reproduced bypass across both rounds + P1–P4) and
 **`test_trace_surface_inventory.py`** (P2's grant-gated surfaces).
 
-Suite size at this SHA: **988 passed, 14 skipped**; ruff / ruff-format / mypy
+Suite size at this SHA: **996 passed, 14 skipped**; ruff / ruff-format / mypy
 strict clean.
 
 ```
