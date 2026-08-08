@@ -293,9 +293,13 @@ def redact_error(error: str | None, admin: bool) -> str | None:
 
 def redact_tool_data(obj: Any, admin: bool) -> Any:
     """The below-grant projection (admin=True → unchanged). DEFAULT-DENY
-    (external code review 2026-08-02 F1): a value survives ONLY because it is
-    a safe-by-TYPE scalar (number/bool/null) or its key is in `_SAFE_KEYS` —
-    NOT because no redaction branch recognized it. So free-form model output
+    (external code review 2026-08-02 F1, tightened by the 08-03 re-review): a
+    value survives ONLY because its field is registered in `_SAFE_FIELDS` AND
+    the value passes that field's VALIDATOR — never because it is a scalar and
+    never because no redaction branch recognized it. (The earlier
+    safe-by-TYPE / key-allowlist wording described behaviour that leaked
+    `{"category": SECRET}` and `{"ssn": 123456789}`; it is gone.) So free-form
+    model output
     (`output_text`, `summary`, `reasoning`, …), recalled correspondent history
     (`recall`), error text, and any unknown field are redacted, whether or not
     the step used a tool. Recurses into nested dicts (context / step outputs /
