@@ -855,28 +855,27 @@ plan already defers — must NOT gate the leak fix).
    (approval binds the step REVISION under dual control; finite integer lattice
    replacing the float `number` form; computed capacity budget; revocation;
    full §1.3 justification; narrowed fork claim; frozen canonical encoding;
-   `business` namespace; criteria 42–50). **Round 5 RETURNED (2026-08-08): direction approved, build deferred; ONE more
-   amendment expected, not another architecture cycle.** Round 5 closed the
-   completion fence and canonicalization, kept all prior approvals, and found
-   three HIGH + one MEDIUM — all folded (handoff `docs/TRACE_1_4A_REVIEW_ROUND6.md`).
-   **The load-bearing one: the codebook attack has channels a DAG-output closure
-   cannot see, all three verified in our engine** — (a) `inputs:`-omitted reads
-   `prior_steps: context.steps`, ONE shared mutable dict written by
-   `asyncio.create_task` branches, so a **non-ancestor sibling** is observable
-   just by finishing first; (b) edges/conditions decide which producer runs;
-   (c) `file_write`→`file_read`, `connector_send`→`connector_query` and browser
-   write→read let an edited step encode into external state that a
-   **byte-identical** declassifying step reads. The closure is now **semantic
-   influence, not DAG ancestry**: declassifying agentic steps must declare
-   explicit `inputs:` (omission = not approvable), inputs bind producer revision
-   AND controlling topology, effect-readers must declare the dependency or be
-   refused, and anything non-enumerable **fails closed to a whole-workflow hash**.
-   Also folded: `expired` now behaves like revoked for historical rows, the fence
-   checks TIME not materialized state, and replacement activation transitions
-   stale ACTIVE rows in the same transaction; **the audit sidecar is withdrawn**
-   (it was an unscoped destination — an audit view may only dereference an
-   already-authorized copy); role WIRE TOKENS frozen and `retention_window`
-   replaced by bounded seconds or an immutable policy id.
+   `business` namespace; criteria 42–50). **Round 6 RETURNED (2026-08-08): direction approved; ONE final amendment
+   expected.** Round 6 approved nine round-5 changes outright and confirmed the
+   completion fence, canonicalization, sidecar withdrawal and capacity model as
+   CLOSED. Two HIGH + four stale-text cleanups, all folded (handoff
+   `docs/TRACE_1_4A_REVIEW_ROUND7.md`). **(1) The effect rule was
+   unenforceable:** it keyed on a step's *tools*, but `DeterministicStep` has no
+   tools list and `FunctionCatalogItem` no effect metadata — while `append_file`
+   / `route_by_classification` / `copy_files` write `World.fs` that `FileReadTool`
+   reads. So `producer → append_file → World.fs → byte-identical agent` was
+   invisible to the checker. Now one `EffectDescriptor {reads, writes}` shared by
+   tools AND functions, absent metadata ⇒ unenumerable ⇒ whole-workflow hash or
+   not approvable, with a frozen `effect_dependencies:` carrier in the hash.
+   **(2) `superseded` was terminal**, so supersession before `expires_at` outlived
+   the tenant authorization and an unsafe old approval could never be revoked;
+   now `superseded → revoked | expired`, with historical reads evaluated from
+   wall-clock validity. **Four stale fragments removed — all self-inflicted, all
+   the same error of fixing the cited instance rather than the class** (criterion
+   42 held both the old and new `inputs:` rules; criterion 56 still demanded the
+   withdrawn sidecar; the `category` example kept lowercase role tokens after
+   `attention` was fixed; §1.4a.6 omitted `expired`). `audit_governance` also
+   dropped from the value-bearing destinations.
    **Do NOT build; P1's over-redaction stands until authorization.**
 
    Original gap statement — per-workflow

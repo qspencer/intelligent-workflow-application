@@ -1,4 +1,4 @@
-# §1.4a — external design review, round 6
+# §1.4a — external design review, round 7
 
 **What to review:** `docs/TRACE_GOVERNANCE_PLAN.md` **§1.4a** (lines ~330–660),
 plus acceptance criteria **37–57** near the end of the same file.
@@ -29,6 +29,7 @@ authorization, and each found something real:
 | 1 (internal) | six conditions incl. enum-list representability | adopt-with-conditions |
 | 2 (external) | **the codebook attack** — approving the declaration alone lets an ordinary Org User repurpose the approved alphabet by editing only the *prompt*; capacity claim wrong | direction approved, deferred |
 | 3 (external) | **authorization identity + lifecycle** — rows bound declaration *content*, so revoke-then-reapprove resurrected withheld rows; no atomic transitions; hashes described but not specified | revised direction approved, deferred |
+| 6 (external) | **effect model unenforceable + supersession escapes validity** — the rule said "a step whose *tools* can read what another writes", but deterministic functions write `World.fs` with no tools list and no effect metadata; and `superseded` was terminal, so supersession before expiry outlived the tenant authorization and an unsafe old approval could never be revoked. Plus four stale text fragments | direction approved, deferred for one final focused amendment |
 | 5 (external) | **influence graph ≠ DAG ancestry** — parallel siblings visible through the shared mutable `context.steps`, control/topology semantics, and mutable external write→read tool paths all bypass an output-based closure; `expired` had no historical-row or replacement semantics; the audit sidecar was an unscoped destination | direction approved, deferred for one focused amendment |
 | 4 (external) | **dependency closure + race/lifetime/storage semantics** — the semantic hash stopped at the declassifying step, so the codebook attack moved one edge upstream; hard revocation had no finish-side fence; append-only audit could not be both a declassification destination and a scrubbable store; artifact validity had no approval-expiry consequence | direction approved, deferred for one focused amendment |
 
@@ -37,7 +38,26 @@ and explicitly listed 18 decisions **not to reopen**. It then found four
 load-bearing gaps and two contract corrections. **Those are what this round is
 asked to confirm** — the eight-item acceptance bar round 4 set.
 
-## Round-5 findings → where each is addressed
+## Round-6 findings → where each is addressed
+
+Round 6 approved nine round-5 changes outright and confirmed the completion
+fence, canonicalization, sidecar withdrawal and capacity model as **closed**. Two
+HIGH + four contract cleanups remained. **Both HIGH findings verified in code
+before folding.**
+
+| # | Round-6 finding | Verified? | Now |
+|---|---|---|---|
+| B1 | **Effect model unenforceable.** The rule keyed on *tools*, but `DeterministicStep` has **no `tools` list** and `FunctionCatalogItem` has **no effect metadata** — while `append_file` / `route_by_classification` / `copy_files` all `world.fs.write_*` and `FileReadTool` reads the same `World.fs`. So `M → append_file → World.fs → byte-identical agent with file_read` is invisible to a tools-only checker | **Yes — all of it** | **§1.4a.2** — a single `EffectDescriptor {reads, writes: effect_domain}` shared by **tools AND deterministic functions**; absent/`unknown` metadata is conservatively **unenumerable** ⇒ whole-workflow hash or not approvable; declared `effect_dependencies:` is a frozen carrier entering the hash. Criterion **42** gains the deterministic-writer case **and** the transitive condition-control case |
+| B2 | **`superseded` was terminal**, so (a) supersession at 11:30 kept rows authorized past a 12:00 `expires_at`, defeating the tenant-lifetime guarantee, and (b) an old approval later found unsafe could never be revoked | n/a (spec gap) | **§1.4a.3** — `superseded → revoked \| expired` added; historical authorization now evaluates **wall-clock validity**: `status in {ACTIVE, SUPERSEDED} AND now < expires_at`, REVOKED always denies. Criterion **54** gains both cases |
+| A–D | **Four stale fragments** — criterion 42 carried BOTH the old all-prior and the new not-approvable rule; criterion 56 still required the withdrawn sidecar; the `category` example still used lowercase `org_admin`/`org_user`; §1.4a.6's status summary omitted `expired` | **Yes, all four** | All removed. `audit_governance` also dropped from the value-bearing destination vocabulary (and `audit.governance` from `consumer`), since listing it invited exactly the inference §1.4a.7 forbids |
+
+**On those four: they were all mine, and all the same mistake** — I fixed the
+instance each earlier review cited rather than the class. Round 5 flagged the
+`attention` example; I fixed `attention` and left `category` directly above it.
+I withdrew the sidecar in the normative section and left criterion 56 demanding
+it. Worth stating plainly because it is the failure mode most likely to recur.
+
+## Round-5 findings → where each was addressed
 
 Round 5 confirmed the completion fence and canonicalization as **closed**, kept
 all 18 prior approvals, and found three HIGH + one MEDIUM. **I verified each
@@ -75,6 +95,26 @@ counterexample against the engine before folding — all three were real:**
 | nb | `safe_output` naming vs declassification | YAML key renamed **`declassify`**; operator surfaces say *declassification approval*, never "safe" |
 
 ## What we would most like challenged
+
+Round 6 said the remaining work was "not a reason for another architecture
+cycle" and that one focused revision could close it. This is that revision.
+
+1. **Is the `EffectDescriptor` cut right?** Effect *domains* (filesystem /
+   connector / browser_session / database) rather than resources, with runtime
+   values explicitly unhashed. Coarse enough to be conservative, fine enough to
+   be usable?
+2. **Is "absent metadata ⇒ unenumerable" too aggressive at first?** Today no
+   function carries effect metadata, so every declassifying workflow touching a
+   deterministic writer falls back to a whole-workflow hash until the catalog is
+   annotated. Correct-but-painful, or should annotation be a prerequisite?
+3. **Does wall-clock historical authorization interact badly with anything?**
+   Reads now depend on `now < expires_at` rather than a materialized state, which
+   is consistent with binding and the fence — but it means a read can change
+   answer with no write having occurred.
+4. **Is it terminal now?** We believe so. If not, we would value being told which
+   specific mechanic is still open rather than a general deferral.
+
+## (Earlier) round-5 questions
 
 Round 5's six-item bar is what this round should judge. Carrying forward:
 

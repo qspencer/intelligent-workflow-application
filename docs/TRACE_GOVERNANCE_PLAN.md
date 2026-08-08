@@ -455,13 +455,55 @@ declassifying AGENTIC step   : explicit `inputs:` REQUIRED.
 explicit context input       : bind the producing step's executable revision
                                AND the topology/edge-condition semantics
                                controlling whether it runs.
-mutable-external-effect path : a step whose tools can READ state another step in
-                               the workflow can WRITE must either declare that
-                               effect dependency (binding the writer's revision)
-                               or be REFUSED declassification approval.
+mutable-external-effect path : see the EFFECT MODEL below — declare the
+                               dependency (binding the writer's revision) or be
+                               REFUSED approval.
 not statically enumerable    : FAIL CLOSED — bind the whole workflow executable
                                revision.
 ```
+
+**The effect model must cover DETERMINISTIC writers, not just tools (round 6,
+HIGH).** The round-5 wording said "a step whose *tools* can read state another
+step can write", and described that as checkable from the tool catalog. It is
+not — verified in code:
+
+- `DeterministicStep` carries `function` / `config` / `capabilities` and **no
+  `tools` list at all**; `FunctionCatalogItem` carries only `name` +
+  `description`, with **no effect metadata**;
+- yet `append_file`, `route_by_classification` and `copy_files` all
+  `world.fs.write_*`, and `FileReadTool` does `world.fs.read_text` — the *same*
+  `World.fs`.
+
+So this influence path exists and a tools-only checker is blind to it:
+
+```
+raw-bearing producer M → deterministic append_file A → World.fs
+                                                     → approved agent B (file_read)
+                                                     → approved enum output
+```
+
+B can be byte-identical, with `inputs: [trigger.message_id]`, while an Org User
+edits A's config to move the marker into a path B already reads. Therefore a
+single **effect model shared by agent tools AND deterministic functions**:
+
+```
+EffectDescriptor:  reads: set[effect_domain]   writes: set[effect_domain]
+effect_domain   :  filesystem | connector | browser_session | database | …
+```
+
+Rules: a catalog entry (tool *or* function) with **absent or `unknown` effect
+metadata is conservatively UNENUMERABLE**; unenumerable ⇒ whole-workflow semantic
+hash, or the step is not approvable. Declared dependencies use a frozen carrier
+that enters `step_semantic_hash`:
+
+```yaml
+    effect_dependencies:
+      - writer_step: prepare_marker
+        domain: filesystem
+```
+
+Runtime *values* — paths, connector ids, URLs — remain data and are not hashed.
+The static question is only **which executable writers can reach the reader**.
 
 The whole-workflow fallback over-invalidates; that is the correct direction while
 no real dependency graph exists, and it can be narrowed later.
@@ -480,9 +522,29 @@ saves; the raw grant already uses compare-and-set for exactly this reason (§2,
 §4.2). The same discipline applies here.
 
 ```
-pending → active | rejected | cancelled
-active  → revoked | superseded | expired
+pending     → active | rejected | cancelled
+active      → revoked | superseded | expired
+superseded  → revoked | expired          ← round 6: NOT terminal
 ```
+
+**`superseded` is not terminal, and never outranks validity or withdrawal
+(round 6, HIGH).** Making it terminal broke two things: an approval superseded at
+11:30 whose `expires_at` was 12:00 kept its historical rows authorized past
+12:00 — defeating *"a tenant authorization cannot mint a longer-lived downstream
+authorization than itself"* — and an old approval later discovered unsafe could
+never be revoked, contradicting first-class approval identity. Historical read
+authorization is therefore evaluated from **wall-clock validity**, exactly as
+attempt binding and the completion fence already are:
+
+```
+historical_read_allowed =
+      status in {ACTIVE, SUPERSEDED}
+  AND (expires_at is None OR now < expires_at)
+REVOKED always denies.
+```
+
+A sweeper may materialize `SUPERSEDED → EXPIRED` for visibility, but reads never
+depend on it having run.
 
 **Expiry is use-time authoritative** (round 4, HIGH — same pattern already
 learned for raw grants): attempt binding REFUSES an approval whose `expires_at`
@@ -623,7 +685,7 @@ steps:
         purpose: routing                 # closed enum (summary only)
         destinations: [step_output, context]   # closed enum, see §1.4a.7
         consumer: engine.condition        # closed enum, below
-        roles: [org_admin, org_user]      # closed enum — the platform Role names
+        roles: [ORG_ADMIN, ORG_USER]      # frozen WIRE TOKENS, never display names
         retention: instance_lifetime      # closed enum, below
         provenance: model_derived         # closed enum, below
         opaque_sufficient: false          # bool — could an opaque id serve instead?
@@ -661,14 +723,20 @@ grammar never defined, so it had no schema to test. Frozen vocabularies:
 
 ```
 consumer     : engine.condition | engine.routing | api.read | ui.display
-               | dedupe.key | audit.governance
+               | dedupe.key
+               (`audit.governance` removed for the same reason — governance
+               metadata is not a consumer of the declassified value)
 roles        : list of WIRE TOKENS (below) — never display strings
 retention    : instance_lifetime
                | { kind: window, seconds: <bounded int> }
                | { kind: policy, retention_policy_id: <content-addressed id> }
                | indefinite
 provenance   : model_derived | third_party_derived | platform_computed
-destinations : step_output | context | explain | ws | audit_governance
+destinations : step_output | context | explain | ws
+               (NOT `audit_governance` — round 6: the content-free governance
+               record needs no authorization to carry a business value because
+               it never carries one. Listing it invited the inference that a
+               field may authorize content into audit, which §1.4a.7 forbids.)
 opaque_sufficient : bool
 ```
 
@@ -735,8 +803,10 @@ authorization are split:
 
 ```
 declaration content : immutable, permanently resolvable (integrity only)
-approval status     : pending | active | revoked | superseded
-effective authz     : whether rows produced under THAT approval_id stay readable
+approval status     : pending | active | revoked | superseded | expired
+effective authz     : rows produced under THAT approval_id stay readable while
+                      `status in {ACTIVE, SUPERSEDED} AND now < expires_at`;
+                      REVOKED always denies (§1.4a.3 — the rule, not a state list)
 ```
 
 Revocation MUST: stop new attempts binding it; stop ordinary below-grant reads of
@@ -1484,9 +1554,10 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
     the step reverts to vault-by-default until re-approved. **Widened by round 4:
     editing only an UPSTREAM producer** (e.g. the agentic step whose
     `output_text` a declassifying `record` step reads) — leaving the declassifying
-    step byte-identical — must also invalidate it. Includes the `inputs:`-omitted
-    case, where the conservative closure is all prior producers, and edits to
-    `agent_memory.md`. **Widened again by round 5** — the closure is the
+    step byte-identical — must also invalidate it. Includes edits to `agent_memory.md`. *(The earlier
+    "conservative closure is all prior producers" wording for the
+    `inputs:`-omitted case is WITHDRAWN — round 6: a blocking criterion cannot
+    require two behaviours. Omission is simply not approvable, below.)* **Widened again by round 5** — the closure is the
     INFLUENCE graph, not DAG ancestry, so each of these must also invalidate:
     (a) a **non-ancestor sibling** edited when the declassifying step could
     observe it through the shared `context.steps`; (b) an **edge/condition-only**
@@ -1494,7 +1565,12 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
     external state → read-tool** path (`file_write`→`file_read`,
     `connector_send`→`connector_query`, browser write→read) with the
     declassifying step byte-identical. A declassifying agentic step with
-    `inputs:` omitted is NOT APPROVABLE.
+    `inputs:` omitted is NOT APPROVABLE. **Round 6 adds two more:** (d) a
+    **DETERMINISTIC writer** — edit only `append_file`/`copy_files` config so a
+    marker lands where a byte-identical `file_read`-holding step already looks;
+    (e) a **transitive control dependency** — edit only step X, whose value an
+    edge condition uses to decide whether Y runs, where B consumes Y (hashing the
+    condition expression alone is insufficient).
 43. **(§1.4a.2)** An in-flight attempt uses the revision bound **before model
     invocation**; a concurrent definition edit does not affect it.
 44. **(§1.4a.3)** A single Org Admin cannot create a declaration-based bypass of
@@ -1544,7 +1620,11 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
     not superseded); and replacement activation transitions a stale ACTIVE row
     (`→ EXPIRED` by time, `→ SUPERSEDED` when its semantic revision no longer
     matches the step) **in the same transaction**, so an unswept row cannot block
-    its own replacement.
+    its own replacement. **Round 6 adds:** (a) A1 SUPERSEDED at 11:30 with
+    `expires_at` 12:00 — its historical rows cease ordinary release at 12:00, so
+    supersession cannot outlive the tenant authorization; (b) A1 SUPERSEDED then
+    later explicitly REVOKED — its historical rows cease release and are
+    scrubbed, while A2 is unaffected.
 55. **(§1.4a.5)** Capacity accounting distinguishes absent / valid / redacted
     states; a declaration whose observable domain exceeds the budget fails at
     save, and raising `POLICY_BUDGET_BITS` requires the same dual-control path.
@@ -1553,8 +1633,12 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
     destination reproduces its own projection decision rather than copying an
     already-projected object. **And no declassified business value is written into
     an append-only `audit_log.detail` row at all**: audit carries content-free
-    governance identity only, with any operator-facing value resolved through the
-    revocable projection sidecar (§1.4a.7).
+    governance identity only. **There is no independent audit business-content
+    store**, and `audit_governance` is NOT a value-bearing destination; an
+    operator-facing value, if any, is dereferenced from a destination already
+    bound to the approval, roles, retention and revocation scrub. With no such
+    copy authorized, the operator sees governance identity and no business
+    value.
 57. **(§1.4a.8)** The canonical hash is reproducible across processes (RFC 8785
     JCS + NFC + SHA-256, domain-separated), and a stored digest whose canonical
     bytes differ is a FATAL integrity event, never a merge.
