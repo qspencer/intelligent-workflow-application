@@ -748,6 +748,20 @@ Wanted — a MECHANICAL check, not a discipline reminder:
 - consider a CI job that applies migrations to a DB seeded at the previous
   revision (the current Alembic test only round-trips up/down on an empty DB).
 
+**G26.3 — audits masked every other CI signal. (DONE 2026-08-08.)** The
+`pip-audit` / `npm audit` steps ran *inside* the backend/frontend jobs, *before*
+lint/type/test — so a newly-published advisory (which arrives with no code
+change) aborted the job and erased all other signal. That is how the stale
+verification-index citations hid for days. It happened twice in two days
+(`cryptography` PYSEC-2026-3552 on the AES-GCM path; `nanoid`
+GHSA-2v37-7h3g-55p8). **Fix:** the audits moved to their own `audit` job running
+in parallel — a red audit still fails the workflow (supply-chain risk stays
+gated) but no longer hides lint/type/test; the frontend audit carries
+`if: always()` so a backend advisory can't hide a frontend one. The audits +
+the verification-index check are now in `/run-checks`, so the signal arrives
+before the push. *Not fixed:* nothing here tells you an advisory is new rather
+than yours — see the note in `/run-checks`.
+
 **G26.2 — P2 made run-batch failures undiagnosable. (MED — self-inflicted.)**
 P2 correctly stopped `run-batch` returning `str(exc)` (it can carry raw), but it
 substitutes a bare `[redacted — raw-trace grant required]`, so the operator CLI
