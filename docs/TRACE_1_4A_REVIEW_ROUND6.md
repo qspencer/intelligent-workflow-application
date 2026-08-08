@@ -1,4 +1,4 @@
-# §1.4a — external design review, round 5
+# §1.4a — external design review, round 6
 
 **What to review:** `docs/TRACE_GOVERNANCE_PLAN.md` **§1.4a** (lines ~330–660),
 plus acceptance criteria **37–57** near the end of the same file.
@@ -29,6 +29,7 @@ authorization, and each found something real:
 | 1 (internal) | six conditions incl. enum-list representability | adopt-with-conditions |
 | 2 (external) | **the codebook attack** — approving the declaration alone lets an ordinary Org User repurpose the approved alphabet by editing only the *prompt*; capacity claim wrong | direction approved, deferred |
 | 3 (external) | **authorization identity + lifecycle** — rows bound declaration *content*, so revoke-then-reapprove resurrected withheld rows; no atomic transitions; hashes described but not specified | revised direction approved, deferred |
+| 5 (external) | **influence graph ≠ DAG ancestry** — parallel siblings visible through the shared mutable `context.steps`, control/topology semantics, and mutable external write→read tool paths all bypass an output-based closure; `expired` had no historical-row or replacement semantics; the audit sidecar was an unscoped destination | direction approved, deferred for one focused amendment |
 | 4 (external) | **dependency closure + race/lifetime/storage semantics** — the semantic hash stopped at the declassifying step, so the codebook attack moved one edge upstream; hard revocation had no finish-side fence; append-only audit could not be both a declassification destination and a scrubbable store; artifact validity had no approval-expiry consequence | direction approved, deferred for one focused amendment |
 
 Round 4 approved the round-3 amendment as *"the correct architectural center"*
@@ -36,7 +37,20 @@ and explicitly listed 18 decisions **not to reopen**. It then found four
 load-bearing gaps and two contract corrections. **Those are what this round is
 asked to confirm** — the eight-item acceptance bar round 4 set.
 
-## Round-4 findings → where each is addressed
+## Round-5 findings → where each is addressed
+
+Round 5 confirmed the completion fence and canonicalization as **closed**, kept
+all 18 prior approvals, and found three HIGH + one MEDIUM. **I verified each
+counterexample against the engine before folding — all three were real:**
+
+| # | Round-5 finding | Verified? | Now |
+|---|---|---|---|
+| B1 | **Closure too narrow** — (a) `inputs:`-omitted reads `prior_steps: context.steps`, a **shared mutable dict** written by `asyncio.create_task` branches, so a **non-ancestor sibling** is observable by finishing first; (b) edges/conditions decide which producer runs; (c) `file_write`→`file_read`, `connector_send`→`connector_query`, browser write→read let an edited step encode into external state a **byte-identical** declassifying step reads | **Yes — all three.** Confirmed the shared dict, the concurrent scheduling, and all three tool pairs in the catalog | **§1.4a.2** — the boundary is now **semantic influence, not DAG ancestry**. Declassifying agentic steps **must** declare explicit `inputs:` (omission = not approvable); inputs bind producer revision **and** controlling topology; a step whose tools can read state another step writes must declare that effect dependency or be refused; anything non-enumerable **fails closed to a whole-workflow hash**. Criterion **42** widened with all three cases |
+| B2 | **`expired` lifecycle incomplete** — historical-row semantics undefined; the fence inspected materialized state not time; an unswept ACTIVE row blocks its own replacement; definition-edit invalidation had no transition owner | n/a (spec gap) | **§1.4a.3** — `expired` behaves like **revoked** for historical rows (follows from "a tenant authorization cannot mint a longer-lived one"); the fence predicate is `status == ACTIVE AND expires_at > now`; replacement activation transitions stale rows (`→EXPIRED` by time, `→SUPERSEDED` on semantic mismatch) **in the same transaction**. Criteria **53/54** |
+| B3 | **Audit sidecar was an unscoped destination** — absent from the closed vocabulary, approval identity, artifact, finish transaction, scrub and verifier | n/a (spec gap) | **§1.4a.7** — **the sidecar is withdrawn.** An audit view may only dereference an **already-authorized destination copy**, under that destination's own roles/retention/revocation. A future independent projection must first become a first-class `audit_view` destination. Criterion **56** |
+| C1 | **Grammar not executable** — the `attention` example omitted the fields the rule calls required; `org_admin`/`org_user` match no runtime `Role`; `retention_window` had no bound | **Yes** | **§1.4a.5** — example fixed (no inheritance); role **wire tokens** frozen (`ADMINISTRATOR`/`ORG_ADMIN`/`ORG_USER`/`ORG_VIEWER`) and mapped once to the runtime enum, so a display rename never changes an approval hash; bare `retention_window` withdrawn for explicit bounded `seconds` or an immutable `retention_policy_id` |
+
+## Round-4 findings → where each was addressed
 
 | # | Round-4 finding | Now |
 |---|---|---|
@@ -61,6 +75,24 @@ asked to confirm** — the eight-item acceptance bar round 4 set.
 | nb | `safe_output` naming vs declassification | YAML key renamed **`declassify`**; operator surfaces say *declassification approval*, never "safe" |
 
 ## What we would most like challenged
+
+Round 5's six-item bar is what this round should judge. Carrying forward:
+
+1. **Is "explicit `inputs:` required" the right first-build cut?** It makes
+   omission not-approvable rather than inferring a closure from a parallel global
+   context. Usable, or too blunt for real workflows?
+2. **Is the effect-dependency rule enforceable as stated?** "A step whose tools
+   can read state another step writes must declare it or be refused" is checkable
+   from the tool catalog, but the *state* itself (a path, a connector target) is
+   runtime data. Is refusing the step the right default?
+3. **Does withdrawing the sidecar leave the audit view actually usable?** It can
+   now only dereference an already-authorized destination copy — if none is
+   authorized, the operator sees governance identity and nothing else. Correct,
+   or too austere?
+4. **Is it terminal now?** Round 5 said one more focused amendment, not another
+   architecture cycle. We believe this is that amendment.
+
+## (Earlier) round-4 questions, answered by round 5
 
 Round 4 answered our previous four questions: hard revocation **approved** (with
 the fence now added), `step_semantic_hash` **not closed** (now extended

@@ -855,24 +855,29 @@ plan already defers — must NOT gate the leak fix).
    (approval binds the step REVISION under dual control; finite integer lattice
    replacing the float `number` form; computed capacity budget; revocation;
    full §1.3 justification; narrowed fork claim; frozen canonical encoding;
-   `business` namespace; criteria 42–50). **Round 4 RETURNED (2026-08-08): direction approved, build deferred again** —
-   four load-bearing findings, all now folded (handoff for round 5 at
-   `docs/TRACE_1_4A_REVIEW_ROUND5.md`). The important one: **the codebook attack
-   moved one edge upstream** — binding only the declassifying step let an Org User
-   edit the *upstream* producer's prompt and change which approved enum value gets
-   emitted. Verified true in our code (`record` reads `steps.triage.output_text`;
-   `_build_user_message` defaults to ALL prior outputs when `inputs:` is omitted).
-   Also folded: a completion-time CAS fence (hard revocation had no finish-side
-   linearization, so a delayed writer could land declassified bytes after the
-   revoke scrub); **audit is no longer a destination for declassified business
-   content** (append-only audit + "revocation scrubs live copies" were not
-   simultaneously satisfiable — an operator view now resolves a revocable
-   sidecar); approval `expires_at` capped by the tenant artifact's `valid_until`
-   with a use-time-authoritative `expired` state; the §1.3 per-field grammar
-   frozen as closed enums; I-JSON integer range + NFC/code-point list comparator.
-   Round 4 approved hard revocation, `POLICY_BUDGET_BITS = 32` for the internal
-   build (external-tenant aggregate gate stays hard), and listed 18 decisions not
-   to reopen. **Do NOT build; P1's over-redaction stands until authorization.**
+   `business` namespace; criteria 42–50). **Round 5 RETURNED (2026-08-08): direction approved, build deferred; ONE more
+   amendment expected, not another architecture cycle.** Round 5 closed the
+   completion fence and canonicalization, kept all prior approvals, and found
+   three HIGH + one MEDIUM — all folded (handoff `docs/TRACE_1_4A_REVIEW_ROUND6.md`).
+   **The load-bearing one: the codebook attack has channels a DAG-output closure
+   cannot see, all three verified in our engine** — (a) `inputs:`-omitted reads
+   `prior_steps: context.steps`, ONE shared mutable dict written by
+   `asyncio.create_task` branches, so a **non-ancestor sibling** is observable
+   just by finishing first; (b) edges/conditions decide which producer runs;
+   (c) `file_write`→`file_read`, `connector_send`→`connector_query` and browser
+   write→read let an edited step encode into external state that a
+   **byte-identical** declassifying step reads. The closure is now **semantic
+   influence, not DAG ancestry**: declassifying agentic steps must declare
+   explicit `inputs:` (omission = not approvable), inputs bind producer revision
+   AND controlling topology, effect-readers must declare the dependency or be
+   refused, and anything non-enumerable **fails closed to a whole-workflow hash**.
+   Also folded: `expired` now behaves like revoked for historical rows, the fence
+   checks TIME not materialized state, and replacement activation transitions
+   stale ACTIVE rows in the same transaction; **the audit sidecar is withdrawn**
+   (it was an unscoped destination — an audit view may only dereference an
+   already-authorized copy); role WIRE TOKENS frozen and `retention_window`
+   replaced by bounded seconds or an immutable policy id.
+   **Do NOT build; P1's over-redaction stands until authorization.**
 
    Original gap statement — per-workflow
    business vocabularies (`category`, `attention`, `relevance_bucket`,

@@ -421,14 +421,57 @@ step_semantic_hash(B) = executable revision of B
                       + those producers' transitive executable artifacts
 ```
 
-Rules: an explicit mapping such as `steps.foo.category` binds **the executable
-revision producing `foo`**, not the literal path string. A step with `inputs:`
-omitted takes the **conservative closure — all reachable prior producers**.
-Mutable rubric/system artifacts (`agent_memory.md` and anything else editable
-outside the workflow body) are included whenever they can influence a
-declassifying step. Runtime *data values* are NOT hashed — classifying raw input
-is the channel's whole purpose; what must be bound is the user-editable
-executable semantics that transform it.
+**The boundary is SEMANTIC INFLUENCE, not DAG ancestry (round 5, HIGH).** A
+DAG-output closure is still too narrow, because the shipped engine exposes three
+channels that bypass it — all verified in code:
+
+- **Parallel siblings.** `_build_user_message` with `inputs:` omitted passes
+  `prior_steps: context.steps`, and `context.steps` is **one shared mutable dict**
+  written by concurrently scheduled branches (`asyncio.create_task`). A completed
+  **non-ancestor sibling** is therefore observable purely by finishing first.
+  "All reachable prior producers" ≠ "everything the step can observe."
+- **Control semantics.** Edges, conditions, branch topology and workflow-level
+  configuration decide *which* producer runs and which values are present. The
+  connecting dataflow is executable too, not just the endpoint steps.
+- **Mutable external effects.** The catalog ships write/read pairs —
+  `file_write`/`file_read`, `connector_send`/`connector_query`,
+  `browser_fill`/`browser_submit_form` → `browser_read_text`/`browser_read_table`.
+  An edited upstream step can encode into external state that a **byte-identical**
+  declassifying step reads through its already-approved tools. No context edge
+  connects them at all.
+
+The governing rule:
+
+> **Every user-editable executable semantic capable of affecting the
+> declassifying computation MUST be bound into the approval's semantic closure,
+> or be statically excluded from that computation.**
+
+Made mechanically conservative for the first build:
+
+```
+declassifying AGENTIC step   : explicit `inputs:` REQUIRED.
+                               Omission → NOT APPROVABLE (never inferred from
+                               the parallel global context).
+explicit context input       : bind the producing step's executable revision
+                               AND the topology/edge-condition semantics
+                               controlling whether it runs.
+mutable-external-effect path : a step whose tools can READ state another step in
+                               the workflow can WRITE must either declare that
+                               effect dependency (binding the writer's revision)
+                               or be REFUSED declassification approval.
+not statically enumerable    : FAIL CLOSED — bind the whole workflow executable
+                               revision.
+```
+
+The whole-workflow fallback over-invalidates; that is the correct direction while
+no real dependency graph exists, and it can be narrowed later.
+
+An explicit mapping such as `steps.foo.category` binds **the executable revision
+producing `foo`**, not the literal path string. Mutable rubric/system artifacts
+(`agent_memory.md`, anything editable outside the workflow body) are included
+whenever they can influence a declassifying step. Runtime *data values* are NOT
+hashed — classifying raw input is the channel's whole purpose; what must be bound
+is the user-editable executable semantics that transform it.
 
 #### 1.4a.3 Lifecycle — an atomic state machine (not blind row saves)
 
@@ -445,6 +488,35 @@ active  → revoked | superseded | expired
 learned for raw grants): attempt binding REFUSES an approval whose `expires_at`
 has passed, whether or not a sweeper has materialized the `expired` row yet. A
 background sweeper exists only for timely visibility, never as the check.
+
+**`expired` is a full lifecycle state, not vocabulary (round 5, HIGH):**
+
+- **Historical rows: `expired` behaves like `revoked`, not `superseded`.** No new
+  bindings, no new completion, ordinary below-grant reads of rows produced under
+  it STOP, and live projections are scrubbed; the vault copy stays authoritative.
+  This follows from §1.4a.4 — *a tenant authorization cannot mint a longer-lived
+  downstream authorization than itself* — and an issuance-window-only reading
+  would contradict it.
+- **The completion fence checks TIME, not the materialized value.** Inside
+  `finish_declassified_attempt` the predicate is
+  `status == ACTIVE AND expires_at > now`, so an attempt that bound at 11:59,
+  expired at 12:00 and finishes at 12:01 persists **vault-only** even though no
+  sweeper has run.
+- **Replacement activation cleans up stale rows in the same transaction**,
+  otherwise an expired-but-unswept ACTIVE row blocks its own replacement forever
+  (the raw-grant lifecycle hit exactly this):
+
+```
+lock the current ACTIVE approval, if any
+  expired by time                          → ACTIVE → EXPIRED   (audit)
+  declaration/semantic revision no longer
+  matches the current executable step      → ACTIVE → SUPERSEDED (audit)
+then evaluate the new activation predicates and activate exactly one generation
+```
+
+This also gives "an ordinary definition edit invalidates the approval" a
+**transition owner**: the edit marks it stale, and the next activation
+transitions it `ACTIVE → SUPERSEDED` rather than leaving a conflicting ACTIVE row.
 
 **Activation is ONE database transaction** that verifies, and fails if any
 check fails: the exact `declaration_hash` + `step_semantic_hash`; both approver
@@ -561,6 +633,11 @@ steps:
         ordered: false                 # canonicalized (sorted); duplicates rejected
         purpose: routing
         destinations: [step_output]
+        consumer: engine.routing       # every field repeats ALL of these —
+        roles: [ORG_ADMIN]             # there is NO inheritance from the field above
+        retention: { kind: window, seconds: 2592000 }
+        provenance: model_derived
+        opaque_sufficient: false
 ```
 
 The list form is required by the real workloads (`attention`, `apply_labels`,
@@ -585,12 +662,35 @@ grammar never defined, so it had no schema to test. Frozen vocabularies:
 ```
 consumer     : engine.condition | engine.routing | api.read | ui.display
                | dedupe.key | audit.governance
-roles        : the platform Role names (§ROLES_PLAN), a list
-retention    : instance_lifetime | retention_window | indefinite
+roles        : list of WIRE TOKENS (below) — never display strings
+retention    : instance_lifetime
+               | { kind: window, seconds: <bounded int> }
+               | { kind: policy, retention_policy_id: <content-addressed id> }
+               | indefinite
 provenance   : model_derived | third_party_derived | platform_computed
 destinations : step_output | context | explain | ws | audit_governance
 opaque_sufficient : bool
 ```
+
+**Role wire tokens are frozen separately from the display names** (round 5) —
+"the platform Role names" was ambiguous, and the earlier example used
+`org_admin`/`org_user`, which match no runtime value:
+
+```
+ADMINISTRATOR  ORG_ADMIN  ORG_USER  ORG_VIEWER
+```
+
+mapped in one place to the runtime `Role` enum (`Administrator`,
+`Organization Administrator`, `Organization User`, `Organization Viewer`). The
+declaration hashes the token, so renaming a display string never changes an
+approval's identity.
+
+**`retention_window` as a bare enum is withdrawn** (round 5): a configured window
+an operator can later widen would silently extend an already-approved,
+already-hashed authorization. Retention must carry either an explicit bounded
+`seconds` or an immutable content-addressed `retention_policy_id`, so the exact
+authorization is hashable and artifact-bound — which is what criterion 48's word
+"exact" requires.
 
 All are required per declared field. `purpose` remains a summary tag and does not
 substitute for them. Free text appears nowhere — the v6 F2 rule (no governance
@@ -688,10 +788,23 @@ approval_id · generation · declaration_hash · field + destination identity
 projection outcome · opaque row/reference id
 ```
 
-An operator-facing audit *view* may still display the business value by resolving
-a **revocable projection sidecar / read model**, whose authorization is evaluated
-at read time and which revocation CAN scrub. Criterion 56 pins this
-representation. **P2's raw-surface inventory is the mechanism that proves
+**No independent sidecar store is created (round 5, HIGH — corrected).** The
+round-4 wording proposed a "revocable projection sidecar", but that is exactly an
+unenumerated below-grant persistent copy: it appeared in none of the closed
+destination vocabulary, the approval identity, the tenant artifact, the finish
+transaction, the revocation scrub, or the verifier inventory — i.e. it moved the
+persistence problem rather than closing it. Instead:
+
+> An operator-facing audit VIEW may display a business value only by
+> **dereferencing an already-authorized destination copy** (e.g. `step_output` or
+> `context`), subject to that destination's existing roles, retention and
+> revocation policy. It creates no new store and no new destination.
+
+If a genuinely independent audit projection is ever needed, it must first become
+a **first-class destination** (`audit_view`) bound into approval + generation,
+roles, retention, artifact scope, the `finish_declassified_attempt` transaction,
+the revocation scrub, and the verifier inventory — not added as a read model.
+Criterion 56 pins the no-sidecar representation. **P2's raw-surface inventory is the mechanism that proves
 every destination invokes this decision** rather than copying an
 already-projected object by convention.
 
@@ -1373,8 +1486,15 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
     `output_text` a declassifying `record` step reads) — leaving the declassifying
     step byte-identical — must also invalidate it. Includes the `inputs:`-omitted
     case, where the conservative closure is all prior producers, and edits to
-    `agent_memory.md`. The codebook attack is therefore not reachable by
-    `ORG_WRITE_ROLES` at ANY edge.
+    `agent_memory.md`. **Widened again by round 5** — the closure is the
+    INFLUENCE graph, not DAG ancestry, so each of these must also invalidate:
+    (a) a **non-ancestor sibling** edited when the declassifying step could
+    observe it through the shared `context.steps`; (b) an **edge/condition-only**
+    edit that changes which producer runs; (c) a **mutating-step → shared
+    external state → read-tool** path (`file_write`→`file_read`,
+    `connector_send`→`connector_query`, browser write→read) with the
+    declassifying step byte-identical. A declassifying agentic step with
+    `inputs:` omitted is NOT APPROVABLE.
 43. **(§1.4a.2)** An in-flight attempt uses the revision bound **before model
     invocation**; a concurrent definition edit does not affect it.
 44. **(§1.4a.3)** A single Org Admin cannot create a declaration-based bypass of
@@ -1419,7 +1539,12 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
     clone/template instance. **Plus expiry:** an approval whose `expires_at` has
     passed refuses attempt binding at USE time, before any sweeper has
     materialized `expired`; and activation refuses an `expires_at` later than the
-    artifact's `valid_until`.
+    artifact's `valid_until`. **Round 5 adds:** a row produced BEFORE expiry
+    ceases ordinary below-grant release AFTER it (expired behaves like revoked,
+    not superseded); and replacement activation transitions a stale ACTIVE row
+    (`→ EXPIRED` by time, `→ SUPERSEDED` when its semantic revision no longer
+    matches the step) **in the same transaction**, so an unswept row cannot block
+    its own replacement.
 55. **(§1.4a.5)** Capacity accounting distinguishes absent / valid / redacted
     states; a declaration whose observable domain exceeds the budget fails at
     save, and raising `POLICY_BUDGET_BITS` requires the same dual-control path.
