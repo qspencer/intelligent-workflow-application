@@ -27,10 +27,18 @@ Naming: `<topic>-review-<short-sha>.tar.gz`. Verify secret-cleanliness with
 `tar tzf <file> | grep -iE '\.secrets|\.env$|refresh_token|\.venv'` (expect
 nothing but the `secrets/` **source module**, which is code, not credentials).
 
+## Two kinds of review
+
+**Code** reviews (`trace-governance-review-*`) ask whether the implementation
+holds. **Design** reviews (`trace-1.4a-design-review-*`) ask whether an unbuilt
+spec is sound. Both ship the whole repo — design reviewers have repeatedly found
+blocking issues by reading code the spec described inaccurately.
+
 ## Manifest
 
 | Archive | SHA | Date | For | Cover note |
 |---|---|---|---|---|
+| `trace-1.4a-design-review-r4-90dee87.tar.gz` | `90dee87` | 2026-08-08 | **§1.4a DESIGN review, round 4** — the per-workflow declassification approval. Whole repo, not docs-only: round 3's blocking finding came from reading `engine/functions.py`. Nothing in §1.4a is built | `docs/TRACE_1_4A_REVIEW_ROUND4.md` |
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
