@@ -850,8 +850,12 @@ plan already defers — must NOT gate the leak fix).
    (approval binds the step REVISION under dual control; finite integer lattice
    replacing the float `number` form; computed capacity budget; revocation;
    full §1.3 justification; narrowed fork claim; frozen canonical encoding;
-   `business` namespace; criteria 42–50). **Awaiting external re-approval —
-   do NOT build; P1's over-redaction stands until then.**
+   `business` namespace; criteria 42–50). **Round 4 SENT (2026-08-08)** — handoff note at
+   `docs/TRACE_1_4A_REVIEW_ROUND4.md` maps each round-3 finding to where it is
+   addressed and names the four things we most want challenged (hard-revocation
+   ruling · closure of `step_semantic_hash` · `POLICY_BUDGET_BITS = 32` ·
+   whether the review has converged). **Do NOT build; P1's over-redaction stands
+   until authorization.**
 
    Original gap statement — per-workflow
    business vocabularies (`category`, `attention`, `relevance_bucket`,

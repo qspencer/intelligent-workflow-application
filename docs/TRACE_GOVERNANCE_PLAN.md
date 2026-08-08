@@ -1225,7 +1225,7 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
 37. **(§1.4a)** A value that does NOT satisfy its declared rule — not in the
     enum, out of numeric range, wrong type — is redacted and vaulted exactly
     like an unregistered field. A declaration is a validator, never a bypass.
-38. **(§1.4a)** A `safe_output` block naming a reserved field (platform-global
+38. **(§1.4a)** A `declassify` block naming a reserved field (platform-global
     registry, projector metadata, or a raw-by-taint field such as
     `output_text` / `error` / `recall` / `tool_calls`) is a **save-time
     validation error**, not a silent ignore.
@@ -1233,7 +1233,7 @@ doc. The typed registry (§1.2/§1.4) supersedes it at TG3a.
     declaration resolves by content-address, the row re-projects under its
     recorded version, and criterion 17 still holds. An **unknown** declaration
     hash fails closed (never falls back to the current declaration).
-40. **(§1.4a)** The NL scaffold path cannot emit a `safe_output` block (a
+40. **(§1.4a)** The NL scaffold path cannot emit a `declassify` block (a
     scaffold that does is a validation error), and creating/editing one via any
     path — including `POST /api/workflows/import` — requires `ORG_ADMIN_ROLES`
     and emits an audit entry carrying the canonical declaration hash.
