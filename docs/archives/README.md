@@ -38,6 +38,7 @@ blocking issues by reading code the spec described inaccurately.
 
 | Archive | SHA | Date | For | Cover note |
 |---|---|---|---|---|
+| `trace-governance-review-r3-8657f88.tar.gz` | `8657f88` | 2026-08-08 | **CODE review, round 3** — the four remediation primitives (P1 validator registry · P2 surface routing · P3a projection stamp + §4.3 predicate · P4 grant/vault CAS) built in response to rounds 1–2. **Decides whether Contract A / B1 hold** | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-1.4a-design-review-r7-4b871b7.tar.gz` | `4b871b7` | 2026-08-08 | **§1.4a DESIGN review, round 7** — after folding round 6's two HIGH (executable effect model spanning deterministic functions · supersession no longer terminal) + four stale-text cleanups | `docs/TRACE_1_4A_REVIEW_ROUND7.md` |
 | `trace-1.4a-design-review-r6-75c72bb.tar.gz` | `75c72bb` | 2026-08-08 | **§1.4a DESIGN review, round 6** — after folding round 5's three HIGH (influence-graph closure · `expired` lifecycle · audit sidecar withdrawn) + grammar exactness | `docs/TRACE_1_4A_REVIEW_ROUND6.md` |
 | `trace-1.4a-design-review-r5-0b6e748.tar.gz` | `0b6e748` | 2026-08-08 | **§1.4a DESIGN review, round 5** — after folding round 4's four blockers (upstream semantic closure · completion-time revocation fence · audit-vs-scrub · approval expiry) + both contract corrections | `docs/TRACE_1_4A_REVIEW_ROUND5.md` |
@@ -45,6 +46,19 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (round-3 CODE package)
+
+```
+archive  555079c6b180ddbfe2ba97ff024d1a96896b6e2f0945f8e35a1acd22aa977b67
+         trace-governance-review-r3-8657f88.tar.gz
+```
+
+The trace surface is **byte-identical to `29a42f5`**, when the four primitives
+landed — verified by `git diff` over `trace_*.py`, `raw_trace_grants`,
+`raw_trace_audit`, `redaction`, `ws` and `executor`. The intervening commits are
+dependency upgrades and an unrelated schema-drift check, so this is the
+primitives as built.
 
 ## Integrity hashes (round-7 design package)
 
