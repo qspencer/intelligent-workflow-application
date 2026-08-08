@@ -1,8 +1,25 @@
 # Trace Governance — Design
 
-> ## ⚠️ EXTERNAL CODE RE-REVIEW FAILED AGAIN (2026-08-03) — structural rework required
+> ## ⚠️ THIRD EXTERNAL CODE REVIEW FAILED (2026-08-08) — Contracts A and B1 NOT established
 >
-> The `2cfacfc` re-review passed the F1–F10 regression suite but reproduced
+> **Three consecutive code reviews have now failed.** The four primitives built
+> to answer rounds 1–2 (P1/P2/P3a/P4) were themselves found bypassable — six
+> findings, **all reproduced against the shipped source**. P1 still authorizes by
+> field NAME rather than path, so an unregistered container laundering a
+> registered-looking descendant survives, `_opaque` admits `alice@example.com`,
+> trigger routing ids are copied unvalidated, and tool parameter NAMES are
+> persisted; the same projector drives the vault decision, so this is a
+> plaintext-at-rest path too. The redaction marker is still an input capability.
+> The P3a stamp is itself mutable. The P4 content commitment is an unauthenticated
+> low-entropy oracle that violates this document's own rule at §"No content hash".
+>
+> **The read-surface leaks are LIVE on the running box** (the flip is off, so the
+> at-rest path is not). **Do not enable the flip. Do not claim Contract A.**
+> The boundary is now encoded as executable properties in
+> `tests/test_trace_boundary_properties.py` (16 xfail, strict) rather than as
+> prose or field-name examples. See `NEXT_STEPS.md` G-Trace-Review-3.
+>
+> *(Prior banner, retained:)* The `2cfacfc` re-review passed the F1–F10 regression suite but reproduced
 > **new, deeper bypasses in the same areas** — Contract A and B1 are still NOT
 > delivered. The reviewer's central, correct point: the first-round fixes patched
 > *surfaces and field-names*, not the boundaries the design promises. **Do not

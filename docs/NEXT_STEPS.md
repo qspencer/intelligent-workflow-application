@@ -791,6 +791,59 @@ Same for the dry-run error field. No new raw crosses the boundary; the operator
 just learns *where* to look. Applies to any surface where P2 replaced an
 exception with a marker.
 
+### G-Trace-Review-3 — third external CODE review (2026-08-08) — **FAILED**
+
+**Contracts A and B1 are NOT established.** The four primitives built to answer
+rounds 1–2 were themselves found bypassable. **I reproduced all six findings
+against the shipped source before recording them** — none is disputed.
+
+| | Finding | Reproduced |
+|---|---|---|
+| **F1** | P1 authorizes by *name/lexical shape*, not path/source. An unregistered container is recursed and any descendant matching the global registry survives; `_opaque` is a charset regex so it admits `alice@example.com`; `safe_trigger_payload` copies routing ids with **no** validation; `safe_tool_call` exports raw parameter **names** via `input_keys`. Because `output_has_raw` uses the same projector, this is **also plaintext-at-rest under the flip**, certified clean by the verifier | ✅ all five |
+| **F2** | `_marker()` prefix-matches `"[redacted"`, so a forged marker is an **input capability** — the exact defect I claimed closed in round 2 | ✅ |
+| **F3** | The P3a stamp is itself mutable: `projector_version is None` → return the operational value without consulting the vault. A DB operator deletes the bit that says "reconstruct me" | (code-evident) |
+| **F4** | `content_commitment` is a plaintext `SHA256(JSON(raw))` beside the ciphertext — a low-entropy **oracle**, violating the corpus's own rule at `TRACE_GOVERNANCE_PLAN.md:1078` — and it is unauthenticated, so altering it makes a *different* payload accepted as idempotent | (code-evident) |
+| **F5** | Two projector versions: `trace_projection` says `"2"`, `persistence/models` says `"trace-projector@1"` | ✅ |
+| **F6** | P2 releases partially-merged raw while auditing all-or-nothing kinds — Contract 5 requires `partial` with exact returned/withheld sets | (code-evident) |
+
+**The meta-finding matters more than any single item: I enumerate instances;
+reviewers test the property.** Three rounds, same root cause. F2 is the *third*
+marker-trust bug fixed at the cited site while the class survived ten lines away.
+F3 replaced a mutable marker with a mutable stamp — same bug, different bit. F4
+added a content hash I had personally removed elsewhere *as an oracle*, with my
+own explanatory comment still in the file. F5 was two constants no test compared.
+
+**DONE — the boundary is now executable.** `tests/test_trace_boundary_properties.py`
+asserts properties, not field names: *no sentinel survives at any depth under any
+key*, *a marker cannot be supplied as input*, *raw requires the vault*, *one
+projector version*. Generative over depth/container/key, so a new field or
+nesting shape is covered without editing the test. **16 xfail today**; strict, so
+the first real fix turns an unexpected pass into a build failure and forces the
+marker off. CI keeps its signal rather than going blanket-red (cf. G26.3).
+*(One test was written and deleted: asserting `output_has_raw(x) == (redact(x) !=
+x)` is tautological — `output_has_raw` is defined as that expression. It looked
+like coverage of the B1 decision and proved nothing.)*
+
+**OPEN — and a decision is owed before more building.** Fixing F1–F6 as six edits
+would very likely produce a fourth failure in the same classes; that prediction
+is three rounds strong. What the evidence supports instead:
+1. **Re-primitive P1** — path/source-scoped projection schema, not a
+   process-global name registry. A redesign, not a patch.
+2. **F4 → HMAC** over canonical raw + immutable identity, keyed outside the DB.
+3. **F3** — execution must not depend on a mutable operational bit; require the
+   raw object unconditionally for safe-only execution artifacts.
+4. **F6** — per-kind retrieval tracking before release.
+
+**Live exposure, stated plainly:** the flip is OFF (`TRACE_SAFE_ONLY` unset), so
+the at-rest path is not active. But in dark dual-write the read surfaces are the
+only protection, so **F1a–F1d and F2 are live below-grant disclosure paths on the
+running box against real mail** — bounded in practice only because there is a
+single operator. **Do not enable the flip. Do not claim Contract A.**
+
+**Standing question:** three code failures and seven design rounds, for a
+boundary nothing currently crosses (no tenant). Deferring B1 behind the first
+real external tenant remains a legitimate call.
+
 ### G-Trace-Review-2 — external CODE re-review (`2cfacfc`, 2026-08-03) — **FAILED; structural rework required**
 
 The re-review passed the F1–F10 suite but reproduced **new, deeper bypasses in
