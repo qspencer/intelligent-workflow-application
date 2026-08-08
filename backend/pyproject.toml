@@ -28,7 +28,7 @@ dependencies = [
     "playwright>=1.40",
     "beautifulsoup4>=4.12",
     "json-repair>=0.59.10",
-    "veracium==0.4.8",
+    "veracium==0.6.0",
     "argon2-cffi>=25.1.0",
     "cryptography>=50",  # >=50: PYSEC-2026-3552 (AES-GCM path, Contract B1)
 ]

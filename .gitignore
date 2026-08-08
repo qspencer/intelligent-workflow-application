@@ -48,3 +48,6 @@ client_secret_*.json
 
 # OS
 Thumbs.db
+
+# Pre-upgrade snapshots of the learned-memory store (39MB+, personal mail data)
+backend/.memory/backups/

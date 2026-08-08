@@ -694,33 +694,38 @@ The reviewer executed the code against the contracts and found 6 items.
   Deferred within TG1: memory facts-mode-under-grant. Ship to an external org
   stays trigger-gated + needs the chosen B-contract in effect + these gates.
 
-### G27 — veracium store schema v2 migration (upcoming, NOT yet released)
+### G27 — veracium store migration to schema v4 — **DONE 2026-08-08**
 
-**Not actionable today — logged so it isn't a surprise on upgrade day.**
-veracium `main` is ahead of the released `v0.4.8` with the full `specs/0008`
-implementation, which advances the store to **schema v2** (a `confirmations`
-table, `confirm_edge`, the enum/idempotency contract on `confirm()`). Per the
-veracium coordination doc: *"existing v1 stores now require an explicit
-`migrate_store()` before a v2 build opens them — a deliberate offline-migration
-boundary, not a silent auto-upgrade."*
+Executed. `veracium` 0.4.8 → **0.6.0**; production store migrated **v1 → v4**.
 
-Our production store is **v1**: `backend/.memory/learned.db` (39 MB, 3,962 edges
-/ 43,625 episodes) reads `PRAGMA user_version = 0` with no `confirmations`
-table — verified 2026-08-07 on 0.4.8.
+**Why it mattered beyond housekeeping:** 0.6.0 ships `specs/0003` (supersession
+authority), closing a defect squarely in this platform's threat surface —
+*third-party content could retire a user's fact and erase it from recall* via the
+unfiltered functional-supersession loop. We ingest hostile third-party email as
+quarantined `third_party` observations, so we are exactly the consumer that
+concerns. **No CVE/advisory was issued** (veracium's call — "no real external
+users"), so it does NOT surface via `pip-audit`; we learned of it only by reading
+their coordination doc. *Dependency advisories are not the only channel for
+dependency security news.*
 
-**So when 0.4.9+ ships, a naive pin bump will fail to open the store.** The
-upgrade is: bump the pin → run veracium's `migrate_store()` against
-`.memory/learned.db` **before** the backend starts → restart. Take a copy of the
-DB first; it holds the only copy of the distilled corpus.
+**How it was done** — the migration is ONE-WAY (an old build refuses a v4 store):
+1. byte-verified backup → `backend/.memory/backups/learned.db.pre-0.6.0.*`
+2. service stopped (no live writer during migration)
+3. pin bumped, `uv sync`
+4. **rehearsed on a copy first**, and confirmed our own `LearnedMemoryService`
+   could read the migrated copy, before touching production
+5. `veracium.store.migration.migrate_store()` on the real store — audit events
+   `migration_attempted` / `migration_committed`, 1 → 4
+6. verified: counts preserved exactly (3,962 edges / 43,625 episodes); suite 996
+   green; service restarted; live `/api/memory/summary` returns the same
+   namespace; zero veracium errors in the journal
 
-Behaviour changes riding along (both affect us — we are the third-party-email
-ingester): reinforcement no longer clears `needs_confirmation`, and `confirm()`
-gains an enum/idempotency contract. Neither is used by our write-only slice
-today, but the recall path renders what these flags govern.
+**Rollback is restore-from-backup only.** Keep
+`.memory/backups/learned.db.pre-0.6.0.*` until the next verified upgrade.
 
-Ties to `G26.1` — same failure shape as the Alembic drift (code ahead of
-schema), one dependency further out. Whatever mechanical check lands for G26.1
-should cover the veracium store version too, not just Alembic.
+*Behaviour riding along, worth watching on live mail:* 0.5.0's `0008` means
+reinforcement no longer clears `needs_confirmation`; `introspect` now also
+reports `consolidation_pending` (0010).
 
 ### G26 — Live-box operability gaps surfaced by the DMARC run (2026-08-07)
 
