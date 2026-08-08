@@ -6,7 +6,7 @@ adversarial review of the *implementation* — the security-critical surfaces
 below. Prior code-level reviews of this project found real bypasses in
 security code, so please execute and probe, not just read.
 
-> ## Third code review (SHA `d955c84`, 2026-08-08)
+> ## Third code review (SHA `b4555d2`, 2026-08-08)
 >
 > **This subsystem has FAILED two external code reviews.** Round 1 (`e397b8b`)
 > reproduced ten bypasses; round 2 (`2cfacfc`) passed that regression suite but
