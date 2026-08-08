@@ -68,6 +68,27 @@ to confirm.
    (criteria 37–57) pin the remainder, per our standing "converge specs to
    build" practice. We would rather be told that explicitly than keep iterating.
 
+## The code this design touches
+
+Nothing here is implemented — but **round 3's blocking finding came from reading
+the code**, not the spec (that `attention` is a deduped *list*, which the
+scalar-only draft would have redacted entirely). So the archive is the whole
+repo, not just docs, and these are the files worth opening:
+
+| File | Why |
+|---|---|
+| `backend/src/workflow_platform/trace_projection.py` | The projector §1.4a extends. `_SAFE_FIELDS` is the platform-global registry; per-workflow vocabularies are deliberately absent, which is the over-redaction §1.4a fixes |
+| `backend/src/workflow_platform/engine/functions.py` | What the `record_*` functions actually emit. `_extract_email_triage` (~line 359) normalizes `attention` to a deduped list; `apply_labels` (~548) and paper-triage `tags` (~307) are the same shape. **This is where round 3 found the scalar-only bug** |
+| `backend/src/workflow_platform/auth/rbac.py` | `ORG_WRITE_ROLES` includes Organization User — the reason §1.4a.4 moves declassification authority to `ORG_ADMIN_ROLES` |
+| `backend/src/workflow_platform/auth/raw_trace_grants.py` | The existing grant state machine + CAS that §1.4a.3's lifecycle is modelled on (`update_if`) |
+| `backend/src/workflow_platform/trace_rehydrate.py` | `verify_projection_agreement` — the §4.3 predicate §1.4a.8's versioning must stay compatible with |
+| `backend/src/workflow_platform/trace_migration.py` | The zero-raw verifier that must resolve per-row declarations (§1.4a.8) |
+| `examples/*/workflow.yaml` | Real workloads whose vocabularies a declaration would have to express |
+
+Run the suite if useful: `cd backend && uv sync && uv run pytest -q`
+(996 passed / 14 skipped at this SHA; the skips are Postgres/Bedrock/Gmail/
+browser/schemathesis suites, all opt-in via env vars).
+
 ## Scope note
 
 §1.4a buys back below-grant visibility of per-workflow business vocabularies —
