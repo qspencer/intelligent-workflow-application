@@ -48,6 +48,7 @@ from workflow_platform.persistence import (
 )
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
+from workflow_platform.persistence.schema_version import assert_schema_current
 from workflow_platform.secrets import EnvSecretStore
 from workflow_platform.tools import (
     EmailLabelApplyTool,
@@ -64,14 +65,14 @@ EXIT_OK = 0
 EXIT_FAIL = 1
 
 
-def _build_repos() -> tuple[Repositories, Any | None]:
+def _build_repos() -> tuple[Repositories, Any | None, Any | None]:
     """Return (repos, db_engine_or_None). Caller disposes the engine."""
     url = os.environ.get("DATABASE_URL")
     if not url:
-        return in_memory_repositories(), None
+        return in_memory_repositories(), None, None
     db_engine = make_engine(url)
     session_factory = make_session_factory(db_engine)
-    return postgres_repositories(session_factory), db_engine
+    return postgres_repositories(session_factory), db_engine, session_factory
 
 
 def _build_tools() -> list[Tool]:
@@ -90,7 +91,8 @@ async def fire(args: argparse.Namespace) -> int:
     definition = load_definition_from_file(definition_path)
     trigger_payload: dict[str, Any] = json.loads(args.trigger) if args.trigger else {}
 
-    repos, db_engine = _build_repos()
+    repos, db_engine, session_factory = _build_repos()
+    await assert_schema_current(session_factory)  # G26.1 pre-flight
     backend = "postgres" if db_engine is not None else "in-memory"
     memory_dir = os.environ.get("WORKFLOW_PLATFORM_MEMORY_DIR", ".memory")
     memory = MemoryManager(memory_dir)

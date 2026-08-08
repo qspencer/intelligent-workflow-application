@@ -21,15 +21,17 @@ from typing import Any
 from workflow_platform.persistence import Repositories, in_memory_repositories
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
+from workflow_platform.persistence.schema_version import assert_schema_current
 from workflow_platform.trace_migration import backfill_all, verify_zero_raw
 
 
-def _build_repos() -> tuple[Repositories, Any | None]:
+def _build_repos() -> tuple[Repositories, Any | None, Any | None]:
     url = os.environ.get("DATABASE_URL")
     if not url:
-        return in_memory_repositories(), None
+        return in_memory_repositories(), None, None
     db_engine = make_engine(url)
-    return postgres_repositories(make_session_factory(db_engine)), db_engine
+    session_factory = make_session_factory(db_engine)
+    return postgres_repositories(session_factory), db_engine, session_factory
 
 
 async def _verify(repos: Repositories) -> int:
@@ -55,7 +57,8 @@ async def _verify(repos: Repositories) -> int:
 
 
 async def _main(command: str) -> int:
-    repos, db_engine = _build_repos()
+    repos, db_engine, session_factory = _build_repos()
+    await assert_schema_current(session_factory)  # G26.1 pre-flight
     try:
         if command == "backfill":
             written = await backfill_all(repos)

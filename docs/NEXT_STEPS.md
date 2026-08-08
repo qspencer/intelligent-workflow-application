@@ -727,7 +727,7 @@ should cover the veracium store version too, not just Alembic.
 Both found while actually running `dmarc-ingest` against the real mailbox, not
 by the test suite — which is the point: the suite never touches the deployed box.
 
-**G26.1 — Schema drift is silent until a run fails. (HIGH — it broke production.)**
+**G26.1 — Schema drift is silent until a run fails. (DONE 2026-08-08.)**
 Migrations `0009`/`0010`/`0011` were committed over several days and **never
 applied to the running Postgres**. The systemd service `--reload`s code but not
 schema, so new code wrote `projector_version` / `content_commitment` into tables
@@ -738,15 +738,25 @@ itself), but the failure mode is structural, not a one-off lapse: this is the
 second time the same mistake landed, and "remember to run alembic" demonstrably
 does not work.
 
-Wanted — a MECHANICAL check, not a discipline reminder:
-- a startup/health assertion that the DB revision equals `alembic heads`,
-  surfaced on `/api/health` (or a distinct `/api/ready`) so drift is visible
-  without reading logs;
-- the same check in `tools/fire.py` + `tools/fetch_dmarc.py` pre-flight, so an
-  operator one-shot fails fast with "DB at 0009, code needs 0011" instead of a
-  per-row `UndefinedColumnError`;
-- consider a CI job that applies migrations to a DB seeded at the previous
-  revision (the current Alembic test only round-trips up/down on an empty DB).
+**BUILT.** `persistence/schema_version.py` compares the DB's stamped
+`alembic_version` against the migration heads on disk:
+- **`/api/health`** reports `schema.{state,current,expected}` and returns **503**
+  on drift, so it is visible without reading logs. Verified live: the healthy box
+  reports `current 0011 / expected 0011`; stamping the DB back to 0010 flipped it
+  to 503 `drift` with the remedy in the message, and restoring returned it to 200.
+- **`tools/fire.py` + `tools/trace_migration.py`** assert it as a pre-flight and
+  **refuse to run** — verified: `ERROR schema drift — refusing to run: database
+  at 0010, code expects 0011`. Previously this surfaced once per row as an opaque
+  `UndefinedColumnError`.
+- An inconclusive check reports **`unknown`, never `ok`** — not being able to tell
+  is not the same as being fine.
+- 8 tests in `test_schema_drift.py`.
+
+*Still open:* a CI job that migrates a DB seeded at the PREVIOUS revision (the
+current Alembic test only round-trips up/down on an empty DB, so it cannot catch
+a migration that fails against real data). `tools/fetch_dmarc.py` fires through
+the HTTP API rather than building repos, so it inherits the `/api/health` signal
+rather than carrying its own pre-flight.
 
 **G26.3 — audits masked every other CI signal. (DONE 2026-08-08.)** The
 `pip-audit` / `npm audit` steps ran *inside* the backend/frontend jobs, *before*

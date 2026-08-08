@@ -52,6 +52,7 @@ from workflow_platform.orchestrator import TriggerOrchestrator
 from workflow_platform.persistence import Repositories, in_memory_repositories
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
+from workflow_platform.persistence.schema_version import check_schema_drift
 from workflow_platform.secrets import AwsSecretsManagerStore, EnvSecretStore, SecretStore
 from workflow_platform.templates import default_examples_dir
 from workflow_platform.tools import (
@@ -74,14 +75,23 @@ configure_logging(
 logger = logging.getLogger(__name__)
 
 
+# Set by `_build_repositories` when a real database is configured, so the
+# health endpoint can compare the DB's alembic revision against the code's
+# (G26.1). None under in-memory repositories — nothing to drift.
+_session_factory: Any | None = None
+
+
 def _build_repositories() -> tuple[Repositories, Any | None]:
+    global _session_factory
     url = os.environ.get("DATABASE_URL")
     if not url:
         logger.info("DATABASE_URL not set; using in-memory repositories.")
+        _session_factory = None
         return in_memory_repositories(), None
     logger.info("Using Postgres repositories (DATABASE_URL=%s).", url)
     db_engine = make_engine(url)
     session_factory = make_session_factory(db_engine)
+    _session_factory = session_factory
     return postgres_repositories(session_factory), db_engine
 
 
@@ -277,8 +287,25 @@ def create_app(
     )
 
     @app.get("/api/health")
-    async def health() -> dict[str, str]:
-        return {"status": "ok", "version": __version__}
+    async def health(response: Response) -> dict[str, Any]:
+        """Liveness + SCHEMA DRIFT (G26.1). `--reload` loads code but not
+        migrations, so code can run ahead of the schema and fail every write.
+        Drift returns HTTP 503 with the revisions, so it is visible without
+        reading logs — the four-day silent outage this exists to prevent."""
+        schema = await check_schema_drift(_session_factory)
+        body: dict[str, Any] = {
+            "status": "ok" if schema.ok else "degraded",
+            "version": __version__,
+            "schema": {
+                "state": schema.state,
+                "current": schema.current,
+                "expected": schema.expected,
+                **({"detail": schema.detail} if schema.detail else {}),
+            },
+        }
+        if schema.state == "drift":
+            response.status_code = 503
+        return body
 
     @app.get("/metrics")
     async def metrics_endpoint() -> Response:
