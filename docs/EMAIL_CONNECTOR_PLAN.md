@@ -58,25 +58,29 @@ class EmailAddress(BaseModel):
     address: str
     name: str | None = None
 
+
 class EmailMessage(BaseModel):
     """Inbound message shape — what triggers emit as their payload."""
+
     provider: Literal["gmail", "outlook", "imap"]
-    message_id: str          # provider-specific stable id
-    thread_id: str | None    # for reply chains
+    message_id: str  # provider-specific stable id
+    thread_id: str | None  # for reply chains
     from_address: EmailAddress
     to: list[EmailAddress]
     cc: list[EmailAddress] = []
     bcc: list[EmailAddress] = []
     subject: str
-    body_text: str           # plain-text body (rendered from HTML if needed)
-    body_html: str | None    # original HTML, when available
+    body_text: str  # plain-text body (rendered from HTML if needed)
+    body_html: str | None  # original HTML, when available
     received_at: datetime
-    labels: list[str] = []   # provider labels / folders
+    labels: list[str] = []  # provider labels / folders
     in_reply_to: str | None = None
     headers: dict[str, str] = {}  # selected headers worth preserving
 
+
 class EmailSendRequest(BaseModel):
     """Outbound send shape — what the agent / send tool builds."""
+
     to: list[EmailAddress]
     cc: list[EmailAddress] = []
     bcc: list[EmailAddress] = []
@@ -84,7 +88,7 @@ class EmailSendRequest(BaseModel):
     body_text: str
     body_html: str | None = None
     reply_to_message_id: str | None = None  # see threading note below
-    labels_to_apply: list[str] = []        # post-send labels (Gmail)
+    labels_to_apply: list[str] = []  # post-send labels (Gmail)
 ```
 
 **Threading semantics for `reply_to_message_id`.** Real email threading
@@ -182,8 +186,10 @@ OAuth 2.0 refresh-token pattern, abstracted behind a small helper:
 class EmailAuthProvider(Protocol):
     async def access_token(self) -> str: ...  # cached + refreshes as needed
 
+
 class GmailAuthProvider:
     def __init__(self, secret_store: SecretStore, secret_name: str): ...
+
     # On construction: load refresh_token + client_id + client_secret from
     # secret_store. On access_token(): use cached or hit Google's token
     # endpoint with the refresh_token.

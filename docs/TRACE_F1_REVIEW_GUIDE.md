@@ -1,10 +1,99 @@
 # Reviewer's guide — P1 re-primitive (F1 path-scoped projection + F5 one version)
 
 **Branch:** `p1-reprimitive` · **Base:** `main` · **Scope of this review:** the
-projection primitive only — **F1** and **F5** from the third code review. This
-is a *foundation* review: F3, F4 and F6 are deliberately **NOT** built and are
-**out of scope** (see §7). We are asking one question: **is the projector now
-correct enough that work can be built on top of it?**
+projection primitive — **F1** and **F5** from the third code review, PLUS the
+four findings your F1/F5 foundation review (G-Trace-Review-4) returned, now
+remediated. We are asking one question: **is the projector now correct enough
+that work can be built on top of it?**
+
+> **⚠️ Read §R first if you reviewed the previous package.** This is the SECOND
+> pass at F1/F5. Your last review (4 findings, 2×P0) was correct on all four and
+> is the reason this exists — §R is the remediation, with reproductions to
+> re-run. The four are labelled **GR4-1..4** to avoid colliding with the
+> THIRD review's F-numbers; the third review's F3/F4/F6 (mutable stamp,
+> vault-commitment HMAC, partial-release audit) remain a SEPARATE, still-open
+> set — see §7.
+
+---
+
+## R. Remediation of the previous F1/F5 review (round 2)
+
+Your four findings all reproduced against source; none was disputed. Each is now
+fixed with a test that exercises the *surface* the boundary properties had missed
+(the meta-lesson: the prior tests hit the projector, never the write/fork/retry
+paths or hostile values inside a declared structural node). **Please re-run these
+against the shipped source — do not read for plausibility.**
+
+**GR4-1 (P0) — `safe_tool_call` trusted its own leaves.** It copied
+`name`/`pinned`/`pin_overrides` unvalidated and the `input_key_count` shortcut
+returned any such record unchanged. Now every field is reconstructed + validated;
+no trusted shortcut.
+
+```python
+from workflow_platform.trace_projection import redact_tool_data, safe_tool_call
+from workflow_platform.trace_vault import output_has_raw
+
+raw = {"tool_calls": [{"input_key_count": 0, "name": "SENTINEL raw victim@example.com"}]}
+out = redact_tool_data(raw, admin=False, kind="step_output")
+assert "victim@example.com" not in str(out)  # was: leaked
+assert output_has_raw(raw) is True  # was: False -> no vault at rest
+# a legit call still projects to name + arity
+safe_tool_call({"name": "email_send", "input": {"to": "x"}, "result": {"content": "ok"}})
+```
+
+**GR4-2 (P0) — escalation context was projected as engine-computed.**
+`/api/escalations` used `kind="context"` on `RequestHumanReviewTool`'s
+MODEL-AUTHORED free-form context, so `{"workflow_id":"SSN…","capabilities":…}`
+passed the platform validators. `context` (like `reason`) is now gated whole on
+the grant. Test: `tests/test_trace_surface_inventory.py::
+test_escalation_context_is_model_authored_and_always_raw`.
+
+**GR4-3 (P1) — fork/backfill projected without stamping.** `projector_version`
+stayed `None`, and `rehydrate` treats `None` as never-projected → skips the vault
+→ returns the marker even to a grant-holder. Projection + stamp are now one call
+(`_project_step_output_onto`), used by fork; backfill stamps too. Test:
+`tests/test_trace_fork_backfill_stamp.py` (real run→fork and real backfill under
+the flip, asserting the rows are stamped).
+
+**GR4-4 (P1) — not all raw audit writes were projected; verifier ignored action.**
+Retry `str(exc)`, exceptions, memory-recall errors and pin-override params landed
+raw at rest; the verifier checked every audit row as `audit_detail`, missing raw
+and false-flagging tool_call rows. Now one shared, action-aware
+`project_audit_detail_at_rest(action, detail)` at the engine `_audit` chokepoint,
+the escalation tool, AND the verifier (`_audit_has_raw`).
+
+```python
+from workflow_platform.trace_projection import project_audit_detail_at_rest as at_rest
+
+assert "victim@example.com" not in str(
+    at_rest("step_retry", {"attempt": 1, "error": "x victim@example.com"})
+)
+assert at_rest("workflow_forked", {"source_instance_id": "i-1"}) == {
+    "source_instance_id": "i-1"
+}  # operational kept
+from workflow_platform.trace_migration import _audit_has_raw
+
+assert _audit_has_raw({"error": "RAW"}, "step_retry") is True  # flags raw
+assert _audit_has_raw({"connector": "browser"}, "connector_opened") is False  # no false-flag
+```
+
+Tests: `tests/test_trace_audit_write_paths.py` (7 cases).
+
+**What we did NOT do — a named, deliberate limitation to challenge.** Audit-detail
+raw is **redacted** at rest, not **vaulted**. So under the flip a grant-holder
+cannot recover retry-error / escalation content from `audit_log` (the *final*
+step error is vaulted separately via `record_error`). B1 "no raw at rest" holds;
+grant-holder forensic recovery of audit-detail raw is deferred. **If you think
+redact-not-vault is wrong for B1, say so** — it is a real decision, not an
+oversight. Also GR4-4's non-tool_call path is a **denylist** of raw fields
+(`_RAW_AUDIT_FIELDS`), not default-deny, because audit details are
+engine-authored operational metadata; a new audit write with a new raw field
+would leak until added to that tuple. **That tradeoff is the sharpest thing to
+challenge in the remediation.**
+
+Full suite **1029 passed, 14 skipped** under both `DATABASE_URL` unset and set to
+an unmigrated DB. **We are NOT self-certifying this as passing — three prior
+"green under our tests" states were reviewed and failed.**
 
 ---
 
@@ -129,34 +218,40 @@ Each previously **survived**; each should now be **redacted**. Run from `backend
 
 ```python
 from workflow_platform.trace_projection import (
-    redact_tool_data, safe_trigger_payload, safe_tool_call, PROJECTOR_VERSION)
+    redact_tool_data,
+    safe_trigger_payload,
+    safe_tool_call,
+    PROJECTOR_VERSION,
+)
 from workflow_platform.trace_vault import output_has_raw
+
 K = dict(kind="step_output")
 
 # F1a — undeclared container no longer launders a registered-named descendant
 redact_tool_data({"unregistered_map": {"model": "SSN123456789"}}, False, **K)
 #   -> {"unregistered_map": "[redacted — raw-trace grant required]"}
-redact_tool_data({"summary_map": {"state": "TOPSECRET"}}, False, **K)         # redacted
+redact_tool_data({"summary_map": {"state": "TOPSECRET"}}, False, **K)  # redacted
 
 # F1b — a token path rejects an email
-redact_tool_data({"model": "alice@example.com"}, False, **K)                  # redacted
+redact_tool_data({"model": "alice@example.com"}, False, **K)  # redacted
 
 # F1c — trigger routing is validated, not copied verbatim
-safe_trigger_payload({"id": "customer secret with spaces"})                   # id redacted
+safe_trigger_payload({"id": "customer secret with spaces"})  # id redacted
 
 # F1d — parameter NAMES are not exported (only arity)
 safe_tool_call({"name": "t", "input": {"customer SSN 123-45-6789": 1}, "result": {}})
 #   -> has "input_key_count": 1, and NO "input_keys"
 
 # F1e (B1) — the vault decision agrees: registered-looking raw still needs the vault
-output_has_raw({"model": "SSN123456789"})                                     # depends: see note*
+output_has_raw({"model": "SSN123456789"})  # depends: see note*
 
 # F2 — a forged marker is not trusted
-redact_tool_data({"_redacted": "[redacted SSN123456789]"}, False, **K)        # redacted
+redact_tool_data({"_redacted": "[redacted SSN123456789]"}, False, **K)  # redacted
 
 # F5 — one version
 from workflow_platform.persistence.models import RawTrace
-RawTrace.model_fields["projector_version"].default == PROJECTOR_VERSION        # True
+
+RawTrace.model_fields["projector_version"].default == PROJECTOR_VERSION  # True
 ```
 
 \* **Note on F1e / the token residual — read §6.** `output_has_raw({"model": X})`
@@ -206,7 +301,7 @@ The locked env pins `veracium==0.6.0`; if your registry can't fetch it, the full
   `persistence.models`, none of which import veracium — run it directly against
   the source.
 
-**Verified state at the branch tip:** full suite **1017 passed, 14 skipped** under
+**Verified state at the branch tip:** full suite **1029 passed, 14 skipped** under
 **both** `DATABASE_URL` unset **and** `DATABASE_URL` set to an unmigrated DB (the
 CI shape). Ruff, ruff-format, mypy strict all clean. We do not ask you to trust
 that number — we note it so a discrepancy on your machine is itself a finding.
@@ -238,8 +333,11 @@ that number — we note it so a discrepancy on your machine is itself a finding.
 
 ## 7. Explicitly OUT of scope (do not spend the review here)
 
-Built on top of F1's projector, and deliberately unbuilt so F1 can be reviewed
-first — a fault in F1 would invalidate them:
+These are the **THIRD review's** F3/F4/F6 — a SEPARATE set from the GR4-1..4 just
+remediated in §R. (Note GR4-3, fork/backfill *not setting* the stamp, is fixed;
+third-review F3, the stamp being a *mutable* fail-open bit, is the different issue
+below and stays open.) All build on F1's projector and are deliberately unbuilt so
+F1 can be reviewed first — a fault in F1 would invalidate them:
 
 - **F3** — the P3a projection stamp is still a mutable fail-open bit; safe-only
   execution must not depend on operational metadata a DB adversary controls.

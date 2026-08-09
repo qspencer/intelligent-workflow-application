@@ -263,17 +263,32 @@ Generated code runs in a restricted environment:
 ```python
 SANDBOX_POLICY = {
     "allowed_imports": [
-        "re", "json", "datetime", "decimal", "collections",
-        "typing", "dataclasses", "math", "hashlib", "uuid"
+        "re",
+        "json",
+        "datetime",
+        "decimal",
+        "collections",
+        "typing",
+        "dataclasses",
+        "math",
+        "hashlib",
+        "uuid",
     ],
     "denied_imports": [
-        "os", "sys", "subprocess", "shutil", "socket",
-        "requests", "urllib", "importlib", "__builtins__"
+        "os",
+        "sys",
+        "subprocess",
+        "shutil",
+        "socket",
+        "requests",
+        "urllib",
+        "importlib",
+        "__builtins__",
     ],
     "max_execution_time": "5s",
     "max_memory": "128MB",
     "filesystem_access": "none",  # use tools for file ops
-    "network_access": "none",     # use tools for API calls
+    "network_access": "none",  # use tools for API calls
 }
 ```
 

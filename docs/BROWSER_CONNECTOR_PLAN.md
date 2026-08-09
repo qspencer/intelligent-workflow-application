@@ -83,25 +83,31 @@ Pydantic models under `workflow_platform.connectors.browser.models`:
 ```python
 class BrowserSelector(BaseModel):
     """A DOM selector. Auto-detects CSS vs XPath by leading character."""
+
     selector: str
     type: Literal["css", "xpath"] | None = None  # None = auto-detect
+
 
 class BrowserClickRequest(BaseModel):
     selector: str
     timeout_ms: int = 5000
+
 
 class BrowserFillRequest(BaseModel):
     selector: str
     value: str
     clear_first: bool = True
 
+
 class BrowserTableRow(BaseModel):
     """One row from `browser_read_table`. Keys are column-header text."""
+
     # implicit — dict[str, str] under the hood, validated for consistent headers
 
+
 class BrowserDownload(BaseModel):
-    source_url: str       # what the click navigated to (informational)
-    local_path: str       # where the file landed; subsequent steps read from here
+    source_url: str  # what the click navigated to (informational)
+    local_path: str  # where the file landed; subsequent steps read from here
     suggested_filename: str
     bytes: int
 ```
@@ -141,18 +147,24 @@ class BrowserConnector(Connector):
     async def upload_file(self, selector: str, file_path: str) -> None: ...
 
     @abstractmethod
-    async def download_via_click(self, selector: str, *, timeout_ms: int = 30000) -> BrowserDownload: ...
+    async def download_via_click(
+        self, selector: str, *, timeout_ms: int = 30000
+    ) -> BrowserDownload: ...
 
     @abstractmethod
     async def screenshot(self, *, path: str | None = None, full_page: bool = False) -> str: ...
 
     @abstractmethod
-    async def wait_for(self, selector: str, *, state: str = "visible", timeout_ms: int = 5000) -> None: ...
+    async def wait_for(
+        self, selector: str, *, state: str = "visible", timeout_ms: int = 5000
+    ) -> None: ...
 
     # --- concrete defaults from Connector base ---
 
-    async def health_check(self) -> bool: ...     # is the page loaded + responsive?
-    async def authenticate(self) -> None: ...      # no-op by default; v1 sites that need login do it via navigate+fill+click
+    async def health_check(self) -> bool: ...  # is the page loaded + responsive?
+    async def authenticate(
+        self,
+    ) -> None: ...  # no-op by default; v1 sites that need login do it via navigate+fill+click
 ```
 
 ### Auto-detection: CSS vs XPath
