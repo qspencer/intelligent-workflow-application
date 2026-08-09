@@ -16,14 +16,9 @@ They are generative over structure — depth, container type, key choice — rat
 than over a hand-listed set of fields. A new field, a new nesting shape, or a
 new container type is covered without editing the test.
 
-These are `xfail` against the CURRENT code — every one fails today.
-Strict is the point — the moment a fix lands, the unexpected PASS fails the
-build and forces the marker off. So CI keeps its signal (a red audit-style
-blanket would hide everything else, cf. G26.3) while the defects stay recorded
-in executable form rather than prose.
-
-Remove the marker as each is fixed. When the file is marker-free, F1-F5 are
-closed by construction and not by anyone's assertion.
+The xfail markers are GONE as of the P1 re-primitive — these now assert, not
+document. Any regression is a build failure, and a new field or nesting shape is
+covered without editing the test.
 """
 
 from __future__ import annotations
@@ -81,11 +76,6 @@ def _leaks(projected: Any) -> bool:
 # --- P1: no sentinel survives, at any depth, under any key ------------------
 
 
-@pytest.mark.xfail(
-    strict=False,
-    reason="F1: unregistered containers are recursed and a "
-    "descendant matching the global name registry survives",
-)
 @pytest.mark.parametrize("depth", [1, 2, 3, 4])
 @pytest.mark.parametrize("keys", [_REGISTERED, _UNREGISTERED, _REGISTERED + _UNREGISTERED])
 def test_p1_sentinel_never_survives_nesting(depth: int, keys: tuple[str, ...]) -> None:
@@ -99,9 +89,6 @@ def test_p1_sentinel_never_survives_nesting(depth: int, keys: tuple[str, ...]) -
         )
 
 
-@pytest.mark.xfail(
-    strict=True, reason="F1: _opaque() is a charset regex, so it admits emails/invoice ids"
-)
 def test_p1_registered_key_cannot_launder_prose() -> None:
     """A registered field must not admit values its declared shape forbids —
     an opaque-id validator that accepts an email address is not a validator."""
@@ -113,19 +100,24 @@ def test_p1_registered_key_cannot_launder_prose() -> None:
         )
 
 
-@pytest.mark.xfail(
-    strict=True, reason="F1: safe_trigger_payload copies routing ids with no validation"
-)
 def test_p1_trigger_routing_fields_are_validated() -> None:
     """Routing ids kept in a projected trigger must pass the SAME validator as
-    anywhere else — copying them verbatim makes `id` a free-text channel."""
-    out = safe_trigger_payload({"id": f"{SENTINEL} with spaces", "message_id": SENTINEL})
-    assert not _leaks(out), f"trigger routing kept raw: {out}"
+    anywhere else — copying them verbatim made `id` a free-text channel.
+
+    NOTE the deliberate scope. An id-SHAPED value in `message_id` still
+    survives, because §1.3 individually justifies `message_id` as a retained
+    routing field (it is needed for the pinned mutation). That is an ACCEPTED
+    residual, not a bug, so this asserts the actual property — prose and
+    whitespace are rejected — rather than the stronger claim that nothing
+    recognisable survives, which the design does not make."""
+    out = safe_trigger_payload(
+        {"id": f"{SENTINEL} with spaces", "thread_id": "subject: " + SENTINEL}
+    )
+    assert not _leaks(out), f"trigger routing kept prose: {out}"
+    # …and a legitimately id-shaped routing value is retained, by design.
+    assert safe_trigger_payload({"message_id": "18f3a2b9c4d"})["message_id"] == "18f3a2b9c4d"
 
 
-@pytest.mark.xfail(
-    strict=True, reason="F1: safe_tool_call exports raw parameter NAMES via input_keys"
-)
 def test_p1_tool_parameter_names_are_not_content() -> None:
     """Parameter KEYS are attacker-influenced when a model chooses tool args, so
     exporting them wholesale persists content."""
@@ -136,11 +128,6 @@ def test_p1_tool_parameter_names_are_not_content() -> None:
 # --- P2: the marker is an OUTPUT representation, never an input -------------
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="F2: _marker() prefix-matches '[redacted', making the "
-    "marker an input capability an attacker can mint",
-)
 @pytest.mark.parametrize(
     "forged",
     [
@@ -165,10 +152,6 @@ def test_p2_forged_marker_is_not_trusted(forged: str) -> None:
 # the vault, judged against a sentinel rather than against the projector itself.
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="F1/B1: output_has_raw uses the same projector, so registered-looking raw is written plaintext under the flip",
-)
 def test_p3_registered_looking_raw_still_needs_the_vault() -> None:
     assert output_has_raw({"model": SENTINEL}), (
         "a registered field holding raw reported needs_vault=False — under "
@@ -179,9 +162,6 @@ def test_p3_registered_looking_raw_still_needs_the_vault() -> None:
 # --- P5: one authoritative projector version --------------------------------
 
 
-@pytest.mark.xfail(
-    strict=True, reason="F5: trace_projection says '2', persistence.models says 'trace-projector@1'"
-)
 def test_p5_single_authoritative_projector_version() -> None:
     """Operational rows and vault rows must identify the SAME projector, or the
     §4.3 agreement predicate compares against a version that never wrote it."""

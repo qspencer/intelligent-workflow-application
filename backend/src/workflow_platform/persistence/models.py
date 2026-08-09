@@ -306,7 +306,11 @@ class RawTraceState(StrEnum):
 # corrupt (docs/TRACE_GOVERNANCE_PLAN.md §4.3, criterion 17/23).
 RAW_SCHEMA_VERSION = 1
 PROJECTION_SCHEMA_VERSION = 1
-PROJECTOR_VERSION = "trace-projector@1"
+# F5 (third code review): there were TWO projector versions — this said
+# "trace-projector@1" while the projector said "2", so operational rows and
+# vault rows identified different projectors and §4.3's agreement predicate
+# compared against a version that never wrote the row. ONE definition now.
+from workflow_platform.trace_projection import PROJECTOR_VERSION  # noqa: E402
 
 
 class RawTrace(BaseModel):
