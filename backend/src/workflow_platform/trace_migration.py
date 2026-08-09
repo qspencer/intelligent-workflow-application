@@ -18,7 +18,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import Any
 
-from workflow_platform.persistence import Repositories
+from workflow_platform.persistence import RawTraceKind, Repositories
 from workflow_platform.trace_projection import (
     PROJECTION_SCHEMA_VERSION,
     PROJECTOR_VERSION,
@@ -28,7 +28,7 @@ from workflow_platform.trace_projection import (
     redact_tool_data,
     safe_trigger_payload,
 )
-from workflow_platform.trace_vault import RawTraceVault
+from workflow_platform.trace_vault import RawTraceVault, idempotency_key
 
 # Scan ceiling. Exceeding it is NOT silently ignored (external code review
 # 2026-08-02 F10): `ZeroRawReport.capped` is set and the gate must NOT certify.
@@ -173,27 +173,44 @@ async def backfill_instance(
 
     # Each step's raw output + error.
     for step in await repositories.steps.list_by_instance(inst.id):
-        # Skip steps already through the flip write path: their raw is in the
-        # vault under the step-attempt's immutable key, and the operational
-        # `output` is the projection. Re-vaulting the projection would collide
-        # with the real raw at that key (VaultConflict). Backfill migrates only
-        # unstamped (pre-flip) inline raw.
+        # A row already carrying the stamp has been through the flip write path —
+        # its raw is vaulted and its `output` is the projection; leave it.
         if step.projector_version is not None:
             continue
         changed = False
-        if step.output and _has_raw(step.output, "step_output"):
-            await vault.record_step_output(
-                org_id=inst.org_id,
-                instance_id=inst.id,
-                step_attempt_id=step.id,
-                output=step.output,
-                durable=True,
-            )
-            step.output = redact_tool_data(step.output, admin=False, kind="step_output")
-            step.projector_version = PROJECTOR_VERSION  # F3: project + stamp together
-            step.projection_schema_version = PROJECTION_SCHEMA_VERSION
-            written += 1
-            changed = True
+        if step.output:
+            # Is this step-attempt's OUTPUT already in the vault? (GR4-r2 F5: the
+            # F3 bug ran live, so prod has rows VAULTED-BUT-UNSTAMPED — raw safe
+            # in the vault, operational row never stamped, so rehydrate skips the
+            # vault and a grant-holder gets only the marker.)
+            key = idempotency_key(inst.org_id, inst.id, step.id, RawTraceKind.OUTPUT)
+            already_vaulted = await repositories.raw_trace_vault.get_by_idempotency_key(key)
+            if already_vaulted is not None:
+                # REPAIR: re-project to the current form + stamp so rehydrate uses
+                # the vault. Do NOT re-vault — the raw is already there and the
+                # operational output is a projection (VaultConflict otherwise).
+                step.output = redact_tool_data(step.output, admin=False, kind="step_output")
+                step.projector_version = PROJECTOR_VERSION
+                step.projection_schema_version = PROJECTION_SCHEMA_VERSION
+                changed = True
+            elif _has_raw(step.output, "step_output"):
+                # Pre-flip inline raw with no vault object: vault + project + stamp.
+                await vault.record_step_output(
+                    org_id=inst.org_id,
+                    instance_id=inst.id,
+                    step_attempt_id=step.id,
+                    output=step.output,
+                    durable=True,
+                )
+                step.output = redact_tool_data(step.output, admin=False, kind="step_output")
+                step.projector_version = PROJECTOR_VERSION  # F3: project + stamp together
+                step.projection_schema_version = PROJECTION_SCHEMA_VERSION
+                written += 1
+                changed = True
+            # else: already-safe output with no vault object (raw long gone) —
+            # leave unstamped; rehydrate returns the safe operational form and the
+            # verifier already reports it clean. Stamping would point rehydrate at
+            # a vault object that does not exist.
         if _error_has_raw(step.error):
             await vault.record_error(
                 org_id=inst.org_id,

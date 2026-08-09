@@ -147,3 +147,51 @@ def test_backfill_skips_already_stamped_steps() -> None:
         assert written == 0, f"backfill re-processed an already-stamped step (wrote {written})"
 
     asyncio.run(go())
+
+
+def test_backfill_repairs_vaulted_but_unstamped_rows() -> None:
+    """GR4-r2 F5: the F3 bug ran live, leaving rows VAULTED-but-UNSTAMPED (raw in
+    the vault, operational row never stamped → rehydrate skips the vault). Backfill
+    must STAMP them (so rehydrate uses the vault) WITHOUT re-vaulting (which would
+    collide with the real raw at the immutable key)."""
+    from workflow_platform.trace_migration import backfill_instance
+    from workflow_platform.trace_projection import PROJECTOR_VERSION
+    from workflow_platform.trace_vault import RawTraceVault
+
+    repos = in_memory_repositories()
+
+    async def go() -> None:
+        inst = await repos.instances.create(
+            WorkflowInstance(
+                workflow_id="wf", org_id="default", state=WorkflowInstanceState.COMPLETED
+            )
+        )
+        step = await repos.steps.create(
+            StepExecution(
+                instance_id=inst.id,
+                step_id="s",
+                attempt=1,
+                state=StepExecutionState.COMPLETED,
+                output={"output_text": SECRET},  # projected form left; unstamped
+                projector_version=None,
+            )
+        )
+        vault = RawTraceVault(repos)
+        # simulate the F3-bug history: raw already vaulted for this attempt
+        await vault.record_step_output(
+            org_id=inst.org_id,
+            instance_id=inst.id,
+            step_attempt_id=step.id,
+            output={"output_text": SECRET},
+            durable=True,
+        )
+        vault_before = len(await repos.raw_trace_vault.list_by_instance(inst.id))
+        await backfill_instance(repos, vault, inst.id)  # must NOT raise VaultConflict
+        vault_after = len(await repos.raw_trace_vault.list_by_instance(inst.id))
+        repaired = next(s for s in await repos.steps.list_by_instance(inst.id) if s.step_id == "s")
+        assert repaired.projector_version == PROJECTOR_VERSION, (
+            "vaulted-but-unstamped row not stamped"
+        )
+        assert vault_after == vault_before, "backfill re-vaulted an already-vaulted row"
+
+    asyncio.run(go())
