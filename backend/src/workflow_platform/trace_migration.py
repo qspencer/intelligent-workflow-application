@@ -123,9 +123,18 @@ async def find_raw_in_operational_store(
 async def backfill_instance(
     repositories: Repositories, vault: RawTraceVault, instance_id: str
 ) -> int:
-    """Vault the inline raw for one instance (trigger + each step's output),
-    then project the operational rows in place. Returns the number of vault
-    objects written. Idempotent."""
+    """Vault the PRE-FLIP inline raw for one instance (trigger + each step's
+    output), then project the operational rows in place. Returns the number of
+    vault objects written.
+
+    IDEMPOTENT via the projection stamp: a row already carrying
+    `projector_version` has been through the flip write path — its raw is ALREADY
+    in the vault and its operational form is the projection. Re-vaulting it would
+    put the PROJECTED form under the same immutable key as the real raw and the
+    vault would reject it (`VaultConflict`, exists-with-different-content). So
+    stamped rows are skipped entirely; backfill only migrates unstamped (pre-flip)
+    inline raw. Found by the rehearsal against a copy — this aborted mid-run
+    before the guard existed."""
     inst = await repositories.instances.get(instance_id)
     if inst is None:
         return 0
@@ -159,6 +168,13 @@ async def backfill_instance(
 
     # Each step's raw output + error.
     for step in await repositories.steps.list_by_instance(inst.id):
+        # Skip steps already through the flip write path: their raw is in the
+        # vault under the step-attempt's immutable key, and the operational
+        # `output` is the projection. Re-vaulting the projection would collide
+        # with the real raw at that key (VaultConflict). Backfill migrates only
+        # unstamped (pre-flip) inline raw.
+        if step.projector_version is not None:
+            continue
         changed = False
         if step.output and _has_raw(step.output, "step_output"):
             await vault.record_step_output(

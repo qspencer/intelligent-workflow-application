@@ -106,3 +106,44 @@ def test_backfill_stamps_the_rows_it_projects() -> None:
             )
 
     asyncio.run(go())
+
+
+def test_backfill_skips_already_stamped_steps() -> None:
+    """G-Trace-Review-4 backfill guard (found by the prod rehearsal): a step
+    already carrying `projector_version` has been through the flip write path —
+    its raw is in the vault. Backfill must NOT re-vault it (that puts the
+    PROJECTED form under the raw's immutable key → VaultConflict). Only unstamped
+    rows are migrated."""
+    from workflow_platform.trace_migration import backfill_instance
+    from workflow_platform.trace_projection import PROJECTOR_VERSION
+    from workflow_platform.trace_vault import RawTraceVault
+
+    repos = in_memory_repositories()
+
+    async def go() -> None:
+        inst = await repos.instances.create(
+            WorkflowInstance(
+                workflow_id="wf", org_id="default", state=WorkflowInstanceState.COMPLETED
+            )
+        )
+        # already through the flip: stamped, output is the projection
+        await repos.steps.create(
+            StepExecution(
+                instance_id=inst.id,
+                step_id="done",
+                attempt=1,
+                state=StepExecutionState.COMPLETED,
+                output={"output_text": "[redacted]", "model": "claude-haiku-4-5"},
+                projector_version=PROJECTOR_VERSION,
+            )
+        )
+        vault = RawTraceVault(repos)
+        before = (
+            len(await repos.raw_trace_vault.list_by_instance(inst.id))
+            if hasattr(repos.raw_trace_vault, "list_by_instance")
+            else None
+        )
+        written = await backfill_instance(repos, vault, inst.id)
+        assert written == 0, f"backfill re-processed an already-stamped step (wrote {written})"
+
+    asyncio.run(go())
