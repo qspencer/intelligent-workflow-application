@@ -38,6 +38,7 @@ blocking issues by reading code the spec described inaccurately.
 
 | Archive | SHA | Date | For | Cover note |
 |---|---|---|---|---|
+| `trace-f1-review-r2-b2f913a.tar.gz` | `b2f913a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 2** — the four G-Trace-Review-4 findings (GR4-1..4) remediated. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-ebceb6a.tar.gz` | `ebceb6a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 FOUNDATION code review** — the path-scoped, kind-dispatched projection re-primitive answering the third review's F1 + F5. F3/F4/F6 out of scope. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-governance-review-r3-8657f88.tar.gz` | `8657f88` | 2026-08-08 | **CODE review, round 3** — the four remediation primitives (P1 validator registry · P2 surface routing · P3a projection stamp + §4.3 predicate · P4 grant/vault CAS) built in response to rounds 1–2. **Decides whether Contract A / B1 hold** | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-1.4a-design-review-r7-4b871b7.tar.gz` | `4b871b7` | 2026-08-08 | **§1.4a DESIGN review, round 7** — after folding round 6's two HIGH (executable effect model spanning deterministic functions · supersession no longer terminal) + four stale-text cleanups | `docs/TRACE_1_4A_REVIEW_ROUND7.md` |
@@ -47,6 +48,22 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (F1/F5 review ROUND 2)
+
+```
+archive  4d1b466313aac3930b3e3f7bb3fabb7fcaf022eff02d3339ec5edb363d97229e
+         trace-f1-review-r2-b2f913a.tar.gz
+
+  7967d2fe3653323a59fab1c10d07cd5c31fa07a7751be7aac474aed3e1d5e434  TRACE_F1_REVIEW_GUIDE.md  (§R = GR4-1..4 remediation)
+  07de7180073f3f0d40b3efd6e27bac1caebb6af3e6c0eaa431ceb72611682e04  backend/.../trace_projection.py
+```
+
+Round 2 of F1/F5: the four findings the first foundation review returned
+(safe_tool_call structural leaves, escalation context kind, fork/backfill
+stamping, raw audit writes + verifier) are all remediated with surface-exercising
+tests. Full suite 1029 passed under both environments. NOT self-certified — a
+re-review must confirm. F6 and the third review's F3/F4 remain out of scope.
 
 ## Integrity hashes (F1/F5 foundation package)
 
