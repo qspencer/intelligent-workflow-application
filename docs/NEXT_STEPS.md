@@ -791,7 +791,7 @@ Same for the dry-run error field. No new raw crosses the boundary; the operator
 just learns *where* to look. Applies to any surface where P2 replaced an
 exception with a marker.
 
-### G-Trace-Review-4 — F1/F5 foundation review (2026-08-09) — **FAILED**
+### G-Trace-Review-4 — F1/F5 foundation review (2026-08-09) — **FAILED, then REMEDIATED (awaiting re-review)**
 
 Fourth consecutive code failure. The F1/F5 re-primitive (branch `p1-reprimitive`)
 was reviewed on its own, before F3/F4/F6 — precisely to avoid building on a bad
