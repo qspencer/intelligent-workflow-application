@@ -824,6 +824,23 @@ marker off. CI keeps its signal rather than going blanket-red (cf. G26.3).
 x)` is tautological — `output_has_raw` is defined as that expression. It looked
 like coverage of the B1 decision and proved nothing.)*
 
+**IN PROGRESS — P1 re-primitive lives on the branch `p1-reprimitive`, NOT main.**
+Read **`docs/P1_REPRIMITIVE_STATE.md` on that branch** before resuming; it is the
+plan, and it holds the diagnosis that would otherwise have to be re-derived.
+Summary: recursion is now schema-driven (an undeclared container is redacted
+whole, never explored), and all 20 boundary properties pass there with the xfail
+markers removed — F1a–F1d, F2, F5 closed by measurement. **The remaining flaw is
+named exactly:** projection must be keyed by *(asset kind, path)* and only the
+path half is built, so one `ROOT` schema serves step outputs, instance dumps and
+audit details alike; a step output consequently loses `model`/`cost_usd` and the
+§4.3 equality check disagrees. That single cause explains all ~10 failing tests.
+**The projector IS idempotent — ruled out by direct test; do not re-investigate
+it.** The state doc maps all 14 call sites to the four schemas they need. Also
+still open there: one mypy re-export error, plus F3/F4/F6 untouched.
+
+*(Kept on main deliberately: the branch is easy to lose, and the expensive part of
+this work was diagnosis, which does not survive in code the way the edit does.)*
+
 **OPEN — and a decision is owed before more building.** Fixing F1–F6 as six edits
 would very likely produce a fourth failure in the same classes; that prediction
 is three rounds strong. What the evidence supports instead:
