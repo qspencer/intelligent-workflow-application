@@ -38,6 +38,7 @@ blocking issues by reading code the spec described inaccurately.
 
 | Archive | SHA | Date | For | Cover note |
 |---|---|---|---|---|
+| `trace-f1-review-r3-b7cc1d2.tar.gz` | `b7cc1d2` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 3** — the six round-2 findings (R2-1..6) fixed at the CLASS level. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R3 | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-r2-b2f913a.tar.gz` | `b2f913a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 2** — the four G-Trace-Review-4 findings (GR4-1..4) remediated. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-ebceb6a.tar.gz` | `ebceb6a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 FOUNDATION code review** — the path-scoped, kind-dispatched projection re-primitive answering the third review's F1 + F5. F3/F4/F6 out of scope. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-governance-review-r3-8657f88.tar.gz` | `8657f88` | 2026-08-08 | **CODE review, round 3** — the four remediation primitives (P1 validator registry · P2 surface routing · P3a projection stamp + §4.3 predicate · P4 grant/vault CAS) built in response to rounds 1–2. **Decides whether Contract A / B1 hold** | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
@@ -48,6 +49,24 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (F1/F5 review ROUND 3)
+
+```
+archive  bef0a98586105c3d55b7b4a65a3da3f94ee7fd257b02c1d78290d1276bfebd3b
+         trace-f1-review-r3-b7cc1d2.tar.gz
+
+  3d215849c4d09dcbd515e8f1a4a6f625a1d1b5b8413b5f0d881fe62f823e1f33  TRACE_F1_REVIEW_GUIDE.md  (§R3 = R2-1..6)
+  60fb319ede52318b72531b7209762deeaccf6322981392f2ec0d8f9c5fdf70a7  backend/.../trace_projection.py
+  8d121e5574cb7e8a85bf38b7dc48d4e0b69e09d1364d4ae3e464a92fb448b114   backend/.../trace_migration.py
+```
+
+Round 3 of F1/F5: the six round-2 findings fixed at the class (keys-are-content
+key validation, routing-id token validator, one total+exact marker predicate,
+audit `query`, backfill vaulted-but-unstamped repair) with generative class
+tests. Full suite 1040 passed under both environments. The flip is ON in the
+deployment (B1 encryption working) — earlier "flip is off" claims withdrawn.
+NOT self-certified (0-for-5 on that).
 
 ## Integrity hashes (F1/F5 review ROUND 2)
 
