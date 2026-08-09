@@ -21,6 +21,28 @@ registers the trigger and seeds the rubric on boot. The cursor starts at
 "now" — only mail arriving after startup is triaged. Cost: Haiku 4.5,
 ≤6k tokens/message (~$0.001–0.002 each).
 
+### Batch validation loop (the rubric-iteration workflow)
+
+To run the rubric loop over a batch of real mail — fetch, classify, judge,
+iterate — from `backend/`:
+
+```sh
+# 1. pull recent inbox to data/email_triage/<account>/*.json
+uv run python tools/fetch_gmail_inbox.py --account qspencer@gmail.com --count 30
+
+# 2. classify — POINT AT THIS read-only workflow (tools:[]).
+#    ⚠️ The batch DEFAULTS to the acting `email-triage` workflow, which hands
+#    the model email_send/email_label_apply. Offline those tools can't execute,
+#    so the model emits tool_use with no text, the agent loop burns its 6k
+#    budget, and output_text comes back EMPTY (every message <unparsed>).
+#    Found 2026-08-09; the read-only workflow below avoids it entirely.
+uv run python tools/run_email_triage_batch.py --account qspencer@gmail.com \
+  --workflow "$(pwd)/../examples/email_triage_live/workflow.yaml"
+
+# 3. judge + inspect misclassifications, tighten agent_memory.md, repeat.
+uv run python tools/judge_email_triage.py --workflow email-triage-live
+```
+
 ## What this run is measuring
 
 1. **Rubric quality** — same loop as PR/paper triage: query the results,
