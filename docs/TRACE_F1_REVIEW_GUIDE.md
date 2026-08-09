@@ -6,13 +6,89 @@ four findings your F1/F5 foundation review (G-Trace-Review-4) returned, now
 remediated. We are asking one question: **is the projector now correct enough
 that work can be built on top of it?**
 
-> **⚠️ Read §R first if you reviewed the previous package.** This is the SECOND
-> pass at F1/F5. Your last review (4 findings, 2×P0) was correct on all four and
-> is the reason this exists — §R is the remediation, with reproductions to
-> re-run. The four are labelled **GR4-1..4** to avoid colliding with the
-> THIRD review's F-numbers; the third review's F3/F4/F6 (mutable stamp,
-> vault-commitment HMAC, partial-release audit) remain a SEPARATE, still-open
-> set — see §7.
+> **⚠️ Read §R3 first if you reviewed the previous (round-2) package.** This is
+> the THIRD pass at F1/F5. Your round-2 review returned 6 findings (2×P0), all
+> reproduced and all fixed — §R3 has the remediation with reproductions to
+> re-run. §R (round-1) is kept below for history. Naming: round-2 findings are
+> **R2-1..6** here; the ORIGINAL third code review's F3/F4/F6 (mutable stamp,
+> vault-commitment HMAC, partial-release audit) are a SEPARATE, still-open set
+> (§7) — different F-numbers, do not conflate.
+
+---
+
+## R3. Remediation of the round-2 review (this package)
+
+Your six findings all reproduced against source; none disputed. The through-line
+you named — *"the same class recurring one function over"* — is the thing these
+fixes target: each is fixed at the **class**, and there are now **generative**
+tests (`tests/test_trace_boundary_properties.py`) that assert the class, not the
+example. **Please re-run these against the shipped source.**
+
+**R2-1 (P0) — keys-are-content.** The `Obj` projection emitted every dict KEY
+verbatim, so a raw key leaked whole — and it was broader than the wildcard case
+you cited: a raw key at *any* path leaked. `_project` now validates KEYS (a
+declared child is a schema literal; any other key must be a field-name token or
+it is DROPPED); `safe_tool_call` list fields no longer decompose a string.
+
+```python
+from workflow_platform.trace_projection import redact_tool_data, safe_tool_call
+from workflow_platform.trace_vault import output_has_raw
+r = {"usage": {"victim@example.com": 1}}
+assert "victim@example.com" not in str(redact_tool_data(r, False, kind="step_output"))
+assert output_has_raw(r) is True
+assert redact_tool_data({"victim@example.com": "x"}, False, kind="step_output") == {}   # bare key too
+assert redact_tool_data({"usage": {"input_tokens": 12}}, False, kind="step_output") == {"usage": {"input_tokens": 12}}
+assert safe_tool_call({"name": "t", "input": {}, "result": {}, "pinned": "SECRET"})["pinned"] == []
+```
+
+**R2-2 (P0) — routing ids admitted email.** `safe_trigger_payload` validated
+externally-supplied routing ids (incl. a generic webhook `id`) with the
+operator-identity validator, which admits `@`. Now uses the token validator; the
+stale `_OPAQUE_ID_RE` comment is corrected (the regex includes `@` *by design*,
+for `actor_id`/`sub` only).
+
+```python
+from workflow_platform.trace_projection import safe_trigger_payload
+assert safe_trigger_payload({"id": "victim@example.com"})["id"] != "victim@example.com"
+assert safe_trigger_payload({"message_id": "18f3a2b9c4d"})["message_id"] == "18f3a2b9c4d"
+```
+
+**R2-3 (P1) — audit denylist missed `query`.** Added — the correspondent-derived
+recall query is redacted at rest.
+
+**R2-4 + R2-6 — marker totality/exactness.** One shared `is_generated_marker()`,
+total over non-strings (a hostile `{"_redacted": []}` no longer raises) and exact
+(a forged `"[redacted …]"` is not a marker). `_marker`, `has_redaction_marker`
+and the migration's `_error_has_raw` all route through it — R2-4 was that same
+marker-as-input bug still live in `_error_has_raw` (prefix match).
+
+```python
+from workflow_platform.trace_projection import redact_tool_data, is_generated_marker
+redact_tool_data({"_redacted": []}, False, kind="step_output")          # no crash
+from workflow_platform.trace_migration import _error_has_raw
+assert _error_has_raw("[redacted victim@example.com]") is True          # forged → still raw
+```
+
+**R2-5 (P1) — backfill left vaulted-but-unstamped rows.** The F3 bug ran live in
+prod, leaving rows VAULTED-but-UNSTAMPED (raw in the vault, no stamp → rehydrate
+skips the vault). Backfill now checks vault existence per step and REPAIRS them
+(project+stamp, no re-vault). **Proven on a fresh keyed rehearsal against a
+byte-verified copy of the live store: backfill COMPLETES with no `VaultConflict`,
+findings 8,131 → 1,963.** The 1,963 are bounded and non-fresh-raw (1,921
+append-only `audit_log`; 42 stamped old-version projections — a
+projector-upgrade sweep, §6). Regression tests in
+`tests/test_trace_fork_backfill_stamp.py`.
+
+**Generative class tests to try to break** (`test_trace_boundary_properties.py`):
+`test_projector_is_total_over_hostile_input`,
+`test_dict_keys_are_never_a_leak_channel`,
+`test_marker_predicate_is_total_and_exact`,
+`test_tool_call_list_fields_never_decompose_a_string`.
+
+Full suite **1040 passed, 14 skipped** under both `DATABASE_URL` unset and set to
+an unmigrated DB. **NOT self-certified — five prior "green under our tests" states
+were reviewed and failed. The score on that is 0-for-5; please assume this is the
+sixth.**
 
 ---
 
@@ -131,9 +207,14 @@ lets raw survive, Contract A leaks on reads **and** — because the same functio
 decides "does this need the vault?" — Contract B1 writes plaintext at rest that
 the zero-raw verifier then certifies clean. F1 is therefore the linchpin of both.
 
-**The flip is currently OFF in every deployment** (`TRACE_SAFE_ONLY` unset), so
-the at-rest path is not live; the read surfaces are. Contract A / B1 are **NOT
-claimed** as established — that claim waits on this review.
+**Correction (earlier packages said the flip is OFF — it is NOT).** The
+deployment runs with `WORKFLOW_PLATFORM_TRACE_SAFE_ONLY=1` — **the flip is ON, and
+B1 encryption is working** (the live vault is 100% AEAD-sealed, master key from a
+secret manager). So the at-rest path IS live, which means the leaks these findings
+describe were real *at rest*, not only on read surfaces. Contract A / B1 are still
+**NOT claimed** as established — that claim waits on this review. (The earlier
+"flip is off" statements were asserted without checking the running config; they
+are withdrawn.)
 
 ---
 
@@ -301,7 +382,7 @@ The locked env pins `veracium==0.6.0`; if your registry can't fetch it, the full
   `persistence.models`, none of which import veracium — run it directly against
   the source.
 
-**Verified state at the branch tip:** full suite **1029 passed, 14 skipped** under
+**Verified state at the branch tip:** full suite **1040 passed, 14 skipped** under
 **both** `DATABASE_URL` unset **and** `DATABASE_URL` set to an unmigrated DB (the
 CI shape). Ruff, ruff-format, mypy strict all clean. We do not ask you to trust
 that number — we note it so a discrepancy on your machine is itself a finding.
@@ -330,6 +411,13 @@ that number — we note it so a discrepancy on your machine is itself a finding.
    content. Worth a skeptical look — it is the most permissive leaf validator.
 
 ---
+
+4. **Projector-version upgrade sweep (found in the R2-5 rehearsal).** 42 live
+   step rows are stamped + vaulted + marker-carrying, i.e. projected by an OLDER
+   projector version that the current (stricter) one would tighten. Backfill
+   deliberately does not touch stamped rows (their raw is vaulted); re-projecting
+   them to the current version, keeping the §4.3 agreement, is a distinct
+   migration. Not a fresh-raw leak, but named so it isn't mistaken for one.
 
 ## 7. Explicitly OUT of scope (do not spend the review here)
 
