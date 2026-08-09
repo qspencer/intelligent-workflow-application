@@ -150,6 +150,17 @@ step "Pre-flight checks"
 command -v uv >/dev/null 2>&1 || die "'uv' not found on PATH."
 ok "uv: $(uv --version 2>/dev/null | head -1)"
 
+# The service runs from the repo WORKING TREE (uvicorn --reload watches src/),
+# so the deployed code IS whatever branch is checked out here — and it MUST run
+# from this dir (the .secrets/.memory/.config it needs are gitignored, not in a
+# worktree). Log the deployed git state so "what's actually running" is visible
+# in the journal instead of guessed (see docs/DEPLOY.md; a stray branch switch
+# silently changes the deployed code on the next reload).
+_git_branch="$(git -C "$REPO_ROOT" rev-parse --abbrev-ref HEAD 2>/dev/null || echo '?')"
+_git_sha="$(git -C "$REPO_ROOT" rev-parse --short HEAD 2>/dev/null || echo '?')"
+_git_dirty="$(git -C "$REPO_ROOT" status --porcelain 2>/dev/null | head -1)"
+ok "deployed code: branch '$_git_branch' @ $_git_sha${_git_dirty:+ (working tree DIRTY)}"
+
 # Port free? The most common collision: the workflow-be systemd service is
 # already serving this port — this script and the service are two ways of
 # running the same backend. (Inside the service this check is harmless:
