@@ -791,6 +791,45 @@ Same for the dry-run error field. No new raw crosses the boundary; the operator
 just learns *where* to look. Applies to any surface where P2 replaced an
 exception with a marker.
 
+### G-Trace-Review-4 — F1/F5 foundation review (2026-08-09) — **FAILED**
+
+Fourth consecutive code failure. The F1/F5 re-primitive (branch `p1-reprimitive`)
+was reviewed on its own, before F3/F4/F6 — precisely to avoid building on a bad
+foundation. It is a bad foundation. **All four findings reproduced against the
+shipped source; none disputed.**
+
+| | severity | finding | verified |
+|---|---|---|---|
+| **1** | P0 | `safe_tool_call` copies its OWN structural fields (`name`, `pinned`, `pin_overrides`) UNVALIDATED, and the `input_key_count` idempotence shortcut returns any such mapping unchanged. A `noop` step output `{"tool_calls":[{"input_key_count":0,"name":"<raw>"}]}` survives projection AND `output_has_raw` returns False → no vault, leak at read and at rest. | ✅ `name` survived; `output_has_raw` False |
+| **2** | P0 | `/api/escalations` projects escalation `context` with `kind="context"`, but `RequestHumanReviewTool` accepts MODEL-AUTHORED free-form context. So a model-authored `{"workflow_id": "SSN…", "capabilities": {"layers":[{"allowed_hosts":["victim@…"]}]}}` validates as platform-computed and survives. Disproves the token-path/`_CONFIG` provenance bound at this call site — the context is model-authored here. | ✅ both fields survived |
+| **3** | P1 | Fork projects preserved output (`executor` ~380) but never `_stamp_projection`s the new instance or the preserved `StepExecution`; backfill (`trace_migration`) has the same omission. `projector_version` stays None while the vault row is "2"; `rehydrate` treats None as never-projected → skips the vault → returns only the marker. Projection + stamp must be ONE indivisible write. | ✅ fork versions None, vault 2 |
+| **4** | P1 | Safe-only does not project ALL raw audit writes: the retry path stores `str(exc)` into `audit_log.detail` unprojected (`executor` ~968); memory-recall errors + escalation context are likewise direct. Only `tool_call` gets write-time projection. AND `trace_migration` verifies every audit entry as `audit_detail` ignoring `entry.action` → false findings for correctly-projected tool-call rows. | ✅ retry sentinel retained |
+
+**The single pattern (worth more than the four items):** the projector is correct
+in isolation, but (a) it is not routed through every raw WRITE path — retry audit,
+escalation context, fork stamp, backfill stamp all bypass it or misuse it — and
+(b) the THREE dispatchers disagree: reads are action-aware (`project_audit_detail`),
+writes special-case only `tool_call`, the verifier ignores action entirely.
+Finding 1 adds: even the projector's own structural nodes (`safe_tool_call`) have
+UNVALIDATED leaves, so the "declared `tool_calls` path" is not actually safe. My
+boundary properties never generated hostile values *inside* a declared structural
+node, and never exercised the write/fork/backfill/retry paths at all — they tested
+the projector, not the surface.
+
+**What the fixes are (NOT yet built):**
+- **F1-name:** remove the `safe_tool_call` shortcut; reconstruct + validate every
+  field (`name`, `pinned`, `pin_overrides` included). Idempotence from validation,
+  not from a trusted shape.
+- **F2-escalation:** escalation `context` (and `reason`) are always-raw — redacted
+  whole below grant, vaulted at rest — never `kind="context"`.
+- **F3-stamp:** make projection+stamp one operation; call it on fork + backfill.
+- **F4-writes+verify:** one shared action-aware `project_audit_detail` used by
+  read, write (retry/escalation/recall audit under the flip), AND the verifier.
+
+**This is the fourth failure. The strategic call (defer B1 behind the first real
+external tenant) is now the recommendation, not an option** — see the decision in
+the session. Contract A/B1 NOT claimed; flip stays OFF; `main` untouched.
+
 ### G-Trace-Review-3 — third external CODE review (2026-08-08) — **FAILED**
 
 **Contracts A and B1 are NOT established.** The four primitives built to answer
