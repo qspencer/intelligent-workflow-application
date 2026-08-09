@@ -377,7 +377,9 @@ class WorkflowEngine:
                 state=StepExecutionState.COMPLETED,
                 started_at=started,
                 completed_at=started,
-                output=redact_tool_data(output, admin=False) if self.trace_safe_only else output,
+                output=redact_tool_data(output, admin=False, kind="step_output")
+                if self.trace_safe_only
+                else output,
             )
             await self.repositories.steps.create(row)
             await self._vault.record_step_output(
@@ -1120,7 +1122,11 @@ class WorkflowEngine:
             durable=self.trace_safe_only,
         )
         execution.state = StepExecutionState.COMPLETED
-        execution.output = redact_tool_data(output, admin=False) if self.trace_safe_only else output
+        execution.output = (
+            redact_tool_data(output, admin=False, kind="step_output")
+            if self.trace_safe_only
+            else output
+        )
         self._stamp_projection(execution)
         completed_at = _utcnow()
         execution.completed_at = completed_at
@@ -1599,7 +1605,11 @@ class WorkflowEngine:
         # Safe-only flip (TG3b): the persisted context (which nests each
         # step's output + the trigger) stores only the projection; the raw is
         # in the vault and rehydrated on resume/fork.
-        instance.context = redact_tool_data(dumped, admin=False) if self.trace_safe_only else dumped
+        instance.context = (
+            redact_tool_data(dumped, admin=False, kind="context")
+            if self.trace_safe_only
+            else dumped
+        )
         if state in (WorkflowInstanceState.COMPLETED, WorkflowInstanceState.FAILED):
             instance.completed_at = _utcnow()
         instance.error = error

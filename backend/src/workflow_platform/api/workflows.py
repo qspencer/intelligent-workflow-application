@@ -1158,8 +1158,8 @@ def build_router(
         body: dict[str, Any] = {
             # released keeps whatever merged (raw + any residual markers where
             # retrieval failed); raw_included is honest — full release only.
-            "instance": redact_tool_data(instance_dump, released),
-            "steps": [redact_tool_data(sd, released) for sd in step_dumps],
+            "instance": redact_tool_data(instance_dump, released, kind="instance"),
+            "steps": [redact_tool_data(sd, released, kind="step_row") for sd in step_dumps],
             "raw_included": released and reason is None,
         }
         if reason is not None:
@@ -1434,7 +1434,9 @@ def build_router(
         if raw_ok:
             return entries
         return [
-            e.model_copy(update={"detail": redact_tool_data(e.detail, admin=False)})
+            e.model_copy(
+                update={"detail": redact_tool_data(e.detail, admin=False, kind="audit_detail")}
+            )
             for e in entries
         ]
 
@@ -1611,7 +1613,7 @@ def build_router(
                 "step_id": e.step_id,
                 "actor_id": e.actor_id,
                 "reason": e.detail.get("reason") if released else _REDACTED_GRANT_ONLY,
-                "context": redact_tool_data(e.detail.get("context"), released),
+                "context": redact_tool_data(e.detail.get("context"), released, kind="context"),
                 "created_at": e.timestamp.isoformat(),
                 "resolved": e.id in resolved_ids,
                 "raw_included": released,
@@ -1977,7 +1979,7 @@ def build_router(
             "config": _excerpt(getattr(step_def, "config", None)),
             # P2: a deterministic step's output is NOT automatically safe — it
             # carries whatever the function returned. Project it below grant.
-            "output": _excerpt(redact_tool_data(output, released)),
+            "output": _excerpt(redact_tool_data(output, released, kind="step_output")),
         }
 
     return router

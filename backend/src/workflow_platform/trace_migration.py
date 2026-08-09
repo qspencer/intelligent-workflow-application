@@ -59,10 +59,10 @@ class ZeroRawReport:
         return [f for f in self.findings if f.table == "audit_log"]
 
 
-def _has_raw(record: Any) -> bool:
+def _has_raw(record: Any, kind: str) -> bool:
     """A record still carries raw iff projecting it changes it (the default-deny
     projection is a fixed point on already-safe data)."""
-    return bool(redact_tool_data(record, admin=False) != record)
+    return bool(redact_tool_data(record, admin=False, kind=kind) != record)
 
 
 def _trigger_has_raw(trigger_payload: dict[str, Any]) -> bool:
@@ -84,17 +84,17 @@ async def verify_zero_raw(repositories: Repositories, *, limit: int = _SCAN_LIMI
     for inst in instances:
         if inst.trigger_payload and _trigger_has_raw(inst.trigger_payload):
             findings.append(RawFinding("workflow_instances", inst.id, "trigger_payload"))
-        if inst.context and _has_raw(inst.context):
+        if inst.context and _has_raw(inst.context, "context"):
             findings.append(RawFinding("workflow_instances", inst.id, "context"))
         if _error_has_raw(inst.error):
             findings.append(RawFinding("workflow_instances", inst.id, "error"))
         for step in await repositories.steps.list_by_instance(inst.id):
-            if step.output and _has_raw(step.output):
+            if step.output and _has_raw(step.output, "step_output"):
                 findings.append(RawFinding("step_executions", step.id, "output"))
             if _error_has_raw(step.error):
                 findings.append(RawFinding("step_executions", step.id, "error"))
         for entry in await repositories.audit.list_by_instance(inst.id):
-            if entry.detail and _has_raw(entry.detail):
+            if entry.detail and _has_raw(entry.detail, "audit_detail"):
                 findings.append(RawFinding("audit_log", entry.id, "detail"))
     return ZeroRawReport(findings=findings, scanned=len(instances), capped=len(instances) >= limit)
 
@@ -127,7 +127,7 @@ async def backfill_instance(
         written += 1
         inst.trigger_payload = safe_trigger_payload(inst.trigger_payload)
     if inst.context:
-        inst.context = redact_tool_data(inst.context, admin=False)
+        inst.context = redact_tool_data(inst.context, admin=False, kind="context")
     if _error_has_raw(inst.error):
         await vault.record_error(
             org_id=inst.org_id,
@@ -143,7 +143,7 @@ async def backfill_instance(
     # Each step's raw output + error.
     for step in await repositories.steps.list_by_instance(inst.id):
         changed = False
-        if step.output and _has_raw(step.output):
+        if step.output and _has_raw(step.output, "step_output"):
             await vault.record_step_output(
                 org_id=inst.org_id,
                 instance_id=inst.id,
@@ -151,7 +151,7 @@ async def backfill_instance(
                 output=step.output,
                 durable=True,
             )
-            step.output = redact_tool_data(step.output, admin=False)
+            step.output = redact_tool_data(step.output, admin=False, kind="step_output")
             written += 1
             changed = True
         if _error_has_raw(step.error):

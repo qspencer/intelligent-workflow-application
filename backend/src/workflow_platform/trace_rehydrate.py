@@ -73,7 +73,11 @@ def verify_projection_agreement(
     """
     if recorded_projector_version != PROJECTOR_VERSION:
         return "unsupported"
-    return "ok" if redact_tool_data(raw, admin=False) == stored_safe else "mismatch"
+    return (
+        "ok"
+        if redact_tool_data(raw, admin=False, kind="step_output") == stored_safe
+        else "mismatch"
+    )
 
 
 class RawTraceRehydrator:

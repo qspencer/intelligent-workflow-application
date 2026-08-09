@@ -35,7 +35,7 @@ def output_has_raw(output: dict[str, Any]) -> bool:
     redact — i.e. whether it needs a vault object at all (external code review
     2026-08-02 F1). Uses the SAME default-deny projector as the read surface,
     so nothing the operational store would strip is left unvaulted."""
-    return bool(redact_tool_data(output, admin=False) != output)
+    return bool(redact_tool_data(output, admin=False, kind="step_output") != output)
 
 
 def idempotency_key(

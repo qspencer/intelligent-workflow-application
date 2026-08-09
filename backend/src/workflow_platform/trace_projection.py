@@ -280,62 +280,72 @@ _AUDIT_DETAIL = Obj(
     }
 )
 
-# The root: what a read surface hands us — an instance dump, a step dump, or an
-# audit entry's detail. Anything undeclared collapses to the marker.
-ROOT = Obj(
+# --- SCHEMAS BY ASSET KIND -------------------------------------------------
+#
+# Projection is keyed by (asset kind, path). The path half alone was not
+# enough: one shared root served step outputs, instance dumps AND audit details,
+# so a step output was projected against a schema that never declared `model` or
+# `cost_usd` and lost them — after which the §4.3 equality check disagreed with
+# itself. The CALLER knows what it holds; it must say so.
+
+_CONTEXT = Obj(
+    children={
+        "trigger": TriggerPayload(),
+        "steps": Obj(wildcard=_STEP_OUTPUT),
+        "total_tokens": _COUNT,
+        "total_cost_usd": _AMOUNT,
+        "dry_run": _BOOL,
+        "_redacted": _MARKER,
+    }
+)
+
+_INSTANCE = Obj(
+    children={
+        "id": _ID,
+        "workflow_id": _ID,
+        "org_id": _ID,
+        "owner_user_id": _ID,
+        "state": _TOKEN,
+        "error": _MARKER,
+        "created_at": _TS_,
+        "started_at": _TS_,
+        "completed_at": _TS_,
+        "trigger_payload": TriggerPayload(),
+        "context": _CONTEXT,
+        "total_tokens": _COUNT,
+        "total_cost_usd": _AMOUNT,
+        "projector_version": _TOKEN,
+        "projection_schema_version": _COUNT,
+        "_redacted": _MARKER,
+    }
+)
+
+_STEP_ROW = Obj(
     children={
         "id": _ID,
         "instance_id": _ID,
         "step_id": _ID,
-        "step_attempt_id": _ID,
-        "workflow_id": _ID,
-        "workflow_instance_id": _ID,
-        "org_id": _ID,
-        "owner_user_id": _ID,
-        "state": _TOKEN,
         "attempt": _COUNT,
-        "created_at": _TS_,
+        "state": _TOKEN,
+        "error": _MARKER,
+        "output": _STEP_OUTPUT,
         "started_at": _TS_,
         "completed_at": _TS_,
-        "updated_at": _TS_,
-        "last_seen_at": _TS_,
-        "timestamp": _TS_,
-        "expires_at": _TS_,
-        "revoked_at": _TS_,
-        "approved_at": _TS_,
-        "requested_at": _TS_,
-        "actor_type": Leaf(_enum("human", "engine", "system", "connector")),
-        "actor_id": _ID,
-        "action": _TOKEN,
-        "iss": _TOKEN,
-        "sub": _ID,
-        "total_tokens": _COUNT,
-        "total_cost_usd": _AMOUNT,
-        "duration_seconds": _AMOUNT,
-        "dry_run": _BOOL,
-        "truncated": _BOOL,
         "projector_version": _TOKEN,
         "projection_schema_version": _COUNT,
-        "raw_schema_version": _COUNT,
-        "schema_version": _TOKEN,
-        "usage": _USAGE,
-        "output": _STEP_OUTPUT,
-        "detail": _AUDIT_DETAIL,
-        "trigger_payload": TriggerPayload(),
-        "tool_calls": ToolCalls(),
-        "context": Obj(
-            children={
-                "trigger": TriggerPayload(),
-                "steps": Obj(wildcard=_STEP_OUTPUT),
-                "total_tokens": _COUNT,
-                "total_cost_usd": _AMOUNT,
-                "dry_run": _BOOL,
-            }
-        ),
-        "steps": Obj(wildcard=_STEP_OUTPUT),
         "_redacted": _MARKER,
     }
 )
+
+#: The asset kinds a caller may declare. There is deliberately no default that
+#: silently guesses — see `redact_tool_data`.
+SCHEMAS: dict[str, Node] = {
+    "instance": _INSTANCE,
+    "step_row": _STEP_ROW,
+    "step_output": _STEP_OUTPUT,
+    "context": _CONTEXT,
+    "audit_detail": _AUDIT_DETAIL,
+}
 
 
 def _project(node: Node | None, value: Any) -> Any:
@@ -442,7 +452,7 @@ def redact_error(error: str | None, admin: bool) -> str | None:
     return _REDACTED_FIELD
 
 
-def redact_tool_data(obj: Any, admin: bool) -> Any:
+def redact_tool_data(obj: Any, admin: bool, *, kind: str = "audit_detail") -> Any:
     """The below-grant projection (admin=True → unchanged). DEFAULT-DENY
     (external code review 2026-08-02 F1, tightened by the 08-03 re-review): a
     value survives ONLY because its field is registered in `_SAFE_FIELDS` AND
@@ -459,4 +469,9 @@ def redact_tool_data(obj: Any, admin: bool) -> Any:
     the verifier and backfill rely on it)."""
     if admin or not isinstance(obj, dict):
         return obj
-    return _project(ROOT, obj)
+    schema = SCHEMAS.get(kind)
+    if schema is None:
+        raise ValueError(
+            f"unknown projection asset kind {kind!r}; declare one of {sorted(SCHEMAS)}"
+        )
+    return _project(schema, obj)

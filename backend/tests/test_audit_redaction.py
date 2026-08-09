@@ -175,7 +175,9 @@ def test_redact_projects_trigger_payload_and_recall() -> None:
             }
         },
     }
-    redacted = redact_tool_data(obj, admin=False)
+    # this fixture is context-shaped ({"trigger":…, "steps":…}), so it must
+    # declare that kind — the projector no longer guesses (asset-kind dispatch)
+    redacted = redact_tool_data(obj, admin=False, kind="context")
     import json as _json
 
     blob = _json.dumps(redacted)

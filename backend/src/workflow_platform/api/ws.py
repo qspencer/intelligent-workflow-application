@@ -72,7 +72,7 @@ def _redact_ws_event(event: dict[str, Any]) -> dict[str, Any]:
     detail = event.get("detail")
     if not isinstance(detail, dict):
         return event
-    return {**event, "detail": redact_tool_data(detail, admin=False)}
+    return {**event, "detail": redact_tool_data(detail, admin=False, kind="audit_detail")}
 
 
 class _OrgUnresolved(Exception):
