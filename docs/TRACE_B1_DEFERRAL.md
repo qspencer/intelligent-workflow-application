@@ -37,13 +37,13 @@ already built and must NOT be rebuilt, and the architecture a correct B1 needs.
   party can read the operational DB or audit log, the token-shape leaks and the
   audit denylist gaps become real exposure. That is the resume trigger.
 
-**Operational question left open for the operator (not decided here):** whether
-to keep the flip ON or turn it OFF while B1 is deferred. Flip-ON encrypts more raw
-than flip-OFF (which keeps *all* raw inline), so ON is defensible — but it must
-not be read as "B1 holds." Do **not** enable any second-party access to the
-operational store or audit log while deferred. (Note: turning the flip off is not
-a security upgrade — it removes encryption of the vaulted majority; see
-[[project_trace_flip_on_secure_system]] on not disabling controls to simplify.)
+**Flip stays ON — operator decision, 2026-08-09.** Flip-ON encrypts the vaulted
+majority of raw; flip-OFF would keep *all* raw inline, so ON is the safer at-rest
+posture even with B1 deferred. This must **not** be read as "B1 holds": the
+token-shape leaks and audit-denylist gaps above still land raw at rest. The
+binding constraint while deferred is access, not the flip: **do not enable any
+second-party access to the operational store or audit log.** (Turning the flip
+off is not a security upgrade — see [[project_trace_flip_on_secure_system]].)
 
 ---
 
