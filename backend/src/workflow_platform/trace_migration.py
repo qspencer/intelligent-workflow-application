@@ -20,6 +20,8 @@ from typing import Any
 
 from workflow_platform.persistence import Repositories
 from workflow_platform.trace_projection import (
+    PROJECTION_SCHEMA_VERSION,
+    PROJECTOR_VERSION,
     REDACTED_ERROR,
     redact_tool_data,
     safe_trigger_payload,
@@ -128,6 +130,11 @@ async def backfill_instance(
         inst.trigger_payload = safe_trigger_payload(inst.trigger_payload)
     if inst.context:
         inst.context = redact_tool_data(inst.context, admin=False, kind="context")
+        # F3: projected rows MUST be stamped, or rehydrate treats them as
+        # never-projected and the zero-raw verifier certifies a store whose rows
+        # rehydrate to markers.
+        inst.projector_version = PROJECTOR_VERSION
+        inst.projection_schema_version = PROJECTION_SCHEMA_VERSION
     if _error_has_raw(inst.error):
         await vault.record_error(
             org_id=inst.org_id,
@@ -152,6 +159,8 @@ async def backfill_instance(
                 durable=True,
             )
             step.output = redact_tool_data(step.output, admin=False, kind="step_output")
+            step.projector_version = PROJECTOR_VERSION  # F3: project + stamp together
+            step.projection_schema_version = PROJECTION_SCHEMA_VERSION
             written += 1
             changed = True
         if _error_has_raw(step.error):

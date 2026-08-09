@@ -346,6 +346,9 @@ class WorkflowEngine:
             trigger_payload=stored_trigger,
             started_at=started,
         )
+        # F3: the forked instance carries a projected trigger — stamp it, so a
+        # grant-holder's trigger re-merge keys off the stamp, not a marker.
+        self._stamp_projection(new_instance)
         new_instance = await self.repositories.instances.create(new_instance)
         # The fork binds its OWN raw copy so deleting the source can't break it.
         await self._vault.record_trigger(
@@ -377,10 +380,9 @@ class WorkflowEngine:
                 state=StepExecutionState.COMPLETED,
                 started_at=started,
                 completed_at=started,
-                output=redact_tool_data(output, admin=False, kind="step_output")
-                if self.trace_safe_only
-                else output,
             )
+            # F3: project + stamp as one operation, else rehydrate skips the vault
+            self._project_step_output_onto(row, output)
             await self.repositories.steps.create(row)
             await self._vault.record_step_output(
                 org_id=new_instance.org_id,
@@ -980,6 +982,19 @@ class WorkflowEngine:
         if self.trace_safe_only:
             row.projector_version = PROJECTOR_VERSION
             row.projection_schema_version = PROJECTION_SCHEMA_VERSION
+
+    def _project_step_output_onto(self, row: Any, output: dict[str, Any]) -> None:
+        """Project `output` onto `row.output` AND stamp the row — ONE operation
+        (G-Trace-Review-4 F3). Every projected step row must go through this so a
+        projected-but-unstamped row (which rehydrate treats as never-projected,
+        skipping the vault and returning the marker) is unreachable by
+        construction. No-op projection when the flip is off."""
+        row.output = (
+            redact_tool_data(output, admin=False, kind="step_output")
+            if self.trace_safe_only
+            else output
+        )
+        self._stamp_projection(row)
 
     async def _store_instance_error(
         self, *, context: WorkflowContext, instance_id: str, error_msg: str

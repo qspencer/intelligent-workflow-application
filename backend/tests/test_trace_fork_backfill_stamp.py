@@ -1,0 +1,107 @@
+"""G-Trace-Review-4 F3 (P1): projection and STAMPING must be one indivisible
+write across normal execution, fork, and migration/backfill. A row projected but
+left unstamped (`projector_version is None`) makes `rehydrate` treat it as
+"never projected" — so it skips the vault and returns only the redaction marker,
+even to a grant-holder, even though the raw is sitting in the vault.
+"""
+
+from __future__ import annotations
+
+import asyncio
+from typing import Any
+
+from workflow_platform.engine import FunctionRegistry, ToolCatalog, WorkflowEngine
+from workflow_platform.persistence import (
+    StepExecution,
+    StepExecutionState,
+    WorkflowInstance,
+    WorkflowInstanceState,
+    in_memory_repositories,
+)
+from workflow_platform.trace_projection import PROJECTOR_VERSION
+from workflow_platform.trace_vault import RawTraceVault
+from workflow_platform.workflow import load_definition
+from workflow_platform.world import mock_world
+
+SECRET = "FORK-STAMP-SENTINEL"
+
+
+async def _noop(config: dict[str, Any], ctx: Any, world: Any) -> dict[str, Any]:
+    return {"summary": SECRET}
+
+
+def _engine() -> WorkflowEngine:
+    return WorkflowEngine(
+        repositories=in_memory_repositories(),
+        functions=FunctionRegistry(),
+        tools=ToolCatalog([]),
+        bedrock=None,  # deterministic-only workflow
+        world=mock_world(),
+        trace_safe_only=True,  # THE FLIP
+    )
+
+
+_DEF = {
+    "id": "wf",
+    "name": "wf",
+    "trigger": {"type": "manual"},
+    "steps": [
+        {"id": "a", "type": "deterministic", "function": "noop"},
+        {"id": "b", "type": "deterministic", "function": "noop"},
+    ],
+    "edges": [{"from": "a", "to": "b"}],
+}
+
+
+def test_fork_stamps_the_preserved_step_rows() -> None:
+    engine = _engine()
+    engine.functions.register("noop", _noop)
+    definition = load_definition(_DEF)
+
+    async def go() -> None:
+        src = await engine.run(definition, trigger_payload={"body": SECRET})
+        forked = await engine.fork(definition, src.id, from_step_id="b")
+        steps = await engine.repositories.steps.list_by_instance(forked.id)
+        preserved = [s for s in steps if s.step_id == "a"]
+        assert preserved, "fork did not preserve step a"
+        for s in preserved:
+            assert s.projector_version == PROJECTOR_VERSION, (
+                f"forked preserved step left UNSTAMPED (projector_version="
+                f"{s.projector_version!r}); rehydrate will skip the vault and "
+                "return the marker"
+            )
+
+    asyncio.run(go())
+
+
+def test_backfill_stamps_the_rows_it_projects() -> None:
+    """The migration/backfill projects inline raw in place; it must stamp too, or
+    the zero-raw verifier certifies a store whose rows rehydrate to markers."""
+    from workflow_platform.trace_migration import backfill_instance
+
+    repos = in_memory_repositories()
+
+    async def go() -> None:
+        inst = await repos.instances.create(
+            WorkflowInstance(
+                workflow_id="wf", org_id="default", state=WorkflowInstanceState.COMPLETED
+            )
+        )
+        await repos.steps.create(
+            StepExecution(
+                instance_id=inst.id,
+                step_id="a",
+                attempt=1,
+                state=StepExecutionState.COMPLETED,
+                output={"output_text": SECRET},  # inline raw, pre-flip
+            )
+        )
+        await backfill_instance(repos, RawTraceVault(repos), inst.id)
+        steps = await repos.steps.list_by_instance(inst.id)
+        for s in steps:
+            assert s.projector_version == PROJECTOR_VERSION, (
+                f"backfill projected step {s.step_id} but left it UNSTAMPED "
+                f"(projector_version={s.projector_version!r})"
+            )
+
+    asyncio.run(go())
