@@ -121,7 +121,7 @@ async def test_flip_projects_tool_call_audit_at_rest() -> None:
     for e in tcs:
         assert SECRET_IN not in str(e.detail)  # raw input projected out at rest
         assert e.detail.get("_redacted")  # safe_tool_call metadata marker
-        assert e.detail.get("input_keys") == ["body"]  # keys survive, values don't
+        assert e.detail.get("input_key_count") == 1  # arity survives, names+values don't (F1d)
 
 
 async def test_default_off_keeps_inline_raw() -> None:

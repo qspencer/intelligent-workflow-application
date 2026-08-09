@@ -22,7 +22,7 @@ from typing import Any
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
 from workflow_platform.api.raw_trace_audit import SURFACE_WS, decide_raw_release
-from workflow_platform.api.redaction import redact_tool_data
+from workflow_platform.api.redaction import project_audit_detail
 from workflow_platform.auth import OidcValidator, UserIdentity, assign_roles, auth_mode
 from workflow_platform.auth.local import SESSION_COOKIE, LocalAuthService
 from workflow_platform.auth.middleware import origin_allowed
@@ -72,7 +72,7 @@ def _redact_ws_event(event: dict[str, Any]) -> dict[str, Any]:
     detail = event.get("detail")
     if not isinstance(detail, dict):
         return event
-    return {**event, "detail": redact_tool_data(detail, admin=False, kind="audit_detail")}
+    return {**event, "detail": project_audit_detail(event.get("action"), detail)}
 
 
 class _OrgUnresolved(Exception):

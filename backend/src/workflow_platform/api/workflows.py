@@ -36,7 +36,12 @@ from workflow_platform.api.raw_trace_audit import (
     commit_raw_release,
     decide_raw_release,
 )
-from workflow_platform.api.redaction import has_redaction_marker, redact_error, redact_tool_data
+from workflow_platform.api.redaction import (
+    has_redaction_marker,
+    project_audit_detail,
+    redact_error,
+    redact_tool_data,
+)
 from workflow_platform.auth import auth_mode, current_user, require_roles
 from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.auth.provisioning import current_issuer
@@ -1434,9 +1439,7 @@ def build_router(
         if raw_ok:
             return entries
         return [
-            e.model_copy(
-                update={"detail": redact_tool_data(e.detail, admin=False, kind="audit_detail")}
-            )
+            e.model_copy(update={"detail": project_audit_detail(e.action, e.detail)})
             for e in entries
         ]
 

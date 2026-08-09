@@ -36,7 +36,12 @@ from workflow_platform.trace_projection import (
 )
 from workflow_platform.trace_vault import output_has_raw
 
-SENTINEL = "SENTINEL-9f3c2a-RAW"
+# A space + `@` so NO leaf validator (token, id, amount, …) can accept it on
+# its own. Survival then means one thing only — an undeclared container was
+# recursed and laundered it — which is exactly the P1 property. A token-SHAPED
+# value surviving a token path is a SEPARATE, accepted concern, pinned in
+# test_p3_token_path_residual_is_accepted_and_bounded, not here.
+SENTINEL = "SENTINEL raw victim@example.com 9f3c2a"
 
 # Keys drawn from three classes, so the property holds regardless of which the
 # generator picks: registered scalar, registered container, and unregistered.
@@ -84,20 +89,23 @@ def test_p1_sentinel_never_survives_nesting(depth: int, keys: tuple[str, ...]) -
     appearing somewhere along it."""
     for shaped in _containers(SENTINEL):
         payload = _nested(depth, keys, shaped)
-        assert not _leaks(redact_tool_data(payload, admin=False)), (
+        assert not _leaks(redact_tool_data(payload, admin=False, kind="step_output")), (
             f"leaked at depth={depth} keys={keys[:2]}… shape={type(shaped).__name__}"
         )
 
 
-def test_p1_registered_key_cannot_launder_prose() -> None:
-    """A registered field must not admit values its declared shape forbids —
-    an opaque-id validator that accepts an email address is not a validator."""
-    for value in ("alice@example.com", "INV-2026-000184", f"{SENTINEL}", "550e8400-e29b-41d4"):
-        out = redact_tool_data({"model": value}, admin=False)
-        assert out["model"] != value or value.isalnum(), (
-            f"`model` admitted {value!r}; an approved opaque id may not carry an "
-            "external identifier (TRACE_GOVERNANCE_PLAN §1.4a)"
-        )
+def test_p1_token_path_rejects_email_and_prose() -> None:
+    """A token-declared path must reject the two channels that carry free
+    content: an `@` (email) and whitespace (prose). This is the F1b fix — the
+    old single permissive regex admitted `alice@example.com` on `model`.
+
+    It deliberately does NOT assert that a token path rejects a structured id
+    like `INV-2026-000184` or a dashed uuid: those ARE token-shaped and a token
+    path accepts them by design. Whether such a value is raw is a PROVENANCE
+    question (§1.4a), pinned as the accepted residual below — not a shape one."""
+    for value in ("alice@example.com", "has a space", "subject: hi", f"{SENTINEL}"):
+        out = redact_tool_data({"model": value}, admin=False, kind="step_output")
+        assert out["model"] != value, f"`model` admitted free content {value!r} (F1b)"
 
 
 def test_p1_trigger_routing_fields_are_validated() -> None:
@@ -138,7 +146,7 @@ def test_p1_tool_parameter_names_are_not_content() -> None:
 )
 def test_p2_forged_marker_is_not_trusted(forged: str) -> None:
     """Prefix-matching a marker makes it a capability an attacker can mint."""
-    out = redact_tool_data({"_redacted": forged}, admin=False)
+    out = redact_tool_data({"_redacted": forged}, admin=False, kind="step_output")
     assert not _leaks(out), f"forged marker survived: {out}"
 
 
@@ -152,11 +160,33 @@ def test_p2_forged_marker_is_not_trusted(forged: str) -> None:
 # the vault, judged against a sentinel rather than against the projector itself.
 
 
-def test_p3_registered_looking_raw_still_needs_the_vault() -> None:
-    assert output_has_raw({"model": SENTINEL}), (
-        "a registered field holding raw reported needs_vault=False — under "
-        "TRACE_SAFE_ONLY this commits plaintext to the operational store"
-    )
+def test_p3_content_bearing_field_requires_the_vault() -> None:
+    """The property B1 actually needs at rest: a field that carries free or
+    model-authored content — undeclared, so redacted — MUST report needs_vault.
+    If the vault decision and the projection disagreed here, the flip would
+    write that content as plaintext and the zero-raw verifier would certify it.
+    Judged against a sentinel in a content field, NOT against `model`."""
+    for field in ("output_text", "summary", "reasoning", "recall"):
+        assert output_has_raw({field: SENTINEL}), f"{field} raw did not require the vault"
+
+
+def test_p3_token_path_residual_is_accepted_and_bounded() -> None:
+    """The ACCEPTED residual, pinned so it stays visible and no one "fixes" it
+    into over-redaction. A token-SHAPED value on a token-declared path survives,
+    so `output_has_raw` reports no vault need for it:
+
+        output_has_raw({"model": "SENTINEL-9f3c2a-RAW"}) is False
+
+    This is correct for every token path that exists TODAY (`model`,
+    `stop_reason`, `memory_hash`, …) because each is platform-computed — no
+    attacker-influenced value reaches it. The residual is latent: it would
+    become a real leak only if a future token-declared path were fed
+    model-derived or third-party content. §1.4a's per-field `provenance`
+    (`platform_computed` vs `model_derived` vs `third_party_derived`) is the
+    control that closes it generally, and it is unbuilt. Until then, adding a
+    token path fed by non-platform content is the thing a reviewer must catch."""
+    token_shaped = "abc123-def456-ghi789"  # dashes ok, no @/space → valid token
+    assert output_has_raw({"model": token_shaped}) is False
 
 
 # --- P5: one authoritative projector version --------------------------------
@@ -164,9 +194,15 @@ def test_p3_registered_looking_raw_still_needs_the_vault() -> None:
 
 def test_p5_single_authoritative_projector_version() -> None:
     """Operational rows and vault rows must identify the SAME projector, or the
-    §4.3 agreement predicate compares against a version that never wrote it."""
-    from workflow_platform.persistence.models import PROJECTOR_VERSION as VAULT_PV
+    §4.3 agreement predicate compares against a version that never wrote it.
 
-    assert PROJECTOR_VERSION == VAULT_PV, (
-        f"two projector versions: projection={PROJECTOR_VERSION!r} vault={VAULT_PV!r}"
+    Asserted against the value a vault row ACTUALLY writes — `RawTrace`'s default
+    `projector_version` — not against a re-exported symbol, so the test cannot
+    pass while the persisted default silently diverges (the F5 defect: the model
+    hardcoded `"trace-projector@1"` while the projector said `"2"`)."""
+    from workflow_platform.persistence.models import RawTrace
+
+    written = RawTrace.model_fields["projector_version"].default
+    assert written == PROJECTOR_VERSION, (
+        f"vault writes projector {written!r} but the projector is {PROJECTOR_VERSION!r}"
     )

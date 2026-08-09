@@ -166,12 +166,13 @@ def test_redact_projects_trigger_payload_and_recall() -> None:
 
     obj = {
         "trigger": {"message_id": "m1", "subject": "SECRET-SUBJ", "body": "SECRET-BODY"},
+        # context.steps maps step id -> the output dict DIRECTLY
+        # (`self.steps[step_id] = output`); the earlier fixture invented an extra
+        # "output" level that never existed at runtime.
         "steps": {
             "classify": {
-                "output": {
-                    "category": "urgent",
-                    "recall": "prior thread: SECRET-CORRESPONDENT-HISTORY",
-                }
+                "category": "urgent",
+                "recall": "prior thread: SECRET-CORRESPONDENT-HISTORY",
             }
         },
     }
@@ -187,7 +188,7 @@ def test_redact_projects_trigger_payload_and_recall() -> None:
     # `category` is a PER-WORKFLOW vocabulary, so the platform-global registry
     # cannot validate it — it is redacted by default (re-review 2026-08-03 /
     # §1.4). The per-workflow safe-schema declaration will opt it back in.
-    assert redacted["steps"]["classify"]["output"]["category"].startswith("[redacted")
+    assert redacted["steps"]["classify"]["category"].startswith("[redacted")
 
     # admin=True is unchanged (forensics preserved).
-    assert redact_tool_data(obj, admin=True) == obj
+    assert redact_tool_data(obj, admin=True, kind="context") == obj

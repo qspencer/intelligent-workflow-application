@@ -211,6 +211,26 @@ _SCORE = Leaf(_score)
 _MARKER = Leaf(_marker)
 _USAGE = Obj(wildcard=_COUNT)
 
+# Capability entries are workflow-DECLARED config (glob paths, host patterns,
+# tool names from the definition YAML) — provably platform/user-authored, never
+# third-party content — so a no-whitespace bound is the right validator: it
+# admits `*.example.com` and `/inbox/*` that a token path would reject, while
+# still refusing prose. Scoped to capability paths only.
+_CONFIG = Leaf(
+    lambda v: isinstance(v, str) and bool(v) and len(v) <= 200 and not any(c.isspace() for c in v)
+)
+_CAP_POLICY = Obj(
+    children={
+        "name": _TOKEN,
+        "tools": Seq(_CONFIG),
+        "file_read": Seq(_CONFIG),
+        "file_write": Seq(_CONFIG),
+        "allowed_hosts": Seq(_CONFIG),
+        "max_tokens_per_call": _COUNT,
+    }
+)
+_CAPABILITIES = Obj(children={"layers": Seq(_CAP_POLICY)})
+
 # A step's projected output. `output_text`, `summary`, `recall`, `error` and any
 # undeclared field are absent by construction — they are raw by taint (§1.1).
 _STEP_OUTPUT = Obj(
@@ -276,6 +296,13 @@ _AUDIT_DETAIL = Obj(
         "trigger": TriggerPayload(),
         "trigger_payload": TriggerPayload(),
         "tool_calls": ToolCalls(),
+        # A `step_completed` entry carries the step output verbatim
+        # (`detail={"output": execution.output, ...}`), and some entries carry a
+        # context snapshot. Both are declared with THEIR OWN schema rather than
+        # inherited — that nesting is exactly what the path-scoped model exists
+        # to express, and the flat name registry could never have named it.
+        "output": _STEP_OUTPUT,
+        "steps": Obj(wildcard=_STEP_OUTPUT),
         "_redacted": _MARKER,
     }
 )
@@ -290,8 +317,14 @@ _AUDIT_DETAIL = Obj(
 
 _CONTEXT = Obj(
     children={
+        # engine-computed identifiers of the run — safe, and needed so they
+        # survive at-rest projection instead of becoming unrecoverable markers
+        "instance_id": _ID,
+        "workflow_id": _ID,
+        "org_id": _ID,
         "trigger": TriggerPayload(),
         "steps": Obj(wildcard=_STEP_OUTPUT),
+        "capabilities": _CAPABILITIES,
         "total_tokens": _COUNT,
         "total_cost_usd": _AMOUNT,
         "dry_run": _BOOL,
@@ -351,6 +384,11 @@ SCHEMAS: dict[str, Node] = {
 def _project(node: Node | None, value: Any) -> Any:
     """Project `value` at a declared position. `node is None` = UNDECLARED at
     this path ⇒ the whole value is redacted, never recursed."""
+    if value is None:
+        # `null` carries no content, at any path, declared or not. Treating it
+        # as raw produced spurious markers (a `null` capability list became
+        # `[redacted …]`), which then failed the grant-holder completeness check.
+        return None
     if node is None:
         return _REDACTED_FIELD
     if isinstance(node, Leaf):
@@ -392,11 +430,12 @@ def safe_trigger_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def safe_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
-    """One tool-call record → non-sensitive metadata: parameter KEYS (not
-    values), result status, and a content hash+size — never raw
-    input/result/error text. IDEMPOTENT: an already-projected record (in SAFE
-    SHAPE — `input_keys` present, no raw `input`/`result`) is returned
-    unchanged, so `redact_tool_data` is a fixed point on safe data. A `_redacted`
+    """One tool-call record → non-sensitive metadata: parameter ARITY (a
+    count, not the names — F1d), result status, and a content hash+size — never
+    raw input/result/error text or parameter names. IDEMPOTENT: an
+    already-projected record (in SAFE SHAPE — `input_key_count` present, no raw
+    `input`/`result`) is returned unchanged, so `redact_tool_data` is a fixed
+    point on safe data. A `_redacted`
     marker is NEVER trusted as an input capability (re-review 2026-08-03 F1): a
     record still carrying raw `input`/`result` is projected regardless of any
     marker a caller forged onto it."""
@@ -452,7 +491,7 @@ def redact_error(error: str | None, admin: bool) -> str | None:
     return _REDACTED_FIELD
 
 
-def redact_tool_data(obj: Any, admin: bool, *, kind: str = "audit_detail") -> Any:
+def redact_tool_data(obj: Any, admin: bool, *, kind: str) -> Any:
     """The below-grant projection (admin=True → unchanged). DEFAULT-DENY
     (external code review 2026-08-02 F1, tightened by the 08-03 re-review): a
     value survives ONLY because its field is registered in `_SAFE_FIELDS` AND

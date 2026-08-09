@@ -445,7 +445,10 @@ def test_raw_tool_payloads_hidden_without_grant(monkeypatch: pytest.MonkeyPatch)
     blob = str(tc["detail"])
     assert "PRIVATE" not in blob and "SECRET" not in blob and "victim@example.com" not in blob
     assert tc["detail"]["_redacted"]
-    assert tc["detail"]["input_keys"] == ["body", "subject", "to"]  # keys ok, values not
+    # F1d (third code review): parameter NAMES are model-chosen while reading
+    # hostile content, so only the ARITY survives — stricter than the old
+    # `input_keys` which exported the names. Values were never returned.
+    assert tc["detail"]["input_key_count"] == 3
 
     # Org Admin WITHOUT a grant is ALSO below-grant (the TG1 operational break).
     admin_nogrant = client.get("/api/workflow-instances/i-acme2/audit", headers=_ACME_ADMIN).json()

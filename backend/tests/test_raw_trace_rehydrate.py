@@ -80,7 +80,7 @@ async def test_projected_output_rehydrates_to_raw() -> None:
     engine, instance, act = await _run()
     raw_output = act.output
     # what the flip would persist to the operational store:
-    safe = redact_tool_data(raw_output, admin=False)
+    safe = redact_tool_data(raw_output, admin=False, kind="step_output")
     assert SECRET_IN not in str(safe) and SECRET_OUT not in str(safe)  # projected
 
     rehydrated = await RawTraceRehydrator(engine.repositories).rehydrate_output(
@@ -105,7 +105,7 @@ async def test_projected_output_rehydrates_to_raw() -> None:
 
 async def test_missing_vault_row_fails_closed() -> None:
     engine, instance, act = await _run()
-    safe = redact_tool_data(act.output, admin=False)
+    safe = redact_tool_data(act.output, admin=False, kind="step_output")
     with pytest.raises(RawTraceUnavailable):
         await RawTraceRehydrator(engine.repositories).rehydrate_output(
             purpose="resume",
@@ -125,7 +125,7 @@ async def test_missing_vault_row_fails_closed() -> None:
 
 async def test_unrecordable_access_fails_closed_before_fetch() -> None:
     engine, instance, act = await _run()
-    safe = redact_tool_data(act.output, admin=False)
+    safe = redact_tool_data(act.output, admin=False, kind="step_output")
 
     fetched: list[str] = []
 
