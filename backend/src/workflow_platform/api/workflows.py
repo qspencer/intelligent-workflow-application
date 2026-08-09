@@ -1615,8 +1615,13 @@ def build_router(
                 "instance_id": e.workflow_instance_id,
                 "step_id": e.step_id,
                 "actor_id": e.actor_id,
+                # Escalation `reason` AND `context` are MODEL-AUTHORED free-form
+                # (RequestHumanReviewTool), so both are raw by taint — gated
+                # whole on the grant, never projected against the platform
+                # `context` schema (G-Trace-Review-4 F2: a model can spell
+                # declared context keys and pass the engine-computed validators).
                 "reason": e.detail.get("reason") if released else _REDACTED_GRANT_ONLY,
-                "context": redact_tool_data(e.detail.get("context"), released, kind="context"),
+                "context": e.detail.get("context") if released else _REDACTED_GRANT_ONLY,
                 "created_at": e.timestamp.isoformat(),
                 "resolved": e.id in resolved_ids,
                 "raw_included": released,

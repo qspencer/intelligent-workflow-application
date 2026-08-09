@@ -128,6 +128,41 @@ def test_explain_releases_to_a_grant_holder(monkeypatch: pytest.MonkeyPatch) -> 
 # --- escalations: agent-authored reason/context are raw ---
 
 
+def test_escalation_context_is_model_authored_and_always_raw(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """G-Trace-Review-4 F2 (P0): escalation `context` is MODEL-AUTHORED free-form
+    (RequestHumanReviewTool). Projecting it against the platform `context` schema
+    is wrong — a model can put declared-but-safe-LOOKING keys there and they pass
+    the engine-computed validators. A viewer must see none of it; the schema's
+    provenance assumption (platform/workflow-computed) does not hold on this path."""
+    client, repos = _client(monkeypatch)
+
+    hostile = {
+        "workflow_id": "SSN123456789",
+        "capabilities": {"layers": [{"allowed_hosts": ["victim@example.com"]}]},
+    }
+
+    async def go() -> None:
+        await _seed_users_and_grant(repos)
+        iid = await _seed_instance(repos, output={})
+        await repos.audit.append(
+            AuditEntry(
+                actor_type="engine",
+                actor_id="agent:act",
+                action="escalation_requested",
+                workflow_instance_id=iid,
+                detail={"reason": "r", "context": hostile},
+            )
+        )
+
+    asyncio.run(go())
+    below = client.get("/api/escalations", headers=_VIEWER).json()
+    blob = str(below)
+    assert "SSN123456789" not in blob, "model-authored escalation context leaked workflow_id"
+    assert "victim@example.com" not in blob, "model-authored escalation context leaked a host"
+
+
 def test_escalation_reason_and_context_are_grant_gated(monkeypatch: pytest.MonkeyPatch) -> None:
     client, repos = _client(monkeypatch)
 
