@@ -217,9 +217,20 @@ def create_app(
     start_triggers: bool | None = None,
     secret_store: SecretStore | None = None,
 ) -> FastAPI:
+    global _session_factory
     db_engine: Any | None = None
     if repositories is None:
         repositories, db_engine = _build_repositories()
+    else:
+        # Repositories were INJECTED (tests, embedders). We cannot know which
+        # database — if any — backs them, so the drift check must not fall back
+        # to a module-global factory left behind by an earlier `create_app`, nor
+        # to whatever `DATABASE_URL` happens to be exported. G26.1 originally
+        # did both, which made `/api/health` report `degraded` in the CI unit
+        # job: DATABASE_URL points at the Postgres service there, and unit tests
+        # run BEFORE the Alembic step, so the DB genuinely is unmigrated. The
+        # check was right; the wiring made it answer about the wrong database.
+        _session_factory = None
 
     metrics = metrics or PrometheusMetrics()
     webhook_registry = webhook_registry or WebhookRegistry()

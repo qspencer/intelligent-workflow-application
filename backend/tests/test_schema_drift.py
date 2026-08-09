@@ -106,6 +106,9 @@ def test_health_reports_schema_state(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("DATABASE_URL", raising=False)
     client = TestClient(create_app(repositories=in_memory_repositories(), start_triggers=False))
     body = client.get("/api/health").json()
+    # Injected repositories ⇒ no database we can speak for ⇒ `ok`, regardless of
+    # any ambient DATABASE_URL. Asserting this pins the wiring fix: health must
+    # answer about the DB the app actually uses, not one the environment names.
     assert body["status"] == "ok"
     assert body["schema"]["state"] == "ok"
     assert body["schema"]["expected"], "health must report what revision the code expects"
