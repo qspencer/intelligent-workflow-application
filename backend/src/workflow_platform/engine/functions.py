@@ -445,7 +445,24 @@ async def record_email_triage(
         return await _record_codified(config, context, world, attention_raw or "")
 
     if not raw:
-        raise StepFailure(f"record_email_triage could not resolve {source!r}")
+        # No `output_text` at all — the agent produced no final text (e.g. it
+        # exhausted its per-step token budget on a large real email before
+        # emitting the JSON). Fail SOFT, exactly like an unparseable output: this
+        # function's contract is "the workflow does not fail" so a single
+        # un-classifiable message is a queryable parse_ok=False, not a crash that
+        # takes the whole run down. (Live email validation, 2026-08-09: real
+        # promotional mail hit this and hard-failed 4/5 runs.) The precheck-route
+        # hard-fails above stay — those are genuine config/engine errors.
+        return {
+            "parse_ok": False,
+            "category_valid": False,
+            "attention_valid": False,
+            "apply_labels": [],
+            "apply_label_count": 0,
+            "triage_schema_version": TRIAGE_SCHEMA_VERSION,
+            "raw": raw,
+            "no_output": True,
+        }
     triage = _extract_email_triage(raw)
     if triage is None:
         return {
