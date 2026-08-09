@@ -605,7 +605,7 @@ def project_audit_detail_at_rest(action: str | None, detail: Any) -> Any:
     out = dict(detail)
     raw_keys: tuple[str, ...] = _RAW_AUDIT_FIELDS
     if action == "escalation_requested":
-        raw_keys = raw_keys + ("reason", "context")
+        raw_keys = (*raw_keys, "reason", "context")
     for k in raw_keys:
         v = out.get(k)
         # Skip None and an already-generated marker (idempotence). Only a string

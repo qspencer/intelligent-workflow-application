@@ -791,6 +791,37 @@ Same for the dry-run error field. No new raw crosses the boundary; the operator
 just learns *where* to look. Applies to any surface where P2 replaced an
 exception with a marker.
 
+### G-Trace-Review — F1/F5 review round 3 (2026-08-09) — **FAILED (SIXTH)** — the core is now ARCHITECTURAL, not patchable
+
+Sixth external code review of the projector; all six findings reproduced against
+source, none disputed. **Two are the SAME class and it is architectural, not a
+bug:** the projector validates by SHAPE (a token regex), and a token-shaped raw
+value is indistinguishable from a safe token by shape alone —
+`{"usage": {"SSN123456789": 1}}` (a dict KEY), a generic webhook `id`, and a
+model-chosen tool `name` all survive. The reviewer states it plainly: **§1.4a
+provenance — knowing a value's SOURCE (platform-computed vs model-derived vs
+third-party) — is required NOW, not "latent."** No amount of shape-validation
+patching closes this; it needs the provenance mechanism, which is unbuilt (§1.4a,
+seven design rounds, not build-authorized).
+
+Findings: **F1 (P0)** token-shaped dict keys leak (my key-property test only
+generated non-token sentinels, so it missed the class it claimed to cover);
+**F2 (P0)** token-shaped raw reachable NOW via webhook id + tool name; **F3 (P1)**
+`safe_tool_call` not total (`input=1` → TypeError, `result=[...]` → AttributeError);
+**F4 (P1)** audit denylist misses `corrected_value`/`old_category` — the denylist
+is structurally the wrong model (flagged three times, misses a field each time);
+**F5 (P1)** my own repair stamps an old-version vault row as current → §4.3
+projection DISAGREEMENT → rehydrate RawTraceUnavailable (my regression test used a
+current-version row, so missed it); **F6 (P2)** the tree was NOT ruff-clean —
+I masked ruff's exit code by piping to `tail` (the exact mistake in my own memory
+`feedback_run_ci_checks_before_push`). Only F6 fixed here (hygiene).
+
+**Conclusion: continued patching is 0-for-6 and F1/F2 are unpatchable without
+provenance.** The credible paths are (a) build §1.4a provenance + a positive
+(allowlist/vault) audit model — real architecture, not remediation — or (b) defer
+B1 behind the first real external tenant. "Patch the six" is NOT a third option;
+it will fail a seventh review the same way. Recommendation: **(b)**.
+
 ### G-Trace-Review-4 — F1/F5 foundation review (2026-08-09) — **FAILED, then REMEDIATED (awaiting re-review)**
 
 Fourth consecutive code failure. The F1/F5 re-primitive (branch `p1-reprimitive`)

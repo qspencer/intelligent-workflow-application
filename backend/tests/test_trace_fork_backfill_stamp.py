@@ -138,11 +138,6 @@ def test_backfill_skips_already_stamped_steps() -> None:
             )
         )
         vault = RawTraceVault(repos)
-        before = (
-            len(await repos.raw_trace_vault.list_by_instance(inst.id))
-            if hasattr(repos.raw_trace_vault, "list_by_instance")
-            else None
-        )
         written = await backfill_instance(repos, vault, inst.id)
         assert written == 0, f"backfill re-processed an already-stamped step (wrote {written})"
 
