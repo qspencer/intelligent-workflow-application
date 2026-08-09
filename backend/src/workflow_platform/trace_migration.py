@@ -23,6 +23,7 @@ from workflow_platform.trace_projection import (
     PROJECTION_SCHEMA_VERSION,
     PROJECTOR_VERSION,
     REDACTED_ERROR,
+    is_generated_marker,
     project_audit_detail_at_rest,
     redact_tool_data,
     safe_trigger_payload,
@@ -82,8 +83,12 @@ def _trigger_has_raw(trigger_payload: dict[str, Any]) -> bool:
 
 
 def _error_has_raw(error: str | None) -> bool:
-    """Error text is raw unless it is already the redaction marker (F2/F10)."""
-    return bool(error) and not error.startswith("[redacted")  # type: ignore[union-attr]
+    """Error text is raw unless it is EXACTLY a generated marker. Prefix-matching
+    `"[redacted"` made a forged `"[redacted victim@example.com]"` read as safe, so
+    verify_zero_raw certified it and backfill left it (GR4-r2 F4 — the same
+    marker-as-input bug F2 removed from the projector). Uses the single shared
+    predicate."""
+    return bool(error) and not is_generated_marker(error)
 
 
 async def verify_zero_raw(repositories: Repositories, *, limit: int = _SCAN_LIMIT) -> ZeroRawReport:

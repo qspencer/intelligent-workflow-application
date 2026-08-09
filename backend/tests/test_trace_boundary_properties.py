@@ -29,7 +29,10 @@ from typing import Any
 import pytest
 
 from workflow_platform.trace_projection import (
+    _REDACTED_FIELD,
     PROJECTOR_VERSION,
+    is_generated_marker,
+    project_audit_detail_at_rest,
     redact_tool_data,
     safe_tool_call,
     safe_trigger_payload,
@@ -236,3 +239,86 @@ def test_p5_single_authoritative_projector_version() -> None:
     assert written == PROJECTOR_VERSION, (
         f"vault writes projector {written!r} but the projector is {PROJECTOR_VERSION!r}"
     )
+
+
+# --- Class-level properties added after the GR4-r2 external review -----------
+# The review found the same classes recurring in unfixed spots (keys-are-content,
+# marker-as-input, non-total validators). These assert the CLASS generatively.
+
+
+_HOSTILE = [
+    SENTINEL,
+    [],
+    {},
+    0,
+    1,
+    True,
+    None,
+    ["x"],
+    {"k": "v"},
+    "a b c",
+    "x@y.z",
+    b"bytes",
+    3.14,
+    (1, 2),
+    {SENTINEL: 1},
+    [SENTINEL],
+]
+
+
+@pytest.mark.parametrize("kind", ["step_output", "context", "instance", "step_row", "audit_detail"])
+def test_projector_is_total_over_hostile_input(kind: str) -> None:
+    """The projector must NEVER raise, for ANY value at ANY declared field or as
+    a dict KEY (GR4-r2 F6). A hostile deterministic output must not 500 a read
+    or fail safe-only persistence."""
+    for hv in _HOSTILE:
+        for probe in (
+            {"_redacted": hv},
+            {"usage": hv},
+            {"model": hv},
+            {"output": hv},
+            hv,
+            {hv if isinstance(hv, str) else "k": hv},
+        ):
+            try:
+                redact_tool_data(probe, admin=False, kind=kind)
+            except Exception as e:
+                raise AssertionError(f"projector raised on {probe!r} (kind={kind}): {e!r}") from e
+
+
+def test_dict_keys_are_never_a_leak_channel() -> None:
+    """A RAW dict key (email/prose) must not survive at any path — declared,
+    wildcard, or undeclared (GR4-r2 F1). Only field-name tokens survive."""
+    for container in (
+        {"usage": {SENTINEL: 1}},
+        {SENTINEL: "x"},
+        {"context": {"steps": {SENTINEL: {"model": "m"}}}},
+        {"output": {SENTINEL: 1}},
+    ):
+        for kind in ("step_output", "context", "instance"):
+            assert not _leaks(redact_tool_data(container, admin=False, kind=kind)), (
+                f"raw key leaked: {container} (kind={kind})"
+            )
+
+
+def test_marker_predicate_is_total_and_exact() -> None:
+    """One marker predicate, total over non-strings and exact (never a prefix)."""
+    assert is_generated_marker([]) is False  # no raise
+    assert is_generated_marker(None) is False
+    assert is_generated_marker(f"[redacted {SENTINEL}]") is False  # forged, not exact
+
+    assert is_generated_marker(_REDACTED_FIELD) is True
+
+
+def test_tool_call_list_fields_never_decompose_a_string() -> None:
+    """`pinned`/`pin_overrides` given a STRING must not become per-character
+    tokens (GR4-r2 F1)."""
+    for field in ("pinned", "pin_overrides"):
+        out = safe_tool_call({"name": "t", "input": {}, "result": {}, field: SENTINEL})
+        assert not _leaks(out) and out[field] == [], f"{field} decomposed a string: {out}"
+
+
+def test_audit_denylist_covers_correspondent_query() -> None:
+    """A memory_recalled detail's raw `query` must not survive at rest."""
+    d = {"query": SENTINEL, "edges": 1, "context_hash": "abc"}
+    assert not _leaks(project_audit_detail_at_rest("memory_recalled", d))

@@ -57,12 +57,11 @@ PROJECTION_SCHEMA_VERSION = 1
 # An approved opaque identifier: bounded, no whitespace, no prose. This is what
 # makes id/hash/model/action fields safe — a token of this shape cannot carry a
 # mail body or a paragraph of PII.
-# An OPAQUE IDENTIFIER: uuid/hash/slug shaped. Deliberately excludes `@` and
-# `+` so it cannot admit an email address — the old single regex allowed
-# `alice@example.com` under `model` (F1b). Identity paths that legitimately
-# hold an email (`actor_id`, `sub`) declare `_opaque_id` too; that value is the
-# OPERATOR's own identity, not third-party content, and is declared per path
-# rather than by a blanket rule.
+# An OPAQUE IDENTIFIER for OPERATOR-IDENTITY paths only (`actor_id`, `sub`),
+# which legitimately hold an operator email — so this DOES include `@` (the
+# earlier comment claimed otherwise; the regex is authoritative, GR4-r2 F2). It
+# is NOT for third-party/externally-supplied values: routing ids and model/state
+# fields use `_short_token`, which excludes `@` so it cannot admit an email.
 _OPAQUE_ID_RE = re.compile(r"^[A-Za-z0-9._:@|/=-]{1,200}$")
 # A SHORT TOKEN: model ids, enum-ish states, hashes. No `@`, no spaces.
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9._:/=-]{1,120}$")
@@ -78,6 +77,22 @@ def _opaque_id(value: Any) -> bool:
 def _short_token(value: Any) -> bool:
     """No `@`, so a path declaring a token cannot receive an email."""
     return isinstance(value, str) and bool(_TOKEN_RE.match(value))
+
+
+def _safe_key(key: Any) -> bool:
+    """A dict KEY safe to emit: a field-NAME-shaped token (no `@`, no spaces).
+    A raw key — email, prose, any attacker-controlled string — fails, so it is
+    dropped rather than emitted as a leak channel (GR4-r2 F1)."""
+    return _short_token(key)
+
+
+def _token_list(value: Any) -> list[str]:
+    """A list of tokens — only the token elements survive. NOT total over a bare
+    string (GR4-r2 F1: `for x in "SECRET"` iterates CHARACTERS): a non-list is
+    an empty list, never decomposed."""
+    if not isinstance(value, list):
+        return []
+    return [x for x in value if _short_token(x)]
 
 
 def _opaque(value: Any) -> bool:  # back-compat alias for existing callers
@@ -129,12 +144,22 @@ def _usage(value: Any) -> bool:
     )
 
 
+def is_generated_marker(value: Any) -> bool:
+    """Exactly one of the markers THIS module emits. The SINGLE source for every
+    marker check (projector `_marker`, `has_redaction_marker`, the migration's
+    `_error_has_raw`) so no caller re-implements it wrongly.
+
+    - TOTAL: a non-string is never a marker (guards the set membership, so a
+      hostile `{"_redacted": []}` cannot raise `unhashable type` — GR4-r2 F6);
+    - EXACT: a forged `"[redacted <raw>]"` is NOT a marker (never a prefix —
+      the marker is an output representation, never an input capability, F2/F4)."""
+    return isinstance(value, str) and value in _GENERATED_MARKERS
+
+
 def _marker(value: Any) -> bool:
     """OUR redaction marker — never an input capability. A forged `_redacted`
-    carrying attacker text fails this and is itself redacted."""
-    # EXACT match only (F2). Prefix-matching `"[redacted"` made the marker an
-    # input capability: `{"_redacted": "[redacted SSN123456789]"}` survived.
-    return value in _GENERATED_MARKERS
+    carrying attacker text (or a non-string) fails this and is itself redacted."""
+    return is_generated_marker(value)
 
 
 # Platform-global registry: engine-computed, governance, and row-identity fields
@@ -408,8 +433,24 @@ def _project(node: Node | None, value: Any) -> Any:
             return _REDACTED_FIELD
         out: dict[str, Any] = {}
         for k, v in value.items():
-            child = node.children.get(k, node.wildcard)
-            out[k] = _project(child, v)
+            # A dict KEY is content too (GR4-r2 F1): the old code emitted every
+            # key verbatim, so a hostile key (`{"victim@example.com": 1}`, or a
+            # raw key under a wildcard like `usage`) leaked whole. Keys are now
+            # validated exactly like values:
+            #   - a DECLARED child key is a schema literal → safe, recurse;
+            #   - any other key must itself be a safe token (a field NAME, not
+            #     raw) to survive at all; an email/prose key is DROPPED entirely
+            #     (never emitted), so the key cannot be a leak channel;
+            #   - a surviving non-declared key with a wildcard gets the wildcard
+            #     projection; without one its value is redacted (field name kept).
+            if k in node.children:
+                out[k] = _project(node.children[k], v)
+            elif not _safe_key(k):
+                continue  # hostile key → drop the entry (key + value)
+            elif node.wildcard is not None:
+                out[k] = _project(node.wildcard, v)
+            else:
+                out[k] = _REDACTED_FIELD
         return out
     return _REDACTED_FIELD
 
@@ -423,9 +464,13 @@ def safe_trigger_payload(payload: dict[str, Any]) -> dict[str, Any]:
     safe: dict[str, Any] = {"_redacted": _REDACTED_TRIGGER}
     for key in _TRIGGER_ROUTING_KEYS:
         if key in payload:
-            # F1c: these were copied verbatim, making `id` a free-text channel.
+            # GR4-r2 F2: routing ids are EXTERNALLY supplied (a generic webhook
+            # `id` is whatever the caller sends), so they get the TOKEN validator
+            # (no `@`, no spaces) — NOT `_opaque_id`, which admits `@` for the
+            # operator's own identity paths and let `id: victim@example.com`
+            # through here.
             value = payload[key]
-            safe[key] = value if _opaque_id(value) else _REDACTED_FIELD
+            safe[key] = value if _short_token(value) else _REDACTED_FIELD
     return safe
 
 
@@ -479,8 +524,8 @@ def safe_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
         # `pinned`/`pin_overrides` are parameter KEY names (agent.py) — the same
         # channel as input_keys — so keep only token-shaped elements; prose,
         # emails and whitespace are dropped.
-        "pinned": [x for x in (tc.get("pinned") or []) if _short_token(x)],
-        "pin_overrides": [x for x in (tc.get("pin_overrides") or []) if _short_token(x)],
+        "pinned": _token_list(tc.get("pinned")),
+        "pin_overrides": _token_list(tc.get("pin_overrides")),
         "_redacted": _REDACTED_TOOL,
     }
     if content_bytes is not None:
@@ -525,7 +570,18 @@ def redact_error(error: str | None, admin: bool) -> str | None:
 # text, model content, or a correspondent key. `escalation_requested` adds its
 # model-authored `reason`/`context` by action. `trigger`/`output` are already
 # projected at their own write sites, so they are not repeated here.
-_RAW_AUDIT_FIELDS = ("error", "exception", "entity", "params", "observation_text")
+_RAW_AUDIT_FIELDS = (
+    "error",
+    "exception",
+    "entity",
+    "params",
+    "observation_text",
+    # `query` is the correspondent-derived recall query written by a SUCCESSFUL
+    # memory_recalled audit (executor `recalled.query`) — raw (GR4-r2 F3). Its
+    # absence here was the denylist gap the guide flagged, already live.
+    "query",
+    "recall",
+)
 
 
 def project_audit_detail_at_rest(action: str | None, detail: Any) -> Any:
