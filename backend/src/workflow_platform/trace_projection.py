@@ -431,36 +431,64 @@ def safe_trigger_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
 def safe_tool_call(tc: dict[str, Any]) -> dict[str, Any]:
     """One tool-call record → non-sensitive metadata: parameter ARITY (a
-    count, not the names — F1d), result status, and a content hash+size — never
-    raw input/result/error text or parameter names. IDEMPOTENT: an
-    already-projected record (in SAFE SHAPE — `input_key_count` present, no raw
-    `input`/`result`) is returned unchanged, so `redact_tool_data` is a fixed
-    point on safe data. A `_redacted`
-    marker is NEVER trusted as an input capability (re-review 2026-08-03 F1): a
-    record still carrying raw `input`/`result` is projected regardless of any
-    marker a caller forged onto it."""
-    if "input_key_count" in tc and "input" not in tc and "result" not in tc:
-        return tc
-    result = tc.get("result") or {}
-    content = result.get("content")
+    count, not the names — F1d), result status, and a content byte size — never
+    raw input/result/error text or parameter names.
+
+    EVERY field is reconstructed and VALIDATED, including the projection's OWN
+    structural fields (G-Trace-Review-4 F1): `name` must be a token (else
+    redacted), `pinned`/`pin_overrides` keep only token elements. There is NO
+    trusted shortcut — the previous `input_key_count`-present fast path returned
+    an attacker-shaped record unchanged, so `{"input_key_count":0,"name":<raw>}`
+    survived AND `output_has_raw` reported no vault need. Idempotence now comes
+    from validation being a fixed point: an already-projected record has no raw
+    `input`/`result`, so its derived signals are read back from its own
+    (validated) safe fields.
+
+    A `_redacted` marker is NEVER trusted as an input capability (re-review
+    2026-08-03 F1): raw `input`/`result` is projected regardless of any marker a
+    caller forged on."""
+    projected = "input" not in tc and "result" not in tc and "input_key_count" in tc
+    if projected:
+        # Already-projected: rebuild from its OWN safe fields (validated), so a
+        # forged extra key or a hostile `name` cannot ride through. Derived
+        # signals come from the record because the raw result is gone.
+        result_ok = bool(tc.get("result_ok"))
+        error_present = bool(tc.get("error_present"))
+        input_key_count = tc["input_key_count"] if _count(tc.get("input_key_count")) else 0
+        content_bytes = tc.get("content_bytes")
+        content_bytes = content_bytes if _count(content_bytes) else None
+    else:
+        result = tc.get("result") or {}
+        content = result.get("content")
+        result_ok = not result.get("error")
+        error_present = bool(result.get("error"))
+        # F1d: only the arity survives — never the model-chosen parameter names.
+        input_key_count = len(tc.get("input") or {})
+        content_bytes = (
+            len(json.dumps(content, sort_keys=True, default=str).encode())
+            if content is not None
+            else None
+        )
     safe: dict[str, Any] = {
-        "name": tc.get("name"),
-        # F1d: `input_keys` exported raw parameter NAMES, which a model chooses
-        # while reading hostile content — so a key like "customer SSN 123-45-6789"
-        # became persisted content. Only the arity survives.
-        "input_key_count": len(tc.get("input") or {}),
-        "result_ok": not result.get("error"),
-        "error_present": bool(result.get("error")),
-        "pinned": tc.get("pinned", []),
-        "pin_overrides": tc.get("pin_overrides", []),
+        # F1 (G-Trace-Review-4): validate the projection's OWN fields. A tool
+        # name is catalog-shaped (a token); anything else is raw and is redacted.
+        "name": tc.get("name") if _short_token(tc.get("name")) else _REDACTED_FIELD,
+        "input_key_count": input_key_count,
+        "result_ok": result_ok,
+        "error_present": error_present,
+        # `pinned`/`pin_overrides` are parameter KEY names (agent.py) — the same
+        # channel as input_keys — so keep only token-shaped elements; prose,
+        # emails and whitespace are dropped.
+        "pinned": [x for x in (tc.get("pinned") or []) if _short_token(x)],
+        "pin_overrides": [x for x in (tc.get("pin_overrides") or []) if _short_token(x)],
         "_redacted": _REDACTED_TOOL,
     }
-    if content is not None:
+    if content_bytes is not None:
         # Byte length only — the truncated hash was dropped (external review
         # 2026-08-01 nonblocking note: a hash is an equality/dictionary
         # oracle for low-entropy results; there's no operational use for it
         # in ordinary-reader responses).
-        safe["content_bytes"] = len(json.dumps(content, sort_keys=True, default=str).encode())
+        safe["content_bytes"] = content_bytes
     return safe
 
 

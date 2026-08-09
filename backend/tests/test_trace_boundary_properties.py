@@ -133,6 +133,31 @@ def test_p1_tool_parameter_names_are_not_content() -> None:
     assert not _leaks(out), f"input_keys leaked a parameter name: {out}"
 
 
+def test_p1_tool_call_structural_fields_are_validated() -> None:
+    """A hostile value INSIDE a declared structural node (`safe_tool_call`'s own
+    `name` / `pinned` / `pin_overrides`) must not survive — the boundary is not
+    just the top-level dict, it is every leaf the projector claims to handle.
+    G-Trace-Review-4 F1: a `noop` step returning
+    {"tool_calls":[{"input_key_count":0,"name":<raw>}]} leaked and, worse,
+    `output_has_raw` returned False, so nothing was vaulted."""
+    raw = {
+        "tool_calls": [
+            {"input_key_count": 0, "name": SENTINEL, "pinned": [SENTINEL], "pin_overrides": [SENTINEL]}
+        ]
+    }
+    out = redact_tool_data(raw, admin=False, kind="step_output")
+    assert not _leaks(out), f"hostile tool_call structural field leaked: {out}"
+    assert output_has_raw(raw), "a hostile tool_call name did not require the vault"
+
+
+def test_p1_tool_call_shortcut_cannot_be_forged() -> None:
+    """The `input_key_count` idempotence shortcut must not return an
+    attacker-shaped record unchanged (it did — that was the whole bypass)."""
+    forged = {"input_key_count": 0, "name": SENTINEL, "extra": SENTINEL}
+    out = safe_tool_call(forged)
+    assert not _leaks(out), f"forged already-projected record survived: {out}"
+
+
 # --- P2: the marker is an OUTPUT representation, never an input -------------
 
 
