@@ -13,12 +13,21 @@ when the orchestrator gets its active-reasoning brain.
 
 from __future__ import annotations
 
+import os
 from typing import Any, ClassVar
 
 from workflow_platform.events import EventBus
 from workflow_platform.persistence import AuditEntry, AuditRepo
 from workflow_platform.persistence.models import _new_id, _utcnow
 from workflow_platform.tools.base import Tool, ToolContext, ToolResult
+from workflow_platform.trace_projection import project_audit_detail_at_rest
+
+
+def _trace_safe_only() -> bool:
+    """The safe-only flip, read from the same process-wide env flag the engine
+    uses (`main._build`); the escalation tool writes audit outside the engine's
+    `_audit` chokepoint, so it consults the flag directly."""
+    return os.environ.get("WORKFLOW_PLATFORM_TRACE_SAFE_ONLY", "").lower() in ("1", "true", "yes")
 
 
 class RequestHumanReviewTool(Tool):
@@ -55,6 +64,15 @@ class RequestHumanReviewTool(Tool):
         if not isinstance(extra, dict):
             return ToolResult(error="context must be an object")
 
+        # F4 (G-Trace-Review-4): reason + context are MODEL-AUTHORED raw. Under
+        # the flip they must not land at rest — this tool writes audit directly
+        # (not through the engine `_audit` chokepoint), so it applies the same
+        # shared action-aware projection itself. The flip is a process-wide env
+        # flag, so the tool can read it. (Below-grant READS are gated separately
+        # in /api/escalations; this closes the AT-REST write path.)
+        detail: dict[str, Any] = {"reason": reason, "context": extra}
+        if _trace_safe_only():
+            detail = project_audit_detail_at_rest("escalation_requested", detail)
         entry = AuditEntry(
             id=_new_id(),
             timestamp=_utcnow(),
@@ -62,7 +80,7 @@ class RequestHumanReviewTool(Tool):
             actor_id=(context.agent_id if context and context.agent_id else "agent"),
             action="escalation_requested",
             workflow_instance_id=(context.workflow_instance_id if context else None),
-            detail={"reason": reason, "context": extra},
+            detail=detail,
         )
         await self.audit_repo.append(entry)
         if self.events is not None:

@@ -142,7 +142,12 @@ def test_p1_tool_call_structural_fields_are_validated() -> None:
     `output_has_raw` returned False, so nothing was vaulted."""
     raw = {
         "tool_calls": [
-            {"input_key_count": 0, "name": SENTINEL, "pinned": [SENTINEL], "pin_overrides": [SENTINEL]}
+            {
+                "input_key_count": 0,
+                "name": SENTINEL,
+                "pinned": [SENTINEL],
+                "pin_overrides": [SENTINEL],
+            }
         ]
     }
     out = redact_tool_data(raw, admin=False, kind="step_output")

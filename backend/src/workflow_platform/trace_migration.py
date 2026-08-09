@@ -23,6 +23,7 @@ from workflow_platform.trace_projection import (
     PROJECTION_SCHEMA_VERSION,
     PROJECTOR_VERSION,
     REDACTED_ERROR,
+    project_audit_detail_at_rest,
     redact_tool_data,
     safe_trigger_payload,
 )
@@ -67,6 +68,15 @@ def _has_raw(record: Any, kind: str) -> bool:
     return bool(redact_tool_data(record, admin=False, kind=kind) != record)
 
 
+def _audit_has_raw(detail: Any, action: str | None) -> bool:
+    """Audit details are ACTION-scoped, not a single asset kind — a `tool_call`
+    detail is a tool-call record, an `escalation_requested` detail is
+    model-authored, the rest are engine operational metadata. The verifier must
+    dispatch on action, or it both misses raw and false-flags correctly-projected
+    tool-call / operational rows (G-Trace-Review-4 F4)."""
+    return bool(project_audit_detail_at_rest(action, detail) != detail)
+
+
 def _trigger_has_raw(trigger_payload: dict[str, Any]) -> bool:
     return safe_trigger_payload(trigger_payload) != trigger_payload
 
@@ -96,7 +106,7 @@ async def verify_zero_raw(repositories: Repositories, *, limit: int = _SCAN_LIMI
             if _error_has_raw(step.error):
                 findings.append(RawFinding("step_executions", step.id, "error"))
         for entry in await repositories.audit.list_by_instance(inst.id):
-            if entry.detail and _has_raw(entry.detail, "audit_detail"):
+            if entry.detail and _audit_has_raw(entry.detail, entry.action):
                 findings.append(RawFinding("audit_log", entry.id, "detail"))
     return ZeroRawReport(findings=findings, scanned=len(instances), capped=len(instances) >= limit)
 

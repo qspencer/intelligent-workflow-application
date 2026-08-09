@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 from typing import Any
 
+from tests._bedrock_fakes import FakeBedrock
 from workflow_platform.engine import FunctionRegistry, ToolCatalog, WorkflowEngine
 from workflow_platform.persistence import (
     StepExecution,
@@ -35,7 +36,7 @@ def _engine() -> WorkflowEngine:
         repositories=in_memory_repositories(),
         functions=FunctionRegistry(),
         tools=ToolCatalog([]),
-        bedrock=None,  # deterministic-only workflow
+        bedrock=FakeBedrock([]),  # deterministic-only workflow
         world=mock_world(),
         trace_safe_only=True,  # THE FLIP
     )

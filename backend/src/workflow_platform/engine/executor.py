@@ -60,8 +60,8 @@ from workflow_platform.trace_projection import (
     PROJECTION_SCHEMA_VERSION,
     PROJECTOR_VERSION,
     REDACTED_ERROR,
+    project_audit_detail_at_rest,
     redact_tool_data,
-    safe_tool_call,
     safe_trigger_payload,
 )
 from workflow_platform.trace_rehydrate import RawTraceRehydrator
@@ -1327,12 +1327,11 @@ class WorkflowEngine:
                 "pinned": call.pinned,
                 "pin_overrides": call.pin_overrides,
             }
-            # Under the safe-only flip, the tool_call audit entry is projected
-            # at rest too (TG3b.3) — the raw input/result is recoverable from
-            # this step-attempt's vaulted output.tool_calls (grant-gated, via
-            # explain). Old entries are append-only and stay as they were.
-            if self.trace_safe_only:
-                call_detail = safe_tool_call(call_detail)
+            # Under the safe-only flip this tool_call detail is projected at rest
+            # (TG3b.3) — but that now happens in the ONE shared `_audit`
+            # chokepoint (F4), which routes `tool_call` through `safe_tool_call`.
+            # The raw input/result stays recoverable from this step-attempt's
+            # vaulted output.tool_calls (grant-gated, via explain).
             await self._audit(
                 "tool_call",
                 actor_type="agent",
@@ -1640,6 +1639,14 @@ class WorkflowEngine:
         step_id: str | None = None,
         detail: dict[str, Any] | None = None,
     ) -> None:
+        stored_detail = dict(detail or {})
+        # F4 (G-Trace-Review-4): under the flip EVERY raw audit write is projected
+        # at rest — retry `str(exc)`, connector/timeout exceptions, memory-recall
+        # errors, pin-override params, tool_call input/result. One shared
+        # action-aware projection, the same the verifier uses, so no raw lands in
+        # `audit_log.detail` and operational metadata is preserved.
+        if self.trace_safe_only:
+            stored_detail = project_audit_detail_at_rest(action, stored_detail)
         entry = AuditEntry(
             id=_new_id(),
             actor_type=actor_type,
@@ -1647,7 +1654,7 @@ class WorkflowEngine:
             action=action,
             workflow_instance_id=instance_id,
             step_id=step_id,
-            detail=dict(detail or {}),
+            detail=stored_detail,
         )
         await self.repositories.audit.append(entry)
         if self.events is not None:

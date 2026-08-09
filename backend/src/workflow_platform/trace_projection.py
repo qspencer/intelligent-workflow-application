@@ -519,6 +519,46 @@ def redact_error(error: str | None, admin: bool) -> str | None:
     return _REDACTED_FIELD
 
 
+# Audit-detail fields that carry RAW content wherever they appear. Engine audit
+# details are otherwise engine-AUTHORED operational metadata (ids, counts, flags,
+# connector/step names) that is safe at rest; only these few carry exception
+# text, model content, or a correspondent key. `escalation_requested` adds its
+# model-authored `reason`/`context` by action. `trigger`/`output` are already
+# projected at their own write sites, so they are not repeated here.
+_RAW_AUDIT_FIELDS = ("error", "exception", "entity", "params", "observation_text")
+
+
+def project_audit_detail_at_rest(action: str | None, detail: Any) -> Any:
+    """The AT-REST (and verifier) projection of one audit detail under the flip
+    (B1): remove raw, KEEP safe operational metadata. Action-aware, so it agrees
+    with the read dispatcher and the verifier (G-Trace-Review-4 F4):
+
+    - `tool_call`: the whole detail IS a tool-call record → `safe_tool_call`;
+    - `escalation_requested`: `reason` + `context` are model-authored → redacted;
+    - otherwise: redact only the known raw-bearing fields in place, so operational
+      ids/counts/flags survive (a default-deny schema would wrongly drop them and
+      the verifier would false-flag the row).
+
+    Idempotent: a field already holding a generated marker is left as-is. NEW raw
+    audit fields must be added to `_RAW_AUDIT_FIELDS` — that is the one thing a
+    reviewer of a new audit write should check."""
+    if not isinstance(detail, dict):
+        return detail
+    if action == "tool_call":
+        return safe_tool_call(detail)
+    out = dict(detail)
+    raw_keys: tuple[str, ...] = _RAW_AUDIT_FIELDS
+    if action == "escalation_requested":
+        raw_keys = raw_keys + ("reason", "context")
+    for k in raw_keys:
+        v = out.get(k)
+        # Skip None and an already-generated marker (idempotence). Only a string
+        # can be a marker — `context` is a dict, so guard the membership test.
+        if k in out and v is not None and not (isinstance(v, str) and v in _GENERATED_MARKERS):
+            out[k] = _REDACTED_FIELD
+    return out
+
+
 def redact_tool_data(obj: Any, admin: bool, *, kind: str) -> Any:
     """The below-grant projection (admin=True → unchanged). DEFAULT-DENY
     (external code review 2026-08-02 F1, tightened by the 08-03 re-review): a
