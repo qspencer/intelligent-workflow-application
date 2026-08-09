@@ -791,7 +791,14 @@ Same for the dry-run error field. No new raw crosses the boundary; the operator
 just learns *where* to look. Applies to any surface where P2 replaced an
 exception with a marker.
 
-### G-Trace-Review — F1/F5 review round 3 (2026-08-09) — **FAILED (SIXTH)** — the core is now ARCHITECTURAL, not patchable
+### G-Trace-Review — F1/F5 review round 3 (2026-08-09) — **FAILED (SIXTH) → B1 DEFERRED**
+
+**DECISION 2026-08-09: Contract B1 is DEFERRED** behind the first real external
+tenant. Come-back artifact: **`docs/TRACE_B1_DEFERRAL.md`** (posture, salvageable
+build, and the architecture a correct B1 needs — provenance §1.4a first). The
+`p1-reprimitive` branch is the record, NOT merged. Findings below stand as the
+requirements for whoever resumes.
+
 
 Sixth external code review of the projector; all six findings reproduced against
 source, none disputed. **Two are the SAME class and it is architectural, not a

@@ -25,6 +25,22 @@ distinct metrics. Below: what we'd add when that stops being enough.
 
 ---
 
+## Deferred: Contract B1 (zero-raw-at-rest / DB-operator resistance)
+
+**Deferred 2026-08-09** after six external code reviews. What it would buy:
+resistance to a hostile DB/audit operator (raw content encrypted at rest, not
+just read-gated). Why deferred: the projector validates by *shape*, and a
+token-shaped secret can't be told from a safe token without **provenance**
+(§1.4a, unbuilt) — a class no amount of shape-patching closes, against a boundary
+no tenant crosses.
+
+**Decision trigger to reopen.** The first real external tenant — anyone but the
+sole operator who can reach the operational store or its audit log.
+
+**Default until then.** Contract A read-gating is the active protection; the flip
+stays on (encryption of the vaulted majority works); B1 is not claimed. Full
+come-back spec: `TRACE_B1_DEFERRAL.md`.
+
 ## Deferred: formal ontology
 
 **What it is.** An explicit schema (OWL/RDF or a structured Markdown

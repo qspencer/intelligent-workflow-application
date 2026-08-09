@@ -1,5 +1,20 @@
 # Trace Governance — Design
 
+> ## ⛔ CONTRACT B1 DEFERRED (2026-08-09) — resume at the first real external tenant
+>
+> After **six** external code reviews, all reproducing real leaks, the projector's
+> core limit is understood to be **architectural**: it validates by *shape*, and a
+> token-shaped secret is indistinguishable from a safe token without
+> **provenance** (§1.4a, unbuilt). Against a boundary no tenant currently crosses,
+> active B1 work is **stopped**. **`docs/TRACE_B1_DEFERRAL.md` is the come-back
+> artifact** — current posture, what is built and salvageable, and the
+> architecture a correct B1 needs (provenance first, then a positive audit model,
+> totality, and a projector-version sweep). The `p1-reprimitive` branch is the
+> record and is **NOT merged**. Contract A read-gating stays the active
+> protection. Do not enable any second-party access to the operational store or
+> audit log while deferred.
+>
+> *(Prior banner retained:)*
 > ## ⚠️ THIRD EXTERNAL CODE REVIEW FAILED (2026-08-08) — Contracts A and B1 NOT established
 >
 > **Three consecutive code reviews have now failed.** The four primitives built
