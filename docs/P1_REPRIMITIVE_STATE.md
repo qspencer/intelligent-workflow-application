@@ -1,3 +1,45 @@
+# P1 re-primitive — COMPLETE on branch `p1-reprimitive` (2026-08-09)
+
+**All fallout resolved. Full suite green under BOTH environments** (no
+DATABASE_URL, and DATABASE_URL set to an unmigrated DB — 1017 passed each), ruff
++ format + mypy strict clean, `main` merged in. The branch is now a reviewable,
+self-consistent unit implementing F1 (path-scoped projection) + F5 (one
+projector version), with the asset-kind dispatch as its second half.
+
+What the fallout actually taught (kept, because it is the useful part):
+- `kind` is REQUIRED — a default kind is guessing, the very (asset kind, path)
+  confusion this removes.
+- audit details dispatch on ACTION; a `tool_call` detail projects via
+  `safe_tool_call`, everything else via the audit schema.
+- two real schema gaps the flat registry could never have expressed:
+  `_AUDIT_DETAIL` missing `output`/`steps`; `_CONTEXT` missing the real
+  WorkflowContext fields (they became unrecoverable at-rest markers).
+- `null` carries no content at any path → projects to `null` (killed spurious
+  markers that failed grant-holder completeness).
+- three test updates TIGHTENED security (input_key_count over input_keys; a
+  fixture that never matched reality corrected; the token-path residual pinned
+  explicitly rather than smuggled in on `model`).
+
+**Still deliberately OPEN (unchanged): F3, F4, F6.** These are separate
+primitives, not projector-schema work:
+- **F3** — the P3a stamp is a mutable fail-open bit; safe-only execution must not
+  depend on it. Require the raw object unconditionally.
+- **F4** — the content commitment is a plaintext low-entropy oracle AND
+  unauthenticated. Replace with a domain-separated HMAC over canonical raw +
+  immutable identity, keyed outside the DB.
+- **F6** — release still audits all-or-nothing kinds; Contract 5 wants per-kind
+  returned/withheld sets.
+
+And the accepted residual: a token-shaped value on a token-declared path
+survives. Correct for every token path today (all platform-computed); closed
+generally only by §1.4a per-field provenance, which is unbuilt. Pinned in
+`test_p3_token_path_residual_is_accepted_and_bounded`.
+
+**Contract A / B1 still NOT claimed. The flip stays OFF.** A fourth code review
+should confirm F1/F5 before anything rests on them.
+
+---
+
 # P1 re-primitive — state of the branch `p1-reprimitive`
 
 **Not ready for main.** Boundary properties pass; ~10 tests fail; the cause is
