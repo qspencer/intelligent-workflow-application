@@ -99,14 +99,18 @@ async def run_batch(
         return 1
     print(f"Found {len(fixtures)} messages to triage.\n")
 
-    # Seed agent memory from the workflow's agent_memory.md (G6 auto-load).
     memory = MemoryManager(REPO_ROOT / ".memory")
-    memory_text = (EXAMPLE_DIR / "agent_memory.md").read_text()
 
     wf_path = EXAMPLE_DIR / workflow_file
     if not wf_path.exists():
         print(f"Workflow file not found: {wf_path}")
         return 1
+    # Seed the rubric from the WORKFLOW'S OWN dir (G6 auto-load), not a hardcoded
+    # path: validating a different --workflow (e.g. the read-only two-axis
+    # email-triage-live) must use ITS agent_memory.md, not email-triage's. This
+    # was silently loading the old single-axis rubric for every workflow
+    # (2026-08-09: produced fyi/urgent categories under the two-axis workflow).
+    memory_text = (wf_path.parent / "agent_memory.md").read_text()
     definition = load_definition_from_yaml(wf_path.read_text())
     print(f"Workflow: {definition.id}  ({wf_path.name})")
     for step in definition.steps:
