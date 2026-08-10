@@ -246,6 +246,30 @@ of anchored at 0.92), but **cannot fix cross-run same-sender consistency —
 that is structurally a memory problem**, which is the entire point of the
 adopted per-entity recall.
 
+**VERDICT (2026-08-10): recall is NOT the lever on this workload; base accuracy
+is.** The persistent/sequential experiment ran (`tools/validate_email_recall.py
+--verdict`, K=3 majority vote, temperature 0, 55 operator-labeled repeat-sender
+messages; design + two external reviews folded in
+`docs/EMAIL_RECALL_VALIDATION_PLAN.md`). Results: (1) the aggregate consistency
+delta is **underpowered by construction** (split rate 0.176→0.125, one sender
+differs; a paired McNemar needs ≥5 same-way flips at N=17) — no aggregate verdict
+without a much larger corpus; (2) recall **barely acts** at temperature 0 — it
+changed **2 of 55** messages; (3) the **bad-anchoring fear did NOT materialize** —
+both genuinely-mixed senders collapse in BOTH arms, so the base classifier, not
+recall, loses within-sender distinctions; (4) **accuracy is flat** — 33/55 vs
+32/53 (~60% both). **The dominant finding dwarfs the recall question: the
+classifier agrees with the operator's own labels only ~60% on repeat senders.**
+So per-entity recall was aimed at a smaller problem (cross-run consistency) than
+the rubric actually has (base accuracy); making the classifier consistently
+repeat a 60%-accurate guess is not an improvement. **Bound:** temperature 0
+removed the noise-driven splits that were most of the production 18% (see the
+caveat below), so this shows recall doesn't fix *statelessness*-driven splits; it
+does not test noise-driven splits at production temperature — but anchoring only
+helps if the anchor is right (~60%), which softens rather than rescues the
+negative. **Implication for the adoption question:** the write-only + recall
+slices stay (COALA N1 intact, cheap, no harm shown), but do not invest further in
+recall for triage quality until base classifier accuracy is addressed.
+
 **⚠️ Caveat that bounds this evidence — and names the next experiment.**
 The batch runs each message in an *isolated, fresh in-memory store*
 (`tools/run_email_triage_batch.py` builds a new repo per run), so the
