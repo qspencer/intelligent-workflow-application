@@ -62,8 +62,17 @@ An independent design review found the v1 design would produce an
 on ~40 messages, K-repeat runs (temperature 0 keeps K small), and a power check
 that may demand a larger corpus. The honest options are **(a)** run it properly
 (labels + power + majority-vote + simulated floor), or **(b)** run a clearly-marked
-*exploratory, consistency-only* pass that cannot conclude recall "works." The
-harness supports both; which one to run is an operator decision.
+*exploratory, consistency-only* pass that cannot conclude recall "works."
+
+**Harness status (as built, `tools/validate_email_recall.py`):** it implements
+**(b) only** — the exploratory pass, with the corrected pieces that don't need
+operator input (temperature pinned unconditionally, failures excluded from the
+metrics with an abort rule, recall hit-rate over eligible 2nd+ messages counting
+only non-empty recalls, and the simulated *split-rate* noise floor). The
+verdict-only machinery — operator labels + accuracy guard, K-repeat majority vote,
+paired McNemar, MDE/power, corpus freeze, difficulty stratification — is **NOT
+built**, so `--verdict` **fails closed** rather than emitting a false verdict.
+Turning on the verdict path is the scoped follow-up gated on operator labels.
 
 ---
 *(Original v1 design follows — superseded by R1 where they conflict.)*
