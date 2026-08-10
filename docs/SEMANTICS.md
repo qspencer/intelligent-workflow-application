@@ -230,6 +230,35 @@ rubrics remain the operator-curated guidance channel; veracium adds the
 "all learning artifacts are structured Markdown" statement in LEARNING.md
 is superseded in part — recorded there.)
 
+**Fresh evidence (2026-08-10): the trigger re-fires under the CORRECT
+two-axis rubric, on a live 100-message batch.** The original evidence
+(2026-07-12/13) was gathered under the *old single-axis* rubric. A live
+re-validation on `qspencer@gmail.com` — 100 fresh messages, read-only
+`email-triage-live`, Haiku 4.5, $0.81 — with the two-axis rubric loaded
+correctly (a batch-harness bug had been silently loading the old rubric;
+fixed 2026-08-09, commit `d515238`) quantifies the repeat-sender class:
+**17 senders appeared ≥2×; 3 (18%) were classified inconsistently** —
+`railinc.com` (personal/notification), `faithfilmfan.com`
+(newsletter/promotion), `trianglemediapromos` (promotion/newsletter/
+promotion). The two-axis taxonomy fixed the *category-has-no-home* problem
+(marketing → `promotion` consistently; confidence spread 0.5–0.95 instead
+of anchored at 0.92), but **cannot fix cross-run same-sender consistency —
+that is structurally a memory problem**, which is the entire point of the
+adopted per-entity recall.
+
+**⚠️ Caveat that bounds this evidence — and names the next experiment.**
+The batch runs each message in an *isolated, fresh in-memory store*
+(`tools/run_email_triage_batch.py` builds a new repo per run), so the
+wired recall (`email-triage-live` has `learned_memory.recall.query_from:
+trigger.from_address.address`) has nothing to recall. **The 18% split rate
+is therefore the STATELESS baseline; the batch harness cannot demonstrate
+that recall *fixes* it.** The demonstrating experiment is a
+**sequential run against a PERSISTENT learned-memory store** — process the
+same-sender messages in order so run N recalls what runs 1..N-1 observed —
+and measure the split rate with recall on vs off. That harness does not yet
+exist (the batch is stateless by design); building it is the next step
+before any claim that recall improves consistency in practice.
+
 ---
 
 ## Deferred: semantic layer
