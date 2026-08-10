@@ -343,7 +343,15 @@ async def _run_verdict(account: str, k: int) -> int:
                 "true_categories": sorted(truth_by_sender[s]),
                 "OFF_categories": sorted(off_cats),
                 "ON_categories": sorted(on_cats),
-                "ON_wrongly_collapsed": len(on_cats) == 1 and len(truth_by_sender[s]) > 1,
+                # RECALL-caused collapse only if ON collapsed a mixed sender that OFF
+                # did NOT. If OFF collapses it too, that's the base classifier, not
+                # recall (the earlier flag ignored OFF and overstated recall's harm).
+                "recall_caused_collapse": (
+                    len(on_cats) == 1 and len(off_cats) > 1 and len(truth_by_sender[s]) > 1
+                ),
+                "classifier_collapses_regardless": (
+                    len(on_cats) == 1 and len(off_cats) == 1 and len(truth_by_sender[s]) > 1
+                ),
             }
         )
 
@@ -383,7 +391,12 @@ async def _run_verdict(account: str, k: int) -> int:
     print(f"ON changed {len(changed)} of {len(repeat)} messages vs OFF")
     print("\nCONCRETE correctness — genuinely-mixed senders (recall must NOT collapse):")
     for c in collapse:
-        flag = "  ✗ ON WRONGLY COLLAPSED" if c["ON_wrongly_collapsed"] else "  ✓ preserved"
+        if c["recall_caused_collapse"]:
+            flag = "  ✗ RECALL caused the collapse"
+        elif c["classifier_collapses_regardless"]:
+            flag = "  — base classifier collapses it in BOTH arms (not recall)"
+        else:
+            flag = "  ✓ preserved"
         print(
             f"  {c['sender'][:34]:36} true={c['true_categories']} "
             f"OFF={c['OFF_categories']} ON={c['ON_categories']}{flag}"
