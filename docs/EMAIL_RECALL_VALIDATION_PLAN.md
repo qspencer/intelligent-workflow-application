@@ -1,7 +1,74 @@
 # Email-triage per-entity recall — validation experiment (design)
 
-**Status:** design, for review. **Author:** platform session, 2026-08-10.
+**Status:** design, review round 1 folded. **Author:** platform session, 2026-08-10.
 **Companion:** `docs/SEMANTICS.md` "Adopted: veracium"; `examples/email_triage_live/`.
+
+## R1 — review round 1 folded (2026-08-10). These SUPERSEDE the body below.
+
+An independent design review found the v1 design would produce an
+**uninterpretable** number. Corrections, all adopted:
+
+1. **Human labels are MANDATORY, not an optional guard (the load-bearing fix).**
+   The label-free change-direction analysis measures the *mechanism* (does ON pull
+   toward the first-seen label) but **cannot** tell good anchoring (consistent
+   *correct* sender) from bad anchoring (a propagated *wrong* first label) — they
+   have identical toward-first signatures. So consistency is uninterpretable
+   without correctness, and correctness needs labels. The set is small and cheap:
+   **the first message of every repeat sender** (is the anchor right?) **plus the
+   changed-answer subset** (~40 + δ messages). The operator hand-labels these
+   before the result is read. No labels → the run yields a *consistency-only*
+   number that is explicitly **not** a verdict on recall.
+2. **Pin temperature = 0.** The classifier ran at default temperature; pinning to
+   0 collapses most model non-determinism, which is the cleanest attack on the
+   noise problem. Set in the step `inference_config`. (Residual noise still
+   measured, below.)
+3. **The noise floor is a SPLIT-RATE floor, not a per-message flip rate.** A
+   per-message flip rate `p` does not compare to a split rate over sender *sets*:
+   a consistent sender of `m` messages splits from noise alone with prob
+   `1-(1-p)^m`. **Translate** the measured `p` into an expected split-rate floor by
+   simulating over the *actual* sender-size distribution, and draw the K-repeat
+   sample from **real repeat-sender messages** (flip rate is heterogeneous). The ON
+   split-rate must beat this simulated floor, not zero.
+4. **The guard sets must use K-repeat MAJORITY VOTE.** "ON changed vs OFF" and the
+   changed-answer subset are themselves noise-contaminated (a noise flip reads as a
+   change). Compute each (message, arm) label as the majority over K repeats so the
+   guard operates on *stable* labels.
+5. **Judge, if used as a proxy, must be de-correlated, blinded, and calibrated.** A
+   same-family judge (Haiku over Haiku) blesses the classifier's *systematic*
+   errors — exactly the plausible-but-wrong anchors we hunt. Use a **stronger,
+   different** model (Opus), **blind** it to the recalled context and to which arm
+   produced the answer, and **report judge↔human agreement on the mandatory labeled
+   set**; only trust the proxy where agreement is high.
+6. **Path-dependence breaks the sender-independence CI.** ON's store accumulates
+   ON's own noisy labels, so sender outcomes are serially correlated through the
+   shared store — a binomial CI over senders is too narrow. Use a **paired McNemar**
+   over senders for the on/off delta and **state that the CI understates path
+   variance**; where budget allows, run the full corpus under **≥3 orderings/seeds**
+   and report the spread.
+7. **Pre-register the decision knobs + a power/MDE calc.** Before running: fix the
+   accuracy tolerance (**accuracy(ON) ≥ accuracy(OFF) − 2pp** on the changed set),
+   the test (one-sided McNemar, α=0.05), and drop "purely anchoring" as
+   non-diagnostic (per #1). **Compute the minimum detectable effect at the actual
+   repeat-sender N first** — at ~40 senders (~7 split) a 7→4 drop is inside noise;
+   if the plausible true effect < MDE, scaling the corpus is the only fix, and a
+   small run is exploratory-only by construction.
+8. **Freeze the corpus; do not re-tune on it; stratify by sender difficulty.** The
+   inbox that *motivated* the 18% finding is circular if reused for tuning — freeze
+   it. And personal-inbox repeat senders skew to easy automated senders
+   (newsletters/notifications); report the split-rate **stratified by category /
+   difficulty** so a "win" on the easy denominator isn't overgeneralized.
+
+**Net effect on scope:** this is no longer a $5 one-shot. It needs operator labels
+on ~40 messages, K-repeat runs (temperature 0 keeps K small), and a power check
+that may demand a larger corpus. The honest options are **(a)** run it properly
+(labels + power + majority-vote + simulated floor), or **(b)** run a clearly-marked
+*exploratory, consistency-only* pass that cannot conclude recall "works." The
+harness supports both; which one to run is an operator decision.
+
+---
+*(Original v1 design follows — superseded by R1 where they conflict.)*
+
+---
 
 ## 1. The question (and the trap)
 
