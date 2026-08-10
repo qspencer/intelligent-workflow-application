@@ -11,15 +11,19 @@ store), with the SAME observe path so the only delta is recall INJECTION:
   OFF  recall block stripped  -> observes, but nothing injected (baseline)
   ON   recall block intact    -> observes AND injects prior sender context
 
-This tool runs the **exploratory** consistency pass only. A decision-grade VERDICT
-(R1) additionally needs operator labels + an accuracy guard + K-repeat majority
-vote + a paired McNemar + an MDE/power check + corpus freeze — none of which are
-implemented here, so `--verdict` FAILS CLOSED rather than emitting a false verdict.
-Consistency alone cannot tell good anchoring from a propagated first-error.
+Default (no --verdict) is the EXPLORATORY consistency pass. `--verdict` runs the
+LABELED path: K-repeat majority vote, accuracy(ON) vs accuracy(OFF) vs operator
+labels, and the concrete mixed-sender collapse check — but it reports the
+AGGREGATE consistency delta as UNDERPOWERED (the paired test needs >=5 senders
+flipping the same way; at N~17 only ~2-4 can differ). Consistency alone cannot
+tell good anchoring from a propagated first-error, which is why the labeled
+accuracy guard and the mixed-sender check carry the interpretation.
 
 Usage (from backend/):
     BEDROCK_MODE=live uv run python tools/validate_email_recall.py \
-        --account qspencer@gmail.com --repeat-only --noise-floor-k 5
+        --account qspencer@gmail.com --verdict --k 3      # labeled verdict
+    BEDROCK_MODE=live uv run python tools/validate_email_recall.py \
+        --account qspencer@gmail.com --repeat-only --noise-floor-k 5   # exploratory
 """
 
 from __future__ import annotations
@@ -210,6 +214,239 @@ async def _noise_floor(
     }
 
 
+async def _build_deps(account: str) -> tuple[dict[str, Any], list[tuple[Path, dict]]]:
+    os.environ["WORKFLOW_PLATFORM_GMAIL_ACCOUNT"] = account
+    from workflow_platform.bedrock import BedrockClient, BedrockMode
+    from workflow_platform.engine import ToolCatalog
+    from workflow_platform.engine.functions import default_function_registry
+    from workflow_platform.memory import MemoryManager
+    from workflow_platform.workflow import load_definition_from_yaml
+
+    parsed = [(p, json.loads(p.read_text())) for p in sorted((DATA_DIR / account).glob("*.json"))]
+    parsed.sort(key=lambda pt: _received_at(pt[1]))
+    definition = load_definition_from_yaml((LIVE_WF / "workflow.yaml").read_text())
+    for step in definition.steps:
+        if step.type == "agentic":
+            ic = dict(step.policy.inference_config or {})
+            ic["temperature"] = 0
+            ic.setdefault("maxTokens", 1024)
+            step.policy.inference_config = ic
+            assert step.policy.inference_config["temperature"] == 0
+    memory = MemoryManager(REPO_ROOT / ".memory")
+    memory_text = (LIVE_WF / "agent_memory.md").read_text()
+    for step in definition.steps:
+        if step.type == "agentic":
+            await memory.write_raw(f"steps/{definition.id}/{step.id}", memory_text)
+
+    def _trim(trigger: dict[str, Any]) -> dict[str, Any]:
+        t = dict(trigger)
+        t["body_html"] = None
+        if isinstance(t.get("body_text"), str) and len(t["body_text"]) > 4000:
+            t["body_text"] = t["body_text"][:4000] + "\n[truncated]"
+        return t
+
+    deps = {
+        "definition": definition,
+        "bedrock": BedrockClient(mode=BedrockMode(os.environ.get("BEDROCK_MODE", "live"))),
+        "tools": ToolCatalog([]),
+        "functions": default_function_registry,
+        "memory": memory,
+        "trim": _trim,
+    }
+    return deps, parsed
+
+
+async def _run_verdict(account: str, k: int) -> int:
+    labels = _load_labels(account)
+    if not labels:
+        print("No labels found. Label the crux set first (tools/label_email_recall.py).")
+        return 3
+    deps, parsed = await _build_deps(account)
+    # repeat senders only (the informative rows); keep received_at order
+    counts = collections.Counter(_sender(t) for _, t in parsed)
+    repeat = [(p, t) for p, t in parsed if counts[_sender(t)] >= 2]
+    # ground truth per sender + which senders are genuinely MIXED
+    truth_by_sender: dict[str, set[str]] = collections.defaultdict(set)
+    for _, t in repeat:
+        lab = labels.get(t["message_id"])
+        if lab:
+            truth_by_sender[_sender(t)].add(lab)
+    mixed_senders = {s for s, v in truth_by_sender.items() if len(v) > 1}
+
+    print(f"VERDICT run: {len(repeat)} repeat-sender messages, K={k} passes/arm, temperature 0.")
+    print(
+        f"  {len(truth_by_sender)} repeat senders labeled | genuinely MIXED: "
+        f"{sorted(mixed_senders)}\n"
+    )
+
+    with tempfile.TemporaryDirectory() as tdname:
+        td = Path(tdname)
+        maj = {}
+        for arm, inject in (("off", False), ("on", True)):
+            print(f"=== arm {arm} (recall {'ON' if inject else 'OFF'}) ===")
+            maj[arm] = await _run_arm_k(arm, repeat, deps=deps, inject=inject, k=k, td=td)
+
+    # ---- metrics over MAJORITY labels ----
+    def _split_by_arm(arm: str) -> tuple[float | None, list[str]]:
+        by: dict[str, list[str]] = collections.defaultdict(list)
+        for _, t in repeat:
+            c = maj[arm].get(t["message_id"], "<fail>")
+            if c not in ("<fail>", "<tie>"):
+                by[_sender(t)].append(c)
+        reps = {s: c for s, c in by.items() if len(c) >= 2}
+        split = sorted(s for s, c in reps.items() if len(set(c)) > 1)
+        return (len(split) / len(reps) if reps else None), split
+
+    def _accuracy(arm: str, only: set[str] | None = None) -> tuple[int, int]:
+        ok = tot = 0
+        for _, t in repeat:
+            mid = t["message_id"]
+            if only is not None and mid not in only:
+                continue
+            true = labels.get(mid)
+            pred = maj[arm].get(mid)
+            if not true or pred in (None, "<fail>", "<tie>"):
+                continue
+            tot += 1
+            ok += pred == true
+        return ok, tot
+
+    changed = {
+        t["message_id"]
+        for _, t in repeat
+        if maj["on"].get(t["message_id"]) != maj["off"].get(t["message_id"])
+    }
+    sr_off, split_off = _split_by_arm("off")
+    sr_on, split_on = _split_by_arm("on")
+    acc_off = _accuracy("off")
+    acc_on = _accuracy("on")
+    acc_off_ch = _accuracy("off", changed)
+    acc_on_ch = _accuracy("on", changed)
+
+    # the CONCRETE correctness case study: on genuinely-mixed senders, did ON wrongly
+    # COLLAPSE the sender to one category (bad anchoring)?
+    collapse = []
+    for s in sorted(mixed_senders):
+        on_cats = {
+            maj["on"].get(t["message_id"])
+            for _, t in repeat
+            if _sender(t) == s and maj["on"].get(t["message_id"]) not in ("<fail>", "<tie>")
+        }
+        off_cats = {
+            maj["off"].get(t["message_id"])
+            for _, t in repeat
+            if _sender(t) == s and maj["off"].get(t["message_id"]) not in ("<fail>", "<tie>")
+        }
+        collapse.append(
+            {
+                "sender": s,
+                "true_categories": sorted(truth_by_sender[s]),
+                "OFF_categories": sorted(off_cats),
+                "ON_categories": sorted(on_cats),
+                "ON_wrongly_collapsed": len(on_cats) == 1 and len(truth_by_sender[s]) > 1,
+            }
+        )
+
+    result = {
+        "account": account,
+        "k": k,
+        "n_repeat_msgs": len(repeat),
+        "n_repeat_senders": len(truth_by_sender),
+        "mixed_senders": sorted(mixed_senders),
+        "split_rate": {
+            "off": sr_off,
+            "on": sr_on,
+            "off_split_senders": split_off,
+            "on_split_senders": split_on,
+        },
+        "accuracy": {
+            "off": f"{acc_off[0]}/{acc_off[1]}",
+            "on": f"{acc_on[0]}/{acc_on[1]}",
+            "off_on_changed": f"{acc_off_ch[0]}/{acc_off_ch[1]}",
+            "on_on_changed": f"{acc_on_ch[0]}/{acc_on_ch[1]}",
+        },
+        "n_changed_on_vs_off": len(changed),
+        "mixed_sender_check": collapse,
+        "AGGREGATE_POWER": "UNDERPOWERED: paired McNemar needs >=5 senders flipping the "
+        "same way for p<.05; only ~2-4 senders can differ between arms at "
+        "N=17. The split-rate delta is descriptive ONLY, not significant. "
+        "An aggregate verdict needs a much larger corpus.",
+    }
+    out = DATA_DIR / f"{account}_recall_verdict.json"
+    out.write_text(json.dumps(result, indent=2, default=str))
+    print("\n" + "=" * 66)
+    print(f"split_rate  OFF={sr_off}  ON={sr_on}   (DESCRIPTIVE — aggregate UNDERPOWERED)")
+    print(
+        f"accuracy    OFF={acc_off[0]}/{acc_off[1]}  ON={acc_on[0]}/{acc_on[1]}  "
+        f"(on changed msgs: OFF {acc_off_ch[0]}/{acc_off_ch[1]} vs ON {acc_on_ch[0]}/{acc_on_ch[1]})"
+    )
+    print(f"ON changed {len(changed)} of {len(repeat)} messages vs OFF")
+    print("\nCONCRETE correctness — genuinely-mixed senders (recall must NOT collapse):")
+    for c in collapse:
+        flag = "  ✗ ON WRONGLY COLLAPSED" if c["ON_wrongly_collapsed"] else "  ✓ preserved"
+        print(
+            f"  {c['sender'][:34]:36} true={c['true_categories']} "
+            f"OFF={c['OFF_categories']} ON={c['ON_categories']}{flag}"
+        )
+    print(f"\n{result['AGGREGATE_POWER']}")
+    print(f"Full JSON: {out}")
+    return 0
+
+
+def _load_labels(account: str) -> dict[str, str]:
+    """message_id -> operator source label (from the labeled template)."""
+    import csv as _csv
+
+    path = DATA_DIR / f"{account}_labels_template.csv"
+    labels: dict[str, str] = {}
+    if not path.exists():
+        return labels
+    with path.open(newline="") as fh:
+        header: list[str] = []
+        for raw in _csv.reader(fh):
+            if not raw or raw[0].startswith("#"):
+                continue
+            if raw[0] == "message_id":
+                header = raw
+            elif header:
+                row = dict(zip(header, raw + [""] * (len(header) - len(raw)), strict=False))
+                if row.get("label"):
+                    labels[row["message_id"]] = row["label"]
+    return labels
+
+
+async def _run_arm_k(
+    arm: str,
+    fixtures: list[tuple[Path, dict]],
+    *,
+    deps: dict[str, Any],
+    inject: bool,
+    k: int,
+    td: Path,
+) -> dict[str, str]:
+    """K independent full-sequence passes (each its own persistent scratch store);
+    return the MAJORITY category per message_id (review R1 #4). Ties -> '<tie>'."""
+    from workflow_platform.memory.learned import LearnedMemoryService
+
+    definition = deps["definition"] if inject else _strip_recall(deps["definition"])
+    per_msg: dict[str, list[str]] = collections.defaultdict(list)
+    for rep in range(k):
+        learned = LearnedMemoryService(deps["bedrock"], db_path=td / f"{arm}_{rep}.db")
+        for path, trig in fixtures:
+            cat, status, _ = await _run_one(definition, deps["trim"](trig), learned, deps)
+            per_msg[trig["message_id"]].append(cat if status == "ok" else "<fail>")
+        print(f"  [{arm}] pass {rep + 1}/{k} done")
+    out: dict[str, str] = {}
+    for mid, cats in per_msg.items():
+        ok = [c for c in cats if c not in ("<fail>",)]
+        if not ok:
+            out[mid] = "<fail>"
+            continue
+        top = collections.Counter(ok).most_common()
+        out[mid] = top[0][0] if (len(top) == 1 or top[0][1] > top[1][1]) else "<tie>"
+    return out
+
+
 async def _main(account: str, limit: int | None, repeat_only: bool, noise_k: int) -> int:
     os.environ["WORKFLOW_PLATFORM_GMAIL_ACCOUNT"] = account
     from workflow_platform.bedrock import BedrockClient, BedrockMode
@@ -367,18 +604,13 @@ def main() -> None:
     p.add_argument(
         "--verdict",
         action="store_true",
-        help="request a decision-grade verdict (currently FAILS CLOSED — see R1)",
+        help="run the labeled verdict path (K-repeat majority + accuracy guard + mixed-sender "
+        "check); reports the aggregate consistency delta as UNDERPOWERED per the MDE",
     )
+    p.add_argument("--k", type=int, default=3, help="verdict passes per arm (majority vote)")
     args = p.parse_args()
     if args.verdict:
-        print(
-            "FAIL-CLOSED: a decision-grade verdict requires the mandatory evidence (operator "
-            "labels + accuracy guard + K-repeat majority vote + McNemar + MDE/power + corpus "
-            "freeze), none of which are implemented. This tool runs the EXPLORATORY pass only. "
-            "See docs/EMAIL_RECALL_VALIDATION_PLAN.md R1. Re-run without --verdict for the "
-            "exploratory result."
-        )
-        raise SystemExit(3)
+        raise SystemExit(asyncio.run(_run_verdict(args.account, args.k)))
     if args.noise_floor_k and args.noise_floor_k < 2:
         print("--noise-floor-k must be >= 2 (a single re-run cannot show a flip).")
         raise SystemExit(2)
