@@ -432,7 +432,7 @@ async def _run_arm_k(
     per_msg: dict[str, list[str]] = collections.defaultdict(list)
     for rep in range(k):
         learned = LearnedMemoryService(deps["bedrock"], db_path=td / f"{arm}_{rep}.db")
-        for path, trig in fixtures:
+        for _path, trig in fixtures:
             cat, status, _ = await _run_one(definition, deps["trim"](trig), learned, deps)
             per_msg[trig["message_id"]].append(cat if status == "ok" else "<fail>")
         print(f"  [{arm}] pass {rep + 1}/{k} done")
