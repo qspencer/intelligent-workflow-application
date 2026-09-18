@@ -295,7 +295,12 @@ def _rewrite_condition(expr: str, mapping: dict[str, str]) -> str:
 #: angle bracket. Both are references by construction. Bare prose stays
 #: untouched — that substitution is what corrupted a comparison literal in
 #: round 6, and "the extract step ran" is English, not a reference.
-_DELIMITED_REF = re.compile(r"(?P<open>[`<])(?P<prefix>steps\.)(?P<id>[A-Za-z0-9_\-]+)")
+#: `prior_steps.<id>` is accepted too: when an agentic step declares no
+#: `inputs`, the engine hands the model `{"trigger": …, "prior_steps":
+#: context.steps}`, so goals name steps THAT way. It is not a resolvable
+#: path (the resolver only accepts `trigger.`/`steps.` heads) but it IS
+#: what the agent sees, so a delimited one goes stale on rename.
+_DELIMITED_REF = re.compile(r"(?P<open>[`<])(?P<prefix>(?:prior_)?steps\.)(?P<id>[A-Za-z0-9_\-]+)")
 
 
 def _rewrite_template(text: str, mapping: dict[str, str]) -> str:
@@ -311,7 +316,9 @@ def _rewrite_template(text: str, mapping: dict[str, str]) -> str:
 
     def delimited(m: re.Match[str]) -> str:
         sid = m.group("id")
-        return m.group(0) if sid not in mapping else f"{m.group('open')}steps.{mapping[sid]}"
+        if sid not in mapping:
+            return m.group(0)
+        return f"{m.group('open')}{m.group('prefix')}{mapping[sid]}"
 
     return _DELIMITED_REF.sub(delimited, _TEMPLATE_REF.sub(placeholder, text))
 

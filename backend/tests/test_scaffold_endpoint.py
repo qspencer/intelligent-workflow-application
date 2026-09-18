@@ -338,3 +338,124 @@ def test_minting_every_real_shipped_definition_leaves_no_dangling_reference() ->
             problems.append(f"{wf.parent.name}: minted form no longer loads — {exc}")
 
     assert not problems, "minting broke real definitions:\n  " + "\n  ".join(problems)
+
+
+def test_every_reference_position_in_the_schema_is_covered() -> None:
+    """SELF-AUDIT, schema-derived (post-R9).
+
+    Three consecutive rounds found reference positions we had missed, each
+    time by naming one we had not thought of. So this stops guessing: it puts
+    a reference to one step in EVERY string-bearing position the definition
+    schema has, mints, and asserts that the only survivors are the positions
+    we deliberately leave as prose or sample data.
+
+    A new schema field that can hold a reference will show up here as an
+    unexpected survivor."""
+    import re
+
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    definition = {
+        "id": "wf",
+        "name": "wf",
+        "description": "mentions steps.target_step in prose",
+        "trigger": {
+            "type": "manual",
+            "config": {"path_like": "steps.target_step.x"},
+            "example_payload": {"k": "steps.target_step.x"},
+        },
+        "steps": [
+            {
+                "id": "target_step",
+                "type": "deterministic",
+                "function": "noop",
+                "config": {},
+                "label": "steps.target_step label",
+            },
+            {
+                "id": "consumer",
+                "type": "agentic",
+                "goal": "use `steps.target_step.value`, <steps.target_step.value>, "
+                "{steps.target_step.value}",
+                "model": "m",
+                "system_prompt": "see {steps.target_step.value}",
+                "inputs": ["steps.target_step.value"],
+                "pin_params": {"p": "steps.target_step.value"},
+            },
+            {
+                "id": "det2",
+                "type": "deterministic",
+                "function": "record_evaluation",
+                "config": {"evaluation_from": "steps.target_step.value"},
+            },
+        ],
+        "edges": [
+            {
+                "from": "target_step",
+                "to": "consumer",
+                "condition": "steps['target_step']['value'] == 1",
+                "condition_label": "when steps.target_step.value is 1",
+            }
+        ],
+        "learned_memory": {
+            "user_id": "u",
+            "source_id": "s",
+            "recall": {"query_from": "steps.target_step.value"},
+            "observations": [
+                {
+                    "text": "{steps.target_step.value}",
+                    "author": "system",
+                    "date_from": "steps.target_step.when",
+                    "ref_from": "steps.target_step.id",
+                }
+            ],
+        },
+    }
+    minted = mint_platform_step_ids(json.loads(json.dumps(definition)))
+
+    def survivors(node: object, path: str = "") -> list[str]:
+        if isinstance(node, str):
+            pattern = r"(?<![A-Za-z_])steps\.target_step\b|steps\['target_step'\]"
+            return [path] if re.search(pattern, node) else []
+        if isinstance(node, dict):
+            return [p for k, v in node.items() for p in survivors(v, f"{path}.{k}")]
+        if isinstance(node, list):
+            return [p for i, v in enumerate(node) for p in survivors(v, f"{path}[{i}]")]
+        return []
+
+    # Prose and sample data, deliberately untouched: rewriting undelimited
+    # prose is what corrupted a comparison literal in round 6, and labels are
+    # display-only (the engine ignores them).
+    expected = {
+        ".description",
+        ".trigger.config.path_like",
+        ".trigger.example_payload.k",
+        ".steps[0].label",
+        ".edges[0].condition_label",
+    }
+    actual = set(survivors(minted))
+    assert actual == expected, (
+        "reference coverage changed.\n"
+        f"  newly BROKEN (a reference position no longer rewritten): {sorted(actual - expected)}\n"
+        f"  newly rewritten (was prose/data — check this is intended): {sorted(expected - actual)}"
+    )
+
+
+def test_minting_is_correct_when_a_draft_already_contains_a_minted_id() -> None:
+    """A model may name a step `step_1` itself. Minting maps from the ORIGINAL
+    ids in one pass, so the collision cannot double-apply: `b` becomes step_1
+    while the original `step_1` becomes step_2, and a reference to the
+    original resolves to step_2."""
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    draft = {
+        "steps": [{"id": "b", "function": "noop"}, {"id": "step_1", "function": "noop"}],
+        "edges": [{"from": "b", "to": "step_1"}],
+        "learned_memory": {"user_id": "u", "recall": {"query_from": "steps.step_1.value"}},
+    }
+    out = mint_platform_step_ids(json.loads(json.dumps(draft)))
+    assert [s["id"] for s in out["steps"]] == ["step_1", "step_2"]
+    assert out["edges"][0] == {"from": "step_1", "to": "step_2"}
+    assert out["learned_memory"]["recall"]["query_from"] == "steps.step_2.value", (
+        "a reference to the ORIGINAL step_1 must follow it to step_2"
+    )
