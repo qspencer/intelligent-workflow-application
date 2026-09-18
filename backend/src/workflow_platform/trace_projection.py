@@ -37,6 +37,32 @@ _GENERATED_MARKERS = frozenset({_REDACTED_FIELD, _REDACTED_TRIGGER, _REDACTED_TO
 #: (GR4-R4). A count, never the names — the names are the leak channel.
 _WITHHELD_COUNT = "_withheld_key_count"
 
+#: The tool names this PROCESS can resolve — the catalog a tool-call record is
+#: checked against (GR4-R4). Set once from the engine's live registry at
+#: startup; empty until then, which FAILS CLOSED (no catalog, no name shown).
+#:
+#: Why a process-level set and not a parameter: the projection must be
+#: idempotent, so a name is re-validated every time a record is re-projected —
+#: including on the READ path, which sits in the API layer and has no engine
+#: handle. Threading a catalog through every read site would leave the common
+#: path fail-closed in practice (names never shown anywhere), which is safe but
+#: useless. This keeps ONE source of truth for "a tool we actually serve".
+_RESOLVABLE_TOOLS: frozenset[str] = frozenset()
+
+
+def set_resolvable_tools(names: frozenset[str] | set[str] | list[str]) -> None:
+    """Declare the tool catalog this process serves (platform-authored names).
+
+    Called at engine construction. A name absent from it is the MODEL's own
+    string and is never echoed into a trace."""
+    global _RESOLVABLE_TOOLS
+    _RESOLVABLE_TOOLS = frozenset(names)
+
+
+def resolvable_tools() -> frozenset[str]:
+    return _RESOLVABLE_TOOLS
+
+
 _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 
 # --- Registered field projections (TRACE_GOVERNANCE_PLAN §1.4 CONTRACT 1) ---
@@ -552,7 +578,10 @@ def safe_tool_call(
     2026-08-03 F1): raw `input`/`result` is projected regardless of any marker a
     caller forged on.
 
-    `known_tools` is the RESOLVED catalog (GR4-R4). A tool name is chosen by the
+    `known_tools` overrides the catalog for a single call (tests); by default
+    the process catalog set by `set_resolvable_tools` is used, which is EMPTY
+    until the engine declares it — so an undeclared process shows no names at
+    all. `known_tools` is the RESOLVED catalog (GR4-R4). A tool name is chosen by the
     MODEL and is recorded even when dispatch rejects it, so a token test on it
     validates nothing — `exfiltrate_sk_live_51H8xQ2` is a perfectly good token.
     The name is therefore emitted only when it resolves to a catalog entry;
@@ -587,7 +616,7 @@ def safe_tool_call(
         # model-chosen name that does not resolve is withheld.
         "name": (
             tc.get("name")
-            if (known_tools is not None and tc.get("name") in known_tools)
+            if tc.get("name") in (known_tools if known_tools is not None else _RESOLVABLE_TOOLS)
             else _REDACTED_FIELD
         ),
         "input_key_count": input_key_count,

@@ -1,0 +1,32 @@
+Captured standalone gate results — F1/F5 review round 5
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · 2026-09-18T17:16:21Z
+Commit: 5ab734addd8ddf15fbee68ae77aad007bb5e0cd2
+Ships INSIDE the package because round 4's reviewer could not resolve
+dependencies offline and so could verify none of these claims.
+Each command was run standalone; the exit code is printed, never piped.
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+
+1 file would be reformatted, 262 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 225 source files
+exit: 0
+
+=== uv run pytest -q ===
+SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+1052 passed, 14 skipped, 13 warnings in 35.58s
+exit: 0
+
+=== the 3 round-4 reproductions, re-run against this tree ===
+ token-shaped KEY : {"usage": {"_withheld_key_count": 1}}
+ external webhook : {"_redacted": "raw trigger payload withheld (raw-trace privilege only)", "id": "[redacted \u2014 raw-trace gra
+ unresolved name  : {"name": "[redacted \u2014 raw-trace grant required]", "input_key_count": 0, "result_ok": true, "error_present
+ RESOLVED name    : file_read

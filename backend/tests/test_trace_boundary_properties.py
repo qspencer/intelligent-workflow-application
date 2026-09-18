@@ -393,6 +393,12 @@ def test_unresolved_tool_name_is_not_emitted() -> None:
         out = safe_tool_call({"name": hostile, "input": {"a": 1}}, known_tools=known)
         assert hostile not in _dumps(out), f"unresolved model-chosen name survived: {out}"
 
-    # Fail CLOSED: with no catalog to resolve against, no name is emitted.
-    blind = safe_tool_call({"name": "file_read", "input": {"a": 1}})
-    assert "file_read" not in _dumps(blind), f"name emitted with no catalog: {blind}"
+    # Fail CLOSED: with an EMPTY catalog, no name is emitted — not even a real
+    # tool's. Passed explicitly: the process-wide catalog
+    # (`set_resolvable_tools`) is global mutable state that any ToolCatalog
+    # construction in the same process widens, so asserting the default here
+    # would be order-dependent. That order-dependence is itself a design
+    # question raised for review, not something this test should paper over.
+    blind = safe_tool_call({"name": "file_read", "input": {"a": 1}}, known_tools=frozenset())
+    assert "file_read" not in _dumps(blind), f"name emitted with empty catalog: {blind}"
+
