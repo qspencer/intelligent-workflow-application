@@ -1,0 +1,43 @@
+Captured standalone gate results — F1/F5 review round 6
+
+Gates were run at tree state: f5a2819e8d563c12a20807c1cd131f98bb6ac0aa
+The archive commit is a LATER commit that adds ONLY docs (this file, the
+round-6 sidecar, the archives README row). Verify that claim yourself:
+    git diff --stat f5a2819e8d563c12a20807c1cd131f98bb6ac0aa..<archive-sha>    # docs/ only
+Round 5's capture claimed a commit the archive did not contain; this
+states the relationship instead of implying identity.
+
+EXIT CODES ARE REAL. Round 5's capture ran each gate through `| tail`
+and printed $? — which is TAIL's status, so it reported 'exit: 0'
+directly beneath '1 file would be reformatted'. Each command below
+writes to a file, $? is captured IMMEDIATELY, and only then is the file
+tailed. Nothing is piped before the status is read.
+
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · 2026-09-18T17:34:22Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+263 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 225 source files
+exit: 0
+
+=== uv run pytest -q ===
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+1060 passed, 14 skipped, 13 warnings in 38.59s
+exit: 0
+
+=== the six round-5 findings, re-run against this tree ===
+ F1 version now      : 3 | old-version row -> unsupported
+ F2 no catalog       : [redacted — raw-trace grant 
+ F3a forged count    : {} | output_has_raw: False
+ F3b marker seen     : True | {"_withheld_keys": true}
+ F3c space key       : {"model": "m", "_withheld_keys": true}
+ F5 counters kept    : {"usage": {"iterations": 3, "tool_calls": 1}}
+ F6 unhashable name  : [redacted — raw-trace grant 
