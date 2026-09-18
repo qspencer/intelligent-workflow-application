@@ -20,13 +20,13 @@ top three account for most of the volume:
 |---|---|---|---|
 | **M1** | **Shape used where SOURCE was the question** | 1,2,3,4,5,6,7 | A validator answers "does this look safe?" when the real question is "who produced it?" Every tightening of the pattern invited the next round to find another surface. |
 | **M2** | **Our own generated metadata trusted from input** | 2,3,5,6,7 | A field WE write is read back from a record an attacker can shape. Prefix-matched markers, forged `_withheld_key_count`, supplied `projector_version`, unbounded tool-summary numbers. |
-| **M3** | **A rule enforced at one site, not all sites** | 3,5,6,7 | The rule was right; the coverage was partial. Entry-point-only withholding, two projector-version constants, completeness and compatibility detectors disagreeing, at-rest vs read-path asymmetry. |
+| **M3** | **One rule, more than one implementation — and they disagree** | 3,5,6,7,10 | Widened after R10. Not only "enforced at one site, not all" (entry-point-only withholding, at-rest vs read-path) but **two implementations of the same rule that must agree and do not**: two projector-version constants, completeness vs compatibility predicates, a rewriter's identifier grammar narrower than the resolver's, and two live definitions of one function with Python using the stale one. |
 | **M4** | **Version / compatibility discipline** | 5,6,7 | Output changed, the version did not, and valid older records read as *tampering*. Twice by hand. |
 | **M5** | **Totality gaps on hostile input** | 3,5,6 | `TypeError` on an unhashable name, a non-total marker predicate, null handling. |
 | **M6** | **Our EVIDENCE was wrong** | 4,5,6,7 | Claims in guides and commits that execution did not support; a masked exit code; a whole CI job never run locally; tests that asserted a thing they did not exercise. |
 | **M7** | **Over-correction breaking a legitimate consumer** | 6,7 | A fix that traded a disclosure defect for a data-loss one — substring rewriting that corrupted config, key-dropping that would have broken grant-holder rehydration. |
 
-**M6 deserves separate emphasis.** Three of the returns contained a finding
+**M6 is now the dominant remaining class — four occurrences, rounds 4, 6, 8 and 10.** Three of the returns contained a finding
 about *our reporting*, not our code: a test that claimed coverage it lacked, a
 guide that said "whole-word" where the code did substring, "all token paths are
 platform-computed" when three were not, a gate capture printing `exit: 0`
@@ -108,6 +108,20 @@ everything, which is what makes rounds expensive.**
 | Minting rewrote ordinary data and quoted literals | M7 | yes — round-trip probe |
 | Invalid legacy reserved value vanished silently | M2+M3 | yes |
 
+### Rounds 8–10
+
+| Finding | Class | Self? |
+|---|---|---|
+| Golden `tool_call` case never invoked `safe_tool_call` — flat record, generic schema | M6 | yes — assert the function is CALLED |
+| Historical fixture generated from the wrong commit (the post-return remediation, not the archive) | M6 | yes — re-derive from the named commit |
+| Scaffold substring rewrite mangled a function name, a path and a comparison literal | M7 | yes — round-trip a real definition |
+| Reference positions missed: agent `inputs` (context paths, not ids), `pin_params` (fail-closed), learned-memory fields, omitted `config` | M7 | yes — enumerate the space (R-c) |
+| A helper's default materialised onto its caller, switching on behaviour the original lacked | M7 | yes — per-function declaration |
+| Generator could not create a fixture for a NEW version (create path not action-aware) | M6 | yes — the append path had a test, the create path did not |
+| Template rewriting changed ordinary config data → a step silently skipped | M7 | yes — execution equivalence |
+| Rewriter's identifier grammar narrower than the resolver's (`prépare`) | M3 | yes — grammar agreement (NOT YET BUILT) |
+| The "schema-derived" gate enumerated nothing | M6 | yes — R-b, a gate must be seen to fail |
+
 ### Self-inflicted, found by us mid-remediation (worth counting)
 
 Authorized-producer list written from memory (`record_invoice` for
@@ -117,22 +131,42 @@ passing on the first real change it should have caught** (corpus too narrow).
 
 ---
 
-## 3. Detectors — what we run before a package leaves
+## 3. Detectors — and the three rules that govern them
 
-The rule: **a class that has returned twice gets a detector, not a fix.**
+**The rule: a class that has returned TWICE gets a detector, not a fix.**
+Three further rules were learned the hard way and belong here, not in a
+round narrative, because they apply at the moment a detector is written:
+
+> **R-a. A detector in prose is not a detector.** Rounds 8 and 9 each
+> returned a class already in this ledger with its detector described in
+> words and never executed. If it is not a test, it does not exist.
+>
+> **R-b. A coverage claim must have been seen to FAIL.** M6 has recurred four
+> times, always as a test or document claiming coverage the code did not
+> provide. Every gate needs a **control** that demonstrates detection — add
+> the thing it should catch and watch it go red. A gate never observed
+> failing is a claim, not a control.
+>
+> **R-c. When a class recurs as "another instance we missed", the detector is
+> not another instance — it is an ENUMERATION of the space**, derived from
+> the schema or the source, with the deliberate exclusions written down. The
+> ownership table, the per-function reference declaration and the field
+> classification are all this shape: no default, unclassified fails the build.
 
 | For | Detector | State |
 |---|---|---|
-| M1 | **Provenance sweep.** For every field a projection RETAINS, name its producer in the ownership table. No entry = build failure. | ✅ built (`_OWNERSHIP`, totality test) |
-| M1 | **"Who wrote this?" pass.** For each retained field ask the question in words, not in a regex. Model-chosen and definition-derived values are guilty until declared. | manual; the §4 checklist |
-| M2 | **Forgery probe.** For every field WE generate, feed it back as hostile INPUT and assert it cannot carry a value. Prefer booleans; bound anything numeric. | partly built — generalise it |
-| M3 | **One-rule-one-owner sweep.** Grep every call site of a rule; assert predicates that must agree DO agree; fail on duplicated constants. | partly built |
-| M4 | **Golden version guard.** Output change without a version bump fails the build. | ✅ built — *and its corpus must be widened with every new behaviour* |
-| M5 | **Totality fuzz.** Every entry point, every asset kind, hostile values incl. unhashable types, at depth. | ✅ built (generative properties) |
-| M6 | **Claims register.** Every factual assertion in a guide, commit or capture must have an executed command behind it, pasted. No claim about a test without running that case. | **process — §4** |
-| M7 | **Round-trip probe.** Take a REAL artifact (a shipped workflow definition, a real step output) through the change and diff. Legitimate data must survive. | partly built — generalise it |
-
----
+| M1 | **Ownership table** — every retained field names its producer; no default | ✅ `test_every_declared_field_has_a_declared_owner` |
+| M1 | **Per-function reference declaration** — derived from source, drift fails | ✅ `test_function_reference_declaration_matches_the_source` |
+| M2 | **Forgery probe** — every generated field × every asset kind, fed back as hostile input | ✅ `test_M2_no_generated_field_can_carry_a_supplied_value` (found a defect the reviewer had not) |
+| M3 | **Predicate agreement** — functions answering the same question must agree | ✅ `test_M3_predicates_answering_the_same_question_agree` |
+| M3 | **Duplicate-definition sweep** — a watched constant may live in one module | ✅ `test_M3_version_constants_have_exactly_one_definition` — **gap: covers constants, not FUNCTIONS**; two live definitions of `_rewrite_context_path` cost a round-10 fix that appeared to do nothing |
+| M3 | **Grammar agreement** — two components parsing the same thing must accept the same language | ⬜ **not built**; the rewriter's identifier grammar was narrower than the resolver's (R10) |
+| M4 | **Golden version guard** — output change without a version bump fails | ✅ `test_projection_golden.py`, proven to fire twice; corpus must widen with new behaviour |
+| M5 | **Totality fuzz** — every entry point, hostile values, at depth | ✅ generative properties |
+| M6 | **Claims register + controls** — every factual claim executed before it is written; every gate has a control | ✅ protocol §4.2 + `test_the_classification_gate_fails_when_a_field_is_added` |
+| M7 | **Round-trip probe** — a REAL artifact through the change, diffed | ✅ `test_minting_every_real_shipped_definition_leaves_no_dangling_reference` (found the edge-alias no-op) |
+| M7 | **Execution equivalence** — the same run before and after a transformation | ✅ `test_a_config_literal_that_looks_like_a_template_is_not_rewritten` asserts the same steps ran |
+| — | **Schema-field classification** — every definition field classified, unclassified fails | ✅ with a control |
 
 ## 4. The pre-package protocol (our own "round 0")
 
@@ -143,8 +177,13 @@ Run before any package leaves. Roughly an hour; the returns cost days.
    for several pushes because the local set had four of five.)*
 2. **Execute every claim you are about to write.** Open the sidecar and, for
    each factual sentence, run the command that proves it and keep the output.
-   Delete any sentence you could not execute. *(Four of the reviewer's findings
-   were about our claims, not our code.)*
+   Delete any sentence you could not execute. *(M6 — four of the reviewer's
+   findings were about our claims, not our code.)*
+2b. **For every gate you cite as coverage, show it FAILING** (R-b). Add the
+   thing it should catch, watch it go red, put it back. A gate that has never
+   been observed failing does not belong in a claim. Read your own captured
+   evidence as a stranger would: a line that looks like a failure, or reads
+   as a pass without demonstrating the case, is an M6 finding waiting.
 3. **Forgery pass.** For each field the projection generates, supply it as
    input and confirm it cannot smuggle a value.
 4. **Round-trip pass.** Push a real definition and a real step output through
@@ -159,152 +198,82 @@ Run before any package leaves. Roughly an hour; the returns cost days.
 
 ---
 
-## 5. What we should NOT expect to self-detect
+## 5. The limit — and how it has moved
 
-Honesty about the limits keeps the protocol credible:
+**Written in round 7:** architectural verdicts and disclosure judgements are
+what detectors cannot produce, so the target is not zero rounds.
 
-- **Architectural verdicts.** "Shape cannot establish provenance" and "your
-  conclusion is too broad" were the two most valuable things the reviewer
-  produced, and both were judgement about the design's frame. Detectors do not
-  generate those.
-- **Deferral-boundary judgement.** The corrected B1 trigger came from someone
-  asking who can read a trace, not from a test.
-- **Whether a disclosure is appropriate.** Releasing `parse_ok` is a product
-  decision.
+**Still true, but no longer the binding constraint.** Rounds 8, 9 and 10
+produced **no architectural findings and no projection defects**. Every
+finding was M6 (a claim of ours that was not true) or M7 (a fix of ours that
+broke something else) — and both are classes our own protocol is supposed to
+catch. The limit that actually binds today is not the reviewer's judgement;
+it is our discipline about our own claims.
 
-**So the target is not zero rounds.** It is: arrive at round 1 with M1–M7
-already swept, so the rounds we do spend are spent on judgement rather than on
-defects we could have executed our way to.
+What genuinely remains outside self-detection:
 
----
+- **Architectural verdicts** — "shape cannot establish provenance", "your
+  conclusion is too broad", the corrected B1 trigger. The two most valuable
+  things this review produced, and neither came from a test.
+- **Whether a disclosure is appropriate** — releasing `parse_ok` is a product
+  decision, not a property.
+- **Whether our reasoning is inverted.** Round 10's template finding came from
+  a premise we had stated correctly and concluded backwards. A detector
+  cannot catch a wrong inference from a right fact; a reviewer can.
 
-## 5b. First result — the M2 detector found a defect the reviewer had not
+## 5b. Rounds 8–10, and what they cost us
 
-Written and run the same hour, the generalised M2 probe (every generated
-field × every asset kind × a set of values worth smuggling) failed **six
-ways** immediately:
+The narratives are compressed to their lessons; the findings themselves are
+rows in §2's tables.
 
-```
-projector_version:        "AKIAIOSFODNN7EXAMPLE"  -> survived
-projection_schema_version: 123456789              -> survived
-```
-
-The version STAMPS were declared inside the projected output, so a supplied
-value rode through as projection metadata. Checking the consumers before
-fixing (M7) showed **nothing ever read them from the JSON** — every consumer
-uses the row column — so an in-output copy was pure attack surface *and* a
-second source of truth for the stamp, which is precisely the duplication the
-original F5 was raised about. Removed; projector **v6**.
-
-It also produced a small lesson of its own: deleting the fields from the
-schemas removed the *boundary's* knowledge that a function may not emit them,
-so the reserved names now live in their own set — ownership of a NAME is a
-property of the projector, not of one asset schema.
-
-**This is the ledger working as intended.** The class was reported four times
-in different clothes; generalising it over every field and kind found an
-instance nobody had reported yet, before a package went out.
-
-## 5c. Round 8 — classified, and what it says about the detectors
-
-Three findings; **round-7's 1, 2, 3 and 5 closed**, 4 partially.
-
-| Finding | Class | Would a detector have caught it? |
+| Round | Findings | What it taught |
 |---|---|---|
-| Minting omitted dotted context paths (`evaluation_from`), so a renamed workflow parsed then FAILED — and omitting the key failed too, via the function's default | **M7** | **Yes, and we had the detector and didn't run it.** The ledger's own round-trip probe says "take a REAL artifact through the change and diff". A real definition would have shown it. We tested the helper, not a run. |
-| The golden `tool_call` case never invoked `safe_tool_call` — flat record, generic schema, frozen `{"_withheld_keys": true}` | **M6** | **Yes.** The case's NAME was the only true thing about it — the same fig leaf as the key-property test in round 4, one layer up. "Assert the function was called" is now a test. |
-| The historical fixture was generated from `4d9f39c` (the remediation written AFTER round 6), not `b67391d` (the archive they hold) — disagreeing on a case and on the schema version | **M6** | **Yes.** We asserted provenance we had not verified. Fixtures now re-derive from the commit they name. |
+| 8 | M6 ×2, M7 ×1 | Two were classes **already in this ledger** with a detector written in prose and never run. → **R-a**. |
+| 9 | M7 ×2, M6 ×1 | The reference model had been wrong three rounds running, always as "a position we missed". → **R-c**: enumerate the space. |
+| 10 | M7 ×2, M6 ×1 | A "schema-derived" gate that derived nothing; and our own round-9 reasoning inverted (`{…}` is a template form — in exactly ONE field). → **R-b**: a gate must be seen to fail. |
 
-**All three are M6/M7 — evidence and collateral damage — not new leaks.** The
-M1/M2/M3 detectors held: nothing in round 8 was a projection defect. That is
-the shape of progress, but two of the three were classes *already in this
-ledger with a detector written down and not run.*
+**The one time a detector paid for itself unprompted:** the M2 forgery probe,
+written from this document and run the same hour, failed six ways and found a
+defect no reviewer had reported — the projector version STAMPS were declared
+inside the projected output, where a supplied
+`projector_version: "AKIAIOSFODNN7EXAMPLE"` survived as projection metadata.
+Nothing read them from the JSON; every consumer uses the row column. Removed;
+projector v6. That is the pattern working: generalise a reported class over
+every field and kind, and it finds the instance nobody reported.
 
-**Correction to §3:** a detector that exists in prose is not a detector. The
-round-trip probe (M7) and "assert the function was actually called" (M6) are
-now executable tests, not protocol steps.
-
-## 5d. Round 9, and the audit that followed it
-
-Round 9's three findings were **M7** (minting collateral) ×2 and **M6**
-(a generator path with no test). Again: no projection defects. But the
-reference model had now been wrong in three consecutive rounds, always the
-same way — *a position nobody had thought of* — so the response was an audit
-of the surface rather than another position.
-
-**The method that replaces guessing:** enumerate every field of every
-definition model, put a reference in EVERY string-bearing position, mint, and
-assert which survive. What survives is either a deliberate exclusion or the
-next round's finding.
-
-Result: the executable surface is complete, and the five survivors are prose
-and sample data we decline to rewrite on purpose. Two gaps closed on the way —
-a delimited `prior_steps.<id>` (what an agent actually reads when a step
-declares no `inputs`), and confirmation that a draft already containing
-`step_1` is handled rather than assumed to be.
-
-**The generalisable lesson, added to §3:** when a class recurs as "another
-position we missed", the detector is not another position — it is an
-**enumeration of the space from the schema**, with the deliberate exclusions
-written down. The same shape as the ownership totality table: no default, and
-an unclassified member fails the build.
-
-| Round | Findings | Class |
-|---|---|---|
-| 7 | 5 | projection defects (M1/M2/M3) |
-| 8 | 3 | M6 evidence ×2, M7 collateral ×1 |
-| 9 | 3 | M7 ×2, M6 ×1 |
-
-Three rounds without a projection defect, and the mechanisms have moved from
-"the thing under review is wrong" to "our tooling around it is wrong". That is
-progress worth naming, and also the argument for the audit: M6/M7 are the
-classes our own protocol is supposed to catch.
-
-## 5e. Round 10 — and the uncomfortable pattern in M6
-
-Three findings: two M7 (minting collateral) and one **M6**. Still no
-projection defect — four rounds running.
-
-| Finding | Class | Note |
-|---|---|---|
-| Template rewriting changed ordinary config data, silently skipping a step | M7 | Our OWN reasoning from round 9: "`{…}` is a platform template form, so rewriting it anywhere is safe." The premise was right; the engine renders placeholders in exactly ONE field. |
-| Identifier grammar narrower than execution (`prépare`) | M1-ish | The rewriter's regex vs the resolver's `split(".")`. A **grammar mismatch between two components that must agree** — the M3 shape, one level up. |
-| The "schema-derived" gate enumerated nothing | **M6** | It built a handwritten dict. Adding a field to `AgenticStep` did not fail it. |
-
-**The pattern worth naming: M6 has now happened four times, always the same
-way.** A test or a document claims coverage that the code does not provide —
-the key-property test (R4), "whole-word" in a guide (R6), the tool-call golden
-case (R8), and now a "schema-derived" gate that derives nothing. Each time the
-NAME was the only true part.
-
-**The rule this adds to §3:** *a claim about coverage must be executable and
-must have been seen to FAIL.* Every gate now needs a control that
-demonstrates detection — the round-10 fix ships one (add a field to a real
-model, assert the gate fires). A gate that has never been observed failing is
-a claim, not a control.
-
-**And a smaller one:** two definitions of `_rewrite_context_path` coexisted,
-with Python using the stale one — which is why the first attempt at the fix
-appeared to do nothing. The M3 duplicate-definition detector covers watched
-CONSTANTS; it does not cover functions. Worth extending.
+**And the honest counterweight:** in rounds 8, 9 and 10 the self-audit caught
+things *before* sending (the delimited-rewrite over-reach, `prior_steps`, the
+id collision, a misleading probe line in our own gate capture) — but the
+reviewer still found three each time, and every one was a class we had named.
 
 ## 6. Convergence record
 
-Tracked so the claim "we are learning" is measurable rather than asserted.
+Tracked so "we are learning" stays measurable rather than asserted.
 
-| Round | Findings returned | Of which we could have self-detected |
-|---|---|---|
-| 1–3 | ~20 | most |
-| 4 + re-review | 11 | most |
-| 4-confirm | 4 (2 about our evidence) | 2 |
-| 5 | 6 | 6 |
-| 6 | 3 + the architecture | 3 |
-| 7 | 5 | 5 |
-| 8 | 3 (all M6/M7 — evidence + collateral, no new leaks) | 3 |
-| 9 | 3 (M7 ×2, M6 ×1 — still no projection defect) | 3 |
-| 10 | 3 (M7 ×2, M6 ×1 — four rounds with no projection defect) | 3 |
+| Round | Findings | Mechanisms | Projection defects |
+|---|---|---|---|
+| 1–3 | ~20 | M1/M2/M3/M5 | many |
+| 4 + re-review | 11 | M1/M2/M3 | many |
+| 4-confirm | 4 | 2 × M6 | 0 (dispositions + corrections) |
+| 5 | 6 | M1/M2/M3/M4/M5/M7 | several |
+| 6 | 3 + the §4.4 architecture | M3/M4/M7 | 1 |
+| 7 | 5 | M1/M2/M3/M4/M7 | several |
+| 8 | 3 | M6 ×2, M7 | **0** |
+| 9 | 3 | M7 ×2, M6 | **0** |
+| 10 | 3 | M7 ×2, M6 | **0** |
 
-**The trend to watch:** volume is falling, but the proportion we *could* have
-caught ourselves is rising — round 5 onward is almost entirely self-detectable.
-That is the gap this protocol closes. Target for the next epic: **≤5 rounds,
-with no M6 finding at all.**
+**The trend that matters:** volume flat at three, but **four consecutive
+rounds with no defect in the thing under review**. The work has moved to the
+tooling around it — which is real progress and also the indictment, because
+M6 and M7 are precisely what §4 exists to catch before sending.
+
+**Target for the next epic: ≤5 rounds and zero M6.** On the evidence, M6 is
+the one that decides whether that is achievable: it has appeared in four
+rounds, every time as a name that was the only true part of a claim.
+
+### When to stop reviewing
+
+Worth stating so the line is not extended out of habit: this epic should end
+when a round returns **no finding that a detector in §3 could have caught**.
+Rounds 8–10 do not meet that bar — every finding was a named class. That is
+the test, not round count.
