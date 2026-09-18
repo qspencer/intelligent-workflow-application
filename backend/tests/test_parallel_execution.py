@@ -7,7 +7,6 @@ that are still in flight; downstream dependents must not start.
 from __future__ import annotations
 
 import asyncio
-import time
 from typing import Any
 
 from tests._bedrock_fakes import FakeBedrock
@@ -27,12 +26,26 @@ from workflow_platform.world import mock_world
 
 
 async def test_two_independent_steps_run_concurrently() -> None:
-    """Two leaf steps with no edge between them should run in parallel."""
+    """Two leaf steps with no edge between them should run in parallel.
+
+    Asserted by OBSERVED OVERLAP rather than wall-clock. The timing form did
+    discriminate — sequential 0.4s against a 0.35s threshold — but it bought
+    that with 0.05s of margin, and the sibling diamond test (0.30s against
+    0.25s) flaked once in four full runs under load. A peak concurrency of 2
+    is unreachable sequentially and needs no slack at all.
+    `test_a_SEQUENTIAL_topology_shows_no_overlap` is the control.
+    """
     repos = in_memory_repositories()
     fns = FunctionRegistry()
+    running = 0
+    peak = 0
 
     async def slow(config: dict[str, Any], ctx: Any, world: Any) -> dict[str, Any]:
-        await asyncio.sleep(0.2)
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.01)  # a yield point, so overlap is possible at all
+        running -= 1
         return {"ok": True}
 
     fns.register("slow", slow)
@@ -57,13 +70,11 @@ async def test_two_independent_steps_run_concurrently() -> None:
         world=mock_world(),
     )
 
-    start = time.perf_counter()
     instance = await engine.run(definition)
-    elapsed = time.perf_counter() - start
 
     assert instance.state == WorkflowInstanceState.COMPLETED
-    # Sequential would be ~0.4s; parallel should be ~0.2s (allow generous slack).
-    assert elapsed < 0.35, f"Expected parallel (<0.35s), got {elapsed:.3f}s"
+    assert peak == 2, f"the two roots never overlapped (peak {peak}) — they ran in series"
+    assert running == 0, "a step did not finish"
 
 
 async def test_failure_in_one_branch_cancels_pending_siblings() -> None:
@@ -123,15 +134,27 @@ async def test_failure_in_one_branch_cancels_pending_siblings() -> None:
 
 
 async def test_diamond_topology_runs_branches_in_parallel() -> None:
-    """A → {B, C} → D : B and C must run in parallel."""
+    """A → {B, C} → D : B and C must run in parallel.
+
+    Overlap, not wall-clock — see the note on
+    `test_two_independent_steps_run_concurrently`. This is the one that
+    actually flaked: 0.15s sleeps against a 0.25s threshold left 0.10s of
+    margin, which a loaded machine can eat.
+    """
     repos = in_memory_repositories()
     fns = FunctionRegistry()
+    running = 0
+    peak = 0
 
     async def step_a(config: dict[str, Any], ctx: Any, world: Any) -> dict[str, Any]:
         return {"v": 0}
 
     async def step_branch(config: dict[str, Any], ctx: Any, world: Any) -> dict[str, Any]:
-        await asyncio.sleep(0.15)
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.01)
+        running -= 1
         return {"v": 1}
 
     async def step_d(config: dict[str, Any], ctx: Any, world: Any) -> dict[str, Any]:
@@ -168,14 +191,12 @@ async def test_diamond_topology_runs_branches_in_parallel() -> None:
         world=mock_world(),
     )
 
-    start = time.perf_counter()
     instance = await engine.run(definition)
-    elapsed = time.perf_counter() - start
 
     assert instance.state == WorkflowInstanceState.COMPLETED
-    assert instance.context["steps"]["d"]["v"] == 2
-    # 2 sequential branch calls = 0.3s; parallel = 0.15s.
-    assert elapsed < 0.25, f"Expected parallel branches, got {elapsed:.3f}s"
+    assert instance.context["steps"]["d"]["v"] == 2, "the join did not see both branches"
+    assert peak == 2, f"b and c never overlapped (peak {peak}) — they ran in series"
+    assert running == 0, "a branch did not finish"
 
     steps = await repos.steps.list_by_instance(instance.id)
     assert all(s.state == StepExecutionState.COMPLETED for s in steps)
@@ -231,3 +252,55 @@ async def test_unexpected_exception_cancels_mutating_sibling() -> None:
     assert steps["a"].state == StepExecutionState.FAILED
     assert steps["a"].error == "not a StepFailure"
     assert steps["b"].state == StepExecutionState.CANCELLED
+
+
+async def test_a_SEQUENTIAL_topology_shows_no_overlap() -> None:
+    """CONTROL for the two overlap assertions above.
+
+    Same engine, same instrumented function — but a CHAIN, which the DAG
+    forces into series. If the counter reported 2 here, the parallel
+    assertions would be measuring nothing. Deliberately a real run rather
+    than arithmetic on an already-computed value: round 12 called out a
+    control that did set arithmetic and exercised no behaviour.
+    """
+    repos = in_memory_repositories()
+    fns = FunctionRegistry()
+    running = 0
+    peak = 0
+
+    async def observed(config: dict[str, Any], ctx: Any, world: Any) -> dict[str, Any]:
+        nonlocal running, peak
+        running += 1
+        peak = max(peak, running)
+        await asyncio.sleep(0.01)
+        running -= 1
+        return {"ok": True}
+
+    fns.register("observed", observed)
+    definition = load_definition(
+        {
+            "id": "wf",
+            "name": "wf",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {"id": "a", "type": "deterministic", "function": "observed"},
+                {"id": "b", "type": "deterministic", "function": "observed"},
+                {"id": "c", "type": "deterministic", "function": "observed"},
+            ],
+            "edges": [{"from": "a", "to": "b"}, {"from": "b", "to": "c"}],
+        }
+    )
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=fns,
+        tools=ToolCatalog(),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+    )
+    instance = await engine.run(definition)
+
+    assert instance.state == WorkflowInstanceState.COMPLETED
+    assert peak == 1, (
+        f"a chain reported peak concurrency {peak} — the counter cannot tell "
+        "parallel from sequential, so the assertions above prove nothing"
+    )
