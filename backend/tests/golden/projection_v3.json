@@ -1,0 +1,247 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "category_score": 4,
+        "concern_count": 2,
+        "cost_usd": 0.01,
+        "faithfulness_score": 5,
+        "model": "haiku",
+        "needs_tests": true,
+        "parse_ok": true,
+        "usage": {
+          "input_tokens": 10,
+          "iterations": 3,
+          "output_tokens": 2
+        }
+      },
+      "id": "step_output.engine_and_business",
+      "input": {
+        "category_score": 4,
+        "concern_count": 2,
+        "cost_usd": 0.01,
+        "faithfulness_score": 5,
+        "model": "haiku",
+        "needs_tests": true,
+        "parse_ok": true,
+        "usage": {
+          "input_tokens": 10,
+          "iterations": 3,
+          "output_tokens": 2
+        }
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true,
+        "model": "haiku"
+      },
+      "id": "step_output.free_text_is_raw",
+      "input": {
+        "model": "haiku",
+        "output_text": "SYNTHETIC raw body",
+        "summary": "SYNTHETIC"
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "usage": {
+          "_withheld_keys": true
+        }
+      },
+      "id": "step_output.token_shaped_key",
+      "input": {
+        "usage": {
+          "AKIAIOSFODNN7EXAMPLE": 1
+        }
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true,
+        "model": "m"
+      },
+      "id": "step_output.hostile_key",
+      "input": {
+        "a key with spaces": "x",
+        "model": "m"
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true,
+        "model": "m"
+      },
+      "id": "step_output.withheld_current",
+      "input": {
+        "_withheld_keys": true,
+        "model": "m"
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true,
+        "model": "m"
+      },
+      "id": "step_output.withheld_legacy",
+      "input": {
+        "_withheld_key_count": 3,
+        "model": "m"
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true
+      },
+      "id": "step_output.withheld_forged",
+      "input": {
+        "_withheld_keys": 123456789
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "dry_run": false,
+        "steps": {
+          "eval": {
+            "_withheld_keys": true,
+            "faithfulness_score": 5,
+            "model": "m"
+          }
+        },
+        "total_tokens": 12,
+        "workflow_id": "wf"
+      },
+      "id": "context.nested_business",
+      "input": {
+        "dry_run": false,
+        "steps": {
+          "eval": {
+            "faithfulness_score": 5,
+            "model": "m",
+            "output_text": "SYNTHETIC"
+          }
+        },
+        "total_tokens": 12,
+        "workflow_id": "wf"
+      },
+      "kind": "context"
+    },
+    {
+      "expected": {
+        "id": "row-1",
+        "output": {
+          "faithfulness_score": 5,
+          "model": "m"
+        },
+        "state": "completed",
+        "step_id": "classify"
+      },
+      "id": "step_row.nested_business",
+      "input": {
+        "id": "row-1",
+        "output": {
+          "faithfulness_score": 5,
+          "model": "m"
+        },
+        "state": "completed",
+        "step_id": "classify"
+      },
+      "kind": "step_row"
+    },
+    {
+      "expected": {
+        "context": {
+          "steps": {
+            "s": {
+              "model": "m",
+              "relevance_score": 3
+            }
+          }
+        },
+        "id": "inst-1",
+        "state": "completed",
+        "total_tokens": 3,
+        "trigger_payload": {
+          "_redacted": "raw trigger payload withheld (raw-trace privilege only)",
+          "id": "[redacted \u2014 raw-trace grant required]"
+        },
+        "workflow_id": "wf"
+      },
+      "id": "instance.nested_context",
+      "input": {
+        "context": {
+          "steps": {
+            "s": {
+              "model": "m",
+              "relevance_score": 3
+            }
+          }
+        },
+        "id": "inst-1",
+        "state": "completed",
+        "total_tokens": 3,
+        "trigger_payload": {
+          "body": "SYNTHETIC",
+          "id": "sk_live_SYNTHETIC",
+          "type": "webhook"
+        },
+        "workflow_id": "wf"
+      },
+      "kind": "instance"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true
+      },
+      "id": "audit_detail.tool_call",
+      "input": {
+        "input": {
+          "path": "/x"
+        },
+        "name": "file_read",
+        "pin_overrides": [
+          "path"
+        ],
+        "pinned": [
+          "path"
+        ],
+        "result": {
+          "text": "SYNTHETIC"
+        }
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true,
+        "grant_id": "g-1",
+        "kinds": [
+          "step_output"
+        ],
+        "purpose": "investigation"
+      },
+      "id": "audit_detail.governance",
+      "input": {
+        "error": "SYNTHETIC trace",
+        "grant_id": "g-1",
+        "kinds": [
+          "step_output"
+        ],
+        "purpose": "investigation",
+        "query": "SYNTHETIC correspondent"
+      },
+      "kind": "audit_detail"
+    }
+  ],
+  "generated_from": "git 4d9f39c \u2014 the round-6 projector, as it shipped",
+  "note": "HISTORICAL. Regenerated from the archived source, not hand-written. Frozen so the degradation property is tested against a real older projection rather than skipped.",
+  "projection_schema_version": 2,
+  "projector_version": "3"
+}
