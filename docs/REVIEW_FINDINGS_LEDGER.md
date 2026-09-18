@@ -277,7 +277,37 @@ Tracked so "we are learning" stays measurable rather than asserted.
 | — (self-found, audit-vault build) | 1 | **M8 (new)** | n/a |
 | — (self-found, at-rest tightening) | 2 | M6 ×2 | n/a |
 | — (self-found, round-12 pre-package) | 3 | M1, M4, M6 | n/a |
-| 12 | *out* | — | — |
+| 12 | 5 (3×P1) | M1, M3, M6 ×2, M7 | n/a (new subject) |
+
+**Round 12 broke the streak, and deserved to.** Five findings, three P1, on
+the first round of a NEW subject. The pattern across them is one thing:
+**every P1 was a half-built path that our own tests observed from the wrong
+side.**
+
+- We built audit vaulting (write) and never built recovery (read), then
+  claimed "recoverable with a grant" in the sidecar without executing it.
+  That claim was not in the §4.2 claims pass — the pass covered claims about
+  code we had written, not about behaviour we had assumed.
+- We fixed the flip across six tools and did not ask what ELSE `main.py`
+  does that they do not. The answer was key installation, and the same class
+  (M3) bit twice in one epic.
+- The recovery gate, once built, was first written as
+  `audit_detail_has_raw(stored_detail)` — which is always false, because
+  stored is already projected. **Third instance of the same fixed-point
+  mistake** (the vacuous invariant, the vaulting gate, this). It now has a
+  name: asking a projection predicate about an already-projected value
+  answers about the projection, not the original.
+- The writer inventory "cross-check" was a grep for `audit.append(` against
+  an AST scan for a receiver named `audit` — the same assumption in two
+  syntaxes. **Two methods agreeing is worthless when they share a blind
+  spot**; discovery must key on something structural (the TYPE constructed),
+  not on a name.
+
+**New rule, R-e: a claim about a READ path must be executed through the read
+path.** Every round-12 P1 would have been caught by one end-to-end test that
+a grant holder gets the raw back — the test the write-path work never wrote.
+
+---
 
 **The trend that matters:** volume down to two, and **four consecutive
 rounds with no defect in the thing under review**. The work has moved to the
