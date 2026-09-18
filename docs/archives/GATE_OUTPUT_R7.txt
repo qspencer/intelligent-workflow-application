@@ -1,0 +1,39 @@
+Captured standalone gate results — F1/F5 review round 7
+
+Gates ran at tree: c8eda52d1b130564a55a0ba15490935fee116a94
+Source verified by docs/archives/CODE_MANIFEST_R7.txt — check it from the
+extracted package with no git, which is what round 6 asked for:
+    cd backend && find src tests -name '*.py' -type f | sort | xargs sha256sum | sha256sum
+    expect: 75b1c3af3505cb89f657fde81f2b97ab358ac3b9bd36ec96b7251dca8d7d30c5
+
+Exit codes: each command writes to a file and $? is read IMMEDIATELY,
+before any pipe. (Round 5 printed tail's status and reported a red tree
+as clean.)
+
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · 2026-09-18T18:04:40Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+263 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 225 source files
+exit: 0
+
+=== uv run pytest -q ===
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+1074 passed, 14 skipped, 13 warnings in 54.87s
+exit: 0
+
+=== ownership typing + the round-6 reproductions, on this tree ===
+step 's' (function 'noop') returned engine-owned field(s) ['memory_hash', 'model', 'usage']; dropped at the ownership boundary — a function cannot produce engine metadata.
+ classes        : ['engine', 'config', 'business', 'projection']
+ fields typed   : 57 across 4 kinds
+ released       : ['parse_ok'] (each with a stated rule)
+ noop hole      : {'copied_to': ['/a']}
+ business held  : {"model": "haiku", "parse_ok": true, "_withheld_keys": true}
