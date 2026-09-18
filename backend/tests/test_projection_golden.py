@@ -203,8 +203,19 @@ def test_historical_fixtures_are_authentic_against_their_declared_source() -> No
     import sys
 
     for version, fixture in _fixtures().items():
+        source = str(fixture.get("generated_from", ""))
         if version == PROJECTOR_VERSION:
-            continue
+            # Round-12: the CURRENT version used to be skipped outright, so a
+            # wrong stamp stayed latent until the NEXT bump and then surfaced
+            # as "v7 names a commit declaring 6". v7 AND v8 both shipped that
+            # way. It is legitimately unverifiable only while the bump is
+            # uncommitted, and the generator now says so in those words.
+            if source.startswith("UNVERIFIED"):
+                continue
+            assert source.startswith("git "), (
+                f"v{version} is current and names no source commit; the generator "
+                "records 'UNVERIFIED — …' for that, so this stamp is neither"
+            )
         source = str(fixture.get("generated_from", ""))
         commit = source.split()[1] if source.startswith("git ") else ""
         assert commit, f"v{version} fixture does not name its source commit"
@@ -275,4 +286,24 @@ def test_the_generator_can_create_a_fixture_for_a_NEW_version(tmp_path: Path) ->
     assert data["cases"], "wrote a fixture with no cases"
     assert any(c.get("action") for c in data["cases"]), (
         "the created fixture lost the action-dispatched cases"
+    )
+
+
+def test_every_corpus_case_is_frozen_in_the_current_golden() -> None:
+    """A corpus case that is not in the golden protects NOTHING.
+
+    Found by the round-12 pre-package corpus review (protocol step 6). THE
+    GUARD above iterates the FIXTURE's cases, so adding a case to the corpus
+    and forgetting to regenerate leaves it silently unchecked — the widening
+    looks done and buys nothing. Three cases covering the fields the at-rest
+    tightening declared sat in exactly that state until this was noticed.
+    """
+    from tests._projection_corpus import CORPUS
+
+    frozen = {c["id"] for c in _fixtures()[PROJECTOR_VERSION]["cases"]}
+    missing = sorted({c[0] for c in CORPUS} - frozen)
+    assert not missing, (
+        f"these corpus cases are not frozen in projector v{PROJECTOR_VERSION}, so the "
+        f"guard never evaluates them: {missing}\n"
+        "    uv run python tools/update_projection_golden.py"
     )

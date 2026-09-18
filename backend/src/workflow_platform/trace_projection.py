@@ -316,7 +316,14 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "7"  # v7: the AT-REST AUDIT TIGHTENING (2026-09-18).
+PROJECTOR_VERSION = "8"  # v8: the five fields v7 declared used `_ID`, which
+# admits `@` (it exists for operator-identity paths). They are ROUTING ids, so
+# the rule at `_OPAQUE_ID_RE` says `_short_token`. Caught by the round-12
+# forgery pass, not by a reviewer: `from_step_id: "victim@example.com"`
+# survived at rest and to grant-less readers. v7 is already stamped on
+# production rows, so this is a new version rather than an edit.
+#
+# v7: the AT-REST AUDIT TIGHTENING (2026-09-18).
 # `project_audit_detail_at_rest` was a denylist, so anything unlisted passed
 # through and at rest held strictly MORE than a grant-less reader could see —
 # the model-chosen tool name among it. It is now the read path itself. Five
@@ -671,12 +678,20 @@ _AUDIT_DETAIL = Obj(
         # `original_id` links `escalation_resolved` back to its request and
         # the escalations API filters on it, so withholding it would not hide
         # the link — it would BREAK resolution, permanently.
-        "original_id": _ID,
+        # `_TOKEN`, NOT `_ID`: these are ROUTING ids. `_ID`/`_OPAQUE_ID_RE`
+        # admits `@` because operator-identity paths (`actor_id`, `sub`)
+        # legitimately hold an email; the rule stated at `_OPAQUE_ID_RE` is
+        # that routing and model/state fields use `_short_token` instead.
+        # They were `_ID` for half an hour and the round-12 forgery pass
+        # caught it: a step id of `victim@example.com` passed through at rest
+        # AND to grant-less readers. Step ids come from the definition, which
+        # a scaffolded or imported workflow does not fully control.
+        "original_id": _TOKEN,
         # Fork lineage + connector identity: the operator trail pinned by
         # `test_operational_detail_is_untouched_at_rest`.
-        "source_instance_id": _ID,
-        "from_step_id": _ID,
-        "preserved_step_ids": Seq(_ID),
+        "source_instance_id": _TOKEN,
+        "from_step_id": _TOKEN,
+        "preserved_step_ids": Seq(_TOKEN),
         "connector": _TOKEN,
         "trigger": TriggerPayload(),
         "trigger_payload": TriggerPayload(),

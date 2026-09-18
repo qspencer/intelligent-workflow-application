@@ -157,6 +157,48 @@ CORPUS: list[tuple[Any, ...]] = [
         {"reason": "SYNTHETIC reason", "context": {"body": "SYNTHETIC"}, "grant_id": "g-1"},
         "escalation_requested",
     ),
+    # --- the five fields DECLARED by the 2026-09-18 at-rest tightening.
+    # Added because the pre-package corpus review (protocol step 6) found the
+    # golden guard stayed GREEN when `original_id` was undeclared: behaviour
+    # had changed in a range the corpus did not reach, so the guard could not
+    # see a regression in the only fields the tightening released.
+    (
+        "at_rest.escalation_resolved_link",
+        "audit_detail",
+        {"original_id": "esc-1", "resolution": "SYNTHETIC free text"},
+        "escalation_resolved",
+    ),
+    (
+        "at_rest.fork_lineage_trail",
+        "audit_detail",
+        {
+            "source_instance_id": "i-1",
+            "from_step_id": "b",
+            "preserved_step_ids": ["a", "b"],
+            "note": "SYNTHETIC free text",
+        },
+        "workflow_forked",
+    ),
+    # The range v8 changed. Without a case holding an `@`, the corpus cannot
+    # see the difference between `_ID` (admits an email) and `_TOKEN` (does
+    # not) on a routing id — which is how v7 shipped the wrong validator.
+    (
+        "at_rest.routing_id_cannot_hold_an_email",
+        "audit_detail",
+        {
+            "from_step_id": "victim@example.com",
+            "source_instance_id": "also@example.com",
+            "preserved_step_ids": ["ok-1", "leak@example.com"],
+            "original_id": "esc@example.com",
+        },
+        "workflow_forked",
+    ),
+    (
+        "at_rest.connector_identity",
+        "audit_detail",
+        {"connector": "browser", "detail": "SYNTHETIC free text"},
+        "connector_opened",
+    ),
     (
         "audit_detail.governance",
         "audit_detail",

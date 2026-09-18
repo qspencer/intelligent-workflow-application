@@ -95,10 +95,37 @@ def main() -> int:
     head = subprocess.run(
         ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True
     ).stdout.strip()
+    # Round-12 pre-package finding: stamping HEAD blindly writes a LIE the
+    # common way this tool is used — you bump the version, regenerate, then
+    # commit, so HEAD is the commit BEFORE the bump and declares the previous
+    # version. `test_historical_fixtures_are_authentic_against_their_declared_source`
+    # skips the CURRENT version, so the lie stays latent until the NEXT bump,
+    # then surfaces as "v7 names a commit declaring 6". v7 and v8 both had it.
+    # Verify instead of assuming; say so loudly rather than writing a
+    # plausible-looking commit that cannot reproduce the fixture.
+    if head:
+        declared = subprocess.run(
+            ["git", "show", f"{head}:backend/src/workflow_platform/trace_projection.py"],
+            capture_output=True,
+            text=True,
+        ).stdout
+        marker = f'PROJECTOR_VERSION = "{PROJECTOR_VERSION}"'
+        if marker not in declared:
+            print(
+                f"  WARNING: HEAD ({head}) does not declare PROJECTOR_VERSION="
+                f"{PROJECTOR_VERSION}, so it cannot reproduce this fixture.\n"
+                f"  Recording the stamp as UNVERIFIED. Commit the bump, then re-run\n"
+                f"  this tool to record the commit that actually froze the version."
+            )
+            head = ""
     payload = {
         "projector_version": PROJECTOR_VERSION,
         "projection_schema_version": PROJECTION_SCHEMA_VERSION,
-        "generated_from": f"git {head} — the commit that froze this version" if head else "",
+        "generated_from": (
+            f"git {head} — the commit that froze this version"
+            if head
+            else "UNVERIFIED — regenerate after committing the version bump"
+        ),
         # R9 P2: the append path was action-aware and this one was not, so
         # creating a fixture for a NEW version raised "too many values to
         # unpack" on the first 4-element corpus entry and wrote nothing.

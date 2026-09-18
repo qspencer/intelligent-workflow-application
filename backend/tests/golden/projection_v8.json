@@ -382,27 +382,6 @@
       "kind": "audit_detail"
     },
     {
-      "expected": {
-        "_withheld_keys": true,
-        "grant_id": "g-1",
-        "kinds": [
-          "step_output"
-        ],
-        "purpose": "investigation"
-      },
-      "id": "audit_detail.governance",
-      "input": {
-        "error": "SYNTHETIC trace",
-        "grant_id": "g-1",
-        "kinds": [
-          "step_output"
-        ],
-        "purpose": "investigation",
-        "query": "SYNTHETIC correspondent"
-      },
-      "kind": "audit_detail"
-    },
-    {
       "action": "escalation_resolved",
       "expected": {
         "_withheld_keys": true,
@@ -439,6 +418,29 @@
       "kind": "audit_detail"
     },
     {
+      "action": "workflow_forked",
+      "expected": {
+        "from_step_id": "[redacted \u2014 raw-trace grant required]",
+        "original_id": "[redacted \u2014 raw-trace grant required]",
+        "preserved_step_ids": [
+          "ok-1",
+          "[redacted \u2014 raw-trace grant required]"
+        ],
+        "source_instance_id": "[redacted \u2014 raw-trace grant required]"
+      },
+      "id": "at_rest.routing_id_cannot_hold_an_email",
+      "input": {
+        "from_step_id": "victim@example.com",
+        "original_id": "esc@example.com",
+        "preserved_step_ids": [
+          "ok-1",
+          "leak@example.com"
+        ],
+        "source_instance_id": "also@example.com"
+      },
+      "kind": "audit_detail"
+    },
+    {
       "action": "connector_opened",
       "expected": {
         "_withheld_keys": true,
@@ -450,9 +452,30 @@
         "detail": "SYNTHETIC free text"
       },
       "kind": "audit_detail"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true,
+        "grant_id": "g-1",
+        "kinds": [
+          "step_output"
+        ],
+        "purpose": "investigation"
+      },
+      "id": "audit_detail.governance",
+      "input": {
+        "error": "SYNTHETIC trace",
+        "grant_id": "g-1",
+        "kinds": [
+          "step_output"
+        ],
+        "purpose": "investigation",
+        "query": "SYNTHETIC correspondent"
+      },
+      "kind": "audit_detail"
     }
   ],
-  "generated_from": "git 1c348d6 \u2014 the commit that froze this version",
+  "generated_from": "UNVERIFIED \u2014 regenerate after committing the version bump",
   "projection_schema_version": 2,
-  "projector_version": "7"
+  "projector_version": "8"
 }
