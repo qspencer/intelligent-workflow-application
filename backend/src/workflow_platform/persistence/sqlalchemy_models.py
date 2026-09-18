@@ -9,7 +9,17 @@ from __future__ import annotations
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy import true as sa_true
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
@@ -188,6 +198,9 @@ class RawTraceRow(Base):
         index=True,
     )
     step_attempt_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # Set ONLY on AUDIT_DETAIL rows (see RawTrace.audit_entry_id). Indexed
+    # with org_id because every read of it is org-scoped.
+    audit_entry_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     kind: Mapped[str] = mapped_column(String(32), nullable=False)
     state: Mapped[str] = mapped_column(String(32), nullable=False)
     idempotency_key: Mapped[str] = mapped_column(String(128), nullable=False, unique=True)
@@ -202,3 +215,5 @@ class RawTraceRow(Base):
     # holding a key. NULL on pre-P4 rows.
     content_commitment: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    __table_args__ = (Index("ix_raw_traces_audit_entry", "org_id", "audit_entry_id"),)

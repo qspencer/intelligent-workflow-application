@@ -68,7 +68,7 @@ from workflow_platform.trace_projection import (
     safe_trigger_payload,
 )
 from workflow_platform.trace_rehydrate import RawTraceRehydrator
-from workflow_platform.trace_vault import RawTraceVault
+from workflow_platform.trace_vault import RawTraceVault, audit_detail_has_raw
 from workflow_platform.workflow import (
     AgenticStep,
     DeterministicStep,
@@ -79,6 +79,11 @@ from workflow_platform.workflow import (
 from workflow_platform.world import World
 
 logger = logging.getLogger(__name__)
+
+#: Bound on the instance->org memo used by audit vaulting. Cleared wholesale
+#: when exceeded: this is a lookup cache, not state, so dropping it costs one
+#: query per instance and never changes behaviour.
+_AUDIT_ORG_CACHE_MAX = 4096
 
 
 class _PauseRequested(Exception):
@@ -178,10 +183,12 @@ class WorkflowEngine:
     # default flips at the external-org gate.
     trace_safe_only: bool = False
     _vault: RawTraceVault = field(init=False)
+    _audit_org_cache: dict[str, str] = field(init=False, default_factory=dict)
     _rehydrator: RawTraceRehydrator = field(init=False)
 
     def __post_init__(self) -> None:
         self._vault = RawTraceVault(self.repositories)
+        self._audit_org_cache = {}
         self._rehydrator = RawTraceRehydrator(self.repositories)
 
     # --- public API ---
@@ -1678,6 +1685,27 @@ class WorkflowEngine:
         instance.error = error
         return await self.repositories.instances.update(instance)
 
+    async def _org_for_audit(self, instance_id: str) -> str:
+        """Owning org of the instance an audit entry belongs to, for the vault.
+
+        FAILS CLOSED. Guessing `DEFAULT_ORG_ID` here would write another
+        tenant's raw under the default org — an isolation violation, and a
+        silent one. Every engine audit write happens after the instance row
+        exists, so an unresolvable id is a bug; raising makes it the step's
+        failure rather than a quietly misfiled vault row. Only reached when
+        there is something to vault.
+        """
+        cached = self._audit_org_cache.get(instance_id)
+        if cached is not None:
+            return cached
+        instance = await self.repositories.instances.get(instance_id)
+        if instance is None:
+            raise ValueError(f"cannot resolve the owning org of instance {instance_id!r}")
+        if len(self._audit_org_cache) >= _AUDIT_ORG_CACHE_MAX:
+            self._audit_org_cache.clear()
+        self._audit_org_cache[instance_id] = instance.org_id
+        return instance.org_id
+
     async def _audit(
         self,
         action: str,
@@ -1688,16 +1716,45 @@ class WorkflowEngine:
         step_id: str | None = None,
         detail: dict[str, Any] | None = None,
     ) -> None:
-        stored_detail = dict(detail or {})
+        raw_detail = dict(detail or {})
+        stored_detail = raw_detail
+        # The entry id is minted HERE, before any I/O, because the vault row is
+        # addressed BY it. Ordering matters and is the reverse of what this
+        # method used to do (project, then construct): mint id -> vault the raw,
+        # durable-or-fail -> project -> append. Vaulting first is the same rule
+        # the step-output path follows — a lost raw write must FAIL the step,
+        # not silently drop the raw.
+        entry_id = _new_id()
         # F4 (G-Trace-Review-4): under the flip EVERY raw audit write is projected
         # at rest — retry `str(exc)`, connector/timeout exceptions, memory-recall
         # errors, pin-override params, tool_call input/result. One shared
         # action-aware projection, the same the verifier uses, so no raw lands in
         # `audit_log.detail` and operational metadata is preserved.
         if self.trace_safe_only:
-            stored_detail = project_audit_detail_at_rest(action, stored_detail)
+            stored_detail = project_audit_detail_at_rest(action, raw_detail)
+            # Vault BEFORE the append, and ONLY when something would be lost.
+            # Scoped by the FINAL policy, NOT by the at-rest diff above: today's
+            # at-rest denylist passes the motivating detail through UNCHANGED,
+            # so gating on it would vault nothing and the raw would be destroyed
+            # the moment at-rest tightens. Round 11 named this trap; gating on
+            # the at-rest diff is precisely how one walks into it.
+            if audit_detail_has_raw(action, raw_detail):
+                if instance_id is None:
+                    # The vault is instance-scoped, so there is nowhere safe to
+                    # put this raw. Fail rather than project it away silently.
+                    raise ValueError(
+                        f"audit action {action!r} carries raw that projection would "
+                        "remove, but the entry has no instance to vault it against"
+                    )
+                await self._vault.record_audit_detail(
+                    org_id=await self._org_for_audit(instance_id),
+                    instance_id=instance_id,
+                    audit_entry_id=entry_id,
+                    action=action,
+                    detail=raw_detail,
+                )
         entry = AuditEntry(
-            id=_new_id(),
+            id=entry_id,
             actor_type=actor_type,
             actor_id=actor_id,
             action=action,

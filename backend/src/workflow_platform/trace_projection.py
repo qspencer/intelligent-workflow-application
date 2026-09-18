@@ -1039,6 +1039,34 @@ def project_audit_detail_at_rest(action: str | None, detail: Any) -> Any:
     return out
 
 
+def project_audit_detail_final(action: str | None, detail: Any) -> Any:
+    """The FINAL at-rest policy for an audit detail — what at rest will keep
+    once the tightening lands, and what the VAULTING predicate is scoped by.
+
+    Defined as **the read path**: at rest must never hold more than a reader
+    without a raw-trace grant can already see. Anything beyond that belongs in
+    the vault, recoverable by a grant holder, not in `audit_log.detail`.
+
+    Why this exists SEPARATELY from `project_audit_detail_at_rest`: round 11
+    required the vaulting predicate to use the final policy, not today's. The
+    at-rest projection is still the lenient denylist — flipping it is a
+    security-visible change that widens or narrows what operators see and is
+    being reviewed on its own. Scoping vaulting by the final policy NOW means
+    that when the switch flips, everything it starts removing is ALREADY in
+    the vault. There is no window in which projection destroys raw.
+
+    Conservative by construction: it over-vaults (details holding only
+    operational metadata that `_AUDIT_DETAIL` does not yet classify are
+    vaulted whole) and never under-vaults. Over-vaulting costs rows; under-
+    vaulting costs the record permanently, so the asymmetry decides it.
+    """
+    if not isinstance(detail, dict):
+        return detail
+    if action == "tool_call":
+        return safe_tool_call(detail)
+    return redact_tool_data(detail, admin=False, kind="audit_detail")
+
+
 def redact_tool_data(obj: Any, admin: bool, *, kind: str) -> Any:
     """The below-grant projection (admin=True → unchanged). DEFAULT-DENY
     (external code review 2026-08-02 F1, tightened by the 08-03 re-review): a

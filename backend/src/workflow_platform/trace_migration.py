@@ -74,7 +74,15 @@ def _audit_has_raw(detail: Any, action: str | None) -> bool:
     detail is a tool-call record, an `escalation_requested` detail is
     model-authored, the rest are engine operational metadata. The verifier must
     dispatch on action, or it both misses raw and false-flags correctly-projected
-    tool-call / operational rows (G-Trace-Review-4 F4)."""
+    tool-call / operational rows (G-Trace-Review-4 F4).
+
+    Deliberately NOT `trace_vault.audit_detail_has_raw`, though the two look
+    alike. The verifier asks whether a STORED row still holds raw under the
+    policy IN FORCE; the vault predicate asks whether the FINAL policy would
+    remove anything. During the transition those differ — pointing the
+    verifier at the final policy would make it flag every correctly-stored row
+    as raw and the release gate would never certify. They converge when the
+    at-rest tightening lands, and a test pins that convergence."""
     return bool(project_audit_detail_at_rest(action, detail) != detail)
 
 

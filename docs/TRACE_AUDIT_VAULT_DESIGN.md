@@ -27,6 +27,45 @@ deployed code is the checked-out `main`, so writing code against a missing
 column would break production the moment the service reloaded. There is no
 useful half of this to land.
 
+## BUILT 2026-09-18 — Part 1 mechanism complete, at-rest switch still open
+
+Landed: `RawTraceKind.AUDIT_DETAIL`, `RawTrace.audit_entry_id` (+ Alembic
+`0012`, index `ix_raw_traces_audit_entry`), `audit_idempotency_key` as a
+separate key space, `RawTraceVault.record_audit_detail` (durable by default),
+and the reordered `_audit` chokepoint: **mint entry id → vault raw
+durable-or-fail → project → append**. 14 tests in
+`tests/test_audit_detail_vaulting.py`, one per criterion below.
+
+**What is NOT done, stated plainly: the at-rest projection is still the
+lenient denylist.** The over-retention this design opens with is therefore
+still present. What has changed is that it is now safe to close — everything
+the tightening will remove is already in the vault, so the switch destroys
+nothing. That switch is the reviewable change, because it also decides what
+operators can see without a grant.
+
+**Measured on production before building** (4,000-row random sample of the
+64,973-row `audit_log`): **70.3%** of entries lose something to the final
+policy — ~45,700 rows and ~22 MB if the whole history were vaulted, though
+nothing is backfilled and only new writes vault. `step_started` and
+`step_skipped` vault at 0%; `step_completed`, `workflow_*`, `memory_*` and
+`tool_call` at ~100%.
+
+**The over-vaulting is deliberate.** `_AUDIT_DETAIL` is scoped to governance
+entries ("content-free by design") and does not yet classify engine-execution
+fields, so details holding only operational metadata are vaulted whole. Over-
+vaulting costs rows; under-vaulting costs the record permanently. Refining
+`_AUDIT_DETAIL` to classify the engine fields is the follow-up — and it is a
+security-visible change, because it WIDENS what a grant-less reader sees.
+
+**Known coverage gap, pinned by a test rather than hidden.** Only the engine
+chokepoint vaults. Of the ten modules that append audit entries, eight write
+operator/governance metadata about a human action; `monitoring/service.py`
+writes `alert_*` entries that are engine-derived and would lose something
+100% of the time. Routing it through the chokepoint is follow-up work;
+`test_C3_the_known_gap_is_recorded_not_forgotten` keeps it from going quiet.
+
+---
+
 **Hold lifted 2026-09-18: round 11 returned.** Two bounded P2 corrections,
 both outside this design (scaffold grammar, an equivalence test), both fixed.
 No new defect in the F1/F5 projection primitive.

@@ -25,7 +25,10 @@ from workflow_platform.persistence import RawTrace, RawTraceKind, Repositories
 from workflow_platform.persistence.models import RAW_SCHEMA_VERSION
 from workflow_platform.persistence.repository import VaultConflict
 from workflow_platform.trace_cipher import build_trace_cipher
-from workflow_platform.trace_projection import redact_tool_data
+from workflow_platform.trace_projection import (
+    project_audit_detail_final,
+    redact_tool_data,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -36,6 +39,41 @@ def output_has_raw(output: dict[str, Any]) -> bool:
     2026-08-02 F1). Uses the SAME default-deny projector as the read surface,
     so nothing the operational store would strip is left unvaulted."""
     return bool(redact_tool_data(output, admin=False, kind="step_output") != output)
+
+
+def audit_detail_has_raw(action: str | None, detail: Any) -> bool:
+    """Whether an audit detail LOSES anything to at-rest projection — i.e.
+    whether it needs a vault object at all.
+
+    THE predicate behind audit-detail vaulting, and deliberately a CALL into
+    the projection rather than a description of it: the rule is "vault exactly
+    what projection would take away", so it cannot drift from what projection
+    actually does. Round 11 named the trap this closes — if the scope were a
+    snapshot of today's lenient policy, every detail that currently passes
+    through unchanged would go unvaulted and start losing information the
+    moment at-rest filtering is tightened.
+
+    NOT the same question the zero-raw verifier asks. The verifier asks "does
+    this STORED row still contain raw under the policy in force?" — today's
+    lenient at-rest denylist. This asks "will the FINAL policy take anything
+    away?" During the transition those differ, and collapsing them into one
+    function would either stop the verifier certifying anything or scope
+    vaulting to the wrong policy. They converge when the tightening lands.
+    """
+    return bool(project_audit_detail_final(action, detail) != detail)
+
+
+def audit_idempotency_key(org_id: str, instance_id: str, audit_entry_id: str) -> str:
+    """Deterministic key for an AUDIT_DETAIL object, keyed on the audit entry.
+
+    A separate space from `idempotency_key`: that one anchors on the step
+    attempt, and one step attempt emits MANY audit entries, so re-using it
+    would make every tool call on an attempt collide onto one row. Re-driving
+    the SAME entry (same id) re-addresses the same object; two different
+    entries never collide, because `AuditEntry.id` is unique.
+    """
+    raw = "\x00".join((org_id, instance_id, "audit", audit_entry_id))
+    return hashlib.sha256(raw.encode()).hexdigest()
 
 
 def idempotency_key(
@@ -71,6 +109,7 @@ class RawTraceVault:
         kind: RawTraceKind,
         payload: Any,
         durable: bool,
+        audit_entry_id: str | None = None,
     ) -> RawTrace | None:
         if _empty(payload):
             return None
@@ -95,8 +134,13 @@ class RawTraceVault:
             org_id=org_id,
             instance_id=instance_id,
             step_attempt_id=step_attempt_id,
+            audit_entry_id=audit_entry_id,
             kind=kind,
-            idempotency_key=idempotency_key(org_id, instance_id, step_attempt_id, kind),
+            idempotency_key=(
+                audit_idempotency_key(org_id, instance_id, audit_entry_id)
+                if audit_entry_id is not None
+                else idempotency_key(org_id, instance_id, step_attempt_id, kind)
+            ),
             payload=stored,
             content_commitment=commitment,
         )
@@ -170,5 +214,37 @@ class RawTraceVault:
             step_attempt_id=step_attempt_id,
             kind=RawTraceKind.ERROR,
             payload=error,
+            durable=durable,
+        )
+
+    async def record_audit_detail(
+        self,
+        *,
+        org_id: str,
+        instance_id: str,
+        audit_entry_id: str,
+        action: str | None,
+        detail: Any,
+        durable: bool = True,
+    ) -> None:
+        """Vault one audit entry's raw detail, BEFORE the entry is appended.
+
+        Only when at-rest projection would take something away — that is the
+        whole scope rule, expressed as a call so it cannot drift.
+
+        `durable=True` by DEFAULT here, unlike the other record_* methods: at
+        the point this is called the operational store is about to keep only
+        the projection, so a lost vault write loses the raw for good. It must
+        fail the step rather than silently drop it.
+        """
+        if not audit_detail_has_raw(action, detail):
+            return
+        await self._record(
+            org_id=org_id,
+            instance_id=instance_id,
+            step_attempt_id=None,
+            audit_entry_id=audit_entry_id,
+            kind=RawTraceKind.AUDIT_DETAIL,
+            payload=detail,
             durable=durable,
         )

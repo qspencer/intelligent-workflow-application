@@ -884,7 +884,7 @@ provenance.** The credible paths are (a) build §1.4a provenance + a positive
 B1 behind the first real external tenant. "Patch the six" is NOT a third option;
 it will fail a seventh review the same way. Recommendation: **(b)**.
 
-### G-Trace-Audit-Vault — the audit-at-rest fix has a PREREQUISITE (found 2026-09-18)
+### G-Trace-Audit-Vault — audit-detail vaulting — **mechanism BUILT 2026-09-18; at-rest switch open**
 
 Picked up the reviewer's audit-at-rest item and found it cannot be done the
 obvious way. Recording the dependency rather than shipping the wrong fix.

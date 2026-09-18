@@ -267,6 +267,10 @@ class RawTraceKind(StrEnum):
     TRIGGER_PAYLOAD = "trigger_payload"
     RECALL = "recall"  # legacy per-kind
     ERROR = "error"
+    # One AUDIT ENTRY's raw detail. Addressed by `audit_entry_id`, NOT by
+    # step attempt: one step attempt emits MANY audit entries (every tool
+    # call, every retry), so the step-attempt key would collapse them.
+    AUDIT_DETAIL = "audit_detail"
 
 
 def vault_fingerprint(trace: RawTrace) -> tuple[Any, ...]:
@@ -278,6 +282,7 @@ def vault_fingerprint(trace: RawTrace) -> tuple[Any, ...]:
         trace.org_id,
         trace.instance_id,
         trace.step_attempt_id,
+        trace.audit_entry_id,
         trace.kind.value,
         trace.raw_schema_version,
         trace.projector_version,
@@ -337,6 +342,11 @@ class RawTrace(BaseModel):
     org_id: str = DEFAULT_ORG_ID
     instance_id: str
     step_attempt_id: str | None = None  # None = instance-level (trigger)
+    # Set ONLY on AUDIT_DETAIL rows: the `AuditEntry.id` this raw belongs to.
+    # The idempotency key is one-way, so without this column a vault row
+    # cannot be traced back to its entry — enumeration and rehydration both
+    # need it. None on every other kind.
+    audit_entry_id: str | None = None
     kind: RawTraceKind
     state: RawTraceState = RawTraceState.COMMITTED
     idempotency_key: str
