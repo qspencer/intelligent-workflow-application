@@ -40,6 +40,7 @@ blocking issues by reading code the spec described inaccurately.
 |---|---|---|---|---|
 | `trace-f1-review-r3-b7cc1d2.tar.gz` | `b7cc1d2` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 3** — the six round-2 findings (R2-1..6) fixed at the CLASS level. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R3 | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-r2-b2f913a.tar.gz` | `b2f913a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 2** — the four G-Trace-Review-4 findings (GR4-1..4) remediated. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R | `docs/TRACE_F1_REVIEW_GUIDE.md` |
+| `trace-f1-review-r4-1fa67c2.tar.gz` | `1fa67c2` (branch `p1-reprimitive`) | 2026-09-18 | **F1/F5 CONFIRMATION round 4** — ships the two remediation commits no reviewer has seen (`8e9d0d1` class-level fixes: keys-are-content, list decomposition, routing ids, marker totality, audit denylist; `29e2c4e` the masked lint + the disposition). Narrowed on purpose: asks whether the foundation can carry Contract A **now that the flip is ON in production**, and asks the reviewer to challenge the shape-vs-provenance ceiling rather than produce a seventh finding list. Sidecar: `docs/TRACE_F1_REVIEW_ROUND4.md`. F3/F4/F6 + B1 out of scope. |
 | `trace-f1-review-ebceb6a.tar.gz` | `ebceb6a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 FOUNDATION code review** — the path-scoped, kind-dispatched projection re-primitive answering the third review's F1 + F5. F3/F4/F6 out of scope. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-governance-review-r3-8657f88.tar.gz` | `8657f88` | 2026-08-08 | **CODE review, round 3** — the four remediation primitives (P1 validator registry · P2 surface routing · P3a projection stamp + §4.3 predicate · P4 grant/vault CAS) built in response to rounds 1–2. **Decides whether Contract A / B1 hold** | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-1.4a-design-review-r7-4b871b7.tar.gz` | `4b871b7` | 2026-08-08 | **§1.4a DESIGN review, round 7** — after folding round 6's two HIGH (executable effect model spanning deterministic functions · supersession no longer terminal) + four stale-text cleanups | `docs/TRACE_1_4A_REVIEW_ROUND7.md` |
@@ -49,6 +50,28 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (F1/F5 review ROUND 4)
+
+```
+b08e0574310bc01853dfcdaf604c2f4ffef44a5189fe3d7cf6c54437a0490039
+         trace-f1-review-r4-1fa67c2.tar.gz
+
+docs + code, as archived:
+  06adbed0676ba2ccacdec8431595777e24dce5ea4d5f53c259a972308f4a23bd  docs/TRACE_F1_REVIEW_ROUND4.md  (the sidecar)
+  3960c6b92f7a952f0982d5e14736912d8de68a4da1790f939e6737746b08b0a9  backend/.../trace_projection.py  (the projector)
+  a47008c1a0abe689f1b92ad73036e8bbd92bc2cb97b77bd84de0fbafe1ddd196  backend/tests/test_trace_boundary_properties.py  (the contract)
+  8d121e5574cb7e8a85bf38b7dc48d4e0b69e09d1364d4ae3e464a92fb448b114  backend/.../trace_migration.py  (at-rest backfill)
+```
+
+Verified secret-clean at build: `tar tzf … | grep -iE '\.secrets|\.env$|refresh_token|\.venv|\.memory/'`
+returned **nothing**, and a second sweep for real mail data
+(`data/email_triage|qspencer|backups/`) also returned nothing. 612 files.
+
+Rebuild byte-identically with:
+```sh
+git archive --format=tar 1fa67c2 | gzip -n > docs/archives/trace-f1-review-r4-1fa67c2.tar.gz
+```
 
 ## Integrity hashes (F1/F5 review ROUND 3)
 
