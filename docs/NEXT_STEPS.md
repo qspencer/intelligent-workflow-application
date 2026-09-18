@@ -829,6 +829,67 @@ provenance.** The credible paths are (a) build §1.4a provenance + a positive
 B1 behind the first real external tenant. "Patch the six" is NOT a third option;
 it will fail a seventh review the same way. Recommendation: **(b)**.
 
+### G-Trace-Review-R4 — F1/F5 CONFIRMATION round (2026-09-18) — **verdict: keep the flip ON under a corrected restriction; Contract A/B1 NOT accepted**
+
+Package `trace-f1-review-r4-1fa67c2.tar.gz`, reviewed at the archive's embedded
+commit. **The first round that did not end in a patch-me finding list** — it
+returned a disposition, which is what was asked for.
+
+**What the reviewer AFFIRMED** (independently re-executed): the §2 class-level
+fixes all hold — non-token keys removed, routing ids with an email withheld,
+`pinned` not decomposed, non-string markers no longer raise, forged error-marker
+prefixes rejected, recall queries projected at rest, undeclared containers
+projected whole, vault default version == the authoritative constant. F5's
+single-version correction is sound (narrowly). 32 boundary cases passed; all 532
+archived files byte-identical after review.
+
+**What it CORRECTED, and we accept in full (all three reproduced here):**
+
+1. 🔴 **§3's claim that all retained token paths are platform-computed is FALSE**
+   — not a future risk, present behaviour. Executed: a token-shaped **dict key**
+   survives verbatim (`{"usage": {"AKIAIOSFODNN7EXAMPLE": 1}}`); an
+   externally-supplied **webhook `id`** survives when token-shaped (the round-3
+   `_short_token` fix closed only the `@` form); a **model-chosen tool `name`**
+   is recorded verbatim even when dispatch rejects the tool.
+2. 🔴 **The ceiling argument is right; its CONCLUSION was too broad.** Shape
+   cannot separate a token-shaped secret from a safe token — agreed. But
+   conservative containment does **not** require finishing §1.4a: omit unknown
+   dict keys; keep externally-supplied ids grant-gated; display the **resolved
+   catalog** tool name rather than the model's requested string. Source-aware
+   policies, not tighter regexes. *"Deferring the broader architecture should not
+   make every remaining defect architectural by association."* The malformed
+   tool-record exceptions are ordinary validation defects.
+3. 🔴 **The B1 deferral trigger was wrong** — "first external tenant" is too late
+   and too narrow. Correct trigger: **the first reader whose access depends on
+   projection successfully withholding content**, across **UI, API, WebSocket,
+   exports, operational logs and DB**. Folded into `TRACE_B1_DEFERRAL.md`.
+4. 🔴 **An evidence claim in our own sidecar was false.** We wrote that the
+   token-shaped KEY case was added to the key property test. It was not — the
+   test still uses only the non-token sentinel, and the residual test covers a
+   `model` VALUE, not a key. **The same fig leaf as the previous round, reported
+   as fixed, inside the paragraph warning about it.**
+
+**Operational finding:** `_rehydrate_context()` skips reconstruction when the
+flip is off, while existing records may already hold projections — so a rollback
+is not a toggle. Any future flip-off needs an explicit compatibility procedure.
+
+**Verdict as given:** keep `TRACE_SAFE_ONLY` **ON** under the documented
+single-operator restriction; the storage setting and the read-time guarantee are
+**separate decisions**; Contract A's read-time guarantee is **not** established;
+B1 deferral is defensible **only** inside a verified single-operator boundary
+with no claim of complete at-rest protection.
+
+**Packaging gaps to fix next handoff** (both ours): the archive's own index
+lacked its round-4 entry + checksum, because the tarball was built from the
+commit *before* the README was updated — build the record first, then archive.
+And ship **captured standalone gate output**: the reviewer could not resolve
+dependencies offline, so could not verify our suite/lint/type claims at all.
+
+**Open remediation (not yet built):** the three containment measures in (2),
+plus the token-shaped-KEY property test that (4) says is missing.
+
+---
+
 ### G-Trace-Review-4 — F1/F5 foundation review (2026-08-09) — **FAILED, then REMEDIATED (awaiting re-review)**
 
 Fourth consecutive code failure. The F1/F5 re-primitive (branch `p1-reprimitive`)

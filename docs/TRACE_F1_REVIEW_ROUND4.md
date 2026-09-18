@@ -116,9 +116,19 @@ which is **unbuilt**. A value's SOURCE is the thing that separates a safe token
 from a token-shaped secret; its spelling never will.
 
 **The accepted residual, stated plainly:** a token-shaped value on a
-token-declared path survives projection. That is correct for every token path
-today (all are platform-computed). It is closed *generally* only by §1.4a. It is
-pinned, not hidden, by
+token-declared path survives projection. ~~That is correct for every token path
+today (all are platform-computed).~~ **[CORRECTED 2026-09-18 — the round-4
+reviewer executed this and it is FALSE, and the correction governs.** Three
+retained token paths take externally-supplied or model-derived content today:
+a token-shaped **dict key** (`{"usage": {"AKIAIOSFODNN7EXAMPLE": 1}}` survives
+verbatim), an externally-supplied **webhook `id`** when token-shaped, and a
+**model-chosen tool `name`** even when dispatch rejects the tool. All three
+reproduced. **And the reviewer's sharper point, accepted: the ceiling argument
+is right but its conclusion was too broad.** Conservative containment does not
+need §1.4a — omit unknown dict keys, keep externally-supplied ids grant-gated,
+display the RESOLVED catalog name rather than the requested string. Those are
+source-aware policies, not tighter regexes. Deferring the architecture must not
+make every remaining defect architectural by association.**]** It is pinned by
 `test_p3_token_path_residual_is_accepted_and_bounded`.
 
 **This is the part we want challenged.** Specifically:
@@ -160,9 +170,15 @@ classes specifically:
 
 Note on that second one: an earlier version of that test only generated
 NON-token sentinels, so it passed while missing the token-shaped-key case it
-claimed to cover — a fig leaf a previous reviewer caught. The sentinel is now
-deliberately non-token-shaped AND the token-shaped case is exercised. Worth
-confirming we actually fixed the test and not just its name.
+claimed to cover — a fig leaf a previous reviewer caught. ~~The sentinel is now
+deliberately non-token-shaped AND the token-shaped case is exercised.~~
+**[CORRECTED 2026-09-18 — the reviewer checked, and this claim was FALSE. The
+test still uses only the non-token sentinel; the token-shaped KEY case is NOT
+exercised, and the separate residual test covers a `model` VALUE, not a key. So
+the fig leaf was reported as fixed while still standing — the same failure, one
+round later, inside the very paragraph warning about it. The invitation to
+"confirm we fixed the test and not just its name" was the right instinct and the
+answer was no.]**
 
 ---
 

@@ -1,9 +1,24 @@
 # Trace Contract B1 — deferred (2026-08-09), and what building it right requires
 
 **Decision:** stop active work on Contract B1 (zero-raw-at-rest / DB-operator
-resistance). **Trigger to resume:** the first real external tenant — i.e. when
-someone other than the sole operator can reach the operational store or its
-audit trail. Until then, B1 is **explicitly not claimed**.
+resistance). Until then, B1 is **explicitly not claimed**.
+
+**Trigger to resume — CORRECTED 2026-09-18 by the round-4 reviewer.** The
+original trigger ("the first real external tenant … reach the operational store
+or its audit trail") is **too late, and too narrow**. The real trigger is:
+
+> **the first reader whose access depends on projection successfully
+> withholding content** — not tenant registration, and not direct database
+> access alone.
+
+That reader can arrive through **any** trace surface: the **UI, the API, the
+WebSocket event stream, exports, operational logs, or the database**. A second
+person reading traces through the application triggers this just as surely as a
+second tenant, and Contract A remains in force even while B1 is deferred.
+
+**The restriction this doc relies on is therefore: single operator across every
+one of those surfaces.** If that stops being true on any one of them, the
+deferral lapses.
 
 **Why now.** Six external code reviews of the projector (the linchpin of both
 Contract A read-gating and Contract B1 at-rest) each reproduced real P0/P1 leaks.

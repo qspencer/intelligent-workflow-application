@@ -31,11 +31,20 @@ primitives, not projector-schema work:
   returned/withheld sets.
 
 And the accepted residual: a token-shaped value on a token-declared path
-survives. Correct for every token path today (all platform-computed); closed
-generally only by §1.4a per-field provenance, which is unbuilt. Pinned in
+survives. ~~Correct for every token path today (all platform-computed)~~
+**FALSE — corrected 2026-09-18 after the round-4 review executed it.** Three
+retained token paths accept externally-supplied or model-derived content TODAY,
+not hypothetically: a token-shaped **dict key** survives at any path
+(`{"usage": {"AKIAIOSFODNN7EXAMPLE": 1}}` passes through verbatim); an
+externally-supplied **webhook `id`** survives when token-shaped (the round-3 fix
+closed only the `@` form); and a **model-chosen tool `name`** is recorded
+verbatim even when dispatch rejects the tool. Closed generally only by §1.4a
+per-field provenance — but per the reviewer, **conservative containment does not
+wait for it** (omit unknown keys; keep external ids grant-gated; display the
+RESOLVED catalog name). See NEXT_STEPS G-Trace-Review-R4. Pinned in
 `test_p3_token_path_residual_is_accepted_and_bounded`.
 
-**Contract A / B1 still NOT claimed. The flip stays OFF.** A fourth code review
+**Contract A / B1 still NOT claimed. The flip is ON** (operator decision 2026-08-09; this line previously read OFF and was stale — see `docs/TRACE_B1_DEFERRAL.md` §1). A fourth code review
 should confirm F1/F5 before anything rests on them.
 
 ---
