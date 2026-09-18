@@ -884,6 +884,41 @@ provenance.** The credible paths are (a) build §1.4a provenance + a positive
 B1 behind the first real external tenant. "Patch the six" is NOT a third option;
 it will fail a seventh review the same way. Recommendation: **(b)**.
 
+### G-Trace-Backfill — pre-existing raw at rest, and why the pile kept growing (2026-09-18)
+
+**Needs an operator decision; not started.**
+
+Running `verify_zero_raw` read-only against production: **10,110 findings in
+a 2,000-instance sample** (scan capped, so this is a floor, not a total) —
+5,790 `step_executions.output`, 1,854 `workflow_instances.context`, 1,337
+`audit_log.detail`, 1,122 `trigger_payload`, 7 `error`.
+
+Most of this is the KNOWN pre-flip backlog that `trace_migration`'s backfill
+exists to clear. What is new is **why it did not stop growing when the flip
+went on**: six operator tools built a `WorkflowEngine` without reading the
+flip, so every hand-run workflow against `DATABASE_URL` wrote unprojected raw
+into the operational tables. That hole is closed (`93c1844`, one reader plus
+two detectors), but the rows it wrote are still there.
+
+**The decision is whether to run the backfill.** It is one-way, operator-run,
+and idempotent; it moves inline raw into the vault and projects the
+operational rows in place. Arguments for doing it now: the leak is closed, so
+the pile is finally static, and Contract B1's release gate (criterion 14)
+cannot certify while any finding remains. Argument for waiting: it rewrites
+production rows, and the at-rest audit tightening is still pending — running
+the backfill before that lands means a second pass later.
+
+**Recommendation: wait for the at-rest tightening, then backfill once.** Two
+passes over production data to reach one state is worse than one pass, and
+nothing is accumulating any more.
+
+Also outstanding, trivially: **one orphaned `audit_detail` vault row** with a
+NULL `audit_entry_id`, written during the ~30-second window when the column
+was unmapped. It is unaddressable and unreferenced. Harmless (org-scoped,
+grant-gated); sweep it with the backfill rather than as a one-off delete.
+
+---
+
 ### G-Trace-Audit-Vault — audit-detail vaulting — **mechanism BUILT 2026-09-18; at-rest switch open**
 
 Picked up the reviewer's audit-at-rest item and found it cannot be done the
