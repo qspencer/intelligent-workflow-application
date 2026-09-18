@@ -40,6 +40,7 @@ blocking issues by reading code the spec described inaccurately.
 |---|---|---|---|---|
 | `trace-f1-review-r3-b7cc1d2.tar.gz` | `b7cc1d2` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 3** — the six round-2 findings (R2-1..6) fixed at the CLASS level. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R3 | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-r2-b2f913a.tar.gz` | `b2f913a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 2** — the four G-Trace-Review-4 findings (GR4-1..4) remediated. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R | `docs/TRACE_F1_REVIEW_GUIDE.md` |
+| `trace-f1-review-r11-<built>.tar.gz` | built from the commit recording this row (branch `main`) | 2026-09-18 | **Round-10 return + two detectors built before sending.** Template rewriting no longer touches DATA (the engine renders placeholders in exactly ONE field; our round-9 reasoning was inverted); context paths parse the way the resolver parses them, so a non-ASCII id no longer dangles; the schema gate ENUMERATES the models and ships a control that fires. Plus the two gaps our own ledger admitted: duplicate-definition sweep extended to FUNCTIONS, and grammar agreement — the scaffold now IMPORTS the engine's placeholder pattern instead of copying it. Sidecar: `docs/TRACE_F1_REVIEW_ROUND11.md`. |
 | `trace-f1-review-r10-a1cb20e.tar.gz` | `a1cb20e` (branch `main`) | 2026-09-18 | **Round-9 return + a schema-derived SELF-AUDIT.** The reference model was wrong, not just incomplete: agent `inputs` hold CONTEXT PATHS not ids, `pin_params` (fail-closed) was unhandled, learned-memory fields live outside step config, and defaults only materialised inside an existing config dict. Fields and defaults are declared PER FUNCTION now (a helper's default no longer switches on behaviour in its caller). The audit enumerates every string-bearing schema position and asserts the 5 deliberate exclusions; its adversarial step caught an over-reach WE had just introduced (the delimited rewrite hitting config data and a less-than operator). Sidecar: `docs/TRACE_F1_REVIEW_ROUND10.md`. |
 | `trace-f1-review-r9-d9d147c.tar.gz` | `d9d147c` (branch `main`) | 2026-09-18 | **Round-8 return fixed + the first self-audited package.** Minting now rewrites DOTTED config references and materialises step-naming defaults (a renamed workflow parsed then FAILED); the golden corpus is ENTRY-POINT aware and a test instruments the run to prove `safe_tool_call` is reached; the historical fixture was regenerated from `b67391d`, the archive the reviewer holds, after being built from the wrong commit. Ships `docs/REVIEW_FINDINGS_LEDGER.md` — all ~45 findings classified into 7 mechanisms with detectors, whose first run found a defect the reviewer had not (version stamps inside the projected output → projector v6). Sidecar: `docs/TRACE_F1_REVIEW_ROUND9.md`. |
 | `trace-f1-review-r8-7cfed97.tar.gz` | `7cfed97` (branch `main`) | 2026-09-18 | **Round-7 remediation + the GOLDEN VERSION GUARD.** All five round-7 findings fixed (ownership now composes at the schema NODE; no function may write projection metadata or an unearned `parse_ok`; projector v4; minting by PATH with PARSED conditions; invalid legacy marker signals). The guard makes the version bump a build failure instead of a thing to remember — with two proofs it fires, and a v3 fixture REGENERATED from the archived round-6 projector so historical degradation is tested rather than skipped. Adds the end-to-end coverage the reviewer asked for. Sidecar: `docs/TRACE_F1_REVIEW_ROUND8.md`. |
@@ -56,6 +57,23 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (F1/F5 review ROUND 11)
+
+```
+  7400696130750a4e6a2de087b9d27ced11c632204d222fbf46d81fd93f2fd475  docs/TRACE_F1_REVIEW_ROUND11.md
+  08af1a1236f2e27d7b2ec4693330f97231ce0920d75087e521427a71db0c8199  docs/archives/GATE_OUTPUT_R11.txt
+  d409df367a5e2ec3d1309c51894c4790d30691737bd689a0cc1746b711bd8a88  docs/archives/CODE_MANIFEST_R11.txt
+  79157fcc14637969eefea15cac54a7fa0ec90b04e630d33367d4e02eb72b05bf  docs/REVIEW_FINDINGS_LEDGER.md
+  0a933adc4ae68af817c59c39a4078cbc26fadbf9aa3cfc3db57420b2d1457eb8  backend/src/workflow_platform/scaffold.py
+```
+
+**Aggregate source hash** (recomputable from the extracted package, no git):
+
+```
+d8d8859441a332cc78eef9998ebeb2c8c79900d20ea56f00286b985a7b3be8e2
+cd backend && find src tests -name '*.py' -type f | sort | xargs sha256sum | sha256sum
+```
 
 ## Integrity hashes (F1/F5 review ROUND 10)
 
