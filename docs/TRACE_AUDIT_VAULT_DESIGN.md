@@ -62,8 +62,59 @@ payload · content_commitment · created_at
 | B. Overload `step_attempt_id` | Put the audit entry id in the existing column | No migration, but the column's meaning becomes conditional on `kind` — the kind of implicit contract this review line has repeatedly punished |
 | C. Discriminator inside `idempotency_key` | Append the audit id to the key string | No migration, but the row still cannot be *found* by audit entry without parsing a key, and §4.2 calls the key deterministic-and-opaque |
 
-**Recommendation: A.** B and C both encode a fact in a place that does not
-declare it, which is the failure mode of this entire review series.
+**Recommendation: A — and the evidence now makes it decisive, not a preference.**
+
+**B is not merely inelegant, it is WRONG.** `step_attempt_id is None` already
+carries meaning: *this is an instance-level row* (the trigger payload). An
+instance-level audit entry — `workflow_started`, a trigger-time failure — has
+no step attempt, so overloading the column would put an audit id where `None`
+is the signal, and destroy the one distinction that column makes. There is no
+spelling of B that survives that.
+
+**C** fails the standard the reviewer set for the catalog digest in the same
+breath: a record you cannot FIND by its natural key is not addressed, it is
+merely stored. §4.2 also treats the key as deterministic and opaque, so
+parsing an id back out of it would make the key a schema.
+
+**A works, and the pieces are already there:**
+
+- `AuditEntry.id` is a `default_factory` uuid assigned at CONSTRUCTION, before
+  any I/O — so the address exists at vault time for free.
+- It is immutable, which is the property §4.2 requires of `step_attempt_id`
+  and the reason that column was chosen over the attempt NUMBER.
+- Instance-level entries keep working: `step_attempt_id` stays `None` and
+  `audit_entry_id` carries the address. The two columns answer two questions.
+- Idempotency comes free. Step outputs need "a retry re-addresses the same
+  object"; audit entries are each distinct, so the entry id IS the identity.
+
+## The ordering this implies, and why it is already settled
+
+Today the chokepoint projects and *then* constructs the entry, so the id does
+not exist when it is needed. The fix is three lines, and the pattern to follow
+is the step-output path's, which is explicit about the hazard:
+
+> vault the raw **BEFORE** persisting — under the flip the vault write is
+> durable-or-fail, because *a lost write must fail the step, not silently drop
+> the raw*.
+
+So: **construct the entry (id assigned, no I/O) → vault the raw by that id,
+durable-or-fail → project → append.** An orphaned vault row (raw kept, audit
+append failed) is the safe direction and the step fails loudly; the reverse —
+audit written, raw gone — is exactly what the existing comment refuses. And
+because `_audit` is a single chokepoint, no writer can bypass it.
+
+## Migration shape
+
+```sql
+ALTER TABLE raw_trace ADD COLUMN audit_entry_id TEXT NULL;
+-- idempotency_key already carries the discriminator; the column makes the
+-- row FINDABLE by audit entry, which is the part C cannot do.
+CREATE INDEX ix_raw_trace_audit_entry ON raw_trace (org_id, audit_entry_id);
+```
+
+Additive and nullable, so every existing row stays valid and rollback is
+dropping an unused column. Applied to the running DB in the same action as
+the commit, with the service stopped, per the standing rule.
 
 ## Decision 2 — which audit details get vaulted
 
