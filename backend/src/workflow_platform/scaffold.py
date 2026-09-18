@@ -9,7 +9,9 @@ coerces, ids, structurally validates, and persists it as an editable draft.
 
 from __future__ import annotations
 
+import ast
 import json
+import logging
 import re
 from typing import Any
 
@@ -19,6 +21,9 @@ from workflow_platform.catalog import WorkflowCatalog
 # Cheap-first default (VISION anti-goal #3). Override per deployment with
 # WORKFLOW_PLATFORM_SCAFFOLD_MODEL when a stronger model earns its cost.
 DEFAULT_SCAFFOLD_MODEL = "us.anthropic.claude-haiku-4-5-20251001-v1:0"
+
+
+logger = logging.getLogger(__name__)
 
 
 class ScaffoldError(ValueError):
@@ -160,19 +165,70 @@ class ScaffoldIdError(ScaffoldError):
     """The draft's step ids are not usable as a mapping source."""
 
 
-#: Step references the model actually writes, in the syntaxes the engine reads:
-#: `steps['x']`, `steps["x"]`, `steps.x`, `{steps.x.field}`. Anything else in a
-#: string is NOT a step reference — a function name (`pdf_extract`), a path
-#: (`/inbox/extract/`) or a comparison literal (`== 'extract'`) must survive
-#: untouched, and R6 showed substring replacement mangling all three.
-_STEP_REF = re.compile(
-    r"""(?P<prefix>steps\s*)
-        (?:
-            (?P<br>\[\s*(?P<q>['"]))(?P<qid>[A-Za-z0-9_\-]+)(?P=q)\s*\]
-          | (?P<dot>\.)(?P<did>[A-Za-z0-9_\-]+)
-        )""",
-    re.VERBOSE,
-)
+#: A `{steps.<id>...}` placeholder in a TEMPLATE string (goals, text). Anchored
+#: on the opening brace so it cannot match prose that merely mentions a step.
+_TEMPLATE_REF = re.compile(r"(?P<open>\{)(?P<prefix>steps\.)(?P<id>[A-Za-z0-9_\-]+)")
+
+
+def _rewrite_condition(expr: str, mapping: dict[str, str]) -> str:
+    """Rewrite step references in a condition EXPRESSION, leaving literals alone.
+
+    R7 P1: the previous version pattern-matched reference-shaped text anywhere
+    in the string, so `steps['classify']['label'] == "steps['classify']"`
+    had its comparison LITERAL rewritten along with its reference — the
+    condition's truth value changed while the step data did not. No amount of
+    regex fixes that: `steps['x']` inside quotes is indistinguishable from
+    `steps['x']` outside them by pattern.
+
+    Conditions are simpleeval expressions, i.e. Python syntax, so this PARSES
+    them. A reference is a Subscript/Attribute on the name `steps`; a string
+    Constant is a literal and is never touched. If the expression does not
+    parse, it is returned UNCHANGED — refusing to guess beats corrupting it.
+    """
+
+    class _Rewriter(ast.NodeTransformer):
+        def visit_Subscript(self, node: ast.Subscript) -> ast.AST:
+            self.generic_visit(node)
+            if (
+                isinstance(node.value, ast.Name)
+                and node.value.id == "steps"
+                and isinstance(node.slice, ast.Constant)
+                and isinstance(node.slice.value, str)
+                and node.slice.value in mapping
+            ):
+                return ast.Subscript(
+                    value=node.value,
+                    slice=ast.Constant(value=mapping[node.slice.value]),
+                    ctx=node.ctx,
+                )
+            return node
+
+        def visit_Attribute(self, node: ast.Attribute) -> ast.AST:
+            self.generic_visit(node)
+            if (
+                isinstance(node.value, ast.Name)
+                and node.value.id == "steps"
+                and node.attr in mapping
+            ):
+                return ast.Attribute(value=node.value, attr=mapping[node.attr], ctx=node.ctx)
+            return node
+
+    try:
+        tree = ast.parse(expr, mode="eval")
+    except SyntaxError:
+        logger.warning("condition did not parse; left unchanged rather than rewritten")
+        return expr
+    return ast.unparse(_Rewriter().visit(tree))
+
+
+def _rewrite_template(text: str, mapping: dict[str, str]) -> str:
+    """Rewrite `{steps.<id>...}` placeholders only — never bare prose."""
+
+    def sub(m: re.Match[str]) -> str:
+        sid = m.group("id")
+        return m.group(0) if sid not in mapping else f"{{steps.{mapping[sid]}"
+
+    return _TEMPLATE_REF.sub(sub, text)
 
 
 def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
@@ -182,66 +238,90 @@ def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
     human reading it, so its step ids are model-chosen strings — and the trace
     projection publishes step ids as dictionary KEYS in `context.steps`. The
     keys cannot simply be withheld: the grant-holder rehydration path walks
-    `context.steps` BY step id to merge raw back, so dropping them would break
-    raw recovery for the people entitled to it.
+    `context.steps` BY step id, so dropping them breaks raw recovery for the
+    people entitled to it.
 
-    R6 F1 — this rewrites DECLARED REFERENCE POSITIONS ONLY. The first version
-    did a substring replacement over every string in the draft, which turned
-    the function `pdf_extract` into `pdf_step_1` (structurally valid, so it
-    persisted and failed at run time), rewrote `/inbox/extract/` inside a path,
-    and changed a condition's comparison LITERAL along with its step reference.
-    Whole-word matching would still have broken the literal. So: ids, edge
-    `from`/`to` and `inputs` are rewritten as fields, and inside free text only
-    `steps['x']` / `steps["x"]` / `steps.x` references are rewritten.
+    R7 P1 — reference positions are identified by their FULL PATH, not by field
+    name. The previous version rewrote any nested key called `from`, `to` or
+    `inputs`, so a deterministic function's ordinary config
+    (`copy_files` with `from`/`to` paths) was rewritten as if it named steps.
+    Only these positions are references:
 
-    Original ids are validated BEFORE the mapping is built — duplicates used to
-    be silently minted apart, destroying the very collision that definition
-    validation exists to reject.
+        steps[i].id        edges[i].from      edges[i].to      steps[i].inputs[*]
+
+    Everything else is data. Free text is rewritten only where a reference is
+    unambiguous: a parsed expression in `edges[i].condition`, and `{steps.x}`
+    placeholders elsewhere.
     """
     steps = raw.get("steps")
     if not isinstance(steps, list):
         return raw
 
-    originals: list[str] = []
-    for step in steps:
-        if isinstance(step, dict) and isinstance(step.get("id"), str) and step["id"]:
-            originals.append(step["id"])
+    originals = [
+        s["id"] for s in steps if isinstance(s, dict) and isinstance(s.get("id"), str) and s["id"]
+    ]
     if len(set(originals)) != len(originals):
         dupes = sorted({i for i in originals if originals.count(i) > 1})
         raise ScaffoldIdError(f"draft repeats step id(s): {', '.join(dupes)}")
 
     mapping = {old: f"step_{i}" for i, old in enumerate(originals, 1)}
-    if all(old == new for old, new in mapping.items()):
+    if all(o == n for o, n in mapping.items()):
         return raw
 
-    def rewrite_text(s: str) -> str:
-        def sub(m: re.Match[str]) -> str:
-            ref = m.group("qid") or m.group("did")
-            if ref not in mapping:
-                return m.group(0)
-            if m.group("br"):
-                return f"{m.group('prefix')}[{m.group('q')}{mapping[ref]}{m.group('q')}]"
-            return f"{m.group('prefix')}.{mapping[ref]}"
+    def rewrite_text(node: Any, *, is_condition: bool) -> Any:
+        if not isinstance(node, str):
+            return node
+        return (
+            _rewrite_condition(node, mapping) if is_condition else _rewrite_template(node, mapping)
+        )
 
-        return _STEP_REF.sub(sub, s)
-
-    def walk(node: Any, *, field: str | None = None) -> Any:
-        # Declared REFERENCE positions are rewritten as whole values…
-        if field in ("from", "to") and isinstance(node, str):
-            return mapping.get(node, node)
-        if field == "inputs" and isinstance(node, list):
-            return [mapping.get(v, v) if isinstance(v, str) else walk(v) for v in node]
-        # …every other string is free text: only step REFERENCES inside it move.
+    def walk_value(node: Any) -> Any:
+        """Ordinary DATA: only `{steps.x}` placeholders move inside it."""
         if isinstance(node, str):
-            return rewrite_text(node)
+            return _rewrite_template(node, mapping)
         if isinstance(node, list):
-            return [walk(v) for v in node]
+            return [walk_value(v) for v in node]
         if isinstance(node, dict):
-            return {k: (v if k == "id" else walk(v, field=k)) for k, v in node.items()}
+            return {k: walk_value(v) for k, v in node.items()}
         return node
 
-    for step in steps:
-        if isinstance(step, dict) and isinstance(step.get("id"), str):
-            step["id"] = mapping.get(step["id"], step["id"])
-    out = walk(raw)
-    return out if isinstance(out, dict) else raw
+    out = dict(raw)
+
+    new_steps = []
+    for s in steps:
+        if not isinstance(s, dict):
+            new_steps.append(walk_value(s))
+            continue
+        ns: dict[str, Any] = {}
+        for k, v in s.items():
+            if k == "id" and isinstance(v, str):
+                ns[k] = mapping.get(v, v)  # steps[i].id
+            elif k == "inputs" and isinstance(v, list):  # steps[i].inputs[*]
+                ns[k] = [mapping.get(x, x) if isinstance(x, str) else walk_value(x) for x in v]
+            else:
+                ns[k] = walk_value(v)
+        new_steps.append(ns)
+    out["steps"] = new_steps
+
+    edges = raw.get("edges")
+    if isinstance(edges, list):
+        new_edges = []
+        for e in edges:
+            if not isinstance(e, dict):
+                new_edges.append(walk_value(e))
+                continue
+            ne: dict[str, Any] = {}
+            for k, v in e.items():
+                if k in ("from", "to") and isinstance(v, str):  # edges[i].from/to
+                    ne[k] = mapping.get(v, v)
+                elif k == "condition":
+                    ne[k] = rewrite_text(v, is_condition=True)
+                else:
+                    ne[k] = walk_value(v)
+            new_edges.append(ne)
+        out["edges"] = new_edges
+
+    for k, v in raw.items():
+        if k not in ("steps", "edges"):
+            out[k] = walk_value(v)
+    return out

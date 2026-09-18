@@ -62,6 +62,7 @@ from workflow_platform.trace_projection import (
     PROJECTOR_VERSION,
     REDACTED_ERROR,
     Owner,
+    function_may_emit,
     project_audit_detail_at_rest,
     redact_tool_data,
     safe_trigger_payload,
@@ -1237,20 +1238,29 @@ class WorkflowEngine:
         """
         if not isinstance(produced, dict):
             return produced
-        engine_owned = {
-            f for f, o in _OWNERSHIP.get("step_output", {}).items() if o is Owner.ENGINE
-        }
-        claimed = sorted(k for k in produced if k in engine_owned)
-        if not claimed:
+        owners = _OWNERSHIP.get("step_output", {})
+        forbidden = set()
+        for k in produced:
+            owner = owners.get(k)
+            # ENGINE: we computed it, a function did not.
+            # PROJECTION: the projector writes it; no function ever may (R7 P1
+            #   — a `noop` returning `projector_version` / `projection_schema_
+            #   _version` had them stored verbatim, with output_has_raw() clean).
+            # Released BUSINESS: permitted only to its AUTHORIZED producer — a
+            #   field name cannot establish who computed the value, so
+            #   `parse_ok` from a non-parser is a claimed parse that never ran.
+            if owner in (Owner.ENGINE, Owner.PROJECTION) or not function_may_emit(k, step.function):
+                forbidden.add(k)
+        if not forbidden:
             return produced
         logger.warning(
-            "step %r (function %r) returned engine-owned field(s) %s; dropped at the "
-            "ownership boundary — a function cannot produce engine metadata.",
+            "step %r (function %r) returned field(s) it is not an authorized producer "
+            "of: %s; dropped at the ownership boundary.",
             step.id,
             step.function,
-            claimed,
+            sorted(forbidden),
         )
-        return {k: v for k, v in produced.items() if k not in engine_owned}
+        return {k: v for k, v in produced.items() if k not in forbidden}
 
     async def _run_agentic(
         self,

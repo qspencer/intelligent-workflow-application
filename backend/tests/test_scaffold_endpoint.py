@@ -222,3 +222,50 @@ def test_minting_rejects_duplicate_ids_before_they_are_minted_apart() -> None:
 
     with _pytest.raises(ScaffoldIdError):
         mint_platform_step_ids({"steps": [{"id": "a"}, {"id": "a"}]})
+
+
+def test_minting_touches_reference_positions_only_not_ordinary_data() -> None:
+    """R7 P1: the walker treated ANY nested `from`/`to`/`inputs` as a reference,
+    so a deterministic function's ordinary config was rewritten as if it named
+    steps. Reference positions are identified by PATH now."""
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    draft = {
+        "steps": [
+            {
+                "id": "a",
+                "function": "copy_files",
+                "config": {"from": "a", "to": "/archive/a", "inputs": ["a"]},
+            },
+            {"id": "b", "inputs": ["a"]},
+        ]
+    }
+    out = mint_platform_step_ids(json.loads(json.dumps(draft)))
+    assert out["steps"][0]["config"] == {
+        "from": "a",
+        "to": "/archive/a",
+        "inputs": ["a"],
+    }, "a function's ordinary CONFIG was rewritten as if it named steps"
+    assert out["steps"][1]["inputs"] == ["step_1"], "a real reference must still move"
+
+
+def test_minting_rewrites_a_reference_but_not_a_quoted_literal() -> None:
+    """R7 P1: reference-shaped text inside a quoted comparison literal was
+    rewritten with the reference, flipping a condition's truth value while the
+    step data was unchanged. Conditions are parsed now, so a string Constant is
+    never mistaken for a reference."""
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    draft = {
+        "steps": [{"id": "classify"}, {"id": "route"}],
+        "edges": [
+            {
+                "from": "classify",
+                "to": "route",
+                "condition": "steps['classify']['label'] == \"steps['classify']\"",
+            }
+        ],
+    }
+    cond = mint_platform_step_ids(json.loads(json.dumps(draft)))["edges"][0]["condition"]
+    assert "steps['step_1']['label']" in cond, "the reference must move"
+    assert "\"steps['classify']\"" in cond, "the quoted LITERAL must not"

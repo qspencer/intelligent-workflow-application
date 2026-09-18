@@ -161,21 +161,56 @@ def owner_of(kind: str, field: str) -> Owner | None:
     return _OWNERSHIP.get(kind, {}).get(field)
 
 
-#: BUSINESS fields cleared for ordinary-reader display, each with its rule
-#: stated here. The default is WITHHELD: adding a name is a product decision
-#: about who may see a model-derived value and why, not a convenience.
+#: BUSINESS fields cleared for ordinary-reader display. The default is
+#: WITHHELD. R7: a release entry names its ASSET/PATH, its AUTHORIZED PRODUCER
+#: and its reason — a field NAME cannot establish who computed a value, which
+#: is the whole point of the taxonomy.
 #:
-#:  - `parse_ok`: a BOOLEAN our own function code computes about whether the
-#:    model's output parsed. It is platform-computed rather than model-claimed,
-#:    and a boolean cannot carry content, so releasing it discloses the
-#:    pipeline's health and nothing of the model's text. It is the operational
-#:    signal that says "the step ran but the model returned junk", which is the
-#:    first thing an operator needs and cannot infer from anything else shown.
+#: | field      | asset/path              | authorized producer            |
+#: |------------|-------------------------|--------------------------------|
+#: | `parse_ok` | `step_output.parse_ok`  | the `record_*` parser functions |
 #:
-#: Everything else stays withheld: a score is the MODEL'S claim, and a count
-#: (`concern_count`) can carry a value — the same channel the withheld-count
-#: defect opened.
+#: Reason, stated as a bounded status disclosure rather than "a boolean tells
+#: you nothing": `parse_ok` discloses EXACTLY ONE BIT — whether the authorized
+#: parser could read the model's output as the declared shape. It is the
+#: operational signal that separates "the step ran and the model returned
+#: junk" from "the step failed", which nothing else visible below grant
+#: distinguishes. It carries no part of the model's text, and its producer is
+#: verified at the boundary (`_PARSE_OK_PRODUCERS`), not inferred from the key.
 _RELEASED_BUSINESS: frozenset[str] = frozenset({"parse_ok"})
+
+#: The only step functions permitted to emit `parse_ok`. Any other function
+#: returning that key is claiming a parse it did not perform, so the key is
+#: dropped at the boundary (R7 P1).
+#: Kept EXPLICIT rather than derived at runtime — a security control should be
+#: readable, not computed. It is pinned against reality instead:
+#: `test_parse_ok_producers_match_the_functions_that_compute_it` fails the
+#: build if a registered function computes `parse_ok` and is missing here, or
+#: if a name here no longer computes it. (The first version of this list was
+#: written from memory and had `record_invoice` for what is really
+#: `record_invoice_extraction`, which silently stripped a legitimate field from
+#: the invoice pipeline — caught by its own test, but only by luck of coverage.)
+_PARSE_OK_PRODUCERS: frozenset[str] = frozenset(
+    {
+        "record_email_triage",
+        "record_pr_triage",
+        "record_paper_triage",
+        "record_evaluation",
+        "record_invoice_extraction",
+    }
+)
+
+
+def function_may_emit(field: str, function_name: str) -> bool:
+    """Whether `function_name` is an authorized producer of `field`.
+
+    PROJECTION-owned fields have NO function producer — the projector writes
+    them — and a released BUSINESS field has a named one."""
+    if _OWNERSHIP.get("step_output", {}).get(field) is Owner.PROJECTION:
+        return False
+    if field == "parse_ok":
+        return function_name in _PARSE_OK_PRODUCERS
+    return True
 
 
 def is_withheld_marker(obj: Any) -> bool:
@@ -234,7 +269,13 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "3"  # R5 F1: bumped — the R4/R5 containment CHANGED what
+PROJECTOR_VERSION = "4"  # R7 P1: bumped AGAIN, and for the same reason as
+# "3" — round 7 withholds model-derived BUSINESS fields that round 6 emitted,
+# so a round-6 record re-projected under round 7 disagrees and reads as
+# TAMPERING rather than degrading. Bumping PROJECTION_SCHEMA_VERSION did not
+# cover it: `verify_projection_agreement` compares the PROJECTOR version only.
+# Twice now this was missed by hand, which is the argument for the
+# golden-fixture guard: any change to emitted output must move this.
 # projection emits (an undeclared key is dropped + flagged, not emitted with a
 # redacted value; routing ids withheld; tool names resolved). Round 5 shipped
 # those changes still stamped "2", so a row written by the OLD projector was
@@ -413,6 +454,14 @@ class Obj:
     children: dict[str, Node] = field(default_factory=dict)
     wildcard: Node | None = None
     wildcard_keys: str | None = None
+    #: Owner of each declared child (R7 P1). This lives on the NODE, not on the
+    #: asset kind, because the same node is reached at many paths — the step
+    #: output schema is the root of `step_output` AND sits under
+    #: `context.steps.<id>`, `step_row.output` and an audit detail's `output`.
+    #: Keyed by kind at the entry point, the rule fired only on the OUTERMOST
+    #: object, so scores were withheld from a stored step output and retained
+    #: in the very same run's instance context.
+    owners: dict[str, Owner] = field(default_factory=dict)
 
 
 @dataclass(frozen=True)
@@ -506,7 +555,8 @@ _STEP_OUTPUT = Obj(
         "projector_version": _TOKEN,
         "projection_schema_version": _COUNT,
         "_redacted": _MARKER,
-    }
+    },
+    owners=_OWNERSHIP["step_output"],
 )
 
 # Engine/governance metadata on an audit `detail`. Content-free by design.
@@ -581,7 +631,8 @@ _CONTEXT = Obj(
         "total_cost_usd": _AMOUNT,
         "dry_run": _BOOL,
         "_redacted": _MARKER,
-    }
+    },
+    owners=_OWNERSHIP["context"],
 )
 
 _INSTANCE = Obj(
@@ -602,7 +653,8 @@ _INSTANCE = Obj(
         "projector_version": _TOKEN,
         "projection_schema_version": _COUNT,
         "_redacted": _MARKER,
-    }
+    },
+    owners=_OWNERSHIP["instance"],
 )
 
 _STEP_ROW = Obj(
@@ -619,7 +671,8 @@ _STEP_ROW = Obj(
         "projector_version": _TOKEN,
         "projection_schema_version": _COUNT,
         "_redacted": _MARKER,
-    }
+    },
+    owners=_OWNERSHIP["step_row"],
 )
 
 #: The asset kinds a caller may declare. There is deliberately no default that
@@ -678,8 +731,10 @@ def _project(node: Node | None, value: Any) -> Any:
             if k == _WITHHELD_LEGACY:
                 # Historical signal on an already-stored row: preserve the FACT
                 # by re-emitting it in the current representation, never the
-                # old count (which was itself a raw channel).
-                if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+                # old count (which was itself a raw channel). R7 P2: an
+                # INVALID value here is content being removed, exactly as under
+                # the current key, so it raises the flag rather than vanishing.
+                if (isinstance(v, int) and not isinstance(v, bool) and v > 0) or v is not None:
                     withheld = True
                 continue
             if k == _WITHHELD:
@@ -699,6 +754,14 @@ def _project(node: Node | None, value: Any) -> Any:
                     withheld = True
                 continue
             if k in node.children:
+                if node.owners.get(k) is Owner.BUSINESS and k not in _RELEASED_BUSINESS:
+                    # R7 P1: withheld wherever this node appears, not only when
+                    # it is the outermost object. Keyed by asset kind at the
+                    # entry point, the rule fired on the root alone — so a run
+                    # withheld scores from its stored step output and retained
+                    # them in its own instance context.
+                    withheld = True
+                    continue
                 out[k] = _project(node.children[k], v)
             elif not _safe_key(k):
                 # Hostile key (prose/email/whitespace) → drop the entry. R5:
@@ -940,26 +1003,4 @@ def redact_tool_data(obj: Any, admin: bool, *, kind: str) -> Any:
         raise ValueError(
             f"unknown projection asset kind {kind!r}; declare one of {sorted(SCHEMAS)}"
         )
-    return _project(schema, _withhold_unreleased_business(obj, kind))
-
-
-def _withhold_unreleased_business(obj: dict[str, Any], kind: str) -> dict[str, Any]:
-    """Drop BUSINESS-owned root fields that have no release rule.
-
-    A score, a confidence or a boolean verdict is PARSED FROM MODEL OUTPUT —
-    the model's claim, not a platform measurement — and its numeric shape said
-    nothing about that. Per the round-6 rule, an unapproved business field is
-    withheld until someone states who may see it and why
-    (`_RELEASED_BUSINESS`, deliberately empty).
-
-    The drop raises the withheld flag, so the record still reports that
-    something was held back, and a grant holder recovers it from the vault."""
-    owners = _OWNERSHIP.get(kind)
-    if not owners:
-        return obj
-    dropped = [k for k in obj if owners.get(k) is Owner.BUSINESS and k not in _RELEASED_BUSINESS]
-    if not dropped:
-        return obj
-    kept = {k: v for k, v in obj.items() if k not in dropped}
-    kept[_WITHHELD] = True
-    return kept
+    return _project(schema, obj)

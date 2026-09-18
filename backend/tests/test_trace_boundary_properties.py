@@ -619,3 +619,125 @@ def test_a_function_cannot_produce_engine_metadata() -> None:
     )
     assert "model" not in kept and "memory_hash" not in kept and "usage" not in kept
     assert kept == {"copied_to": ["/out/a.xml"]}, "the function's OWN output must survive"
+
+
+# --- Round-7 return (GR4-R7) ------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("obj", "kind", "where"),
+    [
+        ({"steps": {"eval": {"faithfulness_score": 5, "model": "m"}}}, "context", "context.steps"),
+        ({"output": {"faithfulness_score": 5, "model": "m"}}, "step_row", "step_row.output"),
+        ({"faithfulness_score": 5, "model": "m"}, "step_output", "step_output root"),
+    ],
+)
+def test_business_withholding_composes_through_nesting(obj: Any, kind: str, where: str) -> None:
+    """R7 P1: ownership must hold at EVERY node, not just the outermost.
+
+    Keyed by asset kind at the entry point, the rule fired on the root alone —
+    so one run withheld scores from its stored step output and RETAINED them in
+    its own instance context. Ownership now lives on the schema NODE, which is
+    the same object wherever a step output appears."""
+    out = redact_tool_data(obj, admin=False, kind=kind)
+    assert "faithfulness_score" not in _dumps(out), f"score survived at {where}: {out}"
+    assert "m" in _dumps(out), "engine-owned metadata should be unaffected"
+
+
+def test_a_function_cannot_forge_projection_metadata_or_an_unearned_parse_ok() -> None:
+    """R7 P1: the producer check covered ENGINE only, so a `noop` returning
+    `projector_version` / `projection_schema_version` / `parse_ok` had them
+    stored verbatim with output_has_raw() clean.
+
+    A field NAME cannot establish its producer: `parse_ok` is released, but
+    only for the parsers that actually compute it."""
+    from workflow_platform.engine.executor import WorkflowEngine
+    from workflow_platform.workflow import DeterministicStep
+
+    forged = {
+        "parse_ok": False,
+        "projector_version": "supplied_value",
+        "projection_schema_version": 12345,
+        "copied_to": ["/out/a"],
+    }
+    noop = WorkflowEngine._strip_engine_owned(
+        dict(forged), DeterministicStep(id="s", type="deterministic", function="noop", config={})
+    )
+    assert noop == {"copied_to": ["/out/a"]}, f"a non-parser forged fields: {noop}"
+
+    parser = WorkflowEngine._strip_engine_owned(
+        dict(forged),
+        DeterministicStep(id="s", type="deterministic", function="record_evaluation", config={}),
+    )
+    assert parser["parse_ok"] is False, "the AUTHORIZED parser may emit parse_ok"
+    assert "projector_version" not in parser, "no function may write projection metadata"
+
+
+def test_a_round6_projection_degrades_rather_than_reading_as_tampering() -> None:
+    """R7 P1: round 7 withholds business fields round 6 emitted, and BOTH
+    called themselves projector "3" — so a valid round-6 record re-projected
+    under round 7 disagreed and read as TAMPERING. Second time this exact
+    collision shipped; the version must move whenever output moves."""
+    from workflow_platform.trace_rehydrate import verify_projection_agreement
+
+    raw = {"faithfulness_score": 5, "output_text": "secret", "model": "m"}
+    round6_stored = {"faithfulness_score": 5, "model": "m", "_withheld_keys": True}
+    assert verify_projection_agreement(raw, round6_stored, "3") == "unsupported"
+    assert PROJECTOR_VERSION == "4", "output changed, so the projector version must have moved"
+    assert (
+        verify_projection_agreement(
+            raw, redact_tool_data(raw, admin=False, kind="step_output"), PROJECTOR_VERSION
+        )
+        == "ok"
+    )
+
+
+@pytest.mark.parametrize("bad", ["example text", {"a": 1}, [1], -1, 0])
+def test_an_invalid_legacy_withheld_value_still_signals(bad: Any) -> None:
+    """R7 P2: `{"_withheld_key_count": "example text"}` projected to `{}` with
+    no marker, so both completeness and compatibility called a record with
+    content REMOVED complete. Invalid content under the legacy reserved key
+    must raise the flag, exactly as under the current one."""
+    from workflow_platform.trace_rehydrate import _output_projected
+
+    out = redact_tool_data({"_withheld_key_count": bad}, admin=False, kind="step_output")
+    assert str(bad) not in _dumps(out)
+    assert out.get("_withheld_keys") is True, f"content removed with no signal: {out}"
+    assert has_redaction_marker(out) and _output_projected(out)
+
+
+def test_parse_ok_producers_match_the_functions_that_compute_it() -> None:
+    """The authorized-producer list must track reality, or it silently strips a
+    legitimate field (or authorizes one that does not exist).
+
+    Written from memory, the first version named `record_invoice` for what is
+    really `record_invoice_extraction`, and the invoice pipeline lost its
+    parse_ok. This derives the truth from the source and compares."""
+    import ast
+    import pathlib
+
+    from workflow_platform.engine.functions import default_function_registry
+    from workflow_platform.trace_projection import _PARSE_OK_PRODUCERS
+
+    src = pathlib.Path(
+        workflow_platform_functions_path := str(
+            pathlib.Path(__file__).resolve().parents[1]
+            / "src/workflow_platform/engine/functions.py"
+        )
+    ).read_text()
+    assert workflow_platform_functions_path  # path resolved
+    tree = ast.parse(src)
+    computes = {
+        n.name
+        for n in ast.walk(tree)
+        if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
+        and "parse_ok" in (ast.get_source_segment(src, n) or "")
+    }
+    registered = set(default_function_registry().names())
+    truth = computes & registered
+
+    assert truth == _PARSE_OK_PRODUCERS, (
+        f"authorized-producer list has drifted.\n"
+        f"  missing (compute parse_ok but not authorized): {sorted(truth - _PARSE_OK_PRODUCERS)}\n"
+        f"  stale   (authorized but do not compute it):    {sorted(_PARSE_OK_PRODUCERS - truth)}"
+    )
