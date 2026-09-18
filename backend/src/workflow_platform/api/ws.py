@@ -31,6 +31,7 @@ from workflow_platform.auth.raw_trace_grants import RawTraceGrantService
 from workflow_platform.auth.rbac import Role
 from workflow_platform.events import EventBus
 from workflow_platform.persistence import Repositories
+from workflow_platform.trace_rehydrate import RawTraceRehydrator, RawTraceUnavailable
 
 
 def event_deliverable(event: dict[str, Any], subscriber_org: str | None) -> bool:
@@ -73,6 +74,36 @@ def _redact_ws_event(event: dict[str, Any]) -> dict[str, Any]:
     if not isinstance(detail, dict):
         return event
     return {**event, "detail": project_audit_detail(event.get("action"), detail)}
+
+
+async def _rehydrated_ws_event(
+    repositories: Repositories, event: dict[str, Any], projected: dict[str, Any]
+) -> dict[str, Any]:
+    """Restore a vaulted audit detail onto a pushed frame for a grant holder.
+
+    Falls back to the projected frame on any failure: an unrecoverable raw is
+    withheld, never faked.
+    """
+    instance_id = event.get("workflow_instance_id")
+    entry_id = event.get("id")
+    if not isinstance(instance_id, str) or not isinstance(entry_id, str):
+        return projected
+    instance = await repositories.instances.get(instance_id)
+    if instance is None:
+        return projected
+    try:
+        full = await RawTraceRehydrator(repositories).rehydrate_audit_detail(
+            purpose=SURFACE_WS,
+            org_id=instance.org_id,
+            instance_id=instance_id,
+            audit_entry_id=entry_id,
+            action=str(event.get("action") or ""),
+            stored_detail=event.get("detail"),
+            projector_version=str(event.get("projector_version") or "") or None,
+        )
+    except RawTraceUnavailable:
+        return projected
+    return {**event, "detail": full}
 
 
 class _OrgUnresolved(Exception):
@@ -184,7 +215,16 @@ def build_ws_router(
                     get_task = None
                     if _deliver(event, subscriber_org):
                         projected = _redact_ws_event(event)
-                        if projected == event:
+                        # R13 self-audit: `projected == event` used to mean
+                        # "carries no raw". Since the at-rest tightening the
+                        # published event is ALREADY the projection, so that
+                        # test is true for every audit event and the stream
+                        # silently stopped offering raw to grant holders —
+                        # the round-12 finding on a third surface. The
+                        # persisted stamp is the honest signal: if the raw
+                        # was vaulted, this event is raw-bearing.
+                        vaulted = event.get("projector_version") is not None
+                        if projected == event and not vaulted:
                             # The event carries no raw at all — no grant needed,
                             # no access audit. Send as-is.
                             await ws.send_json(event)
@@ -207,7 +247,13 @@ def build_ws_router(
                                 instance_id=event.get("workflow_instance_id"),
                                 kinds=("tool_calls", "output_text"),
                             )
-                            await ws.send_json(event if released else projected)
+                            frame = event
+                            if released and vaulted:
+                                # Recover the vaulted detail, or fall back to
+                                # the projection — never claim a release we
+                                # could not make.
+                                frame = await _rehydrated_ws_event(repositories, event, projected)
+                            await ws.send_json(frame if released else projected)
         except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
             pass
         finally:

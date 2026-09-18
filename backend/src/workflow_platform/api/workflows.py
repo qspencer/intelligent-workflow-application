@@ -1454,7 +1454,7 @@ def build_router(
         ]
 
     async def _release_audit(
-        entries: list[AuditEntry], *, org_id: str, actor_id: str, instance_id: str | None
+        entries: list[AuditEntry], *, actor_id: str, instance_id: str | None
     ) -> tuple[list[AuditEntry], list[str], list[str]]:
         """Restore vaulted audit details for a grant holder.
 
@@ -1474,10 +1474,18 @@ def build_router(
             if entry.workflow_instance_id is None or entry.projector_version is None:
                 restored.append(entry)
                 continue
+            # Resolve the org PER ENTRY, not once for the request: the
+            # global /audit list spans orgs, so a single org would decrypt
+            # against the wrong AEAD identity (or the wrong tenant's key).
+            owner = await repositories.instances.get(entry.workflow_instance_id)
+            if owner is None:
+                failed += 1
+                restored.append(entry)
+                continue
             try:
                 full = await rehydrator.rehydrate_audit_detail(
                     purpose=SURFACE_AUDIT,
-                    org_id=org_id,
+                    org_id=owner.org_id,
                     instance_id=entry.workflow_instance_id,
                     audit_entry_id=entry.id,
                     action=entry.action,
@@ -1501,8 +1509,7 @@ def build_router(
         *,
         raw_ok: bool,
         actor_id: str,
-        instance_id: str,
-        org_id: str,
+        instance_id: str | None,
     ) -> list[AuditEntry]:
         """Begin the access, fetch from the vault, THEN commit the outcome
         that actually occurred — the two-phase shape `begin_raw_release`
@@ -1519,7 +1526,7 @@ def build_router(
             # Below grant, or the attempt audit failed. Either way: project.
             return _project_audit(entries, False)
         restored, returned, withheld = await _release_audit(
-            entries, org_id=org_id, actor_id=actor_id, instance_id=instance_id
+            entries, actor_id=actor_id, instance_id=instance_id
         )
         audit_ok, _ = await commit_raw_release(
             repositories,
@@ -1546,11 +1553,7 @@ def build_router(
         raw_ok = await _raw_reader_for_org(user, instance.org_id)
         entries = await repositories.audit.list_by_instance(instance_id)
         return await _audit_response(
-            entries,
-            raw_ok=raw_ok,
-            actor_id=user.sub,
-            instance_id=instance_id,
-            org_id=instance.org_id,
+            entries, raw_ok=raw_ok, actor_id=user.sub, instance_id=instance_id
         )
 
     @router.get("/audit", response_model=list[AuditEntry])
@@ -1572,23 +1575,21 @@ def build_router(
                 raw_ok=raw_ok,
                 actor_id=user.sub,
                 instance_id=instance_id,
-                org_id=instance.org_id,
             )
         # The global list spans orgs — only a PLATFORM-WIDE grant reads raw
         # here (an org-scoped grant covers only its own org's entries), which
         # `covering(target_org=None)` returns exactly.
         raw_ok = await _raw_reader_for_org(user, None)
-        released, _ = await decide_raw_release(
-            repositories,
+        # R13 self-audit: this branch still had the round-12 defect after the
+        # other two were fixed — a platform-wide grant holder got the STORED
+        # (projected) entries while the log recorded a release. Fixing two of
+        # three call sites is the half-built-path pattern the round-12 return
+        # was about, so it goes through the same responder.
+        return await _audit_response(
+            await repositories.audit.list_recent(limit=min(limit, 500), org_id=scope.org_id),
             raw_ok=raw_ok,
-            surface=SURFACE_AUDIT,
             actor_id=user.sub,
             instance_id=None,
-            kinds=("tool_calls",),
-        )
-        return _project_audit(
-            await repositories.audit.list_recent(limit=min(limit, 500), org_id=scope.org_id),
-            released,
         )
 
     if webhook_registry is not None:

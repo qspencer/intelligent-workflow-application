@@ -174,3 +174,104 @@ async def test_an_entry_that_lost_NOTHING_is_returned_without_a_vault_fetch(
     assert not any(str(e.detail.get("outcome")) == "retrieval_failed" for e in decided), (
         "an entry with nothing vaulted was counted as a retrieval failure"
     )
+
+
+def test_every_endpoint_returning_audit_entries_goes_through_recovery() -> None:
+    """R13 self-audit, and the structural fix for the round-12 class.
+
+    Round 12 returned because the write path shipped without the read path.
+    Fixing it, I updated two of the THREE endpoints that return audit
+    entries — the global `/audit` branch kept the defect. Enumerate instead
+    of remembering: any route handler whose return type is
+    `list[AuditEntry]` must call `_audit_response`, which is the only place
+    that fetches from the vault and records the real outcome.
+    """
+    import ast
+    import pathlib
+
+    src = pathlib.Path("src/workflow_platform/api/workflows.py")
+    tree = ast.parse(src.read_text())
+    offenders: list[str] = []
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.AsyncFunctionDef):
+            continue
+        returns = ast.unparse(node.returns) if node.returns else ""
+        if returns.replace(" ", "") != "list[AuditEntry]":
+            continue
+        if node.name == "_audit_response":
+            continue  # it IS the recovery path
+        called = {
+            c.func.id
+            for c in ast.walk(node)
+            if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
+        }
+        if "_audit_response" not in called:
+            offenders.append(node.name)
+    assert not offenders, (
+        f"these handlers return audit entries without going through _audit_response: "
+        f"{offenders}. They will hand a grant holder the STORED projection and log it "
+        "as a release — the round-12 finding, reintroduced."
+    )
+
+
+async def test_the_GLOBAL_audit_list_also_recovers(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """The branch I missed when fixing round 12. A platform-wide grant holder
+    reading `/api/audit` (no instance filter) must get the raw too."""
+    client, repos, _iid, _ = await _setup(monkeypatch)
+    await _grant_platform_wide(repos, "root")
+    body = client.get("/api/audit?limit=200", headers=_ADMIN).json()
+    blocked = [e for e in body if e["action"] == "tool_param_override_blocked"]
+    assert blocked, "the entry is missing from the global list"
+    assert blocked[0]["detail"] == RAW_DETAIL, (
+        f"the global list did not recover the vaulted detail; got {blocked[0]['detail']!r}"
+    )
+
+
+async def test_the_WS_stream_also_recovers_for_a_grant_holder(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R13 self-audit, third surface — tested THROUGH the websocket (R-e).
+
+    `_redact_ws_event(event) == event` used to mean "no raw here". Since the
+    at-rest tightening the PUBLISHED event is already the projection, so that
+    was true for every audit event and the stream quietly stopped offering
+    raw to grant holders — and skipped the access audit with it. The
+    persisted stamp is the honest signal.
+    """
+    from workflow_platform.events import EventBus
+
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    repos = in_memory_repositories()
+    events = EventBus()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=FunctionRegistry(),
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+        trace_safe_only=True,
+        events=events,
+    )
+    instance = await repos.instances.create(
+        WorkflowInstance(workflow_id="wf", org_id="default", state=WorkflowInstanceState.RUNNING)
+    )
+    await repos.users.save(User(iss="dev", sub="root", org_id="default", roles=["Administrator"]))
+    await _grant_platform_wide(repos, "root")
+    app = create_app(repositories=repos, engine=engine, events=events)
+    client = TestClient(app)
+
+    with client.websocket_connect("/ws/events?user=root&groups=admins") as ws:
+        await engine._audit(
+            "tool_param_override_blocked",
+            actor_type="agent",
+            actor_id="a",
+            instance_id=instance.id,
+            detail=RAW_DETAIL,
+        )
+        frame = ws.receive_json()
+
+    assert frame["detail"] == RAW_DETAIL, (
+        f"the grant holder did not receive the vaulted detail over WS; got {frame['detail']!r}"
+    )
