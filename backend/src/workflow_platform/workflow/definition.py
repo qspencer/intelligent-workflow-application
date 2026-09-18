@@ -179,6 +179,12 @@ class LearnedMemorySpec(BaseModel):
     """
 
     user_id: str
+    # The ingress these writes arrive through — a mailbox or connector id,
+    # never a person (e.g. "gmail:owner@example.com"). Required by veracium
+    # >=0.23.0 for any third-party-authored or third-party-derived
+    # observation: a record with no source identity can never be reached by
+    # revocation. Writes that declare neither provenance don't need it.
+    source_id: str | None = None
     observations: list[ObservationSpec] = Field(default_factory=list)
     recall: RecallSpec | None = None
 

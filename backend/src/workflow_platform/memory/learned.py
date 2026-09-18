@@ -183,6 +183,7 @@ class LearnedMemoryService:
         date: str | None = None,
         evidence_ref: str | None = None,
         derived_from: str | None = None,
+        source_id: str | None = None,
     ) -> LearnedObservation:
         """Ingest one event into `user_id`'s memory. `author` is the
         trust-critical input: "third_party" for received mail / external
@@ -191,7 +192,12 @@ class LearnedMemoryService:
         ≥0.1.7): a system-authored event whose *content* embeds third-party
         text (a triage verdict quoting a subject line) passes
         `derived_from="third_party"` so trust caps at the minimum of the two —
-        closing the system-event laundering channel we reported."""
+        closing the system-event laundering channel we reported.
+
+        `source_id` names the INGRESS the content arrived through (a mailbox
+        or connector — never a person). veracium ≥0.23.0 refuses a
+        third-party-authored or third-party-derived write that carries no
+        source id: without one, no revocation can ever reach the record."""
         from veracium import EvidenceAuthor
 
         author_enum = EvidenceAuthor[author.upper()]
@@ -209,6 +215,8 @@ class LearnedMemoryService:
                     kwargs["date"] = date
                 if derived_from:
                     kwargs["derived_from"] = EvidenceAuthor[derived_from.upper()]
+                if source_id:
+                    kwargs["source_id"] = source_id
                 result = await asyncio.to_thread(memory.remember, user_id, text, **kwargs)
             finally:
                 self._complete.loop = None

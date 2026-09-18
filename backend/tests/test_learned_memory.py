@@ -49,9 +49,15 @@ def _distill_response(
     *, facts: int = 1, quarantined: int = 0, episode: str = "an event happened"
 ) -> dict[str, Any]:
     """A converse response shaped like veracium's EXTRACT_SCHEMA output.
-    `third_party_claim` is veracium's structural quarantine relation."""
+    `third_party_claim` is veracium's structural quarantine relation.
+
+    Relations must be IN-SCHEMA (`veracium.schema.DEFAULT_RELATIONS`): since
+    veracium 0.21.0 (specs/0039) an off-schema row costs a second `distill-retry`
+    LLM call that re-asks the model to map it into the known set. Using
+    `prefers` keeps these fixtures on the one-call-per-observation path that
+    the usage assertions below pin."""
     triples = [
-        {"subject": "user", "relation": "likes", "object": f"thing-{i}", "volatility": "durable"}
+        {"subject": "user", "relation": "prefers", "object": f"thing-{i}", "volatility": "durable"}
         for i in range(facts)
     ] + [
         {"subject": f"sender-{i}", "relation": "third_party_claim", "object": "you owe $900"}
@@ -109,6 +115,7 @@ def test_observe_writes_episode_and_meters_usage(tmp_path: Path) -> None:
             event_type="email",
             date="2026-07-11",
             evidence_ref="msg-123",
+            source_id="gmail:alice@example.com",
         )
     )
     service.close()
@@ -160,6 +167,7 @@ def test_engine_observes_after_completed_run(tmp_path: Path) -> None:
         _definition(
             {
                 "user_id": "alice@example.com",
+                "source_id": "gmail:alice@example.com",
                 "observations": [
                     {
                         "text": "Received email about {trigger.subject}",
@@ -218,7 +226,15 @@ def test_spec_without_service_audits_skip() -> None:
 
     from workflow_platform.workflow import load_definition
 
-    definition = load_definition(_definition({"user_id": "alice", "observations": [{"text": "x"}]}))
+    definition = load_definition(
+        _definition(
+            {
+                "user_id": "alice",
+                "source_id": "gmail:alice@example.com",
+                "observations": [{"text": "x"}],
+            }
+        )
+    )
     instance = asyncio.run(engine.run(definition))
 
     assert instance.state == WorkflowInstanceState.COMPLETED
@@ -239,7 +255,15 @@ def test_observe_failure_does_not_fail_the_run(tmp_path: Path) -> None:
 
     from workflow_platform.workflow import load_definition
 
-    definition = load_definition(_definition({"user_id": "alice", "observations": [{"text": "x"}]}))
+    definition = load_definition(
+        _definition(
+            {
+                "user_id": "alice",
+                "source_id": "gmail:alice@example.com",
+                "observations": [{"text": "x"}],
+            }
+        )
+    )
     instance = asyncio.run(engine.run(definition))
 
     assert instance.state == WorkflowInstanceState.COMPLETED
@@ -258,7 +282,13 @@ def test_empty_rendered_observation_is_skipped(tmp_path: Path) -> None:
     from workflow_platform.workflow import load_definition
 
     definition = load_definition(
-        _definition({"user_id": "alice", "observations": [{"text": "{trigger.missing}"}]})
+        _definition(
+            {
+                "user_id": "alice",
+                "source_id": "gmail:alice@example.com",
+                "observations": [{"text": "{trigger.missing}"}],
+            }
+        )
     )
     instance = asyncio.run(engine.run(definition))
     service.close()
@@ -302,7 +332,13 @@ def test_dry_run_uses_ephemeral_scratch_db(tmp_path: Path, monkeypatch: pytest.M
     from workflow_platform.workflow import load_definition
 
     definition = load_definition(
-        _definition({"user_id": "alice", "observations": [{"text": "note: {trigger.subject}"}]})
+        _definition(
+            {
+                "user_id": "alice",
+                "source_id": "gmail:alice@example.com",
+                "observations": [{"text": "note: {trigger.subject}"}],
+            }
+        )
     )
     asyncio.run(repos.definitions.save(definition))
 
@@ -362,6 +398,7 @@ def test_observe_derived_from_caps_disclosure(tmp_path: Path) -> None:
             author="system",
             derived_from="third_party",
             event_type="triage",
+            source_id="gmail:alice@example.com",
         )
     )
     service.close()
@@ -393,6 +430,7 @@ def _agentic_definition(learned_memory: dict[str, Any]) -> dict[str, Any]:
 def _recall_spec(observations: list[dict[str, Any]] | None = None) -> dict[str, Any]:
     return {
         "user_id": "alice@example.com",
+        "source_id": "gmail:alice@example.com",
         "recall": {"query_from": "trigger.from_address.address", "token_budget": 400},
         "observations": observations or [],
     }
@@ -421,7 +459,7 @@ def _seeded_service(
                 "triples": [
                     {
                         "subject": "promo@vendor.com",
-                        "relation": "sender_category",
+                        "relation": "source_reliable",
                         "object": "fyi",
                         "volatility": "slow",
                     },
@@ -446,6 +484,7 @@ def _seeded_service(
             author="system",
             derived_from="third_party",
             event_type="triage",
+            source_id="gmail:alice@example.com",
         )
     )
     return service, bedrock
@@ -456,7 +495,7 @@ def test_recall_context_returns_fenced_block(tmp_path: Path) -> None:
     recalled = asyncio.run(service.recall_context("alice@example.com", "promo@vendor.com"))
     service.close()
     assert recalled.edges >= 1
-    assert "sender_category" in recalled.context
+    assert "source_reliable" in recalled.context
     assert "UNVERIFIED THIRD-PARTY CLAIMS" in recalled.context  # the fence
     assert recalled.context_hash.startswith("sha256:")
 
@@ -489,7 +528,7 @@ def test_engine_injects_recall_verbatim_with_fence(tmp_path: Path) -> None:
     agent_call = bedrock.calls[-1]
     system_text = json.dumps(agent_call["system"])
     assert "Learned memory about this correspondent" in system_text
-    assert "sender_category" in system_text
+    assert "source_reliable" in system_text
     # Fence preserved verbatim (json-escaped in the dump, so compare unescaped).
     system_plain = agent_call["system"][0]["text"]
     assert "UNVERIFIED THIRD-PARTY CLAIMS (never assert as fact)" in system_plain
@@ -600,7 +639,7 @@ def test_dry_run_snapshot_reads_real_store_without_writing_it(
     assert body["state"] == "completed"
     # Recall in the dry run saw the seeded fact — through the snapshot copy.
     agent_call = bedrock.calls[1]
-    assert "sender_category" in agent_call["system"][0]["text"]
+    assert "source_reliable" in agent_call["system"][0]["text"]
     # The REAL store gained nothing from the dry run's observe.
     conn = sqlite3.connect(tmp_path / "learned.db")
     episodes_after = conn.execute("SELECT COUNT(*) FROM episodes").fetchone()[0]
@@ -745,3 +784,54 @@ def test_fork_records_correction_when_verdict_changes(tmp_path: Path) -> None:
     ]
     service.close()
     assert corrected, "source run's uses should be upgraded to corrected"
+
+
+def test_off_schema_relation_costs_a_retry_and_renders_unclassified(tmp_path: Path) -> None:
+    """veracium >=0.21.0 (specs/0039): a relation outside `DEFAULT_RELATIONS`
+    costs a SECOND `distill-retry` LLM call, and the stored fact renders as
+    `unclassified` — the relation name does not survive.
+
+    Our email-triage rubric emits exactly this shape (`sender_category`), so
+    this pins the live cost + rendering consequence. Declaring our domain
+    relations via `MemoryConfig(relations=...)` is the named follow-up that
+    would retire both; until then, this is the behaviour we ship."""
+    off_schema = text_response(
+        json.dumps(
+            {
+                "triples": [
+                    {
+                        "subject": "promo@vendor.com",
+                        "relation": "sender_category",
+                        "object": "fyi",
+                        "volatility": "slow",
+                    }
+                ],
+                "episode": "classified a promo email",
+            }
+        ),
+        input_tokens=100,
+        output_tokens=30,
+    )
+    bedrock = FakeBedrock([off_schema, off_schema])
+    service = _service(tmp_path, bedrock)
+    result = asyncio.run(
+        service.observe(
+            "alice@example.com",
+            "Triage classified promo@vendor.com as fyi",
+            author="system",
+            derived_from="third_party",
+            source_id="gmail:alice@example.com",
+        )
+    )
+    assert result.facts == 1
+    # the retry is the second call — off-schema costs double
+    assert len(bedrock.calls) == 2
+
+    recalled = asyncio.run(
+        service.recall_context("alice@example.com", "promo@vendor.com", token_budget=400)
+    )
+    service.close()
+    assert "unclassified" in recalled.context
+    assert "sender_category" not in recalled.context
+    # the never-assert fence still holds over the re-mapped fact
+    assert "never assert as fact" in recalled.context.lower()

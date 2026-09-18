@@ -218,6 +218,10 @@ policies:
 
 learned_memory:
   user_id: qspencer@gmail.com
+  # The ingress this content arrives through (the mailbox, not the sender).
+  # veracium >=0.23.0 refuses third-party writes without a source id —
+  # no source identity means revocation can never reach the record.
+  source_id: gmail:qspencer@gmail.com
   recall:
     query_from: trigger.from_address.address
     token_budget: 600
