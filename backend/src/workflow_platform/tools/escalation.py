@@ -95,13 +95,32 @@ class RequestHumanReviewTool(Tool):
         stamp: str | None = None
         if _trace_safe_only():
             detail = project_audit_detail_at_rest("escalation_requested", raw_detail)
+            lossy = audit_detail_has_raw("escalation_requested", raw_detail)
+            # R13 finding 3: vaulting used to be BEST-EFFORT — constructed
+            # without `repositories`, or called without an instance, the tool
+            # wrote the projected entry and no vault row, silently destroying
+            # the model-authored reason/context this escalation exists to
+            # carry. Optional preservation of something projection will
+            # remove is not preservation. Refuse instead.
+            if lossy and (self._vault is None or self._repos is None):
+                return ToolResult(
+                    error="cannot record escalation: safe-only mode would remove the "
+                    "reason/context, and this tool was constructed without the "
+                    "repositories needed to preserve them in the vault"
+                )
+            if lossy and instance_id is None:
+                return ToolResult(
+                    error="cannot record escalation: safe-only mode would remove the "
+                    "reason/context, and there is no workflow instance to vault them "
+                    "against (the vault is instance-scoped)"
+                )
             # Vault BEFORE projecting away, addressed by the entry id — the
             # same order and the same key space as the engine chokepoint.
             if (
                 self._vault is not None
                 and self._repos is not None
                 and instance_id is not None
-                and audit_detail_has_raw("escalation_requested", raw_detail)
+                and lossy
             ):
                 instance = await self._repos.instances.get(instance_id)
                 if instance is None:

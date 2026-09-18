@@ -176,6 +176,19 @@ async def test_an_entry_that_lost_NOTHING_is_returned_without_a_vault_fetch(
     )
 
 
+#: The functions that ARE the recovery path.
+RECOVERY_HELPERS = {"_audit_response", "_release_audit"}
+
+#: Handlers that read the audit log but expose no detail to a reader, with
+#: the reason. An exclusion must be argued, never assumed.
+AUDIT_READERS_EXEMPT = {
+    # Matches `escalation_resolved.original_id` (a DECLARED field, so it
+    # survives projection) and returns only a status. No detail reaches the
+    # caller, so there is nothing to recover.
+    "resolve_escalation",
+}
+
+
 def test_every_endpoint_returning_audit_entries_goes_through_recovery() -> None:
     """R13 self-audit, and the structural fix for the round-12 class.
 
@@ -195,17 +208,25 @@ def test_every_endpoint_returning_audit_entries_goes_through_recovery() -> None:
     for node in ast.walk(tree):
         if not isinstance(node, ast.AsyncFunctionDef):
             continue
-        returns = ast.unparse(node.returns) if node.returns else ""
-        if returns.replace(" ", "") != "list[AuditEntry]":
+        # R13 finding 1: keying on the RETURN TYPE missed `/api/escalations`,
+        # which returns `list[dict]` built from audit entries. Key on what
+        # the handler DOES instead — reads the audit log — which is the
+        # property that makes recovery necessary. Same lesson as the audit
+        # writer inventory: match the behaviour, not the spelling.
+        body = ast.unparse(node)
+        reads_audit = "repositories.audit.list_" in body
+        if not reads_audit:
             continue
-        if node.name == "_audit_response":
-            continue  # it IS the recovery path
+        if node.name in RECOVERY_HELPERS or node.name in AUDIT_READERS_EXEMPT:
+            continue
         called = {
             c.func.id
             for c in ast.walk(node)
             if isinstance(c, ast.Call) and isinstance(c.func, ast.Name)
         }
-        if "_audit_response" not in called:
+        # Either use a recovery helper, or run the two-phase release
+        # yourself (`explain_step` does, and correctly).
+        if not ((RECOVERY_HELPERS | {"begin_raw_release"}) & called):
             offenders.append(node.name)
     assert not offenders, (
         f"these handlers return audit entries without going through _audit_response: "
@@ -274,4 +295,206 @@ async def test_the_WS_stream_also_recovers_for_a_grant_holder(
 
     assert frame["detail"] == RAW_DETAIL, (
         f"the grant holder did not receive the vaulted detail over WS; got {frame['detail']!r}"
+    )
+
+
+async def test_the_ESCALATION_endpoint_recovers_for_a_grant_holder(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R13 finding 1, through the endpoint (R-e).
+
+    `/api/escalations` returned `e.detail.get("reason")` — the STORED detail,
+    which since the tightening has reason/context withheld. A grant holder
+    received `reason: null` WITH `raw_included: true`, while the same entry's
+    full detail came back fine from the audit endpoint.
+    """
+    from workflow_platform.tools.base import ToolContext
+    from workflow_platform.tools.escalation import RequestHumanReviewTool
+
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    monkeypatch.setenv("WORKFLOW_PLATFORM_TRACE_SAFE_ONLY", "1")
+    repos = in_memory_repositories()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=FunctionRegistry(),
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+        trace_safe_only=True,
+    )
+    instance = await repos.instances.create(
+        WorkflowInstance(workflow_id="wf", org_id="default", state=WorkflowInstanceState.RUNNING)
+    )
+    tool = RequestHumanReviewTool(repos.audit, repositories=repos)
+    result = await tool.execute(
+        {"reason": "SYNTHETIC-REASON", "context": {"body": "SYNTHETIC-BODY"}},
+        ToolContext(world=mock_world(), agent_id="act", workflow_instance_id=instance.id),
+    )
+    assert result.error is None, f"the escalation was refused: {result.error}"
+
+    await repos.users.save(User(iss="dev", sub="root", org_id="default", roles=["Administrator"]))
+    client = TestClient(create_app(repositories=repos, engine=engine))
+
+    below = client.get("/api/escalations", headers=_ADMIN).json()
+    assert below and below[0]["raw_included"] is False
+    assert "SYNTHETIC-REASON" not in str(below)
+
+    await _grant_platform_wide(repos, "root")
+    above = client.get("/api/escalations", headers=_ADMIN).json()
+    assert above[0]["raw_included"] is True, "raw_included is false for a grant holder"
+    assert above[0]["reason"] == "SYNTHETIC-REASON", (
+        f"the grant holder did not recover the escalation reason; got {above[0]['reason']!r}"
+    )
+    assert above[0]["context"] == {"body": "SYNTHETIC-BODY"}
+
+
+async def test_the_escalation_tool_REFUSES_rather_than_discarding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R13 finding 3: constructed without repositories, the tool wrote a
+    projected escalation and no vault row — destroying the model-authored
+    reason it exists to carry. Optional preservation is not preservation."""
+    from workflow_platform.tools.base import ToolContext
+    from workflow_platform.tools.escalation import RequestHumanReviewTool
+
+    monkeypatch.setenv("WORKFLOW_PLATFORM_TRACE_SAFE_ONLY", "1")
+    repos = in_memory_repositories()
+    instance = await repos.instances.create(
+        WorkflowInstance(workflow_id="wf", org_id="default", state=WorkflowInstanceState.RUNNING)
+    )
+    ctx = ToolContext(world=mock_world(), agent_id="act", workflow_instance_id=instance.id)
+
+    no_repos = RequestHumanReviewTool(repos.audit)
+    result = await no_repos.execute({"reason": "SYNTHETIC", "context": {}}, ctx)
+    assert result.error and "without the repositories" in result.error
+    assert not await repos.audit.list_recent(limit=10), "it appended anyway"
+
+    # And with no instance to vault against.
+    with_repos = RequestHumanReviewTool(repos.audit, repositories=repos)
+    result = await with_repos.execute(
+        {"reason": "SYNTHETIC", "context": {}},
+        ToolContext(world=mock_world(), agent_id="act"),
+    )
+    assert result.error and "no workflow instance" in result.error
+
+
+async def test_the_WS_release_record_matches_what_was_DELIVERED(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R13 finding 2, the reviewer's exact scenario.
+
+    With the vault record removed the socket correctly delivered a withheld
+    frame — but the release record still said `released`, because WS used the
+    ATOMIC release which commits before anything is fetched. A separate
+    system-access record said `retrieval_failed`, so the two disagreed about
+    the same event.
+    """
+    from workflow_platform.events import EventBus
+    from workflow_platform.persistence.models import RawTraceKind
+
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    repos = in_memory_repositories()
+    events = EventBus()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=FunctionRegistry(),
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+        trace_safe_only=True,
+        events=events,
+    )
+    instance = await repos.instances.create(
+        WorkflowInstance(workflow_id="wf", org_id="default", state=WorkflowInstanceState.RUNNING)
+    )
+    await repos.users.save(User(iss="dev", sub="root", org_id="default", roles=["Administrator"]))
+    await _grant_platform_wide(repos, "root")
+    client = TestClient(create_app(repositories=repos, engine=engine, events=events))
+
+    # Vault a detail, then DESTROY the vault row: recovery must fail.
+    await engine._audit(
+        "tool_param_override_blocked",
+        actor_type="agent",
+        actor_id="a",
+        instance_id=instance.id,
+        detail=RAW_DETAIL,
+        entry_id="ws-entry",
+    )
+
+    async def _destroy_audit_rows() -> None:
+        """Simulate a DB operator deleting the vault objects. Typed loosely
+        because it reaches into the in-memory repo's internals on purpose."""
+        store: Any = repos.raw_trace_vault
+        for r in await store.list_by_instance(instance.id):
+            if r.kind is RawTraceKind.AUDIT_DETAIL:
+                store._items.pop(r.id, None)
+                store._by_key.pop(r.idempotency_key, None)
+
+    await _destroy_audit_rows()
+
+    with client.websocket_connect("/ws/events?user=root&groups=admins") as ws:
+        await engine._audit(
+            "tool_param_override_blocked",
+            actor_type="agent",
+            actor_id="a",
+            instance_id=instance.id,
+            detail=RAW_DETAIL,
+            entry_id="ws-entry-2",
+        )
+        # Destroy the second one's row too, between publish and delivery.
+        await _destroy_audit_rows()
+        frame = ws.receive_json()
+
+    assert "exfiltrate_sk_live_abc" not in str(frame), "raw was delivered with no vault row"
+    ws_decisions = [
+        e
+        for e in await repos.audit.list_recent(limit=200)
+        if e.action == "raw_trace_release_decided" and e.detail.get("surface") == "ws"
+    ]
+    assert ws_decisions, "the websocket recorded no release decision at all"
+    assert not all(str(e.detail.get("outcome")) == "released" for e in ws_decisions), (
+        f"the WS release record claims released but nothing was retrieved: "
+        f"{[e.detail.get('outcome') for e in ws_decisions]}"
+    )
+
+
+async def test_an_undecryptable_record_completes_the_release_audit(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R13 finding 4, the half my first fix missed.
+
+    Normalising `TraceCipherError` stopped the HTTP 500. But `_payload_of`
+    raising between `_begin` and `_complete` still left the system-access
+    record OPEN — the reader gets nothing and the log never says why, which
+    is the worst of both. The endpoint must return the projected entry AND
+    the release audit must complete.
+    """
+    client, repos, iid, _ = await _setup(monkeypatch)
+    await _grant_platform_wide(repos, "root")
+
+    # Corrupt the sealed payload so decryption fails (not merely absent).
+    from workflow_platform.persistence.models import RawTraceKind
+
+    store = repos.raw_trace_vault
+    rows = [r for r in await store.list_by_instance(iid) if r.kind is RawTraceKind.AUDIT_DETAIL]
+    assert rows, "premise: a sealed vault row exists"
+    for r in rows:
+        broken = dict(r.payload)
+        broken["ct"] = base64.b64encode(b"not-the-real-ciphertext").decode()
+        store._items[r.id] = r.model_copy(update={"payload": broken})
+
+    resp = client.get(f"/api/workflow-instances/{iid}/audit", headers=_ADMIN)
+    assert resp.status_code == 200, f"an undecryptable record produced HTTP {resp.status_code}"
+    assert "exfiltrate_sk_live_abc" not in resp.text
+
+    entries = await repos.audit.list_by_instance(iid)
+    attempted = [e for e in entries if e.action == "raw_trace_system_access_attempted"]
+    completed = [e for e in entries if e.action == "raw_trace_system_access_completed"]
+    assert attempted, "no access attempt was recorded"
+    assert len(completed) >= len(attempted), (
+        f"{len(attempted)} access attempts but only {len(completed)} completions — "
+        "a decryption failure left the access record open"
+    )
+    assert any(str(e.detail.get("outcome")) == "retrieval_failed" for e in completed), (
+        f"no completion says retrieval_failed: {[e.detail.get('outcome') for e in completed]}"
     )

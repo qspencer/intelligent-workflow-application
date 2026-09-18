@@ -21,7 +21,11 @@ from typing import Any
 
 from workflow_platform.persistence import AuditEntry, RawTrace, RawTraceKind, Repositories
 from workflow_platform.persistence.models import RAW_SCHEMA_VERSION, RawTraceState
-from workflow_platform.trace_cipher import build_trace_cipher, is_sealed_payload
+from workflow_platform.trace_cipher import (
+    TraceCipherError,
+    build_trace_cipher,
+    is_sealed_payload,
+)
 from workflow_platform.trace_projection import (
     PROJECTOR_VERSION,
     is_withheld_marker,
@@ -85,13 +89,36 @@ def verify_projection_agreement(
                       bump must not make pre-change rows read corrupt) — the
                       caller degrades with an explicit audited outcome.
     """
-    if recorded_projector_version != PROJECTOR_VERSION:
+    if not _version_reproducible(recorded_projector_version):
         return "unsupported"
     return (
         "ok"
         if redact_tool_data(raw, admin=False, kind="step_output") == stored_safe
         else "mismatch"
     )
+
+
+def _version_reproducible(recorded_projector_version: str | None) -> bool:
+    """Whether THIS build can reproduce a projection recorded under that
+    version. One gate: audit details ask the same question, and asking it
+    separately is how they came to disagree (R13 finding 5)."""
+    return recorded_projector_version == PROJECTOR_VERSION
+
+
+def verify_audit_projection_agreement(
+    action: str, raw: Any, stored_detail: Any, recorded_projector_version: str | None
+) -> str:
+    """`verify_projection_agreement` for an AUDIT detail, which is projected
+    action-aware rather than by asset kind.
+
+    R13 finding 5: `rehydrate_audit_detail` compared with a bare `!=` and no
+    version gate, so an entry stamped `UNSUPPORTED-999` returned its full
+    detail and recorded SUCCESS. Same verdicts, and the same rule behind
+    `unsupported`: a projector bump must not make pre-change rows read as
+    corrupt (criterion 17)."""
+    if not _version_reproducible(recorded_projector_version):
+        return "unsupported"
+    return "ok" if project_audit_detail_at_rest(action, raw) == stored_detail else "mismatch"
 
 
 class RawTraceRehydrator:
@@ -153,15 +180,27 @@ class RawTraceRehydrator:
         if self._cipher is not None:
             if not sealed:
                 raise RawTraceUnavailable("unsealed vault payload under encryption (downgrade)")
-            return self._cipher.open(
-                row.payload,
-                org_id=org_id,
-                instance_id=instance_id,
-                step_attempt_id=step_attempt_id,
-                kind=kind,
-                schema_version=RAW_SCHEMA_VERSION,
-                audit_entry_id=audit_entry_id,
-            )
+            try:
+                return self._cipher.open(
+                    row.payload,
+                    org_id=org_id,
+                    instance_id=instance_id,
+                    step_attempt_id=step_attempt_id,
+                    kind=kind,
+                    schema_version=RAW_SCHEMA_VERSION,
+                    audit_entry_id=audit_entry_id,
+                )
+            except TraceCipherError as exc:
+                # R13 finding 4: a payload that will not open — tampered,
+                # sealed under a rotated key, or bound to another identity —
+                # is a RETRIEVAL outcome, not a server fault. It used to
+                # escape as `TraceCipherError`, which the response boundary
+                # does not catch, so the request 500'd and the release
+                # decision was never completed: no raw for the reader AND no
+                # record of the attempt's outcome.
+                raise RawTraceUnavailable(
+                    f"vault payload for {kind} could not be decrypted: {exc}"
+                ) from exc
         return row.payload
 
     async def _begin(
@@ -198,6 +237,41 @@ class RawTraceRehydrator:
             logger.warning("system-access audit append failed; fail-closed", exc_info=True)
             raise RawTraceUnavailable("system-access audit unavailable") from exc
         return request_id
+
+    async def _opened_or_completed(
+        self,
+        row: RawTrace,
+        *,
+        request_id: str,
+        org_id: str,
+        instance_id: str,
+        step_attempt_id: str | None,
+        kind: str,
+        audit_entry_id: str | None = None,
+    ) -> Any:
+        """`_payload_of`, but a failure COMPLETES the access record first.
+
+        R13 finding 4 asked for decryption failures to become explicit
+        recovery outcomes AND for the release audit to complete. Normalising
+        `TraceCipherError` fixed the first half; this fixes the second. A
+        `_payload_of` raise between `_begin` and `_complete` used to leave
+        the system-access record open forever — the worst of both, since the
+        reader gets nothing and the log does not say why.
+        """
+        try:
+            return self._payload_of(
+                row,
+                org_id=org_id,
+                instance_id=instance_id,
+                step_attempt_id=step_attempt_id,
+                kind=kind,
+                audit_entry_id=audit_entry_id,
+            )
+        except RawTraceUnavailable:
+            await self._complete(
+                request_id=request_id, instance_id=instance_id, outcome="retrieval_failed"
+            )
+            raise
 
     async def _complete(self, *, request_id: str, instance_id: str, outcome: str) -> None:
         try:
@@ -246,8 +320,9 @@ class RawTraceRehydrator:
                 request_id=request_id, instance_id=instance_id, outcome="retrieval_failed"
             )
             raise RawTraceUnavailable(f"missing vault output for {step_attempt_id}")
-        full = self._payload_of(
+        full = await self._opened_or_completed(
             row,
+            request_id=request_id,
             org_id=org_id,
             instance_id=instance_id,
             step_attempt_id=step_attempt_id,
@@ -318,18 +393,27 @@ class RawTraceRehydrator:
                 request_id=request_id, instance_id=instance_id, outcome="retrieval_failed"
             )
             raise RawTraceUnavailable(f"missing vault audit detail for entry {audit_entry_id}")
-        full = self._payload_of(
+        full = await self._opened_or_completed(
             row,
+            request_id=request_id,
             org_id=org_id,
             instance_id=instance_id,
             step_attempt_id=None,
             kind=RawTraceKind.AUDIT_DETAIL.value,
             audit_entry_id=audit_entry_id,
         )
-        # Agreement, as for step outputs: re-projecting the fetched raw must
-        # reproduce what is stored. A mismatch means the operational row and
-        # the vault disagree, which is an integrity failure, not a release.
-        if project_audit_detail_at_rest(action, full) != stored_detail:
+        # The entry's stamp and the vault row's describe the SAME projection
+        # event, so a disagreement means the row does not belong to it.
+        if row.projector_version != projector_version:
+            await self._complete(
+                request_id=request_id, instance_id=instance_id, outcome="integrity_failed"
+            )
+            raise RawTraceUnavailable(
+                f"version disagreement for audit entry {audit_entry_id}: entry stamped "
+                f"{projector_version!r}, vault row {row.projector_version!r}"
+            )
+        verdict = verify_audit_projection_agreement(action, full, stored_detail, projector_version)
+        if verdict == "mismatch":
             await self._complete(
                 request_id=request_id, instance_id=instance_id, outcome="integrity_failed"
             )
@@ -337,7 +421,13 @@ class RawTraceRehydrator:
                 f"projection disagreement for audit entry {audit_entry_id}: the stored detail "
                 "does not match a re-projection of the vaulted raw"
             )
-        await self._complete(request_id=request_id, instance_id=instance_id, outcome="succeeded")
+        # `unsupported` still returns the raw — the grant holder asked for it
+        # and it is intact — but the OUTCOME says so rather than "succeeded".
+        await self._complete(
+            request_id=request_id,
+            instance_id=instance_id,
+            outcome="succeeded" if verdict == "ok" else PROJECTION_UNSUPPORTED,
+        )
         return full
 
     async def rehydrate_trigger(

@@ -27,9 +27,11 @@ from workflow_platform.persistence.models import (
     TriggerCursorState,
     User,
     WorkflowInstance,
+    audit_fingerprint,
     vault_fingerprint,
 )
 from workflow_platform.persistence.repository import (
+    AuditConflict,
     AuditRepo,
     AuthSessionRepo,
     DefinitionRepo,
@@ -303,6 +305,20 @@ class PostgresAuditRepo(AuditRepo):
         self._sf = session_factory
 
     async def append(self, entry: AuditEntry) -> AuditEntry:
+        # Idempotent on entry id (R13 finding 6). This was an unconditional
+        # insert, so a retry after the append had COMMITTED — only the
+        # acknowledgement lost — either duplicated the entry or raised an
+        # integrity error from the driver. Same shape as the vault's `put`:
+        # insert-or-nothing, then compare and refuse a differing reuse.
+        async with self._sf() as s:
+            existing = await s.get(AuditLogRow, entry.id)
+            if existing is not None:
+                found = _from_audit_row(existing)
+                if audit_fingerprint(found) != audit_fingerprint(entry):
+                    raise AuditConflict(
+                        f"audit entry {entry.id} already exists with different content"
+                    )
+                return found
         async with self._sf() as s, s.begin():
             s.add(
                 AuditLogRow(

@@ -35,7 +35,6 @@ from workflow_platform.api.raw_trace_audit import (
     SURFACE_EXPLAIN,
     begin_raw_release,
     commit_raw_release,
-    decide_raw_release,
 )
 from workflow_platform.api.redaction import (
     has_redaction_marker,
@@ -1455,7 +1454,7 @@ def build_router(
 
     async def _release_audit(
         entries: list[AuditEntry], *, actor_id: str, instance_id: str | None
-    ) -> tuple[list[AuditEntry], list[str], list[str]]:
+    ) -> tuple[list[AuditEntry], list[str], list[str], set[str]]:
         """Restore vaulted audit details for a grant holder.
 
         R12 finding 1: the audit endpoints handed back the STORED detail.
@@ -1469,9 +1468,24 @@ def build_router(
         case `decide_raw_release` documents itself as not covering.
         """
         restored: list[AuditEntry] = []
+        # Per-ENTRY outcome, not just a count: `/api/escalations` reports
+        # `raw_included` per row, and reporting the request-level verdict
+        # there is how it claimed a release it had not made (R13 finding 1).
+        recovered_ids: set[str] = set()
         recovered = failed = 0
         for entry in entries:
-            if entry.workflow_instance_id is None or entry.projector_version is None:
+            if entry.projector_version is None:
+                # Never written as a projection, so the stored detail IS the
+                # complete detail and the reader already has it. That counts
+                # as COMPLETE, not as "no recovery attempted" — reporting it
+                # as withheld would understate what the reader received.
+                recovered_ids.add(entry.id)
+                restored.append(entry)
+                continue
+            if entry.workflow_instance_id is None:
+                # Stamped but instance-less: the vault is instance-scoped, so
+                # there is nowhere to recover from. Incomplete, and said so.
+                failed += 1
                 restored.append(entry)
                 continue
             # Resolve the org PER ENTRY, not once for the request: the
@@ -1499,10 +1513,11 @@ def build_router(
                 restored.append(entry)
                 continue
             recovered += 1
+            recovered_ids.add(entry.id)
             restored.append(entry.model_copy(update={"detail": full}))
         returned = ["audit_detail"] if recovered else []
         withheld = ["audit_detail"] if failed else []
-        return restored, returned, withheld
+        return restored, returned, withheld, recovered_ids
 
     async def _audit_response(
         entries: list[AuditEntry],
@@ -1525,7 +1540,7 @@ def build_router(
         if request_id is None:
             # Below grant, or the attempt audit failed. Either way: project.
             return _project_audit(entries, False)
-        restored, returned, withheld = await _release_audit(
+        restored, returned, withheld, _ids = await _release_audit(
             entries, actor_id=actor_id, instance_id=instance_id
         )
         audit_ok, _ = await commit_raw_release(
@@ -1687,9 +1702,16 @@ def build_router(
         # `request_human_review`, whose arguments an agent writes while reading
         # hostile third-party content — they are raw, not operator metadata, and
         # were previously returned in full to any Org Viewer. Grant-gate them.
-        released, reason_code = (False, None)
+        # R13 finding 1: this returned `e.detail.get("reason")` — the STORED
+        # detail, which since the at-rest tightening has reason/context
+        # withheld. A grant holder got `reason: null` with
+        # `raw_included: true`, while the SAME entry's full detail came back
+        # fine from the audit endpoint. Escalation is a vault-fetch surface
+        # too, so it uses attempt -> retrieve -> record-what-happened.
+        reason_code: str | None = None
+        recovered_ids: set[str] = set()
         if rows:
-            released, reason_code = await decide_raw_release(
+            request_id, reason_code = await begin_raw_release(
                 repositories,
                 raw_ok=await _raw_reader_for_org(user, scope.org_id),
                 surface=SURFACE_ESCALATION,
@@ -1697,6 +1719,24 @@ def build_router(
                 instance_id=None,
                 kinds=("escalation_reason", "escalation_context"),
             )
+            if request_id is not None:
+                restored, returned, withheld, recovered_ids = await _release_audit(
+                    rows, actor_id=user.sub, instance_id=None
+                )
+                audit_ok, reason_code = await commit_raw_release(
+                    repositories,
+                    request_id=request_id,
+                    surface=SURFACE_ESCALATION,
+                    actor_id=user.sub,
+                    instance_id=None,
+                    returned_kinds=returned,
+                    withheld_kinds=withheld,
+                )
+                if audit_ok:
+                    rows = restored
+                else:
+                    # A release we could not record is a release we do not make.
+                    recovered_ids = set()
         return [
             {
                 "id": e.id,
@@ -1708,11 +1748,16 @@ def build_router(
                 # whole on the grant, never projected against the platform
                 # `context` schema (G-Trace-Review-4 F2: a model can spell
                 # declared context keys and pass the engine-computed validators).
-                "reason": e.detail.get("reason") if released else _REDACTED_GRANT_ONLY,
-                "context": e.detail.get("context") if released else _REDACTED_GRANT_ONLY,
+                "reason": (
+                    e.detail.get("reason") if e.id in recovered_ids else _REDACTED_GRANT_ONLY
+                ),
+                "context": (
+                    e.detail.get("context") if e.id in recovered_ids else _REDACTED_GRANT_ONLY
+                ),
                 "created_at": e.timestamp.isoformat(),
                 "resolved": e.id in resolved_ids,
-                "raw_included": released,
+                # PER ROW, from what was actually recovered for THIS entry.
+                "raw_included": e.id in recovered_ids,
                 **({"redaction_reason": reason_code} if reason_code else {}),
             }
             for e in rows
@@ -2026,7 +2071,15 @@ def build_router(
             fallback = raw_tcs[i] if i < len(raw_tcs) and isinstance(raw_tcs[i], dict) else {}
             tool_calls.append(
                 {
-                    "name": a.detail.get("name"),
+                    # R13 self-audit: the tool NAME comes from the audit
+                    # detail, which `safe_tool_call` redacts — so a grant
+                    # holder saw a redacted name even though the rehydrated
+                    # tool call beside it has the real one. Same shape as
+                    # finding 1: the release happened, the reader still got
+                    # the projection.
+                    "name": (fallback.get("name") or a.detail.get("name"))
+                    if released
+                    else a.detail.get("name"),
                     "input": _excerpt(a.detail.get("input", fallback.get("input")))
                     if released
                     else None,

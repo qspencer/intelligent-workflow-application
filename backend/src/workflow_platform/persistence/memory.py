@@ -22,9 +22,11 @@ from workflow_platform.persistence.models import (
     TriggerCursorState,
     User,
     WorkflowInstance,
+    audit_fingerprint,
     vault_fingerprint,
 )
 from workflow_platform.persistence.repository import (
+    AuditConflict,
     AuditRepo,
     AuthSessionRepo,
     DefinitionRepo,
@@ -216,6 +218,7 @@ class InMemoryStepExecutionRepo(StepExecutionRepo):
 class InMemoryAuditRepo(AuditRepo):
     def __init__(self, instances: InMemoryInstanceRepo | None = None) -> None:
         self._entries: list[AuditEntry] = []
+        self._by_id: dict[str, AuditEntry] = {}
         self._instances = instances
 
     def _org_of_instance(self, instance_id: str) -> str | None:
@@ -225,8 +228,19 @@ class InMemoryAuditRepo(AuditRepo):
         return item.org_id if item else None
 
     async def append(self, entry: AuditEntry) -> AuditEntry:
-        self._entries.append(entry.model_copy(deep=True))
-        return self._entries[-1]
+        # Idempotent on entry id (R13 finding 6): re-driving the SAME logical
+        # write returns the existing row rather than duplicating it, and a
+        # reused id with different content is refused rather than silently
+        # dropped. Mirrors the vault's `put`.
+        existing = self._by_id.get(entry.id)
+        if existing is not None:
+            if audit_fingerprint(existing) != audit_fingerprint(entry):
+                raise AuditConflict(f"audit entry {entry.id} already exists with different content")
+            return existing.model_copy(deep=True)
+        stored = entry.model_copy(deep=True)
+        self._entries.append(stored)
+        self._by_id[entry.id] = stored
+        return stored
 
     async def list_recent(self, limit: int = 100, org_id: str | None = None) -> list[AuditEntry]:
         entries = self._entries

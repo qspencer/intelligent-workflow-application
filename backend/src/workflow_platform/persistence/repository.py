@@ -263,6 +263,15 @@ class VaultConflict(Exception):
     while resume/fork/privileged reads reconstruct something else."""
 
 
+class AuditConflict(Exception):
+    """An audit entry id was reused with DIFFERENT content.
+
+    Append is idempotent for the same logical entry (R13 finding 6), which
+    means it must refuse a reuse that is not the same entry — otherwise the
+    idempotence would silently drop or overwrite a distinct record.
+    """
+
+
 class RawTraceVaultRepo(ABC):
     """The raw-trace vault (docs/TRACE_GOVERNANCE_PLAN.md §4.1/§0.2, TG3a). An
     abstract repository over OPAQUE object ids so the separate-vault (B) form

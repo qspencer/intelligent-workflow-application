@@ -18,10 +18,13 @@ from workflow_platform.engine.executor import ToolCatalog, WorkflowEngine
 from workflow_platform.engine.registry import FunctionRegistry
 from workflow_platform.persistence import in_memory_repositories
 from workflow_platform.persistence.models import (
+    RAW_SCHEMA_VERSION,
     RawTraceKind,
+    RawTraceState,
     WorkflowInstance,
     WorkflowInstanceState,
 )
+from workflow_platform.trace_projection import PROJECTOR_VERSION
 from workflow_platform.trace_vault import audit_detail_has_raw, audit_idempotency_key
 from workflow_platform.world import mock_world
 
@@ -718,3 +721,154 @@ async def test_C3_a_NON_audit_row_keeps_its_exact_legacy_identity() -> None:
         schema_version=RAW_SCHEMA_VERSION,
     ) == {"x": 1}
     assert base64.b64decode(sealed["ct"])  # sanity: it really is sealed
+
+
+async def test_C1_a_retry_after_the_append_COMMITTED_does_not_duplicate() -> None:
+    """R13 finding 6 — the other failure timing.
+
+    The explicit `entry_id` handled a retry after the append FAILED. When the
+    append had already committed and only the acknowledgement was lost, the
+    retry produced two entries with the same id behind one vault row, because
+    `append` was an unconditional insert. It is idempotent on entry id now.
+    """
+    engine = _engine()
+    inst = await _instance(engine)
+    entry_id = "logical-write-committed"
+
+    original = engine.repositories.audit.append
+    calls = {"n": 0}
+
+    async def ack_lost(entry: Any) -> Any:
+        calls["n"] += 1
+        result = await original(entry)  # COMMITS
+        if calls["n"] == 1:
+            raise RuntimeError("acknowledgement lost after commit")
+        return result
+
+    engine.repositories.audit.append = ack_lost  # type: ignore[method-assign]
+
+    kwargs: dict[str, Any] = {
+        "actor_type": "agent",
+        "actor_id": "a",
+        "instance_id": inst.id,
+        "detail": RAW_DETAIL,
+        "entry_id": entry_id,
+    }
+    with pytest.raises(RuntimeError, match="acknowledgement lost"):
+        await engine._audit("tool_param_override_blocked", **kwargs)
+    await engine._audit("tool_param_override_blocked", **kwargs)
+
+    engine.repositories.audit.append = original  # type: ignore[method-assign]
+    entries = [
+        e
+        for e in await engine.repositories.audit.list_recent(limit=50)
+        if e.action == "tool_param_override_blocked"
+    ]
+    assert len(entries) == 1, f"the retry duplicated the committed entry: {len(entries)}"
+    assert len(await _vault_rows(engine, inst.id)) == 1
+
+
+async def test_C1_reusing_an_id_with_DIFFERENT_content_is_refused() -> None:
+    """Idempotence must not become a silent overwrite: a reused id carrying
+    a different entry is a conflict, not the same logical write."""
+    from workflow_platform.persistence.models import AuditEntry
+    from workflow_platform.persistence.repository import AuditConflict, VaultConflict
+
+    engine = _engine()
+    inst = await _instance(engine)
+    await engine._audit(
+        "tool_param_override_blocked",
+        actor_type="agent",
+        actor_id="a",
+        instance_id=inst.id,
+        detail=RAW_DETAIL,
+        entry_id="reused",
+    )
+    # Through the chokepoint the VAULT refuses first — the same key with
+    # different content — which is also a rejection, and the earlier one.
+    with pytest.raises(VaultConflict):
+        await engine._audit(
+            "tool_param_override_blocked",
+            actor_type="agent",
+            actor_id="a",
+            instance_id=inst.id,
+            detail={"tool": "something-else"},
+            entry_id="reused",
+        )
+    # And the append guard refuses on its own, for entries that never vault
+    # (a governance writer reusing an id). Tested directly so the audit-level
+    # rule is not merely shadowed by the vault-level one.
+    plain = AuditEntry(id="plain-1", actor_type="user", actor_id="u", action="user_updated")
+    await engine.repositories.audit.append(plain)
+    await engine.repositories.audit.append(plain)  # idempotent: same content
+    with pytest.raises(AuditConflict, match="different content"):
+        await engine.repositories.audit.append(
+            plain.model_copy(update={"detail": {"changed": True}})
+        )
+
+
+async def test_an_unsupported_recorded_version_is_reported_not_claimed() -> None:
+    """R13 finding 5: an entry stamped with a version this build cannot
+    reproduce returned its full detail and recorded SUCCESS. The raw is still
+    returned — the grant holder asked for it and it is intact — but the
+    outcome must say `projection_unsupported`."""
+    from workflow_platform.trace_rehydrate import verify_audit_projection_agreement
+
+    assert (
+        verify_audit_projection_agreement("a", {"x": 1}, {"x": 1}, "UNSUPPORTED-999")
+        == "unsupported"
+    )
+    # And a CURRENT-version disagreement is still an integrity failure.
+    assert (
+        verify_audit_projection_agreement(
+            "tool_param_override_blocked", RAW_DETAIL, {"tampered": True}, PROJECTOR_VERSION
+        )
+        == "mismatch"
+    )
+
+
+async def test_an_undecryptable_payload_is_a_retrieval_outcome_not_a_crash() -> None:
+    """R13 finding 4: a payload that will not open raised `TraceCipherError`,
+    which the response boundary does not catch — HTTP 500, and the release
+    decision never completed. It is a retrieval outcome."""
+    import base64
+    import os as _os
+
+    from workflow_platform import trace_cipher
+    from workflow_platform.trace_rehydrate import RawTraceRehydrator, RawTraceUnavailable
+
+    engine = _engine()
+    inst = await _instance(engine)
+    rehydrator = RawTraceRehydrator(engine.repositories)
+    rehydrator._cipher = trace_cipher.TraceCipher(_os.urandom(32))
+
+    row = type(
+        "R",
+        (),
+        {
+            "org_id": inst.org_id,
+            "instance_id": inst.id,
+            "step_attempt_id": None,
+            "audit_entry_id": "e1",
+            "kind": RawTraceKind.AUDIT_DETAIL,
+            "state": RawTraceState.COMMITTED,
+            "raw_schema_version": RAW_SCHEMA_VERSION,
+            "id": "row-1",
+            "projector_version": PROJECTOR_VERSION,
+            "payload": {
+                "alg": trace_cipher._ALG,
+                "key_id": inst.org_id,
+                "nonce": base64.b64encode(b"0" * 12).decode(),
+                "ct": base64.b64encode(b"garbage").decode(),
+            },
+        },
+    )()
+    with pytest.raises(RawTraceUnavailable, match="could not be decrypted"):
+        rehydrator._payload_of(
+            row,
+            org_id=inst.org_id,
+            instance_id=inst.id,
+            step_attempt_id=None,
+            kind=RawTraceKind.AUDIT_DETAIL.value,
+            audit_entry_id="e1",
+        )

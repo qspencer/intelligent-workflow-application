@@ -21,7 +21,11 @@ from typing import Any
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 
-from workflow_platform.api.raw_trace_audit import SURFACE_WS, decide_raw_release
+from workflow_platform.api.raw_trace_audit import (
+    SURFACE_WS,
+    begin_raw_release,
+    commit_raw_release,
+)
 from workflow_platform.api.redaction import project_audit_detail
 from workflow_platform.auth import OidcValidator, UserIdentity, assign_roles, auth_mode
 from workflow_platform.auth.local import SESSION_COOKIE, LocalAuthService
@@ -239,21 +243,46 @@ def build_ws_router(
                             # failed audit degrades THIS frame to projected
                             # without closing the connection.
                             assert repositories is not None  # covers_now ⟹ repos
-                            released, _ = await decide_raw_release(
+                            # R13 finding 2: this used the ATOMIC release,
+                            # which commits `released` before anything is
+                            # fetched. With the vault row removed the socket
+                            # correctly sent a withheld frame while the
+                            # release record still said `released`, and a
+                            # separate system-access record said
+                            # `retrieval_failed` — the two disagreed. WS is a
+                            # vault-fetch surface like HTTP: attempt,
+                            # retrieve, then record what actually happened.
+                            ws_instance = event.get("workflow_instance_id")
+                            request_id, _rr = await begin_raw_release(
                                 repositories,
                                 raw_ok=True,
                                 surface=SURFACE_WS,
                                 actor_id=user.sub,
-                                instance_id=event.get("workflow_instance_id"),
+                                instance_id=ws_instance,
                                 kinds=("tool_calls", "output_text"),
                             )
+                            if request_id is None:
+                                await ws.send_json(projected)
+                                continue
                             frame = event
-                            if released and vaulted:
-                                # Recover the vaulted detail, or fall back to
-                                # the projection — never claim a release we
-                                # could not make.
+                            returned = ["tool_calls", "output_text"]
+                            withheld: list[str] = []
+                            if vaulted:
                                 frame = await _rehydrated_ws_event(repositories, event, projected)
-                            await ws.send_json(frame if released else projected)
+                                if frame is projected:
+                                    returned, withheld = [], ["audit_detail"]
+                                else:
+                                    returned = ["audit_detail"]
+                            audit_ok, _rr = await commit_raw_release(
+                                repositories,
+                                request_id=request_id,
+                                surface=SURFACE_WS,
+                                actor_id=user.sub,
+                                instance_id=ws_instance,
+                                returned_kinds=returned,
+                                withheld_kinds=withheld,
+                            )
+                            await ws.send_json(frame if audit_ok else projected)
         except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
             pass
         finally:

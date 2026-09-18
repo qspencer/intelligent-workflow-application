@@ -218,3 +218,36 @@ async def test_audit_detail_vaulting_round_trips_through_a_REAL_database(
         if e.action == "tool_param_override_blocked"
     ]
     assert {e.id for e in entries} == {r.audit_entry_id for r in rows}
+
+
+@skip_if_no_db
+async def test_audit_append_is_idempotent_against_a_REAL_database(
+    engine: AsyncEngine,
+) -> None:
+    """R13 finding 6, Postgres path.
+
+    The in-memory repo cannot exhibit this (ledger M8): the Postgres append
+    was an unconditional INSERT, so a retry after the append had committed
+    either duplicated the row or raised a driver integrity error — neither
+    of which the in-memory double reproduces.
+    """
+    from workflow_platform.persistence.models import AuditEntry
+    from workflow_platform.persistence.repository import AuditConflict
+
+    repos = postgres_repositories(make_session_factory(engine))
+    entry = AuditEntry(
+        id="idem-1",
+        actor_type="agent",
+        actor_id="a",
+        action="tool_param_override_blocked",
+        detail={"tool": "t", "attempted": "/etc/shadow"},
+    )
+    first = await repos.audit.append(entry)
+    second = await repos.audit.append(entry)  # the retry
+    assert first.id == second.id == "idem-1"
+
+    rows = [e for e in await repos.audit.list_recent(limit=50) if e.id == "idem-1"]
+    assert len(rows) == 1, f"the retry duplicated the row in Postgres: {len(rows)}"
+
+    with pytest.raises(AuditConflict, match="different content"):
+        await repos.audit.append(entry.model_copy(update={"detail": {"tool": "other"}}))

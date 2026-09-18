@@ -284,6 +284,31 @@ class RawTraceKind(StrEnum):
     AUDIT_DETAIL = "audit_detail"
 
 
+def audit_fingerprint(entry: AuditEntry) -> tuple[Any, ...]:
+    """Identity + content of an audit entry, for idempotent append.
+
+    R13 finding 6: `_audit` gained an explicit `entry_id` so a retry could
+    re-address one vault row, but `append` stayed an unconditional insert —
+    so a retry after the append had COMMITTED (only the acknowledgement
+    lost) produced two entries with the same id behind one vault row.
+
+    `timestamp` is excluded deliberately: it is minted per attempt, so
+    including it would make every retry a conflict and defeat the purpose.
+    Everything that carries meaning is included, so a reused id with
+    different content is a conflict rather than a silent overwrite.
+    """
+    return (
+        entry.id,
+        entry.actor_type,
+        entry.actor_id,
+        entry.action,
+        entry.workflow_instance_id,
+        entry.step_id,
+        entry.projector_version,
+        json.dumps(entry.detail, sort_keys=True, default=str),
+    )
+
+
 def vault_fingerprint(trace: RawTrace) -> tuple[Any, ...]:
     """Identity + content of a vault object, for idempotent-put conflict
     detection (P4). Uses the plaintext `content_commitment` when present so
