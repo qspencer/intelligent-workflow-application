@@ -40,6 +40,7 @@ blocking issues by reading code the spec described inaccurately.
 |---|---|---|---|---|
 | `trace-f1-review-r3-b7cc1d2.tar.gz` | `b7cc1d2` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 3** — the six round-2 findings (R2-1..6) fixed at the CLASS level. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R3 | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-r2-b2f913a.tar.gz` | `b2f913a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 2** — the four G-Trace-Review-4 findings (GR4-1..4) remediated. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R | `docs/TRACE_F1_REVIEW_GUIDE.md` |
+| `trace-f1-review-r6-<built>.tar.gz` | built from the commit recording this row (branch `p1-reprimitive`) | 2026-09-18 | **F1/F5 round 6 — remediation of the round-5 RETURN.** All six findings fixed, each reproduced first: projector version bumped 2→3 (old rows now degrade, not read as tampering), the process-wide tool catalog REMOVED (projection is a pure function again), the withheld count → BOOLEAN (the count was a raw channel), scaffold mints platform step ids, pinned/pin_overrides → booleans, usage counters restored, tool-name resolution made total. **Two of the six were defects we introduced while fixing round 4.** Sidecar: `docs/TRACE_F1_REVIEW_ROUND6.md`. Gate capture rebuilt after round 5's was shown untrustworthy (masked exit code + wrong commit). |
 | `trace-f1-review-r5-d67d427.tar.gz` | `d67d427` (branch `p1-reprimitive`) | 2026-09-18 | **F1/F5 round 5 — CONTAINMENT of the round-4 findings.** All three round-4 reproductions closed WITHOUT §1.4a, test-first (each RED against the r4 tree): token-shaped dict keys dropped + counted (`_withheld_key_count`), external routing ids grant-gated, tool names resolved against the live catalog. Round-4's verdict accepted in full, nothing disputed. Sidecar: `docs/TRACE_F1_REVIEW_ROUND5.md`. **Ships captured standalone gate output** at `docs/archives/GATE_OUTPUT_R5.txt` (round 4's reviewer could resolve no deps offline). F3/F4/F6 + B1 still out of scope. |
 | `trace-f1-review-r4-1fa67c2.tar.gz` | `1fa67c2` (branch `p1-reprimitive`) | 2026-09-18 | **F1/F5 CONFIRMATION round 4** — ships the two remediation commits no reviewer has seen (`8e9d0d1` class-level fixes: keys-are-content, list decomposition, routing ids, marker totality, audit denylist; `29e2c4e` the masked lint + the disposition). Narrowed on purpose: asks whether the foundation can carry Contract A **now that the flip is ON in production**, and asks the reviewer to challenge the shape-vs-provenance ceiling rather than produce a seventh finding list. Sidecar: `docs/TRACE_F1_REVIEW_ROUND4.md`. F3/F4/F6 + B1 out of scope. |
 | `trace-f1-review-ebceb6a.tar.gz` | `ebceb6a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 FOUNDATION code review** — the path-scoped, kind-dispatched projection re-primitive answering the third review's F1 + F5. F3/F4/F6 out of scope. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` | `docs/TRACE_F1_REVIEW_GUIDE.md` |
@@ -51,6 +52,23 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (F1/F5 review ROUND 6)
+
+Per-file hashes of the archived content, computed from the committed objects
+BEFORE the build so they can ship inside the package:
+
+```
+  626c70ff8f6080b84f599f193ab503691c420b77c4e7afad01205e2ec01898e1  docs/TRACE_F1_REVIEW_ROUND6.md  (sidecar)
+  e9066736e0fcf98ceb985ef24921a8cd656d0618b9f2199798dfbed7e4c927d4  docs/archives/GATE_OUTPUT_R6.txt  (gates; see its header)
+  dd8c7c812b462f7b4e190ccdd85ae9c29f7df91d1fc6083144601a0bc282b556  backend/.../trace_projection.py
+  175c1f48fa96730d659db826efe11cd8efa8ae35ff79312f4b115db1fcea61b5  backend/tests/test_trace_boundary_properties.py
+```
+
+Round-5's capture was NOT trustworthy — it named a commit the archive did not
+contain, and printed `exit: 0` beneath a reformat warning because `$?` read
+`tail` through a pipe. Round 6 reads `$?` before any pipe and states the tree
+the gates ran at, with the command to verify the archive differs only in docs.
 
 ## Integrity hashes (F1/F5 review ROUND 5)
 
