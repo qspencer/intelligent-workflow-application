@@ -441,3 +441,36 @@ pre-package protocol found three defects of its own this round — a validator
 admitting an email on routing ids, a golden corpus that could not see the
 fields the change released, and fixture provenance naming the wrong commit —
 all fixed before the package was built.
+
+---
+
+## Round 13 — the round-12 fixes, plus two of the same class we found ourselves (2026-09-18)
+
+```
+commit   73cd12a
+tree     608a23db4789fa09e73de47497a6120c4d13a6b2
+archive  88ea9396e6720e5712f0499bcfff2bc4afd2a936c8da6ec3a0a6537c023b618a
+         trace-f1-review-r13-73cd12a.tar.gz
+```
+
+**Manifest is extraction-verified**: unpacking and recomputing yields
+`f3bec68a…`, byte-identical to `CODE_MANIFEST_R13.txt` (234 files).
+
+Companions, delivered alongside:
+
+```
+7fea30505c245a205feb770bcfcf01739cd0bd9305ad87ae29707b1956cbe617  TRACE_F1_REVIEW_ROUND13.md   (sidecar)
+d7ebe59274e29e5eae2825cad74372319c41f72131bf0db806e04592704a217e  TRACE_AUDIT_VAULT_DESIGN.md  (design record)
+104da0af5543f9aed96405113fa3d579f88b6f40d7068fc600286d5866177ba0  CODE_MANIFEST_R13.txt
+b12aa69f39ff37682249e6ecc0d8d688156068e5ef80949d63552850b744df8c  GATE_OUTPUT_R13.txt
+```
+
+The gate capture adds two things round 12 asked for: the Postgres-gated
+suite and an **alembic up/down/up rehearsal of `0013`**, since migration
+execution was not independently verifiable from the last archive. It carries
+eight controls, each sabotaged and observed failing.
+
+The protocol found three problems before this left: the round-12 AEAD fix
+was **unverified** (removing the binding broke no test), a commit went out
+with mypy red, and two stale `sabotaged exit=0` lines were sitting in the
+evidence. All fixed; the first is now pinned by two tests.

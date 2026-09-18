@@ -1,0 +1,82 @@
+Captured standalone gate results — F1/F5 review round 13
+
+Gates ran at tree: 608a23db4789fa09e73de47497a6120c4d13a6b2   (manifest aggregate: f3bec68af1258958850082337b84353365fb87d92006ca1bd86f1fac3c43f359)
+Exit codes are real: each command's output goes to a variable and $? is
+read IMMEDIATELY, before any pipe.
+
+Includes the Postgres-gated suite AND an alembic up/down/up rehearsal,
+because round 12 noted migration execution was not independently
+verifiable from the archive.
+
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · 2026-09-18T23:04:35Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+276 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 234 source files
+exit: 0
+
+=== uv run pytest ===
+SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
+1211 passed, 16 skipped, 13 warnings in 40.72s
+exit: 0
+
+=== uv run pip-audit ===
+No known vulnerabilities found
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== pytest -m integration (real Postgres) ===
+=========================== alembic upgrade head / downgrade -1 / upgrade head (0013) ===
+INFO  [alembic.runtime.migration] Running upgrade 0012 -> 0013, Audit-entry projection stamp (round-12 finding 1).
+INFO  [alembic.runtime.migration] Running downgrade 0013 -> 0012, Audit-entry projection stamp (round-12 finding 1).
+INFO  [alembic.runtime.migration] Running upgrade 0012 -> 0013, Audit-entry projection stamp (round-12 finding 1).
+exit: 0
+
+=== CONTROLS (step 2b — every cited gate observed FAILING) ===
+Each detector was sabotaged with the defect it claims to catch, the suite
+run, the source restored, and the suite re-run.
+
+--- F1 audit recovery (API)
+    sabotage: return stored entries instead of fetching the vault
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- F1 recovery gate uses the STAMP
+    sabotage: gate on the already-projected detail (the fixed-point trap)
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- R13 endpoint coverage detector
+    sabotage: one handler skips the recovery path
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- R13 WS recovery
+    sabotage: treat every audit event as raw-free
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- F5 retry identity
+    sabotage: mint a fresh id on every call
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- F3 AEAD binds the entry
+    sabotage: drop the entry from the AAD
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- M8 mapping (AuditEntry stamp)
+    sabotage: drop the audit stamp from the row mapper
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- F2 trace init at every entry point
+    sabotage: remove init_tracing() from tools/fire.py
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
