@@ -614,3 +614,62 @@ async def test_C1_WITHOUT_an_explicit_id_two_calls_are_two_events() -> None:
             detail=RAW_DETAIL,
         )
     assert len(await _vault_rows(engine, inst.id)) == 2
+
+
+async def test_C3_an_audit_payload_cannot_be_OPENED_under_another_entrys_id() -> None:
+    """R12 finding 3, pinned. Found missing by the round-13 pre-package
+    controls: removing the binding from the AAD broke NO test, so the fix was
+    unverified.
+
+    Audit rows all carry `step_attempt_id=None` and one `kind`, so without
+    the entry in the associated data every audit row in an instance shares
+    one AEAD identity and entry B's ciphertext opens under entry A's id.
+    """
+    import base64
+    import os as _os
+
+    from workflow_platform import trace_cipher
+    from workflow_platform.persistence.models import RAW_SCHEMA_VERSION
+
+    cipher = trace_cipher.TraceCipher(base64.b64decode(base64.b64encode(_os.urandom(32))))
+    ident = {
+        "org_id": "acme",
+        "instance_id": "i-1",
+        "step_attempt_id": None,
+        "kind": RawTraceKind.AUDIT_DETAIL.value,
+        "schema_version": RAW_SCHEMA_VERSION,
+    }
+    sealed_a = cipher.seal(RAW_DETAIL, **ident, audit_entry_id="entry-A")
+
+    assert cipher.open(sealed_a, **ident, audit_entry_id="entry-A") == RAW_DETAIL
+
+    with pytest.raises(trace_cipher.TraceCipherError):
+        cipher.open(sealed_a, **ident, audit_entry_id="entry-B")
+    with pytest.raises(trace_cipher.TraceCipherError):
+        # The legacy unbound identity must not work either — accepting it
+        # would preserve exactly the substitution the binding closes.
+        cipher.open(sealed_a, **ident)
+
+
+async def test_C3_a_NON_audit_row_keeps_its_exact_legacy_identity() -> None:
+    """The compatibility half: the entry key is OMITTED when None, so every
+    row that is not an audit detail seals and opens exactly as before. If
+    this breaks, the whole existing vault becomes unreadable."""
+    import base64
+    import os as _os
+
+    from workflow_platform import trace_cipher
+    from workflow_platform.persistence.models import RAW_SCHEMA_VERSION
+
+    cipher = trace_cipher.TraceCipher(_os.urandom(32))
+    ident = {
+        "org_id": "acme",
+        "instance_id": "i-1",
+        "step_attempt_id": "attempt-1",
+        "kind": RawTraceKind.OUTPUT.value,
+        "schema_version": RAW_SCHEMA_VERSION,
+    }
+    sealed = cipher.seal({"x": 1}, **ident)
+    # Opening with no audit_entry_id — the pre-existing call shape — works.
+    assert cipher.open(sealed, **ident) == {"x": 1}
+    assert base64.b64decode(sealed["ct"])  # sanity: it really is sealed
