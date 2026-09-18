@@ -40,6 +40,7 @@ blocking issues by reading code the spec described inaccurately.
 |---|---|---|---|---|
 | `trace-f1-review-r3-b7cc1d2.tar.gz` | `b7cc1d2` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 3** — the six round-2 findings (R2-1..6) fixed at the CLASS level. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R3 | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-r2-b2f913a.tar.gz` | `b2f913a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 2** — the four G-Trace-Review-4 findings (GR4-1..4) remediated. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R | `docs/TRACE_F1_REVIEW_GUIDE.md` |
+| `trace-f1-review-r8-<built>.tar.gz` | built from the commit recording this row (branch `main`) | 2026-09-18 | **Round-7 remediation + the GOLDEN VERSION GUARD.** All five round-7 findings fixed (ownership now composes at the schema NODE; no function may write projection metadata or an unearned `parse_ok`; projector v4; minting by PATH with PARSED conditions; invalid legacy marker signals). The guard makes the version bump a build failure instead of a thing to remember — with two proofs it fires, and a v3 fixture REGENERATED from the archived round-6 projector so historical degradation is tested rather than skipped. Adds the end-to-end coverage the reviewer asked for. Sidecar: `docs/TRACE_F1_REVIEW_ROUND8.md`. |
 | `trace-f1-review-r7-38ec7a1.tar.gz` | `38ec7a1` (branch `p1-reprimitive`) | 2026-09-18 | **OWNERSHIP TYPING — the class behind six rounds.** Four owner classes (ENGINE/CONFIG/BUSINESS/PROJECTION) declared for all 57 root fields of the four typed schemas, no default (unclassified = build failure). BUSINESS withheld until a release rule exists (`parse_ok` released, reason recorded). ENGINE defended at the BOUNDARY — a function's output cannot carry engine keys — because StepExecution does not persist the step type, so a verifier could not re-derive the producer. Round-6's three defects also fixed. Sidecar: `docs/TRACE_F1_REVIEW_ROUND7.md`. **Ships the test-time CODE MANIFEST** round 6 asked for. |
 | `trace-f1-review-r6-b67391d.tar.gz` | `b67391d` (branch `p1-reprimitive`) | 2026-09-18 | **F1/F5 round 6 — remediation of the round-5 RETURN.** All six findings fixed, each reproduced first: projector version bumped 2→3 (old rows now degrade, not read as tampering), the process-wide tool catalog REMOVED (projection is a pure function again), the withheld count → BOOLEAN (the count was a raw channel), scaffold mints platform step ids, pinned/pin_overrides → booleans, usage counters restored, tool-name resolution made total. **Two of the six were defects we introduced while fixing round 4.** Sidecar: `docs/TRACE_F1_REVIEW_ROUND6.md`. Gate capture rebuilt after round 5's was shown untrustworthy (masked exit code + wrong commit). |
 | `trace-f1-review-r5-d67d427.tar.gz` | `d67d427` (branch `p1-reprimitive`) | 2026-09-18 | **F1/F5 round 5 — CONTAINMENT of the round-4 findings.** All three round-4 reproductions closed WITHOUT §1.4a, test-first (each RED against the r4 tree): token-shaped dict keys dropped + counted (`_withheld_key_count`), external routing ids grant-gated, tool names resolved against the live catalog. Round-4's verdict accepted in full, nothing disputed. Sidecar: `docs/TRACE_F1_REVIEW_ROUND5.md`. **Ships captured standalone gate output** at `docs/archives/GATE_OUTPUT_R5.txt` (round 4's reviewer could resolve no deps offline). F3/F4/F6 + B1 still out of scope. |
@@ -53,6 +54,27 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (F1/F5 review ROUND 8)
+
+```
+  f428e0beee1ca115cba3956fb4243f6dee4be18eff421b8ed55fb1649c39adb7  docs/TRACE_F1_REVIEW_ROUND8.md
+  b5337a0378fa7b0ee3833bcbd943757778deb52746406b2a3f9a77afe2bcd2de  docs/archives/GATE_OUTPUT_R8.txt
+  cdc04a22931575b843295b01ff6bd903c64afebba52300033baab1c24ddd9265  docs/archives/CODE_MANIFEST_R8.txt
+  1237cb04a25f7bd0b5bcda7e257e714392500de16e378c942d0da1104e41cde6  backend/src/workflow_platform/trace_projection.py
+  e71dc669b32b83f388f4d42c591f943842190c92500e5b473ac287189a0fc70f  backend/tests/test_projection_golden.py
+```
+
+**Aggregate source hash** (every `.py` under `backend/src` + `backend/tests`,
+recomputable from the extracted package with no git):
+
+```
+0f0b823eca1ca56ae56c4d1d2fddcbf66333801a66b4604a7114d7577be84212
+cd backend && find src tests -name '*.py' -type f | sort | xargs sha256sum | sha256sum
+```
+
+Five gates captured, not four — `pip-audit` joined the set after a red CI went
+unnoticed locally for several pushes.
 
 ## Integrity hashes (F1/F5 review ROUND 7)
 
