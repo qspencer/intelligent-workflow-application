@@ -178,6 +178,7 @@ round narrative, because they apply at the moment a detector is written:
 | M7 | **Round-trip probe** — a REAL artifact through the change, diffed | ✅ `test_minting_every_real_shipped_definition_leaves_no_dangling_reference` (found the edge-alias no-op) |
 | M7 | **Execution equivalence** — the same run before and after a transformation | ✅ **with a control** (R11). `_assert_same_steps_ran` maps original→minted ids and compares terminal state keyed by `(step_id, attempt)`, so a differing retry count also counts. Control: `test_the_equivalence_check_can_fail` drives the reviewer's sabotage (config literal preserved, renamed branch forced `False`) and requires the comparison to report it. *Was ✅ before R11 while comparing `len(rows)` — and a SKIPPED step still writes a row, so it could not see the very substitution it existed to catch.* |
 | — | **Schema-field classification** — every definition field classified, unclassified fails | ✅ with a control |
+| M8 | **Mapping completeness** — every field of a persisted model is written AND read back | ✅ `test_persistence_mapping_completeness.py` (AST-derived, both directions, independent control) + a Postgres-gated round trip. Both proven to fire by reintroducing the real outage. |
 
 ## 4. The pre-package protocol (our own "round 0")
 
@@ -273,6 +274,7 @@ Tracked so "we are learning" stays measurable rather than asserted.
 | 9 | 3 | M7 ×2, M6 | **0** |
 | 10 | 3 | M7 ×2, M6 | **0** |
 | 11 | 2 | M3, M6 | **0** |
+| — (self-found, audit-vault build) | 1 | **M8 (new)** | n/a |
 
 **The trend that matters:** volume down to two, and **four consecutive
 rounds with no defect in the thing under review**. The work has moved to the
@@ -295,6 +297,35 @@ Worth stating so the line is not extended out of habit: this epic should end
 when a round returns **no finding that a detector in §3 could have caught**.
 Rounds 8–11 do not meet that bar — every finding was a named class. That is
 the test, not round count.
+
+### M8 — a test double that cannot exhibit the failure mode
+
+Added 2026-09-18, from a defect we shipped to production and caught
+ourselves rather than at review — which is the ledger working, late.
+
+`RawTrace.audit_entry_id` was added to the pydantic model, the SQLAlchemy
+table and an Alembic migration, but not to the Postgres repo's INSERT or its
+row→model mapper. It stored NULL, read back None, `vault_fingerprint` then
+compared unequal on the very first write, and every audit vault put raised
+`VaultConflict` — which propagates out of `_audit` and **failed live workflow
+runs** until it was fixed minutes later.
+
+The distinguishing feature, and why this is not M6: no claim was false and no
+detector under-reached. **The harness structurally could not exhibit the
+bug.** In-memory repositories round-trip the pydantic object, so a
+column-mapping error is invisible to all 1,177 unit tests no matter how many
+are written. A green suite was not weak evidence here — it was evidence about
+a different system.
+
+The detector therefore cannot be another test in the same harness. It is an
+AST enumeration over the mappers plus one Postgres-gated round trip, and both
+were proven by reintroducing the outage.
+
+**The general rule this adds:** when a change touches a boundary a test
+double replaces (persistence mapping, serialization, the network), ask what
+the double makes impossible to observe — and put the detector outside it.
+
+---
 
 **Disposition of the F1/F5 projector line (2026-09-18): CLOSED, and not
 because it met the bar.** It did not. It closes because the bar is the wrong

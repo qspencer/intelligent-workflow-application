@@ -151,3 +151,70 @@ async def test_trigger_cursor_upsert_round_trip(engine: AsyncEngine) -> None:
     assert loaded is not None
     assert loaded.cursor == second.cursor
     assert loaded.seen_ids == ["m-1", "m-2"]
+
+
+@skip_if_no_db
+async def test_audit_detail_vaulting_round_trips_through_a_REAL_database(
+    engine: AsyncEngine,
+) -> None:
+    """The outage of 2026-09-18, end to end against Postgres.
+
+    `audit_entry_id` was on the model and the table but absent from the INSERT
+    and the row mapper, so it stored NULL, read back None, and
+    `vault_fingerprint` compared unequal on the FIRST write — every audit vault
+    put raised `VaultConflict`, which propagates out of `_audit` and fails the
+    run. In-memory repositories round-trip the pydantic object, so only a real
+    database exercises this.
+    """
+    from workflow_platform.persistence.models import (
+        RawTraceKind,
+        WorkflowInstance,
+    )
+
+    session_factory = make_session_factory(engine)
+    repos = postgres_repositories(session_factory)
+    wf_engine = WorkflowEngine(
+        repositories=repos,
+        functions=FunctionRegistry(),
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+        trace_safe_only=True,
+    )
+    instance = await repos.instances.create(
+        WorkflowInstance(workflow_id="wf", org_id="acme", state=WorkflowInstanceState.RUNNING)
+    )
+
+    raw = {"tool": "exfiltrate_sk_live_abc", "attempted": "/etc/shadow"}
+    # Two entries on ONE step attempt: the multiplicity case, which is also
+    # what a step-attempt-keyed vault row would have collapsed.
+    for _ in range(2):
+        await wf_engine._audit(
+            "tool_param_override_blocked",
+            actor_type="agent",
+            actor_id="a",
+            instance_id=instance.id,
+            step_id="same-step",
+            detail=raw,
+        )
+
+    rows = [
+        r
+        for r in await repos.raw_trace_vault.list_by_instance(instance.id)
+        if r.kind is RawTraceKind.AUDIT_DETAIL
+    ]
+    assert len(rows) == 2, f"expected one vault row per audit entry, got {len(rows)}"
+    assert all(r.audit_entry_id for r in rows), (
+        "audit_entry_id did not survive the round trip through Postgres — "
+        "the column is not mapped, and every put will raise VaultConflict"
+    )
+    assert len({r.audit_entry_id for r in rows}) == 2, "two entries collided onto one row"
+    assert all(r.payload == raw for r in rows), "the raw detail is not recoverable"
+
+    # And the audit entries themselves carry the ids the vault rows name.
+    entries = [
+        e
+        for e in await repos.audit.list_recent(limit=50)
+        if e.action == "tool_param_override_blocked"
+    ]
+    assert {e.id for e in entries} == {r.audit_entry_id for r in rows}
