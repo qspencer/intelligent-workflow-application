@@ -156,51 +156,92 @@ async def scaffold_workflow(
     return extract_json(text)
 
 
+class ScaffoldIdError(ScaffoldError):
+    """The draft's step ids are not usable as a mapping source."""
+
+
+#: Step references the model actually writes, in the syntaxes the engine reads:
+#: `steps['x']`, `steps["x"]`, `steps.x`, `{steps.x.field}`. Anything else in a
+#: string is NOT a step reference — a function name (`pdf_extract`), a path
+#: (`/inbox/extract/`) or a comparison literal (`== 'extract'`) must survive
+#: untouched, and R6 showed substring replacement mangling all three.
+_STEP_REF = re.compile(
+    r"""(?P<prefix>steps\s*)
+        (?:
+            (?P<br>\[\s*(?P<q>['"]))(?P<qid>[A-Za-z0-9_\-]+)(?P=q)\s*\]
+          | (?P<dot>\.)(?P<did>[A-Za-z0-9_\-]+)
+        )""",
+    re.VERBOSE,
+)
+
+
 def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
     """Replace MODEL-chosen step ids with platform-minted ones, in place.
 
     R5 F4. A scaffolded definition is drafted by an LLM and persisted without a
     human reading it, so its step ids are model-chosen strings — and the trace
-    projection publishes step ids as dictionary KEYS in `context.steps`. That
-    made the projector's `wildcard_keys="platform"` declaration false: the keys
-    were model-derived, and restricting their spelling would not have
-    established their origin.
-
-    The keys cannot simply be withheld: the grant-holder rehydration path walks
+    projection publishes step ids as dictionary KEYS in `context.steps`. The
+    keys cannot simply be withheld: the grant-holder rehydration path walks
     `context.steps` BY step id to merge raw back, so dropping them would break
-    raw recovery for the people entitled to it. Minting at the source is the
-    fix that keeps both properties.
+    raw recovery for the people entitled to it.
 
-    Ids become `step_1 … step_n` in declaration order, and every reference is
-    rewritten: edge `from`/`to`, `inputs`, and any occurrence of the old id as
-    a whole word inside free text (conditions, goals, templates), which is
-    where the model refers to its own steps (`steps['classify']['output_text']`).
+    R6 F1 — this rewrites DECLARED REFERENCE POSITIONS ONLY. The first version
+    did a substring replacement over every string in the draft, which turned
+    the function `pdf_extract` into `pdf_step_1` (structurally valid, so it
+    persisted and failed at run time), rewrote `/inbox/extract/` inside a path,
+    and changed a condition's comparison LITERAL along with its step reference.
+    Whole-word matching would still have broken the literal. So: ids, edge
+    `from`/`to` and `inputs` are rewritten as fields, and inside free text only
+    `steps['x']` / `steps["x"]` / `steps.x` references are rewritten.
+
+    Original ids are validated BEFORE the mapping is built — duplicates used to
+    be silently minted apart, destroying the very collision that definition
+    validation exists to reject.
     """
     steps = raw.get("steps")
     if not isinstance(steps, list):
         return raw
 
-    mapping: dict[str, str] = {}
-    for i, step in enumerate(steps, 1):
-        if isinstance(step, dict) and isinstance(step.get("id"), str):
-            minted = f"step_{i}"
-            if step["id"] != minted:
-                mapping[step["id"]] = minted
-            step["id"] = minted
-    if not mapping:
+    originals: list[str] = []
+    for step in steps:
+        if isinstance(step, dict) and isinstance(step.get("id"), str) and step["id"]:
+            originals.append(step["id"])
+    if len(set(originals)) != len(originals):
+        dupes = sorted({i for i in originals if originals.count(i) > 1})
+        raise ScaffoldIdError(f"draft repeats step id(s): {', '.join(dupes)}")
+
+    mapping = {old: f"step_{i}" for i, old in enumerate(originals, 1)}
+    if all(old == new for old, new in mapping.items()):
         return raw
 
-    # Longest first, so a short id cannot corrupt a longer one containing it.
-    pattern = re.compile("|".join(re.escape(old) for old in sorted(mapping, key=len, reverse=True)))
+    def rewrite_text(s: str) -> str:
+        def sub(m: re.Match[str]) -> str:
+            ref = m.group("qid") or m.group("did")
+            if ref not in mapping:
+                return m.group(0)
+            if m.group("br"):
+                return f"{m.group('prefix')}[{m.group('q')}{mapping[ref]}{m.group('q')}]"
+            return f"{m.group('prefix')}.{mapping[ref]}"
 
-    def rewrite(node: Any) -> Any:
+        return _STEP_REF.sub(sub, s)
+
+    def walk(node: Any, *, field: str | None = None) -> Any:
+        # Declared REFERENCE positions are rewritten as whole values…
+        if field in ("from", "to") and isinstance(node, str):
+            return mapping.get(node, node)
+        if field == "inputs" and isinstance(node, list):
+            return [mapping.get(v, v) if isinstance(v, str) else walk(v) for v in node]
+        # …every other string is free text: only step REFERENCES inside it move.
         if isinstance(node, str):
-            return pattern.sub(lambda m: mapping[m.group(0)], node)
+            return rewrite_text(node)
         if isinstance(node, list):
-            return [rewrite(v) for v in node]
+            return [walk(v) for v in node]
         if isinstance(node, dict):
-            return {k: (v if k == "id" else rewrite(v)) for k, v in node.items()}
+            return {k: (v if k == "id" else walk(v, field=k)) for k, v in node.items()}
         return node
 
-    rewritten = rewrite(raw)
-    return rewritten if isinstance(rewritten, dict) else raw
+    for step in steps:
+        if isinstance(step, dict) and isinstance(step.get("id"), str):
+            step["id"] = mapping.get(step["id"], step["id"])
+    out = walk(raw)
+    return out if isinstance(out, dict) else raw

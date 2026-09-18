@@ -492,3 +492,54 @@ def test_engine_usage_counters_survive_the_closed_schema() -> None:
         "iterations": 3,
         "tool_calls": 1,
     }
+
+
+# --- Round-6 remediation (GR4-R6) -------------------------------------------
+
+
+@pytest.mark.parametrize("bad", ["sekret", 123456789, {"a": 1}, [1], 0, False])
+def test_an_invalid_reserved_field_is_dropped_AND_signalled(bad: Any) -> None:
+    """R6 F2: a reserved field holding anything but `True` is raw input wearing
+    our field name. Round 6 dropped it SILENTLY, so the object read COMPLETE —
+    dropping an entry is precisely what the flag exists to report."""
+    out = redact_tool_data({"_withheld_keys": bad}, admin=False, kind="step_output")
+    assert str(bad) not in _dumps(out) or bad is False
+    assert out.get("_withheld_keys") is True, f"dropped without a signal: {out}"
+    assert has_redaction_marker(out)
+
+
+def test_the_round5_withheld_representation_is_still_recognised() -> None:
+    """R6 F2: a stored ROUND-5 projection carries `_withheld_key_count: n`. A
+    build that does not recognise it calls an incomplete object complete and
+    skips restoring it. Reading a historical shape is not emitting it."""
+    from workflow_platform.trace_rehydrate import _output_projected
+
+    legacy = {"_withheld_key_count": 1}
+    assert has_redaction_marker(legacy), "historical marker unrecognised by completeness"
+    assert _output_projected(legacy), "historical marker unrecognised by compatibility"
+
+    # re-projecting carries the FACT forward in the current representation,
+    # never the old count (which was itself a raw channel)
+    out = redact_tool_data(legacy, admin=False, kind="step_output")
+    assert out == {"_withheld_keys": True}
+
+
+def test_completeness_and_compatibility_agree_on_withholding() -> None:
+    """R6 F2: the two detectors disagreed — one predicate now serves both."""
+    from workflow_platform.trace_rehydrate import _output_projected
+
+    for obj in ({"_withheld_keys": True}, {"_withheld_key_count": 3}):
+        assert has_redaction_marker(obj) == _output_projected(obj) is True
+
+
+def test_projection_version_stamps_have_one_definition() -> None:
+    """R6 F3: `PROJECTION_SCHEMA_VERSION` was declared independently in the
+    projector and in persistence.models, and they drifted — the projected shape
+    changed while the persisted stamp stayed at 1."""
+    from workflow_platform import trace_projection as proj
+    from workflow_platform.persistence import models
+
+    assert models.PROJECTION_SCHEMA_VERSION is proj.PROJECTION_SCHEMA_VERSION
+    assert models.PROJECTOR_VERSION is proj.PROJECTOR_VERSION
+    # the shape changed in R5/R6, so the schema stamp must have moved off 1
+    assert proj.PROJECTION_SCHEMA_VERSION >= 2

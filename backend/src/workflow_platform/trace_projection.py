@@ -44,6 +44,29 @@ _GENERATED_MARKERS = frozenset({_REDACTED_FIELD, _REDACTED_TRIGGER, _REDACTED_TO
 #:    structure there was.
 _WITHHELD = "_withheld_keys"
 
+#: The round-5 representation of the same signal, kept RECOGNISED (never
+#: written). A stored round-5 projection carries `_withheld_key_count: n`, and
+#: a build that does not know it reports an incomplete object COMPLETE and
+#: skips restoring it (R6 F2). Reading historical shapes is not the same as
+#: emitting them.
+_WITHHELD_LEGACY = "_withheld_key_count"
+
+
+def is_withheld_marker(obj: Any) -> bool:
+    """Whether this object carries the withheld-entries signal, in ANY
+    representation this build supports (current boolean, round-5 count).
+
+    ONE predicate, because R6 found completeness (`has_redaction_marker`) and
+    compatibility (`trace_rehydrate._output_projected`) detecting withholding
+    differently — so the same object was 'complete' to one and 'projected' to
+    the other."""
+    if not isinstance(obj, dict):
+        return False
+    if obj.get(_WITHHELD) is True:
+        return True
+    legacy = obj.get(_WITHHELD_LEGACY)
+    return isinstance(legacy, int) and not isinstance(legacy, bool) and legacy > 0
+
 
 def _resolved_tool_name(name: Any, known_tools: frozenset[str] | None) -> Any:
     """A tool name may be shown only when it RESOLVES against a catalog the
@@ -95,7 +118,12 @@ PROJECTOR_VERSION = "3"  # R5 F1: bumped — the R4/R5 containment CHANGED what
 # never given the chance. Any change to what projection EMITS bumps this.
 # The SHAPE contract of a safe projection (§4.1). Bumped when the projected
 # structure changes, independently of which fields the registry accepts.
-PROJECTION_SCHEMA_VERSION = 1
+PROJECTION_SCHEMA_VERSION = 2  # R6 F3: bumped — the projected STRUCTURE
+# changed (an undeclared key is dropped and flagged rather than emitted with a
+# redacted value; `pinned`/`pin_overrides` name lists became booleans). Its own
+# rule says it moves when the shape moves; it had not. THIS is the one
+# authoritative definition — `persistence.models` re-exports it rather than
+# declaring its own, which is how the two drifted apart.
 
 # An approved opaque identifier: bounded, no whitespace, no prose. This is what
 # makes id/hash/model/action fields safe — a token of this shape cannot carry a
@@ -521,6 +549,13 @@ def _project(node: Node | None, value: Any) -> Any:
             #     redacted value still published the KEY, and a token-shaped
             #     secret is a perfectly good key — so an unknown key is
             #     omitted, not merely emptied.
+            if k == _WITHHELD_LEGACY:
+                # Historical signal on an already-stored row: preserve the FACT
+                # by re-emitting it in the current representation, never the
+                # old count (which was itself a raw channel).
+                if isinstance(v, int) and not isinstance(v, bool) and v > 0:
+                    withheld = True
+                continue
             if k == _WITHHELD:
                 # Our own withheld flag. It must survive re-projection or
                 # projection stops being a fixed point (the at-rest backfill
@@ -530,6 +565,12 @@ def _project(node: Node | None, value: Any) -> Any:
                 # is dropped rather than echoed.
                 if v is True:
                     out[k] = True
+                else:
+                    # R6 F2: a reserved field holding anything but `True` is
+                    # raw input wearing our field name. Dropping it silently
+                    # left the object looking COMPLETE; dropping an entry is
+                    # exactly what the flag exists to report.
+                    withheld = True
                 continue
             if k in node.children:
                 out[k] = _project(node.children[k], v)
@@ -681,7 +722,7 @@ def has_redaction_marker(obj: Any) -> bool:
         # `_redacted` key, so this returned False and the completeness
         # predicate reported a merged raw retrieval COMPLETE when entries had
         # in fact been dropped.
-        if obj.get(_WITHHELD) is True:
+        if is_withheld_marker(obj):
             return True
         return any(has_redaction_marker(v) for v in obj.values())
     if isinstance(obj, list):

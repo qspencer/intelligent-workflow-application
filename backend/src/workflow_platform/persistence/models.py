@@ -305,12 +305,24 @@ class RawTraceState(StrEnum):
 # references it, so a projector/schema change never makes an old row read as
 # corrupt (docs/TRACE_GOVERNANCE_PLAN.md §4.3, criterion 17/23).
 RAW_SCHEMA_VERSION = 1
-PROJECTION_SCHEMA_VERSION = 1
 # F5 (third code review): there were TWO projector versions — this said
 # "trace-projector@1" while the projector said "2", so operational rows and
 # vault rows identified different projectors and §4.3's agreement predicate
 # compared against a version that never wrote the row. ONE definition now.
-from workflow_platform.trace_projection import PROJECTOR_VERSION  # noqa: E402
+#
+# R6 F3: the same drift had happened again with the SCHEMA version — declared
+# independently here as a literal `1` while the projector's shape changed. Both
+# stamps are now re-exported from the projector, which is the one authority;
+# `test_projection_version_stamps_have_one_definition` pins that.
+# The `X as X` form marks these as EXPLICIT re-exports (mypy strict), which is
+# the point: this module is a legitimate second home for the stamps, but not a
+# second definition of them.
+from workflow_platform.trace_projection import (  # noqa: E402
+    PROJECTION_SCHEMA_VERSION as PROJECTION_SCHEMA_VERSION,
+)
+from workflow_platform.trace_projection import (  # noqa: E402
+    PROJECTOR_VERSION as PROJECTOR_VERSION,
+)
 
 
 class RawTrace(BaseModel):

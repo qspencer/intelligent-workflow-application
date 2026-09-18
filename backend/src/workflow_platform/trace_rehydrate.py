@@ -22,7 +22,11 @@ from typing import Any
 from workflow_platform.persistence import AuditEntry, RawTrace, RawTraceKind, Repositories
 from workflow_platform.persistence.models import RAW_SCHEMA_VERSION, RawTraceState
 from workflow_platform.trace_cipher import build_trace_cipher, is_sealed_payload
-from workflow_platform.trace_projection import PROJECTOR_VERSION, redact_tool_data
+from workflow_platform.trace_projection import (
+    PROJECTOR_VERSION,
+    is_withheld_marker,
+    redact_tool_data,
+)
 from workflow_platform.trace_vault import idempotency_key
 
 logger = logging.getLogger(__name__)
@@ -41,6 +45,12 @@ def _output_projected(obj: Any) -> bool:
         return obj.startswith("[redacted")
     if isinstance(obj, dict):
         if "_redacted" in obj:
+            return True
+        # R6 F2: share ONE withholding predicate with the completeness path.
+        # This detector had its own idea of what "projected" looks like, so an
+        # object carrying only the withheld flag was skipped for restoration
+        # while `has_redaction_marker` called the same object incomplete.
+        if is_withheld_marker(obj):
             return True
         return any(_output_projected(v) for v in obj.values())
     if isinstance(obj, list):

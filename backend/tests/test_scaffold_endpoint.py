@@ -95,9 +95,15 @@ def test_scaffold_creates_and_persists(monkeypatch: pytest.MonkeyPatch) -> None:
     # R5 F4: step ids are PLATFORM-MINTED — the model names its own steps, and
     # step ids are published as dict KEYS in the projected `context.steps`, so a
     # model-chosen id would be model-derived content on a platform-keyed path.
+    #
+    # R6 F1: assert the ID SET, not the absence of a substring. The previous
+    # version required "extract" to vanish from the whole serialized definition,
+    # which the reviewer noted REWARDED the substring-rewrite defect — it also
+    # required the function `pdf_extract` to be mangled. The property is about
+    # identifiers, so it is asserted on identifiers.
     assert {s["id"] for s in fetched["steps"]} == {"step_1", "step_2"}
-    assert "extract" not in json.dumps(fetched) and "summarize" not in json.dumps(fetched), (
-        "a model-chosen step id survived into the persisted definition"
+    assert not ({"extract", "summarize"} & {s["id"] for s in fetched["steps"]}), (
+        "a model-chosen step id survived as an identifier"
     )
 
 
@@ -154,3 +160,65 @@ def test_extract_json_tolerates_trailing_prose() -> None:
 def test_extract_json_tolerates_braces_in_leading_prose() -> None:
     out = extract_json('Here is {my} answer: {"name": "wf"} hope that helps')
     assert out == {"name": "wf"}
+
+
+# --- R6 F1: minting rewrites REFERENCES, and nothing else --------------------
+
+
+def test_minting_rewrites_references_and_preserves_everything_else() -> None:
+    """R6 F1. The first version substring-replaced every string in the draft:
+    the function `pdf_extract` became `pdf_step_1` (structurally valid, so it
+    persisted and failed at run time), a path `/inbox/extract/` was rewritten,
+    and a condition's comparison LITERAL changed with its step reference.
+    Whole-word matching would still have broken the literal."""
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    draft = {
+        "steps": [
+            {
+                "id": "extract",
+                "type": "deterministic",
+                "function": "pdf_extract",
+                "config": {"path": "/inbox/extract/file.pdf"},
+            },
+            {
+                "id": "route",
+                "type": "agentic",
+                "inputs": ["extract"],
+                "goal": "read {steps.extract.output_text}",
+            },
+        ],
+        "edges": [
+            {
+                "from": "extract",
+                "to": "route",
+                "condition": "steps['extract']['document_type'] == 'extract'",
+            }
+        ],
+    }
+    out = mint_platform_step_ids(json.loads(json.dumps(draft)))
+
+    # references move …
+    assert [s["id"] for s in out["steps"]] == ["step_1", "step_2"]
+    assert out["steps"][1]["inputs"] == ["step_1"]
+    assert out["edges"][0]["from"] == "step_1" and out["edges"][0]["to"] == "step_2"
+    assert "steps['step_1']" in out["edges"][0]["condition"]
+    assert out["steps"][1]["goal"] == "read {steps.step_1.output_text}"
+
+    # … and nothing else does
+    assert out["steps"][0]["function"] == "pdf_extract", "a FUNCTION NAME was rewritten"
+    assert out["steps"][0]["config"]["path"] == "/inbox/extract/file.pdf", "a PATH was rewritten"
+    assert out["edges"][0]["condition"].endswith("== 'extract'"), (
+        "a comparison LITERAL was rewritten"
+    )
+
+
+def test_minting_rejects_duplicate_ids_before_they_are_minted_apart() -> None:
+    """R6 F1: duplicates were silently minted into distinct ids, destroying the
+    very collision definition validation exists to reject."""
+    import pytest as _pytest
+
+    from workflow_platform.scaffold import ScaffoldIdError, mint_platform_step_ids
+
+    with _pytest.raises(ScaffoldIdError):
+        mint_platform_step_ids({"steps": [{"id": "a"}, {"id": "a"}]})
