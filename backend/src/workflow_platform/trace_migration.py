@@ -24,11 +24,14 @@ from workflow_platform.trace_projection import (
     PROJECTOR_VERSION,
     REDACTED_ERROR,
     is_generated_marker,
-    project_audit_detail_at_rest,
     redact_tool_data,
     safe_trigger_payload,
 )
-from workflow_platform.trace_vault import RawTraceVault, idempotency_key
+from workflow_platform.trace_vault import (
+    RawTraceVault,
+    audit_detail_has_raw,
+    idempotency_key,
+)
 
 # Scan ceiling. Exceeding it is NOT silently ignored (external code review
 # 2026-08-02 F10): `ZeroRawReport.capped` is set and the gate must NOT certify.
@@ -76,14 +79,13 @@ def _audit_has_raw(detail: Any, action: str | None) -> bool:
     dispatch on action, or it both misses raw and false-flags correctly-projected
     tool-call / operational rows (G-Trace-Review-4 F4).
 
-    Deliberately NOT `trace_vault.audit_detail_has_raw`, though the two look
-    alike. The verifier asks whether a STORED row still holds raw under the
-    policy IN FORCE; the vault predicate asks whether the FINAL policy would
-    remove anything. During the transition those differ — pointing the
-    verifier at the final policy would make it flag every correctly-stored row
-    as raw and the release gate would never certify. They converge when the
-    at-rest tightening lands, and a test pins that convergence."""
-    return bool(project_audit_detail_at_rest(action, detail) != detail)
+    The two questions this and `trace_vault.audit_detail_has_raw` ask — "does
+    this STORED row still hold raw?" and "would the final policy remove
+    anything?" — differed only while at-rest was the lenient denylist. The
+    2026-09-18 tightening made at-rest BE the final policy, so they converged
+    and this delegates rather than keeping a second implementation alive.
+    `test_the_verifier_and_the_vaulting_predicate_are_one_question` pins it."""
+    return audit_detail_has_raw(action, detail)
 
 
 def _trigger_has_raw(trigger_payload: dict[str, Any]) -> bool:

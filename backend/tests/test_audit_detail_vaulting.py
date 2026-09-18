@@ -249,19 +249,76 @@ def test_the_scope_rule_IS_the_final_projection_and_cannot_drift() -> None:
         ), f"the vaulting scope disagrees with the final policy for {action!r}"
 
 
-def test_the_scope_rule_is_NOT_todays_lenient_at_rest_policy() -> None:
-    """Round 11's actual finding, pinned. Today's at-rest denylist leaves the
-    motivating detail UNCHANGED — so scoping vaulting by it would vault
-    nothing here, and the moment at-rest tightens, the tool name would be
-    destroyed with no vault row behind it."""
+def test_the_verifier_and_the_vaulting_predicate_are_one_question() -> None:
+    """Converged by the 2026-09-18 at-rest tightening.
+
+    They were deliberately separate while at-rest was the lenient denylist:
+    the verifier asked what the policy IN FORCE still left raw, the vault
+    predicate what the FINAL policy would remove. At-rest is now the final
+    policy, so a second implementation would only be free to drift."""
+    from workflow_platform.trace_migration import _audit_has_raw
+
+    for action, detail in [
+        ("tool_param_override_blocked", RAW_DETAIL),
+        ("step_started", {"step_id": "a", "attempt": 1}),
+        ("tool_call", {"tool": "x", "input": {"q": "secret"}}),
+        ("escalation_resolved", {"original_id": "esc-1", "resolution": "done"}),
+        ("anything", {"outcome": "ok"}),
+    ]:
+        assert _audit_has_raw(detail, action) == audit_detail_has_raw(action, detail), (
+            f"the verifier and the vaulting predicate disagree for {action!r}"
+        )
+
+
+def test_the_tightening_withholds_the_model_chosen_tool_name_at_rest() -> None:
+    """The defect this whole design opened on. At rest used to store the
+    attacker-influenced tool name verbatim while the read path withheld it —
+    strictly more at rest than any ordinary reader could see."""
     from workflow_platform.trace_projection import project_audit_detail_at_rest
 
-    assert project_audit_detail_at_rest("tool_param_override_blocked", RAW_DETAIL) == RAW_DETAIL, (
-        "today's at-rest policy no longer passes this through; if the tightening "
-        "has landed, retire this test and converge the two policies"
-    )
+    stored = project_audit_detail_at_rest("tool_param_override_blocked", RAW_DETAIL)
+    assert stored != RAW_DETAIL, "at rest still stores the raw detail verbatim"
+    assert "exfiltrate_sk_live_abc" not in str(stored), "the tool name survived at rest"
+    assert "/etc/shadow" not in str(stored), "the attempted value survived at rest"
+    # And it is WITHHELD, not destroyed: vaulting is scoped by the same policy.
     assert audit_detail_has_raw("tool_param_override_blocked", RAW_DETAIL), (
-        "vaulting is scoped to the LENIENT policy — the round-11 defect"
+        "at rest strips this but nothing vaults it — that is destruction, not withholding"
+    )
+
+
+def test_at_rest_never_holds_more_than_the_read_path_releases() -> None:
+    """The invariant the tightening establishes, stated directly."""
+    from workflow_platform.trace_projection import (
+        project_audit_detail_at_rest,
+        project_audit_detail_final,
+    )
+
+    samples: list[tuple[str, Any]] = [
+        ("tool_param_override_blocked", RAW_DETAIL),
+        ("workflow_started", {"workflow_id": "wf", "trigger": {"x": 1}}),
+        ("memory_observed", {"facts": 2, "observation": "alice said hello"}),
+        ("workflow_forked", {"source_instance_id": "i", "from_step_id": "b"}),
+        ("escalation_resolved", {"original_id": "e", "resolution": "done"}),
+    ]
+    for action, detail in samples:
+        assert project_audit_detail_at_rest(action, detail) == project_audit_detail_final(
+            action, detail
+        ), f"at rest diverges from the read path for {action!r}"
+
+
+def test_the_escalation_LINK_survives_the_tightening() -> None:
+    """`escalation_resolved.original_id` is how the escalations API knows a
+    request was answered. It was undeclared, so the tightening would have
+    withheld it — and withholding a link does not hide it, it breaks
+    resolution permanently. Untested before the tightening; pinned now."""
+    from workflow_platform.trace_projection import project_audit_detail_at_rest
+
+    stored = project_audit_detail_at_rest(
+        "escalation_resolved", {"original_id": "esc-1", "resolution": "done"}
+    )
+    assert stored.get("original_id") == "esc-1", (
+        "the escalation link did not survive; GET /api/escalations can no longer "
+        "tell a resolved escalation from a pending one"
     )
 
 

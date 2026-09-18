@@ -912,6 +912,12 @@ the backfill before that lands means a second pass later.
 passes over production data to reach one state is worse than one pass, and
 nothing is accumulating any more.
 
+**Update (same day): the tightening has landed**, so that condition is met
+and the backfill is unblocked. It remains an operator decision because it
+rewrites production rows one-way. Note the pile is now static: new writes are
+projected at rest and their raw is vaulted, so waiting no longer costs
+anything except the release gate staying un-certifiable.
+
 Also outstanding, trivially: **one orphaned `audit_detail` vault row** with a
 NULL `audit_entry_id`, written during the ~30-second window when the column
 was unmapped. It is unaddressable and unreferenced. Harmless (org-scoped,
@@ -919,7 +925,7 @@ grant-gated); sweep it with the backfill rather than as a one-off delete.
 
 ---
 
-### G-Trace-Audit-Vault — audit-detail vaulting — **mechanism BUILT 2026-09-18; at-rest switch open**
+### G-Trace-Audit-Vault — audit-detail vaulting + at-rest tightening — **BUILT 2026-09-18**
 
 Picked up the reviewer's audit-at-rest item and found it cannot be done the
 obvious way. Recording the dependency rather than shipping the wrong fix.

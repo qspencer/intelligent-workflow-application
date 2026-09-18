@@ -316,7 +316,15 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "6"  # SELF-FOUND (ledger M2 detector): the version
+PROJECTOR_VERSION = "7"  # v7: the AT-REST AUDIT TIGHTENING (2026-09-18).
+# `project_audit_detail_at_rest` was a denylist, so anything unlisted passed
+# through and at rest held strictly MORE than a grant-less reader could see —
+# the model-chosen tool name among it. It is now the read path itself. Five
+# fields were declared in `_AUDIT_DETAIL` at the same time, and only five: the
+# escalation link the API filters on, plus the fork-lineage/connector trail
+# already test-pinned. Audit output changed, so the version moves.
+#
+# v6: SELF-FOUND (ledger M2 detector): the version
 # STAMPS were declared inside the projected output, where a supplied
 # `projector_version: "AKIAIOSFODNN7EXAMPLE"` survived as projection metadata.
 # Nothing read them from the JSON — every consumer uses the ROW COLUMN — so an
@@ -651,6 +659,25 @@ _AUDIT_DETAIL = Obj(
         "budget_action": _TOKEN,
         "unrecognized_ids": _COUNT,
         "org_id": _ID,
+        # --- Declared by the 2026-09-18 at-rest tightening, and ONLY these.
+        # When at-rest became the read path, every undeclared field began to
+        # be withheld. These five are what the PLATFORM itself needs or what
+        # was already test-pinned as the operator trail; each is an
+        # engine-owned identifier or a fixed token, never model- or
+        # correspondent-derived. Everything else the tightening strips stays
+        # stripped — widening what a grant-less reader sees is a separate,
+        # deliberate decision, not a side effect of tightening at rest.
+        #
+        # `original_id` links `escalation_resolved` back to its request and
+        # the escalations API filters on it, so withholding it would not hide
+        # the link — it would BREAK resolution, permanently.
+        "original_id": _ID,
+        # Fork lineage + connector identity: the operator trail pinned by
+        # `test_operational_detail_is_untouched_at_rest`.
+        "source_instance_id": _ID,
+        "from_step_id": _ID,
+        "preserved_step_ids": Seq(_ID),
+        "connector": _TOKEN,
         "trigger": TriggerPayload(),
         "trigger_payload": TriggerPayload(),
         "tool_calls": ToolCalls(),
@@ -1008,63 +1035,44 @@ _RAW_AUDIT_FIELDS = (
 )
 
 
-def project_audit_detail_at_rest(action: str | None, detail: Any) -> Any:
-    """The AT-REST (and verifier) projection of one audit detail under the flip
-    (B1): remove raw, KEEP safe operational metadata. Action-aware, so it agrees
-    with the read dispatcher and the verifier (G-Trace-Review-4 F4):
-
-    - `tool_call`: the whole detail IS a tool-call record → `safe_tool_call`;
-    - `escalation_requested`: `reason` + `context` are model-authored → redacted;
-    - otherwise: redact only the known raw-bearing fields in place, so operational
-      ids/counts/flags survive (a default-deny schema would wrongly drop them and
-      the verifier would false-flag the row).
-
-    Idempotent: a field already holding a generated marker is left as-is. NEW raw
-    audit fields must be added to `_RAW_AUDIT_FIELDS` — that is the one thing a
-    reviewer of a new audit write should check."""
-    if not isinstance(detail, dict):
-        return detail
-    if action == "tool_call":
-        return safe_tool_call(detail)
-    out = dict(detail)
-    raw_keys: tuple[str, ...] = _RAW_AUDIT_FIELDS
-    if action == "escalation_requested":
-        raw_keys = (*raw_keys, "reason", "context")
-    for k in raw_keys:
-        v = out.get(k)
-        # Skip None and an already-generated marker (idempotence). Only a string
-        # can be a marker — `context` is a dict, so guard the membership test.
-        if k in out and v is not None and not (isinstance(v, str) and v in _GENERATED_MARKERS):
-            out[k] = _REDACTED_FIELD
-    return out
-
-
 def project_audit_detail_final(action: str | None, detail: Any) -> Any:
-    """The FINAL at-rest policy for an audit detail — what at rest will keep
-    once the tightening lands, and what the VAULTING predicate is scoped by.
+    """The at-rest policy, defined as **the read path**: at rest must never
+    hold more than a reader without a raw-trace grant can already see.
+    Anything beyond that belongs in the vault, recoverable by a grant holder.
 
-    Defined as **the read path**: at rest must never hold more than a reader
-    without a raw-trace grant can already see. Anything beyond that belongs in
-    the vault, recoverable by a grant holder, not in `audit_log.detail`.
-
-    Why this exists SEPARATELY from `project_audit_detail_at_rest`: round 11
-    required the vaulting predicate to use the final policy, not today's. The
-    at-rest projection is still the lenient denylist — flipping it is a
-    security-visible change that widens or narrows what operators see and is
-    being reviewed on its own. Scoping vaulting by the final policy NOW means
-    that when the switch flips, everything it starts removing is ALREADY in
-    the vault. There is no window in which projection destroys raw.
-
-    Conservative by construction: it over-vaults (details holding only
-    operational metadata that `_AUDIT_DETAIL` does not yet classify are
-    vaulted whole) and never under-vaults. Over-vaulting costs rows; under-
-    vaulting costs the record permanently, so the asymmetry decides it.
+    Introduced while at-rest was still the lenient denylist, so that vaulting
+    could be scoped by the FINAL policy before the tightening landed and no
+    window existed in which projection destroyed unvaulted raw (round 11).
+    Since 2026-09-18 at-rest IS this, and the separation is kept only because
+    the name states the intent.
     """
     if not isinstance(detail, dict):
         return detail
     if action == "tool_call":
         return safe_tool_call(detail)
     return redact_tool_data(detail, admin=False, kind="audit_detail")
+
+
+def project_audit_detail_at_rest(action: str | None, detail: Any) -> Any:
+    """The AT-REST projection of one audit detail under the flip (B1).
+
+    **Tightened 2026-09-18 to BE the final policy.** It was a denylist
+    (`_RAW_AUDIT_FIELDS` plus action-specific extras), which meant anything
+    unlisted passed through: at rest we stored strictly MORE than a reader
+    without a raw-trace grant could see, and the excess was exactly the
+    attacker-influenced material — the model-chosen tool name in
+    `tool_param_override_blocked` among it.
+
+    Now at rest holds no more than the read path releases, and everything
+    beyond that is vaulted first (`RawTraceVault.record_audit_detail`), so
+    the tightening withholds rather than destroys.
+
+    This is now one function with `project_audit_detail_final`. Keeping two
+    names that must return the same thing is the M3 class, so this delegates
+    rather than duplicating; the verifier and the vaulting predicate ask the
+    same question again and share it.
+    """
+    return project_audit_detail_final(action, detail)
 
 
 def redact_tool_data(obj: Any, admin: bool, *, kind: str) -> Any:

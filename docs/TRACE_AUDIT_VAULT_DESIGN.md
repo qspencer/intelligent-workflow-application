@@ -36,12 +36,44 @@ and the reordered `_audit` chokepoint: **mint entry id → vault raw
 durable-or-fail → project → append**. 14 tests in
 `tests/test_audit_detail_vaulting.py`, one per criterion below.
 
-**What is NOT done, stated plainly: the at-rest projection is still the
-lenient denylist.** The over-retention this design opens with is therefore
-still present. What has changed is that it is now safe to close — everything
-the tightening will remove is already in the vault, so the switch destroys
-nothing. That switch is the reviewable change, because it also decides what
-operators can see without a grant.
+**The at-rest tightening landed the same day.** `project_audit_detail_at_rest`
+was a denylist — anything unlisted passed through — so at rest held strictly
+MORE than a grant-less reader could see. It is now the read path itself, and
+the two names delegate to one function. The over-retention this design opens
+with is closed.
+
+It was safe to close because vaulting had already been scoped by the final
+policy: everything the tightening removes was in the vault before the switch,
+so it withholds rather than destroys. Verified: the projection is idempotent
+and the verifier now certifies freshly-written rows (the release-gate fixed
+point). `PROJECTOR_VERSION` 6 → 7, golden `projection_v7.json`; the guard
+fired on the change, as designed, and 2 of 17 cases moved.
+
+**The operator cost, measured on the production sample: 39% of audit entries
+now withhold every field at rest**, and operators lose `workflow_id`,
+`instance_id`, `user_id`, `cost_usd`, `model`, `steps`, alert thresholds and
+the memory counts from the at-rest row. All of it is vaulted and recoverable
+with a raw-trace grant — withheld, not destroyed.
+
+**Five fields were declared, and only five**, because withholding them would
+have broken function rather than hidden anything: `original_id` (the
+escalations API filters resolved from pending on it), plus
+`source_instance_id` / `from_step_id` / `preserved_step_ids` / `connector`,
+the fork-lineage and connector trail already pinned by
+`test_operational_detail_is_untouched_at_rest`. Declaring a field releases it
+on the READ path too, so this is a small deliberate widening, argued
+per-field rather than taken wholesale.
+
+**The widening beyond those five is a separate, unmade decision.** Most of
+what operators now lose is the same ownership class as fields `_AUDIT_DETAIL`
+already declares — `workflow_id`/`instance_id`/`user_id` are `_ID`-shaped like
+`org_id` and `grant_id`; `cost_usd`/token counts/thresholds are counts like
+`era` and `attempt`; `model` and `text_hash` are tokens like `content_hash`.
+The schema was written for governance entries and never classified the
+engine-execution fields, so their absence is an oversight rather than a
+judgement. Declaring them is one line each and would restore the at-rest
+trail — but it widens what a grant-less reader sees, which is the operator's
+call, not a side effect of tightening.
 
 **Measured on production before building** (4,000-row random sample of the
 64,973-row `audit_log`): **70.3%** of entries lose something to the final
