@@ -11,6 +11,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Any
 
 from workflow_platform.persistence.models import (
     AuditEntry,
@@ -285,6 +286,22 @@ class RawTraceVaultRepo(ABC):
 
     @abstractmethod
     async def list_by_instance(self, instance_id: str) -> list[RawTrace]: ...
+
+    @abstractmethod
+    async def reseal(self, trace_id: str, *, payload: Any, content_commitment: str) -> bool:
+        """Replace a row's stored payload IN PLACE. Returns False if absent.
+
+        Deliberately separate from `put`, which is idempotent on the
+        natural key and therefore CANNOT update: it returns the existing row
+        when the fingerprint matches and raises when it differs, so a
+        re-seal through `put` silently keeps the old ciphertext. That is how
+        the first version of `tools/reseal_audit_vault.py` reported success
+        while changing nothing.
+
+        This is a KEY-ROTATION operation, not a content change: the caller
+        must pass the commitment of the SAME plaintext, so the row's identity
+        and content are unchanged and only the sealing differs.
+        """
 
 
 class TriggerCursorRepo(ABC):

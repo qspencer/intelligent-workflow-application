@@ -9,6 +9,7 @@ from __future__ import annotations
 
 from copy import deepcopy
 from datetime import UTC, datetime
+from typing import Any
 
 from workflow_platform.persistence.models import (
     DEFAULT_ORG_ID,
@@ -409,6 +410,15 @@ class InMemoryRawTraceVaultRepo(RawTraceVaultRepo):
         self._items[trace.id] = trace.model_copy(deep=True)
         self._by_key[trace.idempotency_key] = trace.id
         return trace
+
+    async def reseal(self, trace_id: str, *, payload: Any, content_commitment: str) -> bool:
+        row = self._items.get(trace_id)
+        if row is None:
+            return False
+        self._items[trace_id] = row.model_copy(
+            update={"payload": payload, "content_commitment": content_commitment}
+        )
+        return True
 
     async def get(self, trace_id: str) -> RawTrace | None:
         t = self._items.get(trace_id)

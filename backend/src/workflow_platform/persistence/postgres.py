@@ -528,6 +528,15 @@ class PostgresRawTraceVaultRepo(RawTraceVaultRepo):
             )
         return stored
 
+    async def reseal(self, trace_id: str, *, payload: Any, content_commitment: str) -> bool:
+        async with self._sf() as s, s.begin():
+            row = await s.get(RawTraceRow, trace_id)
+            if row is None:
+                return False
+            row.payload = payload
+            row.content_commitment = content_commitment
+            return True
+
     async def get(self, trace_id: str) -> RawTrace | None:
         async with self._sf() as s:
             row = await s.get(RawTraceRow, trace_id)
