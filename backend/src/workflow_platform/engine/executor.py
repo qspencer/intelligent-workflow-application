@@ -57,9 +57,11 @@ from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.security.capabilities import ResolvedCapabilities
 from workflow_platform.tools import Tool, ToolContext
 from workflow_platform.trace_projection import (
+    _OWNERSHIP,
     PROJECTION_SCHEMA_VERSION,
     PROJECTOR_VERSION,
     REDACTED_ERROR,
+    Owner,
     project_audit_detail_at_rest,
     redact_tool_data,
     safe_trigger_payload,
@@ -1212,7 +1214,43 @@ class WorkflowEngine:
         if fn is None:
             raise StepFailure(f"Unknown step function: {step.function!r}")
         context.capabilities = capabilities
-        return await fn(step.config, context, self.world)
+        produced = await fn(step.config, context, self.world)
+        stripped = self._strip_engine_owned(produced, step)
+        return stripped if isinstance(stripped, dict) else {}
+
+    @staticmethod
+    def _strip_engine_owned(produced: Any, step: DeterministicStep) -> Any:
+        """A FUNCTION's output may not claim ENGINE-owned fields.
+
+        The ownership boundary (R6 §4.4). A deterministic function returns its
+        own dict straight into the same schema the engine's own output uses,
+        and the registered `noop` returns its CONFIG unchanged — so a step
+        could emit `model`, `memory_hash` or `usage.input_tokens` and have them
+        projected as engine metadata, surviving verbatim with
+        `output_has_raw()` reporting clean. No shape test can separate those
+        from the real thing; only the producer can, and here the producer is
+        known: the engine did not compute them.
+
+        Resolved where the value ENTERS, so nothing downstream has to
+        re-derive it: stored output never contains a forged engine field, and
+        projection stays a pure function of the record.
+        """
+        if not isinstance(produced, dict):
+            return produced
+        engine_owned = {
+            f for f, o in _OWNERSHIP.get("step_output", {}).items() if o is Owner.ENGINE
+        }
+        claimed = sorted(k for k in produced if k in engine_owned)
+        if not claimed:
+            return produced
+        logger.warning(
+            "step %r (function %r) returned engine-owned field(s) %s; dropped at the "
+            "ownership boundary — a function cannot produce engine metadata.",
+            step.id,
+            step.function,
+            claimed,
+        )
+        return {k: v for k, v in produced.items() if k not in engine_owned}
 
     async def _run_agentic(
         self,

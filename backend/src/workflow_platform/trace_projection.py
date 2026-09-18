@@ -20,6 +20,7 @@ import re
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import datetime
+from enum import StrEnum
 from typing import Any
 
 _REDACTED_FIELD = "[redacted — raw-trace grant required]"
@@ -50,6 +51,131 @@ _WITHHELD = "_withheld_keys"
 #: skips restoring it (R6 F2). Reading historical shapes is not the same as
 #: emitting them.
 _WITHHELD_LEGACY = "_withheld_key_count"
+
+
+class Owner(StrEnum):
+    """WHO produced a value — the distinction the projector could not make.
+
+    Six review rounds each closed named leaks and each found more, because the
+    projector knows the asset KIND and the field PATH but not the PRODUCER.
+    Shape cannot supply it: `model: "attacker-supplied"` is a fine token, and a
+    registered `noop` function returns its config unchanged into the same
+    schema the engine's own output uses.
+
+    So ownership is DECLARED, per field, and resolved at the boundary where the
+    value enters rather than guessed at projection time.
+    """
+
+    #: The engine computed it (Bedrock usage, our cost arithmetic, a hash WE
+    #: took, a stamp WE wrote). Trustworthy only because the ENGINE built the
+    #: dict — which is why a deterministic function's output may not carry
+    #: these keys at all (enforced at the boundary, in the executor).
+    ENGINE = "engine"
+    #: Operator-approved definition content (step ids, capability globs, the
+    #: function name). Approved by authorship, not by spelling.
+    CONFIG = "config"
+    #: Parsed from model output, or derived from it. A score is a MODEL'S
+    #: claim; being a float does not make it a platform measurement. Withheld
+    #: until a field has a stated release rule.
+    BUSINESS = "business"
+    #: Metadata the projection itself generates (its markers and stamps).
+    PROJECTION = "projection"
+
+
+#: Ownership of every field declared at the ROOT of each asset schema. There is
+#: no default: an unclassified field is a build error, exactly as a missing
+#: asset kind is — a default would be the same guess this taxonomy exists to
+#: remove. `test_every_declared_field_has_a_declared_owner` pins totality.
+_OWNERSHIP: dict[str, dict[str, Owner]] = {
+    "step_output": {
+        "model": Owner.ENGINE,
+        "usage": Owner.ENGINE,
+        "cost_usd": Owner.ENGINE,
+        "iterations": Owner.ENGINE,
+        "stop_reason": Owner.ENGINE,
+        "memory_written": Owner.ENGINE,
+        "memory_hash": Owner.ENGINE,
+        "recall_hash": Owner.ENGINE,
+        "num_steps": Owner.ENGINE,
+        "tool_calls": Owner.ENGINE,
+        # Parsed out of model output — the model's claims, not measurements.
+        "parse_ok": Owner.BUSINESS,
+        "faithfulness_score": Owner.BUSINESS,
+        "category_score": Owner.BUSINESS,
+        "relevance_score": Owner.BUSINESS,
+        "concern_count": Owner.BUSINESS,
+        "needs_tests": Owner.BUSINESS,
+        "projector_version": Owner.PROJECTION,
+        "projection_schema_version": Owner.PROJECTION,
+        "_redacted": Owner.PROJECTION,
+    },
+    "step_row": {
+        "id": Owner.ENGINE,
+        "instance_id": Owner.ENGINE,
+        "attempt": Owner.ENGINE,
+        "state": Owner.ENGINE,
+        "started_at": Owner.ENGINE,
+        "completed_at": Owner.ENGINE,
+        "error": Owner.ENGINE,
+        "output": Owner.ENGINE,
+        "step_id": Owner.CONFIG,
+        "projector_version": Owner.PROJECTION,
+        "projection_schema_version": Owner.PROJECTION,
+        "_redacted": Owner.PROJECTION,
+    },
+    "instance": {
+        "id": Owner.ENGINE,
+        "state": Owner.ENGINE,
+        "created_at": Owner.ENGINE,
+        "started_at": Owner.ENGINE,
+        "completed_at": Owner.ENGINE,
+        "error": Owner.ENGINE,
+        "total_tokens": Owner.ENGINE,
+        "total_cost_usd": Owner.ENGINE,
+        "context": Owner.ENGINE,
+        "trigger_payload": Owner.ENGINE,
+        "org_id": Owner.CONFIG,
+        "owner_user_id": Owner.CONFIG,
+        "workflow_id": Owner.CONFIG,
+        "projector_version": Owner.PROJECTION,
+        "projection_schema_version": Owner.PROJECTION,
+        "_redacted": Owner.PROJECTION,
+    },
+    "context": {
+        "instance_id": Owner.ENGINE,
+        "total_tokens": Owner.ENGINE,
+        "total_cost_usd": Owner.ENGINE,
+        "dry_run": Owner.ENGINE,
+        "steps": Owner.ENGINE,
+        "trigger": Owner.ENGINE,
+        "org_id": Owner.CONFIG,
+        "workflow_id": Owner.CONFIG,
+        "capabilities": Owner.CONFIG,
+        "_redacted": Owner.PROJECTION,
+    },
+}
+
+
+def owner_of(kind: str, field: str) -> Owner | None:
+    """Declared owner of a ROOT field, or None if the kind declares none."""
+    return _OWNERSHIP.get(kind, {}).get(field)
+
+
+#: BUSINESS fields cleared for ordinary-reader display, each with its rule
+#: stated here. The default is WITHHELD: adding a name is a product decision
+#: about who may see a model-derived value and why, not a convenience.
+#:
+#:  - `parse_ok`: a BOOLEAN our own function code computes about whether the
+#:    model's output parsed. It is platform-computed rather than model-claimed,
+#:    and a boolean cannot carry content, so releasing it discloses the
+#:    pipeline's health and nothing of the model's text. It is the operational
+#:    signal that says "the step ran but the model returned junk", which is the
+#:    first thing an operator needs and cannot infer from anything else shown.
+#:
+#: Everything else stays withheld: a score is the MODEL'S claim, and a count
+#: (`concern_count`) can carry a value — the same channel the withheld-count
+#: defect opened.
+_RELEASED_BUSINESS: frozenset[str] = frozenset({"parse_ok"})
 
 
 def is_withheld_marker(obj: Any) -> bool:
@@ -814,4 +940,26 @@ def redact_tool_data(obj: Any, admin: bool, *, kind: str) -> Any:
         raise ValueError(
             f"unknown projection asset kind {kind!r}; declare one of {sorted(SCHEMAS)}"
         )
-    return _project(schema, obj)
+    return _project(schema, _withhold_unreleased_business(obj, kind))
+
+
+def _withhold_unreleased_business(obj: dict[str, Any], kind: str) -> dict[str, Any]:
+    """Drop BUSINESS-owned root fields that have no release rule.
+
+    A score, a confidence or a boolean verdict is PARSED FROM MODEL OUTPUT —
+    the model's claim, not a platform measurement — and its numeric shape said
+    nothing about that. Per the round-6 rule, an unapproved business field is
+    withheld until someone states who may see it and why
+    (`_RELEASED_BUSINESS`, deliberately empty).
+
+    The drop raises the withheld flag, so the record still reports that
+    something was held back, and a grant holder recovers it from the vault."""
+    owners = _OWNERSHIP.get(kind)
+    if not owners:
+        return obj
+    dropped = [k for k in obj if owners.get(k) is Owner.BUSINESS and k not in _RELEASED_BUSINESS]
+    if not dropped:
+        return obj
+    kept = {k: v for k, v in obj.items() if k not in dropped}
+    kept[_WITHHELD] = True
+    return kept

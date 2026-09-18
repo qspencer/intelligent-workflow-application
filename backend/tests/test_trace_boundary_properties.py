@@ -543,3 +543,79 @@ def test_projection_version_stamps_have_one_definition() -> None:
     assert models.PROJECTOR_VERSION is proj.PROJECTOR_VERSION
     # the shape changed in R5/R6, so the schema stamp must have moved off 1
     assert proj.PROJECTION_SCHEMA_VERSION >= 2
+
+
+# --- Ownership typing (R6 §4.4) ---------------------------------------------
+
+
+def test_every_declared_field_has_a_declared_owner() -> None:
+    """TOTALITY. Every field declared at the root of an ownership-typed schema
+    must have an owner — there is no default, for the same reason there is no
+    default asset kind: a default is a guess, and guessing about the PRODUCER
+    is the defect this taxonomy exists to remove."""
+    from workflow_platform.trace_projection import _OWNERSHIP, SCHEMAS
+
+    for kind, owners in _OWNERSHIP.items():
+        schema = SCHEMAS[kind]
+        declared = set(getattr(schema, "children", {}))
+        missing = declared - set(owners)
+        assert not missing, f"{kind}: fields with no declared owner: {sorted(missing)}"
+        stray = set(owners) - declared
+        assert not stray, f"{kind}: ownership declared for absent fields: {sorted(stray)}"
+
+
+def test_model_derived_business_fields_are_withheld() -> None:
+    """R6 §4.4: `faithfulness_score`, `category_score`, `relevance_score`,
+    `needs_tests` and `concern_count` are PARSED FROM MODEL OUTPUT. Numeric or
+    boolean shape does not make them platform measurements, so they are
+    withheld until a release rule says who may see them."""
+    out = redact_tool_data(
+        {
+            "model": "haiku",
+            "usage": {"input_tokens": 9},
+            "faithfulness_score": 5,
+            "category_score": 4,
+            "relevance_score": 3,
+            "needs_tests": True,
+            "concern_count": 2,
+        },
+        admin=False,
+        kind="step_output",
+    )
+    for business in (
+        "faithfulness_score",
+        "category_score",
+        "relevance_score",
+        "needs_tests",
+        "concern_count",
+    ):
+        assert business not in out, f"a model-derived claim was published: {business}"
+    assert out["_withheld_keys"] is True, "withholding a business field must be signalled"
+    # engine-owned metadata is unaffected
+    assert out["model"] == "haiku" and out["usage"] == {"input_tokens": 9}
+
+
+def test_a_function_cannot_produce_engine_metadata() -> None:
+    """R6 §4.4, the reviewer's reproduction: the registered `noop` returns its
+    CONFIG unchanged into the same schema engine output uses, so a step could
+    emit `model` / `memory_hash` / `usage.input_tokens` and have them survive
+    verbatim with `output_has_raw()` reporting clean.
+
+    Resolved at the boundary the value enters — a function's dict simply cannot
+    carry engine-owned keys — so nothing downstream must re-derive the
+    producer, and projection stays a pure function of the record."""
+    from workflow_platform.engine.executor import WorkflowEngine
+    from workflow_platform.workflow import DeterministicStep
+
+    step = DeterministicStep(id="s", type="deterministic", function="noop", config={})
+    kept = WorkflowEngine._strip_engine_owned(
+        {
+            "model": "attacker-supplied",
+            "memory_hash": "sha256:deadbeefdeadbeef",
+            "usage": {"input_tokens": 999999},
+            "copied_to": ["/out/a.xml"],
+        },
+        step,
+    )
+    assert "model" not in kept and "memory_hash" not in kept and "usage" not in kept
+    assert kept == {"copied_to": ["/out/a.xml"]}, "the function's OWN output must survive"
