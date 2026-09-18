@@ -59,19 +59,39 @@ Also landed, outside the epic:
 
 **Immediate priorities, in order:**
 
-1. ~~Round 11 verdict~~ — **returned 2026-09-18**: two bounded P2
-   corrections (scaffold reference grammar; an equivalence test that counted
-   rows), both fixed in `2db6e2f`. No new defect in the projection primitive.
-   The F1/F5 projector review line is **closed** — see the ledger disposition.
-2. **Audit-detail vaulting** — now the ACTIVE build, (`G-Trace-Audit-Vault` below) — fully decided
-   (addressing, scope, ordering); the migration is deliberately held until
-   round 11 returns.
-3. **Catalog snapshot/digest** — designed in
-   `docs/TRACE_AUDIT_VAULT_DESIGN.md` Part 2, needs a schema; queued behind
-   audit vaulting because both touch persistence.
-4. **G18 model sweep** — a pure spend decision (~$0.70/model Haiku-class,
-   ~$2 Sonnet, ~$3.50 Opus over the 139-message corpus); the harness has
-   been ready since 2026-07-31.
+1. **Round 12 verdict** — package sent 2026-09-18 (`b60e9da`), scope =
+   audit-detail vaulting + the at-rest audit tightening. First round whose
+   subject is not the F1/F5 projection primitive; that line closed after four
+   consecutive zero-defect rounds. **Everything touching the trace surface is
+   held until it returns.**
+2. **The widening decision** (§5.1 of the round-12 sidecar) — at rest is now
+   the read path, and 39% of audit entries withhold every field. Most of what
+   operators lost is the same ownership class as fields `_AUDIT_DETAIL`
+   already declares, so declaring them is one line each — but it widens what
+   a grant-less reader sees. Asked of the reviewer rather than decided.
+3. **The backfill** (`G-Trace-Backfill` below) — unblocked now the tightening
+   has landed, still an operator decision because it rewrites production rows
+   one-way. The pile is static, so waiting costs only the release gate
+   staying un-certifiable.
+4. **Catalog snapshot/digest** — `docs/TRACE_AUDIT_VAULT_DESIGN.md` Part 2,
+   genuinely still a design question with Decision 3 unmade. Needs schema;
+   queued behind the backfill because both touch persistence.
+5. **`monitoring/service.py` audit vaulting** — the one audit writer outside
+   the engine chokepoint; on production data it would lose something 100% of
+   the time. Pinned by `test_C3_the_known_gap_is_recorded_not_forgotten` so
+   it cannot go quiet, and disclosed in the round-12 sidecar.
+6. **G18 model sweep** — a pure spend decision (~$0.70/model Haiku-class,
+   ~$2 Sonnet, ~$3.50 Opus over the 139-message corpus); the harness has been
+   ready since 2026-07-31.
+
+**Shipped 2026-09-18, after this morning's refresh:** audit-detail vaulting
+(`RawTraceKind.AUDIT_DETAIL`, `audit_entry_id`, Alembic `0012` applied to
+production, the reordered `_audit` chokepoint); the at-rest audit tightening
+(`project_audit_detail_at_rest` is now the read path, `PROJECTOR_VERSION`
+6 → 8); the trace flip read from one place instead of eight; and four new
+detector suites. Five defects of our own were found and fixed along the way —
+two by the tests, three by the pre-package protocol — and all five are
+disclosed in the round-12 sidecar rather than left for the reviewer.
 
 The manual-testing backlog that originally motivated this doc remains
 closed; the local-loop description below still holds.

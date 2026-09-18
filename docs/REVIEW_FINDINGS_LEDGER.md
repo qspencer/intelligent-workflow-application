@@ -276,6 +276,8 @@ Tracked so "we are learning" stays measurable rather than asserted.
 | 11 | 2 | M3, M6 | **0** |
 | — (self-found, audit-vault build) | 1 | **M8 (new)** | n/a |
 | — (self-found, at-rest tightening) | 2 | M6 ×2 | n/a |
+| — (self-found, round-12 pre-package) | 3 | M1, M4, M6 | n/a |
+| 12 | *out* | — | — |
 
 **The trend that matters:** volume down to two, and **four consecutive
 rounds with no defect in the thing under review**. The work has moved to the
@@ -298,6 +300,32 @@ Worth stating so the line is not extended out of habit: this epic should end
 when a round returns **no finding that a detector in §3 could have caught**.
 Rounds 8–11 do not meet that bar — every finding was a named class. That is
 the test, not round count.
+
+### The protocol's best round yet (2026-09-18, round-12 pre-package)
+
+Three defects found by §4 before the package left, none of which any test
+would have caught on its own:
+
+- **Forgery pass (M1 — shape used where the question was provenance).** Five
+  newly declared fields used `_ID`, whose regex admits `@` because it exists
+  for operator-identity paths; routing ids are supposed to use
+  `_short_token`. `from_step_id: "victim@example.com"` reached at rest and
+  grant-less readers.
+- **Corpus review (M4 — behaviour changed outside the guard's reach).**
+  Undeclaring `original_id` left the golden guard green: the corpus never
+  reached the fields the change released. Underneath it, the guard iterates
+  the FIXTURE, so an unfrozen corpus case is silently never evaluated.
+- **Provenance (M6 — our evidence).** The generator stamped HEAD, which under
+  the normal bump→regenerate→commit order is the commit BEFORE the bump. The
+  authenticity test skipped the current version, so the wrong stamp stayed
+  latent until the next bump. v7 and v8 both carried it.
+
+Worth recording as the counter-example to rounds 8–11: **the protocol found
+things the whole test suite could not.** Steps 3 and 6 — forgery and corpus
+review — are the two that keep earning their hour, because both ask what the
+tests were never pointed at.
+
+---
 
 ### R-b earning its keep (2026-09-18, at-rest tightening)
 
