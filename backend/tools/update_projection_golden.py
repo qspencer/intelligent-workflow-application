@@ -99,14 +99,19 @@ def main() -> int:
         "projector_version": PROJECTOR_VERSION,
         "projection_schema_version": PROJECTION_SCHEMA_VERSION,
         "generated_from": f"git {head} — the commit that froze this version" if head else "",
+        # R9 P2: the append path was action-aware and this one was not, so
+        # creating a fixture for a NEW version raised "too many values to
+        # unpack" on the first 4-element corpus entry and wrote nothing.
+        # Both paths share `_project_case` now.
         "cases": [
             {
-                "id": cid,
-                "kind": kind,
-                "input": inp,
-                "expected": redact_tool_data(inp, admin=False, kind=kind),
+                "id": c[0],
+                "kind": c[1],
+                "input": c[2],
+                **({"action": c[3]} if len(c) > 3 else {}),
+                "expected": _project_case(c),
             }
-            for cid, kind, inp in CORPUS
+            for c in CORPUS
         ],
     }
     out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")

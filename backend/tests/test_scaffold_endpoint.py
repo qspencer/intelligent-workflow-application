@@ -184,7 +184,7 @@ def test_minting_rewrites_references_and_preserves_everything_else() -> None:
             {
                 "id": "route",
                 "type": "agentic",
-                "inputs": ["extract"],
+                "inputs": ["steps.extract.output_text"],
                 "goal": "read {steps.extract.output_text}",
             },
         ],
@@ -200,7 +200,8 @@ def test_minting_rewrites_references_and_preserves_everything_else() -> None:
 
     # references move …
     assert [s["id"] for s in out["steps"]] == ["step_1", "step_2"]
-    assert out["steps"][1]["inputs"] == ["step_1"]
+    # R9 P1: `inputs` holds CONTEXT PATHS, not bare step ids
+    assert out["steps"][1]["inputs"] == ["steps.step_1.output_text"]
     assert out["edges"][0]["from"] == "step_1" and out["edges"][0]["to"] == "step_2"
     assert "steps['step_1']" in out["edges"][0]["condition"]
     assert out["steps"][1]["goal"] == "read {steps.step_1.output_text}"
@@ -237,7 +238,7 @@ def test_minting_touches_reference_positions_only_not_ordinary_data() -> None:
                 "function": "copy_files",
                 "config": {"from": "a", "to": "/archive/a", "inputs": ["a"]},
             },
-            {"id": "b", "inputs": ["a"]},
+            {"id": "b", "inputs": ["steps.a.value"]},
         ]
     }
     out = mint_platform_step_ids(json.loads(json.dumps(draft)))
@@ -246,7 +247,8 @@ def test_minting_touches_reference_positions_only_not_ordinary_data() -> None:
         "to": "/archive/a",
         "inputs": ["a"],
     }, "a function's ordinary CONFIG was rewritten as if it named steps"
-    assert out["steps"][1]["inputs"] == ["step_1"], "a real reference must still move"
+    # R9 P1: `inputs` holds CONTEXT PATHS, not bare step ids
+    assert out["steps"][1]["inputs"] == ["steps.step_1.value"], "a real reference must still move"
 
 
 def test_minting_rewrites_a_reference_but_not_a_quoted_literal() -> None:
@@ -299,3 +301,40 @@ def test_the_scaffolded_workflow_id_is_minted_not_derived_from_model_text(
     # …and the model's name is still there for display, on the definition
     fetched = client.get(f"/api/workflows/{wf_id}", headers=_H).json()
     assert fetched["name"] == hostile
+
+
+def test_minting_every_real_shipped_definition_leaves_no_dangling_reference() -> None:
+    """The round-trip probe, as a test (R9).
+
+    Unit tests on hand-built drafts passed through three rounds while real
+    definitions still broke. This mints EVERY shipped example and asserts two
+    things: the result still loads, and no reference anywhere still names a
+    pre-rename id. It is what found the edge-alias bug (`Edge` stores
+    `source`/`target`, so minting silently no-opped on a dumped definition)
+    and the delimited goal references."""
+    import re
+    from pathlib import Path
+
+    from workflow_platform.scaffold import mint_platform_step_ids
+    from workflow_platform.workflow import load_definition_from_yaml
+
+    examples = sorted((Path(__file__).resolve().parents[2] / "examples").glob("*/workflow.yaml"))
+    assert examples, "no example definitions found — the probe would pass vacuously"
+
+    problems: list[str] = []
+    for wf in examples:
+        original = load_definition_from_yaml(wf.read_text()).model_dump(
+            mode="json", exclude_none=True
+        )
+        minted = mint_platform_step_ids(json.loads(json.dumps(original)))
+        blob = json.dumps(minted)
+        for old_id in [s["id"] for s in original.get("steps", []) if isinstance(s.get("id"), str)]:
+            # anchored, so `prior_steps.<id>` in prose is not a false positive
+            if re.search(rf"(?<![A-Za-z_])steps\.{re.escape(old_id)}\b", blob):
+                problems.append(f"{wf.parent.name}: dangling reference to {old_id!r}")
+        try:
+            load_definition_from_yaml(json.dumps(minted))
+        except Exception as exc:
+            problems.append(f"{wf.parent.name}: minted form no longer loads — {exc}")
+
+    assert not problems, "minting broke real definitions:\n  " + "\n  ".join(problems)

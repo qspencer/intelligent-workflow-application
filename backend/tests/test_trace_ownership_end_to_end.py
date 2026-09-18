@@ -142,83 +142,232 @@ async def test_the_boundary_drops_the_forgery_but_still_vaults_the_real_output()
     )
 
 
-# --- R8 P1: minting must preserve BEHAVIOUR, not just parse ------------------
+# --- R9 P1: every reference position ----------------------------------------
 
 
-async def _echo_fn(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
-    return {"output_text": "SYNTHETIC verdict"}
+async def _emit_fn(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
+    return {"value": "SYNTHETIC", "output_text": '{"faithfulness_score": 5}'}
 
 
-async def _consume_fn(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
-    """Resolves a dotted context path with the ENGINE'S OWN resolver and the
-    same default as the stock `record_evaluation`, so the test exercises real
-    resolution rather than a reimplementation of it."""
-    from workflow_platform.engine.functions import _resolve_path
-    from workflow_platform.engine.registry import StepFailure
+def _agentic_engine() -> WorkflowEngine:
+    """An engine whose agent returns one plain text frame."""
+    from tests._bedrock_fakes import text_response
 
-    resolved = _resolve_path(ctx, config.get("evaluation_from", "steps.evaluate.output_text"))
-    if resolved is None:
-        # Exactly how the stock `record_*` functions behave on a dangling
-        # reference — the run FAILS. Asserting on instance state rather than
-        # on the step output, because safe-only storage withholds undeclared
-        # output fields and would hide the very signal under test.
-        raise StepFailure("evaluation reference did not resolve")
-    return {"resolved_len": len(str(resolved))}
+    registry = FunctionRegistry()
+    registry.register("emit", _emit_fn)
+    return WorkflowEngine(
+        repositories=in_memory_repositories(),
+        functions=registry,
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([text_response("done"), text_response("done")]),
+        world=mock_world(),
+        trace_safe_only=True,
+    )
 
 
-def _two_step(evaluation_from: str | None) -> Any:
-    cfg: dict[str, Any] = {} if evaluation_from is None else {"evaluation_from": evaluation_from}
-    return {
+async def test_an_agent_inputs_reference_survives_renaming() -> None:
+    """R9 P1: `inputs` on an agentic step holds CONTEXT PATHS, not step ids —
+    minting treated them as ids, left them untouched, and the selected input
+    resolved to null. Asserted by running the renamed definition."""
+    from workflow_platform.persistence.models import WorkflowInstanceState
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    raw = {
         "id": "wf",
         "name": "wf",
         "trigger": {"type": "manual"},
         "steps": [
-            {"id": "evaluate", "type": "deterministic", "function": "echo", "config": {}},
-            {"id": "record", "type": "deterministic", "function": "consume", "config": cfg},
+            {"id": "prepare", "type": "deterministic", "function": "emit", "config": {}},
+            {
+                "id": "act",
+                "type": "agentic",
+                "goal": "use it",
+                "model": "claude-haiku-4-5",
+                "inputs": ["steps.prepare.value"],
+            },
         ],
-        "edges": [{"from": "evaluate", "to": "record"}],
+        "edges": [{"from": "prepare", "to": "act"}],
     }
+    before = await _agentic_engine().run(
+        load_definition(json.loads(json.dumps(raw))), trigger_payload={}
+    )
+    assert before.state is WorkflowInstanceState.COMPLETED, "the ORIGINAL must complete"
+
+    minted = mint_platform_step_ids(json.loads(json.dumps(raw)))
+    assert minted["steps"][1]["inputs"] == ["steps.step_1.value"], (
+        f"agent inputs were not rewritten: {minted['steps'][1]['inputs']}"
+    )
+    after = await _agentic_engine().run(load_definition(minted), trigger_payload={})
+    assert after.state is WorkflowInstanceState.COMPLETED
 
 
-@pytest.mark.parametrize("explicit", [True, False], ids=["explicit_ref", "implicit_default"])
-async def test_minting_preserves_execution_behaviour(explicit: bool) -> None:
-    """R8 P1, the reviewer's reproduction: renaming produced a definition that
-    PARSED and then FAILED, because `evaluation_from: steps.evaluate.…` still
-    named a step that no longer existed — and omitting the key failed too,
-    since the function's DEFAULT names the same step.
-
-    So the property is behavioural, not structural: the renamed workflow must
-    resolve what the original resolved."""
+async def test_a_pin_params_reference_survives_renaming() -> None:
+    """R9 P1: `pin_params` maps a tool parameter to a context path and is
+    FAIL-CLOSED — an unresolved pin fails the step before dispatch, so a
+    dangling one is not a silent degradation."""
     from workflow_platform.scaffold import mint_platform_step_ids
 
-    raw = _two_step("steps.evaluate.output_text" if explicit else None)
-    engine = _engine({"echo": _echo_fn, "consume": _consume_fn})
+    raw = {
+        "id": "wf",
+        "name": "wf",
+        "trigger": {"type": "manual"},
+        "steps": [
+            {"id": "prepare", "type": "deterministic", "function": "emit", "config": {}},
+            {
+                "id": "act",
+                "type": "agentic",
+                "goal": "g",
+                "model": "claude-haiku-4-5",
+                "pin_params": {"path": "steps.prepare.value"},
+            },
+        ],
+        "edges": [{"from": "prepare", "to": "act"}],
+    }
+    minted = mint_platform_step_ids(json.loads(json.dumps(raw)))
+    assert minted["steps"][1]["pin_params"] == {"path": "steps.step_1.value"}, (
+        f"a fail-closed pin still names the old step: {minted['steps'][1]['pin_params']}"
+    )
+
+
+async def test_a_learned_memory_reference_survives_renaming() -> None:
+    """R9 P1: `query_from` / `date_from` / `ref_from` live under the
+    workflow's `learned_memory` object — they were looked for in step config,
+    which is not where the schema puts them, so the old ids stayed and the
+    resolver returned None."""
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    raw = {
+        "id": "wf",
+        "name": "wf",
+        "trigger": {"type": "manual"},
+        "steps": [{"id": "triage", "type": "deterministic", "function": "emit", "config": {}}],
+        "edges": [],
+        "learned_memory": {
+            "user_id": "u",
+            "source_id": "test:src",
+            "recall": {"query_from": "steps.triage.value"},
+            "observations": [
+                {
+                    "text": "saw {steps.triage.value}",
+                    "date_from": "steps.triage.when",
+                    "ref_from": "steps.triage.id",
+                }
+            ],
+        },
+    }
+    lm = mint_platform_step_ids(json.loads(json.dumps(raw)))["learned_memory"]
+    assert lm["recall"]["query_from"] == "steps.step_1.value"
+    assert lm["observations"][0]["date_from"] == "steps.step_1.when"
+    assert lm["observations"][0]["ref_from"] == "steps.step_1.id"
+    assert lm["observations"][0]["text"] == "saw {steps.step_1.value}"
+
+
+async def test_an_omitted_config_still_resolves_after_renaming() -> None:
+    """R9 P1: with `config` absent entirely the default was never
+    materialised, so a stock `record_evaluation` workflow went from completed
+    to FAILED. Run, not validated."""
+    from workflow_platform.engine.functions import default_function_registry
     from workflow_platform.persistence.models import WorkflowInstanceState
-
-    before = await engine.run(load_definition(json.loads(json.dumps(raw))), trigger_payload={})
-    assert before.state is WorkflowInstanceState.COMPLETED, (
-        "the ORIGINAL definition must complete, or the test proves nothing"
-    )
-
-    minted = mint_platform_step_ids(json.loads(json.dumps(raw)))
-    engine2 = _engine({"echo": _echo_fn, "consume": _consume_fn})
-    after = await engine2.run(load_definition(minted), trigger_payload={})
-    assert after.state is WorkflowInstanceState.COMPLETED, (
-        "the RENAMED definition did not complete — minting left a reference "
-        "pointing at a step that no longer exists"
-    )
-
-
-async def test_minting_leaves_ordinary_config_data_alone_in_a_real_run() -> None:
-    """The other half: preserving behaviour must not come from rewriting
-    everything. Ordinary config that merely LOOKS like a reference stays."""
     from workflow_platform.scaffold import mint_platform_step_ids
 
-    raw = _two_step("steps.evaluate.output_text")
-    raw["steps"][1]["config"]["note"] = "steps.evaluate is discussed here"
-    raw["steps"][1]["config"]["dest_dir"] = "/out/steps.evaluate/"
+    stock = default_function_registry().get("record_evaluation")
+    assert stock is not None, "record_evaluation must be a registered stock function"
+
+    def engine() -> WorkflowEngine:
+        r = FunctionRegistry()
+        r.register("emit", _emit_fn)
+        r.register("record_evaluation", stock)
+        return WorkflowEngine(
+            repositories=in_memory_repositories(),
+            functions=r,
+            tools=ToolCatalog([]),
+            bedrock=FakeBedrock([]),
+            world=mock_world(),
+            trace_safe_only=True,
+        )
+
+    raw = {
+        "id": "wf",
+        "name": "wf",
+        "trigger": {"type": "manual"},
+        "steps": [
+            {"id": "evaluate", "type": "deterministic", "function": "emit", "config": {}},
+            {"id": "rec", "type": "deterministic", "function": "record_evaluation"},
+        ],
+        "edges": [{"from": "evaluate", "to": "rec"}],
+    }
+    before = await engine().run(load_definition(json.loads(json.dumps(raw))), trigger_payload={})
+    assert before.state is WorkflowInstanceState.COMPLETED, "the ORIGINAL must complete"
+
     minted = mint_platform_step_ids(json.loads(json.dumps(raw)))
-    cfg = minted["steps"][1]["config"]
-    assert cfg["evaluation_from"] == "steps.step_1.output_text"
+    assert minted["steps"][1]["config"]["evaluation_from"] == "steps.step_1.output_text"
+    after = await engine().run(load_definition(minted), trigger_payload={})
+    assert after.state is WorkflowInstanceState.COMPLETED, "the RENAMED definition failed"
+
+
+async def test_renaming_does_not_switch_on_behaviour_the_original_lacked() -> None:
+    """R9 P2: `record_email_triage` READS `route_from`, but that default lives
+    in the helper `_record_codified`. Materialising it onto the caller enabled
+    routing the original never had. A function gets only the defaults IT
+    defines."""
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    raw = {
+        "steps": [
+            {"id": "precheck", "type": "deterministic", "function": "noop", "config": {}},
+            {"id": "triage", "type": "deterministic", "function": "noop", "config": {}},
+            {"id": "rec", "type": "deterministic", "function": "record_email_triage", "config": {}},
+        ]
+    }
+    cfg = mint_platform_step_ids(json.loads(json.dumps(raw)))["steps"][2]["config"]
+    assert "route_from" not in cfg, f"routing behaviour was invented: {cfg}"
+    assert cfg.get("triage_from") == "steps.step_2.output_text", (
+        f"the function's OWN default should still be materialised: {cfg}"
+    )
+
+
+async def test_a_recognised_key_on_another_function_stays_DATA() -> None:
+    """R9 P2: rewriting by key NAME rewrote `route_from` even on `noop`, where
+    it is ordinary returned data. Reference-ness is per function."""
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    raw = {
+        "steps": [
+            {
+                "id": "precheck",
+                "type": "deterministic",
+                "function": "noop",
+                "config": {"route_from": "steps.precheck.route"},
+            }
+        ]
+    }
+    cfg = mint_platform_step_ids(json.loads(json.dumps(raw)))["steps"][0]["config"]
+    assert cfg["route_from"] == "steps.precheck.route", f"data was rewritten: {cfg}"
+
+
+async def test_minting_leaves_ordinary_config_data_alone() -> None:
+    """The other half of R8/R9: preserving behaviour must not come from
+    rewriting everything. Config that merely LOOKS like a reference — prose,
+    a path containing a step name — stays exactly as written, on the same
+    function whose real reference IS rewritten."""
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    raw = {
+        "steps": [
+            {"id": "evaluate", "type": "deterministic", "function": "noop", "config": {}},
+            {
+                "id": "rec",
+                "type": "deterministic",
+                "function": "record_evaluation",
+                "config": {
+                    "evaluation_from": "steps.evaluate.output_text",
+                    "note": "steps.evaluate is discussed here",
+                    "dest_dir": "/out/steps.evaluate/",
+                },
+            },
+        ]
+    }
+    cfg = mint_platform_step_ids(json.loads(json.dumps(raw)))["steps"][1]["config"]
+    assert cfg["evaluation_from"] == "steps.step_1.output_text", "the reference must move"
     assert cfg["note"] == "steps.evaluate is discussed here", "prose was rewritten"
     assert cfg["dest_dir"] == "/out/steps.evaluate/", "a PATH was rewritten"

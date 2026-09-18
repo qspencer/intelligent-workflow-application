@@ -23,6 +23,7 @@ ALREADY decided stays decided.
 from __future__ import annotations
 
 import json
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -250,3 +251,28 @@ def test_historical_fixtures_are_authentic_against_their_declared_source() -> No
         finally:
             sys.modules.pop(f"_hist_{version}", None)
             tmp.unlink(missing_ok=True)
+
+
+def test_the_generator_can_create_a_fixture_for_a_NEW_version(tmp_path: Path) -> None:
+    """R9 P2: the APPEND path was action-aware and the CREATE path was not, so
+    the first 4-element corpus entry raised "too many values to unpack" and no
+    fixture was written — a new projector version could not be frozen at all.
+    Only the append path had a test."""
+    import importlib.util
+
+    tools = Path(__file__).resolve().parents[1] / "tools" / "update_projection_golden.py"
+    spec = importlib.util.spec_from_file_location("_gen", tools)
+    assert spec and spec.loader
+    gen = importlib.util.module_from_spec(spec)
+    sys.modules["_gen"] = gen
+    spec.loader.exec_module(gen)
+
+    gen.GOLDEN_DIR = tmp_path  # type: ignore[attr-defined]
+    assert gen.main() == 0, "generating into an empty directory failed"
+    written = list(tmp_path.glob("projection_v*.json"))
+    assert len(written) == 1
+    data = json.loads(written[0].read_text())
+    assert data["cases"], "wrote a fixture with no cases"
+    assert any(c.get("action") for c in data["cases"]), (
+        "the created fixture lost the action-dispatched cases"
+    )

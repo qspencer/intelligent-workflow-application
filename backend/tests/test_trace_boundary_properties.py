@@ -851,53 +851,59 @@ def test_M3_version_constants_have_exactly_one_definition() -> None:
         )
 
 
-def test_context_path_keys_match_the_functions_that_read_them() -> None:
-    """R8 P1 DRIFT GUARD: the scaffold rewrites a config value as a reference
-    only when its KEY says so, and the key list was derived from
-    `engine/functions.py`. A new `*_from` key that nobody adds here silently
-    stops being rewritten, and a renamed workflow breaks at run time again.
+def test_function_reference_declaration_matches_the_source() -> None:
+    """R9 P2 DRIFT GUARD, per FUNCTION.
 
-    Same shape as the parse_ok producer guard: derive the truth from source
-    and fail the build on drift."""
+    The previous version merged every `*_from` key and every default into two
+    global tables, so `record_email_triage` — which READS `route_from` but
+    whose default lives in the helper `_record_codified` — had that default
+    materialised onto it, switching on routing the original never had. Keys
+    and defaults are now declared per function, and this derives both from
+    source and fails on drift in either direction."""
     import ast
-    import pathlib
+    import pathlib as _pathlib
 
-    from workflow_platform.scaffold import _CONTEXT_PATH_KEYS, _STEP_PATH_DEFAULTS
+    from workflow_platform.scaffold import FUNCTION_REFERENCES
 
-    src = pathlib.Path(
+    src = _pathlib.Path(
         str(
-            pathlib.Path(__file__).resolve().parents[1]
+            _pathlib.Path(__file__).resolve().parents[1]
             / "src/workflow_platform/engine/functions.py"
         )
     ).read_text()
     tree = ast.parse(src)
-    keys, defaults = set(), {}
-    for node in ast.walk(tree):
-        if (
-            isinstance(node, ast.Call)
-            and isinstance(node.func, ast.Attribute)
-            and node.func.attr == "get"
-            and node.args
-            and isinstance(node.args[0], ast.Constant)
-            and isinstance(node.args[0].value, str)
-            and node.args[0].value.endswith("_from")
-        ):
-            keys.add(node.args[0].value)
+    truth: dict[str, dict[str, Any]] = {}
+    for fn in [n for n in ast.walk(tree) if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]:
+        keys: set[str] = set()
+        defaults: dict[str, str] = {}
+        for node in ast.walk(fn):
             if (
-                len(node.args) > 1
-                and isinstance(node.args[1], ast.Constant)
-                and isinstance(node.args[1].value, str)
-                and node.args[1].value.startswith("steps.")
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "get"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+                and node.args[0].value.endswith("_from")
             ):
-                defaults[node.args[0].value] = node.args[1].value
+                keys.add(node.args[0].value)
+                if (
+                    len(node.args) > 1
+                    and isinstance(node.args[1], ast.Constant)
+                    and isinstance(node.args[1].value, str)
+                    and node.args[1].value.startswith("steps.")
+                ):
+                    defaults[node.args[0].value] = node.args[1].value
+        if keys:
+            truth[fn.name] = {"fields": sorted(keys), "defaults": defaults}
 
-    assert keys == _CONTEXT_PATH_KEYS, (
-        "context-path key list has drifted from the functions that read them.\n"
-        f"  missing: {sorted(keys - _CONTEXT_PATH_KEYS)}\n"
-        f"  stale:   {sorted(_CONTEXT_PATH_KEYS - keys)}"
-    )
-    assert defaults == _STEP_PATH_DEFAULTS, (
-        "step-naming DEFAULTS have drifted.\n"
-        f"  missing: {sorted(set(defaults) - set(_STEP_PATH_DEFAULTS))}\n"
-        f"  stale:   {sorted(set(_STEP_PATH_DEFAULTS) - set(defaults))}"
+    declared = {
+        k: {"fields": sorted(v["fields"]), "defaults": v["defaults"]}
+        for k, v in FUNCTION_REFERENCES.items()
+    }
+    assert declared == truth, (
+        "per-function reference declaration has drifted from the source.\n"
+        f"  missing functions: {sorted(set(truth) - set(declared))}\n"
+        f"  stale functions:   {sorted(set(declared) - set(truth))}\n"
+        f"  differing:         {sorted(k for k in set(truth) & set(declared) if truth[k] != declared[k])}"
     )
