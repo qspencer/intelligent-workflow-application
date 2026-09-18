@@ -428,6 +428,7 @@
       "kind": "audit_detail"
     }
   ],
+  "generated_from": "git 5cfad7b \u2014 the commit that froze this version",
   "projection_schema_version": 2,
   "projector_version": "6"
 }

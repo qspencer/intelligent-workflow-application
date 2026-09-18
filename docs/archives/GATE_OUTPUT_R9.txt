@@ -1,0 +1,45 @@
+Captured standalone gate results — F1/F5 review round 9
+
+Gates ran at tree: fde6d1f96d79e3e4e578ec6d9f2c556b3b25695e   (manifest aggregate: 7a784c9032afab1a73eafb504852c3d8651873e430f278c46452e2254b7ce0bf)
+Exit codes are real: each command writes to a file and $? is read
+IMMEDIATELY, before any pipe. FIVE gates, including the audit job that
+was once missing from the local set.
+
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · 2026-09-18T19:40:13Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+267 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 228 source files
+exit: 0
+
+=== uv run pytest -q ===
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+1135 passed, 14 skipped, 13 warnings in 35.62s
+exit: 0
+
+=== uv run --with pip-audit pip-audit ===
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== the round-8 findings, re-run against this tree ===
+ P1 explicit ref : steps.step_1.output_text
+ P1 prose intact : steps.evaluate in prose
+ P1 default      : {"evaluation_from": "steps.step_1.output_text"}
+ P2 v3 source    : git b67391d — the commit of the round-6 ARCHIVE actually s | schema 1
+ P2 forged case  : {} (round-6 archive agrees)
+
+=== golden fixtures shipped ===
+  projection_v3.json: v3 schema 1 17 cases — git b67391d — the commit of the round-6 ARCHIV
+  projection_v4.json: v4 schema 2 12 cases — git dab4217 — the commit that froze this versi
+  projection_v5.json: v5 schema 2 14 cases — git d2cf063 — the commit that froze this versi
+  projection_v6.json: v6 schema 2 18 cases — 
