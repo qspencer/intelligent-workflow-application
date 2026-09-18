@@ -987,14 +987,40 @@ def test_M3_whatever_the_ENGINE_can_resolve_the_scaffold_can_rewrite(step_id: st
     if not resolvable:
         pytest.skip(f"the engine cannot resolve a reference to {step_id!r} anyway")
 
+    # R11 P2: the property is asserted over BOTH reference surfaces. It
+    # previously covered only the context path, so when the prose rewriter
+    # kept its own narrower grammar the detector stayed green while
+    # `prépare` went stale in the text the MODEL reads.
     draft = {
         "steps": [
             {"id": step_id, "type": "deterministic", "function": "noop", "config": {}},
-            {"id": "consumer", "type": "agentic", "goal": "g", "model": "m", "inputs": [path]},
+            {
+                "id": "consumer",
+                "type": "agentic",
+                "model": "m",
+                "inputs": [path],
+                "goal": f"Read `{path}` and also `prior_steps.{step_id}.value`",
+                "system_prompt": f"Read <{path}> and also <prior_steps.{step_id}.value>",
+            },
         ]
     }
     minted = mint_platform_step_ids(json.loads(json.dumps(draft)))
-    assert minted["steps"][1]["inputs"] == ["steps.step_1.value"], (
+    consumer = minted["steps"][1]
+    assert consumer["inputs"] == ["steps.step_1.value"], (
         f"the engine resolves a reference to step id {step_id!r}, but minting left it "
-        f"dangling: {minted['steps'][1]['inputs']}"
+        f"dangling: {consumer['inputs']}"
     )
+    # Exact expected text, not "the old id is absent" — for ids like "1" and
+    # "_" the old id is a SUBSTRING of the minted one, so an absence check
+    # fails on correct output. Self-audit: that false failure is how this
+    # assertion was first written.
+    expected = {
+        "goal": "Read `steps.step_1.value` and also `prior_steps.step_1.value`",
+        "system_prompt": "Read <steps.step_1.value> and also <prior_steps.step_1.value>",
+    }
+    for field, want in expected.items():
+        assert consumer[field] == want, (
+            f"the engine resolves a reference to step id {step_id!r}, but minting left the "
+            f"agent-facing {field} naming a step that no longer exists.\n"
+            f"  got:  {consumer[field]!r}\n  want: {want!r}"
+        )

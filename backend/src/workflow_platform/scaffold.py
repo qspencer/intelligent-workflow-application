@@ -229,25 +229,46 @@ FUNCTION_REFERENCES: dict[str, dict[str, Any]] = {
 _EDGE_ENDPOINT_KEYS = frozenset({"from", "to", "source", "target"})
 
 
+def _remap_step_ref(path: str, mapping: dict[str, str], *, allow_prior: bool) -> str | None:
+    """Apply the id mapping to a dotted step reference. Returns None when the
+    reference does not name a renamed step, so callers leave it untouched.
+
+    THE one place that decides where a step id starts and ends. It splits the
+    way the engine's resolver splits — `dotted.partition(".")`, the id is
+    whatever lies between the dots — so the grammar is defined by execution
+    rather than restated.
+
+    R10 P1 fixed the context-path caller by splitting instead of pattern-
+    matching a charclass. R11 P2 found the SAME defect still live in the prose
+    caller, which kept its own `[A-Za-z0-9_-]+` grammar: `\u0060steps.pr\u00e9pare.value\u0060`
+    in an agent goal was left naming a step that no longer existed, so the
+    model read one id while the engine delivered another. Two callers with two
+    grammars is the M3 class; the fix is one splitter, not a second patch.
+    """
+    head, sep, rest = path.partition(".")
+    if not sep:
+        return None
+    if head == "steps":
+        prefix = "steps."
+    elif allow_prior and head == "prior_steps":
+        prefix = "prior_steps."
+    else:
+        return None
+    step_id, sep2, tail = rest.partition(".")
+    if step_id not in mapping:
+        return None
+    return f"{prefix}{mapping[step_id]}{sep2}{tail}"
+
+
 def _rewrite_context_path(value: Any, mapping: dict[str, str]) -> Any:
     """Rewrite `steps.<id>…` in a value known to BE a context path.
 
-    R10 P1: this used a regex over `[A-Za-z0-9_-]`, a NARROWER grammar than
-    execution. The model and `_resolve_context_value` accept any step id — the
-    resolver just does `dotted.split(".")` — so a valid id like `prépare` did
-    not match, its reference was left pointing at a renamed step, and the
-    definition loaded and then FAILED. Split the way the resolver splits, and
-    the id segment is whatever lies between the dots.
+    `prior_steps.` is NOT accepted here: the resolver takes only `trigger.`
+    and `steps.` heads, so in a resolvable path that word is not a reference.
     """
     if not isinstance(value, str):
         return value
-    head, sep, rest = value.partition(".")
-    if head != "steps" or not sep:
-        return value
-    step_id, sep2, tail = rest.partition(".")
-    if step_id not in mapping:
-        return value
-    return f"steps.{mapping[step_id]}{sep2}{tail}"
+    return _remap_step_ref(value, mapping, allow_prior=False) or value
 
 
 #: The ENGINE's placeholder grammar — IMPORTED, not copied. R10 follow-up:
@@ -330,10 +351,16 @@ def _rewrite_condition(expr: str, mapping: dict[str, str]) -> str:
 #: prose like "if x<steps.a.count", and an unterminated backtick matched
 #: nothing meaningful — requiring the closing delimiter makes the form a
 #: reference by construction rather than by luck.
+#: R11 P2: the body is now "everything up to the closing delimiter that is
+#: not whitespace", NOT a charclass of permitted identifier characters. The
+#: delimiters already prove this is a reference; deciding where the id ends
+#: is `_remap_step_ref`'s job, and doing it here too is what let the two
+#: grammars diverge. Whitespace stays excluded so an unterminated delimiter
+#: cannot swallow a line of prose.
 _DELIMITED_REF = re.compile(
-    r"(?P<open>`)(?P<prefix>(?:prior_)?steps\.)(?P<id>[A-Za-z0-9_\-]+)(?P<rest>[A-Za-z0-9_.*\-]*)`"
+    r"`(?P<body>(?:prior_)?steps\.[^`\s]+)`"
     r"|"
-    r"(?P<open2><)(?P<prefix2>(?:prior_)?steps\.)(?P<id2>[A-Za-z0-9_\-]+)(?P<rest2>[A-Za-z0-9_.*\-]*)>"
+    r"<(?P<body2>(?:prior_)?steps\.[^<>\s]+)>"
 )
 
 
@@ -379,12 +406,12 @@ def _rewrite_prose_references(text: str, mapping: dict[str, str]) -> str:
     """
 
     def delimited(m: re.Match[str]) -> str:
-        sid = m.group("id") or m.group("id2")
-        if sid not in mapping:
+        backticked = m.group("body") is not None
+        body = m.group("body") if backticked else m.group("body2")
+        rewritten = _remap_step_ref(body, mapping, allow_prior=True)
+        if rewritten is None:
             return m.group(0)
-        if m.group("open"):
-            return f"`{m.group('prefix')}{mapping[sid]}{m.group('rest')}`"
-        return f"<{m.group('prefix2')}{mapping[sid]}{m.group('rest2')}>"
+        return f"`{rewritten}`" if backticked else f"<{rewritten}>"
 
     return _DELIMITED_REF.sub(delimited, _rewrite_template(text, mapping))
 

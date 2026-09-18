@@ -13,6 +13,7 @@ the instance context, the audit log and the vault.
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 import pytest
@@ -21,6 +22,7 @@ from tests._bedrock_fakes import FakeBedrock
 from workflow_platform.engine.executor import ToolCatalog, WorkflowEngine
 from workflow_platform.engine.registry import FunctionRegistry
 from workflow_platform.persistence import in_memory_repositories
+from workflow_platform.persistence.models import StepExecution
 from workflow_platform.workflow import load_definition
 from workflow_platform.world import mock_world
 
@@ -429,7 +431,7 @@ async def test_a_config_literal_that_looks_like_a_template_is_not_rewritten() ->
             trace_safe_only=True,
         )
 
-    e1 = engine()  # ONE engine, or the "before" count reads empty repositories
+    e1 = engine()  # ONE engine, or the "before" read hits empty repositories
     before = await e1.run(load_definition(json.loads(json.dumps(raw))), trigger_payload={})
     steps_before = await e1.repositories.steps.list_by_instance(before.id)
     assert before.state is WorkflowInstanceState.COMPLETED
@@ -442,13 +444,106 @@ async def test_a_config_literal_that_looks_like_a_template_is_not_rewritten() ->
     e2 = engine()
     after = await e2.run(load_definition(minted), trigger_payload={})
     assert after.state is WorkflowInstanceState.COMPLETED
-    # EQUIVALENCE: the same number of steps ran, so the condition still matched
-    ran_before = len(steps_before)
-    ran_after = len(await e2.repositories.steps.list_by_instance(after.id))
-    assert ran_after == ran_before, (
-        f"minting changed which steps ran: {ran_before} before, {ran_after} after — "
-        "the condition no longer matches its literal"
+    steps_after = await e2.repositories.steps.list_by_instance(after.id)
+
+    _assert_same_steps_ran(steps_before, steps_after, _minted_id_map(raw, minted))
+
+
+#: R11 P2. The equivalence above compared `len(list_by_instance(...))`, and a
+#: SKIPPED step still writes a row — so 2 rows compared equal to 2 rows whether
+#: the second step ran or was skipped, which is precisely the failure the test
+#: exists to catch. The reviewer proved it by substituting a mint that forced
+#: the renamed branch to `False`; the test still passed. Comparing per-step
+#: TERMINAL STATE, keyed by (step id, attempt) through the original->minted
+#: map, is the claim the name makes. `test_the_equivalence_check_can_fail` is
+#: the control that keeps this honest.
+def _minted_id_map(raw: dict[str, Any], minted: dict[str, Any]) -> dict[str, str]:
+    """original step id -> minted step id. Minting preserves step order."""
+    return {o["id"]: m["id"] for o, m in zip(raw["steps"], minted["steps"], strict=True)}
+
+
+def _states_by_attempt(rows: Sequence[StepExecution]) -> dict[tuple[str, int], str]:
+    return {(r.step_id, r.attempt): r.state.value for r in rows}
+
+
+def _assert_same_steps_ran(
+    before_rows: Sequence[StepExecution],
+    after_rows: Sequence[StepExecution],
+    id_map: dict[str, str],
+) -> None:
+    """The renamed run reached the same terminal state for the same steps.
+
+    Keyed by (step id, attempt) so a differing RETRY count is a difference too,
+    not just a differing set of steps.
+    """
+    translated = {
+        (id_map[sid], attempt): state
+        for (sid, attempt), state in _states_by_attempt(before_rows).items()
+    }
+    actual = _states_by_attempt(after_rows)
+    assert actual == translated, (
+        "minting changed EXECUTION, not just ids.\n"
+        f"  before (ids translated): {translated}\n"
+        f"  after:                   {actual}"
     )
+
+
+async def test_the_equivalence_check_can_fail() -> None:
+    """CONTROL for `_assert_same_steps_ran` — required by R11 P2.
+
+    Round 11 showed the previous equivalence assertion passed on a mint that
+    deliberately skipped a step. A comparison that cannot fail is not evidence,
+    so this drives the sabotage the reviewer used — same config literal, renamed
+    branch forced to `False` — and asserts the comparison REPORTS it.
+    """
+    from workflow_platform.persistence.models import WorkflowInstanceState
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    raw = {
+        "id": "wf",
+        "name": "wf",
+        "trigger": {"type": "manual"},
+        "steps": [
+            {"id": "a", "type": "deterministic", "function": "echo_marker", "config": {}},
+            {"id": "b", "type": "deterministic", "function": "echo_marker", "config": {}},
+        ],
+        "edges": [{"from": "a", "to": "b", "condition": "True"}],
+    }
+
+    def engine() -> WorkflowEngine:
+        r = FunctionRegistry()
+        r.register("echo_marker", _echo_marker_fn)
+        return WorkflowEngine(
+            repositories=in_memory_repositories(),
+            functions=r,
+            tools=ToolCatalog([]),
+            bedrock=FakeBedrock([]),
+            world=mock_world(),
+            trace_safe_only=True,
+        )
+
+    e1 = engine()
+    before = await e1.run(load_definition(json.loads(json.dumps(raw))), trigger_payload={})
+    steps_before = await e1.repositories.steps.list_by_instance(before.id)
+    assert before.state is WorkflowInstanceState.COMPLETED
+    assert len(steps_before) == 2
+
+    # The sabotage: ids are minted normally, then the renamed branch is
+    # switched off. Row COUNT is unchanged (a skipped step still writes a row),
+    # which is exactly why counting could not see this.
+    sabotaged = mint_platform_step_ids(json.loads(json.dumps(raw)))
+    sabotaged["edges"][0]["condition"] = "False"
+
+    e2 = engine()
+    after = await e2.run(load_definition(sabotaged), trigger_payload={})
+    steps_after = await e2.repositories.steps.list_by_instance(after.id)
+    assert len(steps_after) == len(steps_before), (
+        "premise of this control: the row COUNT is identical, so only a "
+        "state-aware comparison can tell these runs apart"
+    )
+
+    with pytest.raises(AssertionError, match="changed EXECUTION"):
+        _assert_same_steps_ran(steps_before, steps_after, _minted_id_map(raw, sabotaged))
 
 
 async def test_a_non_ascii_step_id_reference_survives_renaming() -> None:
