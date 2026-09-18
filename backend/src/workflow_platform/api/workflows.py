@@ -62,6 +62,7 @@ from workflow_platform.persistence import (
 from workflow_platform.scaffold import (
     DEFAULT_SCAFFOLD_MODEL,
     ScaffoldError,
+    mint_platform_step_ids,
     scaffold_workflow,
 )
 from workflow_platform.secrets import SecretNotFoundError, SecretStore
@@ -402,6 +403,11 @@ def build_router(
         new_name = name or "Scaffolded workflow"
         raw["name"] = new_name
         raw["id"] = unique_id(slugify(new_name), existing)
+        # R5 F4: the model names its own steps, and step ids are published as
+        # dictionary KEYS in the projected `context.steps`. Mint platform ids
+        # (rewriting every reference) so the projector's platform-keyed
+        # declaration is true of what we persist.
+        raw = mint_platform_step_ids(raw)
         raw.setdefault("description", "")
         raw.setdefault("trigger", {"type": "manual", "config": {}})
 

@@ -31,6 +31,7 @@ import pytest
 from workflow_platform.trace_projection import (
     _REDACTED_FIELD,
     PROJECTOR_VERSION,
+    has_redaction_marker,
     is_generated_marker,
     project_audit_detail_at_rest,
     redact_tool_data,
@@ -323,10 +324,17 @@ def test_marker_predicate_is_total_and_exact() -> None:
 
 def test_tool_call_list_fields_never_decompose_a_string() -> None:
     """`pinned`/`pin_overrides` given a STRING must not become per-character
-    tokens (GR4-r2 F1)."""
+    tokens (GR4-r2 F1).
+
+    R5 §3.4: these now collapse to BOOLEANS — the parameter names come from
+    definition config, so they are the tool-name origin problem one level down
+    and shape cannot vet them. The property still holds and is strictly
+    stronger: no element of the string survives in any form."""
     for field in ("pinned", "pin_overrides"):
         out = safe_tool_call({"name": "t", "input": {}, "result": {}, field: SENTINEL})
-        assert not _leaks(out) and out[field] == [], f"{field} decomposed a string: {out}"
+        assert not _leaks(out), f"{field} decomposed a string: {out}"
+        assert out[f"{field}_present"] is False, f"{field} raw string counted as present: {out}"
+        assert field not in out, f"{field} names were emitted: {out}"
 
 
 def test_audit_denylist_covers_correspondent_query() -> None:
@@ -402,3 +410,85 @@ def test_unresolved_tool_name_is_not_emitted() -> None:
     blind = safe_tool_call({"name": "file_read", "input": {"a": 1}}, known_tools=frozenset())
     assert "file_read" not in _dumps(blind), f"name emitted with empty catalog: {blind}"
 
+
+# --- Round-5 remediation (GR4-R5) -------------------------------------------
+
+
+def test_a_previous_projector_version_degrades_and_does_not_read_corrupt() -> None:
+    """A row written by an OLDER projector must degrade, never read as
+    tampering (criterion 17; R5 F1).
+
+    Round 5 changed WHAT projection emits while still stamping "2", so an
+    untouched round-4 record was re-projected under round-5 rules, disagreed,
+    and surfaced as an integrity failure. The §4.3 predicate already had the
+    right answer — it was simply never told the version had moved.
+    """
+    from workflow_platform.trace_rehydrate import verify_projection_agreement
+
+    raw = {"output_text": "secret", "model": "m"}
+    stored_under_the_old_projector = {"output_text": "[redacted — raw-trace grant required]"}
+
+    assert verify_projection_agreement(raw, stored_under_the_old_projector, "2") == "unsupported", (
+        "an older projector version must degrade, not report tampering"
+    )
+    # …and the CURRENT version still verifies normally.
+    assert (
+        verify_projection_agreement(
+            raw, redact_tool_data(raw, admin=False, kind="step_output"), PROJECTOR_VERSION
+        )
+        == "ok"
+    )
+
+
+def test_the_withheld_flag_cannot_carry_raw_and_is_seen_as_a_marker() -> None:
+    """The withheld signal is a BOOLEAN, so a forged one smuggles nothing, and
+    completeness checks must recognise it (R5 F3a/F3b).
+
+    Round 5 used a COUNT: `{"_withheld_keys": 123456789}` supplied on raw
+    input was retained verbatim and `output_has_raw()` called it clean — the
+    reserved field became a raw channel, the very marker-as-input class earlier
+    rounds closed."""
+    forged = redact_tool_data({"_withheld_keys": 123456789}, admin=False, kind="step_output")
+    assert "123456789" not in _dumps(forged), f"reserved field carried a raw value: {forged}"
+    assert not output_has_raw(forged)
+
+    # a genuinely withheld object is visible to the completeness predicate
+    withheld = redact_tool_data({"output_text": "secret"}, admin=False, kind="step_output")
+    assert withheld.get("_withheld_keys") is True
+    assert has_redaction_marker(withheld), "a withheld object must read as incomplete"
+
+
+def test_every_dropped_entry_raises_the_withheld_flag() -> None:
+    """R5 F3c: a key with spaces was dropped SILENTLY — dropped by a different
+    branch than the undeclared-key one, and that branch never set the flag, so
+    the record showed no sign anything had been withheld at all."""
+    out = redact_tool_data(
+        {"a key with spaces": "x", "model": "m"}, admin=False, kind="step_output"
+    )
+    assert out.get("_withheld_keys") is True, f"silent drop left no signal: {out}"
+    assert out["model"] == "m"
+
+
+@pytest.mark.parametrize("bad_name", [[], {"a": 1}, 7, None])
+def test_tool_name_resolution_is_total_over_hostile_input(bad_name: Any) -> None:
+    """R5 F6: a list/dict `name` is unhashable, so the catalog membership test
+    raised TypeError — the projector must be total at every input."""
+    out = safe_tool_call({"name": bad_name, "input": {}}, known_tools=frozenset({"file_read"}))
+    assert out["name"] == _REDACTED_FIELD
+
+
+def test_engine_usage_counters_survive_the_closed_schema() -> None:
+    """R5 F5: `AgentUsage` really produces `iterations` and `tool_calls`; the
+    closed usage schema omitted them, so live engine counters were dropped and
+    explain's `usage.get("iterations")` went None."""
+    out = redact_tool_data(
+        {"usage": {"input_tokens": 10, "output_tokens": 2, "iterations": 3, "tool_calls": 1}},
+        admin=False,
+        kind="step_output",
+    )
+    assert out["usage"] == {
+        "input_tokens": 10,
+        "output_tokens": 2,
+        "iterations": 3,
+        "tool_calls": 1,
+    }

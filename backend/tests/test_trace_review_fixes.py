@@ -74,7 +74,7 @@ def test_rr_p1_registered_key_with_unvalidated_value_is_redacted() -> None:
         "model"
     ].startswith("[redacted")
     # an UNREGISTERED numeric field no longer passes "safe by type"
-    # GR4-R4: the key is now DROPPED and counted in `_withheld_key_count`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
+    # GR4-R4: the key is now DROPPED and counted in `_withheld_keys`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
     _ssn = redact_tool_data({"ssn": 123456789}, admin=False, kind="step_output")
     assert "ssn" not in _ssn and 123456789 not in _ssn.values()
     # a per-workflow business vocabulary is not platform-registered — GR4-R4:
@@ -140,7 +140,7 @@ def test_f1_no_tool_output_text_is_redacted() -> None:
     safe = redact_tool_data(
         {"output_text": SECRET, "model": "claude-haiku-4-5"}, admin=False, kind="step_output"
     )
-    # GR4-R4: the key is now DROPPED and counted in `_withheld_key_count`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
+    # GR4-R4: the key is now DROPPED and counted in `_withheld_keys`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
     assert "output_text" not in safe
     assert SECRET not in json.dumps(safe, default=str)
     assert safe["model"] == "claude-haiku-4-5"  # registered + validated survives

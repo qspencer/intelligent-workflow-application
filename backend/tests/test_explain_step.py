@@ -171,9 +171,9 @@ def test_explain_deterministic_step(monkeypatch: pytest.MonkeyPatch) -> None:
     )
     assert body["kind"] == "deterministic"
     assert body["function"] == "route_files"
-    # GR4-R4: the key is now DROPPED and counted in `_withheld_key_count`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
+    # GR4-R4: the key is now DROPPED and counted in `_withheld_keys`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
     assert "copied_to" not in body["output"]
-    assert "_withheld_key_count" in body["output"]  # explain returns output as a JSON string
+    assert "_withheld_keys" in body["output"]  # explain returns output as a JSON string
     assert "tool_calls" not in body  # deterministic steps carry no tool calls
 
 

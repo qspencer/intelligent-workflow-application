@@ -33,34 +33,40 @@ _GENERATED_MARKERS = frozenset({_REDACTED_FIELD, _REDACTED_TRIGGER, _REDACTED_TO
 # Routing fields kept in a redacted trigger payload: IDs, never content
 # (subject/body/headers/arbitrary webhook fields — AND the sender address,
 # external code review 2026-08-02 — are stripped).
-#: How many entries an object dropped because their KEYS were undeclared
-#: (GR4-R4). A count, never the names — the names are the leak channel.
-_WITHHELD_COUNT = "_withheld_key_count"
-
-#: The tool names this PROCESS can resolve — the catalog a tool-call record is
-#: checked against (GR4-R4). Set once from the engine's live registry at
-#: startup; empty until then, which FAILS CLOSED (no catalog, no name shown).
+#: Set when an object dropped one or more entries because their KEYS were
+#: undeclared (GR4-R4/R5). A BOOLEAN, deliberately:
 #:
-#: Why a process-level set and not a parameter: the projection must be
-#: idempotent, so a name is re-validated every time a record is re-projected —
-#: including on the READ path, which sits in the API layer and has no engine
-#: handle. Threading a catalog through every read site would leave the common
-#: path fail-closed in practice (names never shown anywhere), which is safe but
-#: useless. This keeps ONE source of truth for "a tool we actually serve".
-_RESOLVABLE_TOOLS: frozenset[str] = frozenset()
+#:  - a COUNT was the round-5 defect — `{"_withheld_key_count": 123456789}`
+#:    supplied on RAW input was retained verbatim and `output_has_raw()` called
+#:    it clean, so the reserved field became a raw channel. A boolean cannot
+#:    carry a value, so a forged one is worth exactly what a generated one is.
+#:  - it discloses less: "something was withheld here" rather than how much
+#:    structure there was.
+_WITHHELD = "_withheld_keys"
 
 
-def set_resolvable_tools(names: frozenset[str] | set[str] | list[str]) -> None:
-    """Declare the tool catalog this process serves (platform-authored names).
+def _resolved_tool_name(name: Any, known_tools: frozenset[str] | None) -> Any:
+    """A tool name may be shown only when it RESOLVES against a catalog the
+    caller supplies; otherwise it is the model's own string and is withheld.
 
-    Called at engine construction. A name absent from it is the MODEL's own
-    string and is never echoed into a trace."""
-    global _RESOLVABLE_TOOLS
-    _RESOLVABLE_TOOLS = frozenset(names)
+    R5 F2 — there is deliberately no process-wide catalog any more. Round 5
+    shipped a module-global set kept in step by `ToolCatalog.register`, and the
+    reviewer showed why that cannot work for a projection contract: the same
+    stored record reconstructed differently before and after the catalog
+    changed (success -> integrity_failed) with neither record touched, and
+    `register` REPLACED the global rather than widening it, so a second catalog
+    in one process silently erased the first. Projection must be a pure
+    function of the record, so the catalog is now a per-call argument only —
+    and with no argument the name is withheld. Restoring resolved names needs
+    an immutable, VERSIONED catalog recorded alongside the projection, which is
+    a design item, not a patch.
 
-
-def resolvable_tools() -> frozenset[str]:
-    return _RESOLVABLE_TOOLS
+    R5 F6 — total over hostile input: a list/dict `name` is unhashable and
+    membership raised TypeError.
+    """
+    if not isinstance(name, str) or known_tools is None:
+        return _REDACTED_FIELD
+    return name if name in known_tools else _REDACTED_FIELD
 
 
 _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
@@ -79,7 +85,14 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "2"  # bumped: key-allowlist → validated field registry
+PROJECTOR_VERSION = "3"  # R5 F1: bumped — the R4/R5 containment CHANGED what
+# projection emits (an undeclared key is dropped + flagged, not emitted with a
+# redacted value; routing ids withheld; tool names resolved). Round 5 shipped
+# those changes still stamped "2", so a row written by the OLD projector was
+# re-projected under the NEW rules, disagreed, and read as INTEGRITY FAILURE
+# instead of degrading. §4.3 already handles a bump correctly ("unsupported",
+# criterion 17: a bump must not make pre-change rows read corrupt) — it was
+# never given the chance. Any change to what projection EMITS bumps this.
 # The SHAPE contract of a safe projection (§4.1). Bumped when the projected
 # structure changes, independently of which fields the registry accepts.
 PROJECTION_SCHEMA_VERSION = 1
@@ -289,6 +302,10 @@ _USAGE = Obj(
         "total_tokens": _COUNT,
         "cache_read_input_tokens": _COUNT,
         "cache_write_input_tokens": _COUNT,
+        # R5 F5: AgentUsage really produces these two; omitting them dropped
+        # live engine counters (explain's `usage.get("iterations")` went None).
+        "iterations": _COUNT,
+        "tool_calls": _COUNT,
     }
 )
 
@@ -488,7 +505,7 @@ def _project(node: Node | None, value: Any) -> Any:
         if not isinstance(value, dict):
             return _REDACTED_FIELD
         out: dict[str, Any] = {}
-        withheld = 0
+        withheld = False
         for k, v in value.items():
             # A dict KEY is content too (GR4-r2 F1): the old code emitted every
             # key verbatim, so a hostile key (`{"victim@example.com": 1}`, or a
@@ -504,19 +521,24 @@ def _project(node: Node | None, value: Any) -> Any:
             #     redacted value still published the KEY, and a token-shaped
             #     secret is a perfectly good key — so an unknown key is
             #     omitted, not merely emptied.
-            if k == _WITHHELD_COUNT:
-                # Our OWN generated marker (platform-computed, a count). It
-                # must survive re-projection or projection stops being a fixed
-                # point — the at-rest backfill and its verifier both rely on
-                # idempotence, so stripping-and-recounting it here made an
-                # already-projected row look raw forever.
-                if _count(v):
-                    out[k] = v
+            if k == _WITHHELD:
+                # Our own withheld flag. It must survive re-projection or
+                # projection stops being a fixed point (the at-rest backfill
+                # and its verifier both rely on idempotence). Safe to accept
+                # from input BECAUSE it is a boolean: `True` is the only value
+                # it can hold, so a forged one smuggles nothing. Anything else
+                # is dropped rather than echoed.
+                if v is True:
+                    out[k] = True
                 continue
             if k in node.children:
                 out[k] = _project(node.children[k], v)
             elif not _safe_key(k):
-                continue  # hostile key → drop the entry (key + value)
+                # Hostile key (prose/email/whitespace) → drop the entry. R5:
+                # this branch dropped SILENTLY, leaving no withholding signal
+                # at all; every dropped entry must raise the flag.
+                withheld = True
+                continue
             elif node.wildcard is not None and node.wildcard_keys == "platform":
                 # Platform-generated key (a step id) — safe to emit.
                 out[k] = _project(node.wildcard, v)
@@ -527,10 +549,10 @@ def _project(node: Node | None, value: Any) -> Any:
                 # old `key: [redacted]` form carried (an operator can still see
                 # that something was withheld here, and a grant holder can
                 # recover exactly what) without publishing the key itself.
-                withheld += 1
+                withheld = True
                 continue
         if withheld:
-            out[_WITHHELD_COUNT] = withheld
+            out[_WITHHELD] = True
         return out
     return _REDACTED_FIELD
 
@@ -566,7 +588,7 @@ def safe_tool_call(
 
     EVERY field is reconstructed and VALIDATED, including the projection's OWN
     structural fields (G-Trace-Review-4 F1): `name` must be a token (else
-    redacted), `pinned`/`pin_overrides` keep only token elements. There is NO
+    redacted), `pinned`/`pin_overrides` collapse to booleans. There is NO
     trusted shortcut — the previous `input_key_count`-present fast path returned
     an attacker-shaped record unchanged, so `{"input_key_count":0,"name":<raw>}`
     survived AND `output_has_raw` reported no vault need. Idempotence now comes
@@ -578,10 +600,8 @@ def safe_tool_call(
     2026-08-03 F1): raw `input`/`result` is projected regardless of any marker a
     caller forged on.
 
-    `known_tools` overrides the catalog for a single call (tests); by default
-    the process catalog set by `set_resolvable_tools` is used, which is EMPTY
-    until the engine declares it — so an undeclared process shows no names at
-    all. `known_tools` is the RESOLVED catalog (GR4-R4). A tool name is chosen by the
+    `known_tools` is the RESOLVED catalog, supplied per call (GR4-R4). There is
+    no process-wide default: omitting it withholds the name (R5 F2). A tool name is chosen by the
     MODEL and is recorded even when dispatch rejects it, so a token test on it
     validates nothing — `exfiltrate_sk_live_51H8xQ2` is a perfectly good token.
     The name is therefore emitted only when it resolves to a catalog entry;
@@ -614,19 +634,27 @@ def safe_tool_call(
         # F1 (G-Trace-Review-4): validate the projection's OWN fields. A tool
         # GR4-R4: resolved against the catalog, not shape-tested. A
         # model-chosen name that does not resolve is withheld.
-        "name": (
-            tc.get("name")
-            if tc.get("name") in (known_tools if known_tools is not None else _RESOLVABLE_TOOLS)
-            else _REDACTED_FIELD
-        ),
+        # R5 F6: a `name` that is a list/dict is UNHASHABLE, and membership
+        # raised TypeError — the projector must be total over hostile input.
+        "name": _resolved_tool_name(tc.get("name"), known_tools),
         "input_key_count": input_key_count,
         "result_ok": result_ok,
         "error_present": error_present,
         # `pinned`/`pin_overrides` are parameter KEY names (agent.py) — the same
         # channel as input_keys — so keep only token-shaped elements; prose,
         # emails and whitespace are dropped.
-        "pinned": _token_list(tc.get("pinned")),
-        "pin_overrides": _token_list(tc.get("pin_overrides")),
+        # R5 §3.4: these are parameter NAMES taken from definition config, so
+        # they are exactly the tool-name problem one level down — shape cannot
+        # establish their origin, and with no canonical tool-parameter schema
+        # to resolve them against (the process catalog was removed, R5 F2) the
+        # names are withheld. The SIGNAL each carries is preserved as a
+        # boolean: whether the call had pinned params, and whether the model
+        # tried to override one (the action-surface probe worth auditing). A
+        # boolean cannot carry a value, so re-reading it from an already
+        # projected record is safe where a count would not be.
+        "pinned_present": bool(_token_list(tc.get("pinned"))) or tc.get("pinned_present") is True,
+        "pin_overrides_present": bool(_token_list(tc.get("pin_overrides")))
+        or tc.get("pin_overrides_present") is True,
         "_redacted": _REDACTED_TOOL,
     }
     if content_bytes is not None:
@@ -647,6 +675,13 @@ def has_redaction_marker(obj: Any) -> bool:
         return obj in _GENERATED_MARKERS
     if isinstance(obj, dict):
         if "_redacted" in obj:
+            return True
+        # R5 F3b: the withheld-keys flag is a redaction marker too. An object
+        # reduced to `{_WITHHELD: True}` carries no `[redacted …` string and no
+        # `_redacted` key, so this returned False and the completeness
+        # predicate reported a merged raw retrieval COMPLETE when entries had
+        # in fact been dropped.
+        if obj.get(_WITHHELD) is True:
             return True
         return any(has_redaction_marker(v) for v in obj.values())
     if isinstance(obj, list):

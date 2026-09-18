@@ -191,9 +191,9 @@ def test_redact_projects_trigger_payload_and_recall() -> None:
     # `category` is a PER-WORKFLOW vocabulary, so the platform-global registry
     # cannot validate it — it is redacted by default (re-review 2026-08-03 /
     # §1.4). The per-workflow safe-schema declaration will opt it back in.
-    # GR4-R4: the key is now DROPPED and counted in `_withheld_key_count`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
+    # GR4-R4: the key is now DROPPED and counted in `_withheld_keys`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
     assert "category" not in redacted["steps"]["classify"]
-    assert redacted["steps"]["classify"]["_withheld_key_count"] >= 1
+    assert redacted["steps"]["classify"]["_withheld_keys"] is True
 
     # admin=True is unchanged (forensics preserved).
     assert redact_tool_data(obj, admin=True, kind="context") == obj

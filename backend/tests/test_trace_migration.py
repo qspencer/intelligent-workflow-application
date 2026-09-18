@@ -68,9 +68,9 @@ async def test_verifier_detects_raw_then_backfill_clears_it() -> None:
     assert step.output is not None
     # `category` is a per-workflow vocabulary the platform registry can't
     # validate → redacted by default (re-review 2026-08-03, §1.4).
-    # GR4-R4: the key is now DROPPED and counted in `_withheld_key_count`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
+    # GR4-R4: the key is now DROPPED and counted in `_withheld_keys`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
     assert "category" not in step.output
-    assert step.output["_withheld_key_count"] >= 1
+    assert step.output["_withheld_keys"] is True
     assert SECRET_TOOL not in str(step.output)
 
 

@@ -63,7 +63,6 @@ from workflow_platform.trace_projection import (
     project_audit_detail_at_rest,
     redact_tool_data,
     safe_trigger_payload,
-    set_resolvable_tools,
 )
 from workflow_platform.trace_rehydrate import RawTraceRehydrator
 from workflow_platform.trace_vault import RawTraceVault
@@ -102,12 +101,6 @@ class ToolCatalog:
         if tool.name in self._tools:
             raise ValueError(f"Tool {tool.name!r} already in catalog")
         self._tools[tool.name] = tool
-        # GR4-R4: keep the trace projector's RESOLVABLE catalog in step with the
-        # live one. A projected tool-call record may show a name only if it
-        # resolves here, so a model-invented name stays withheld. Done on every
-        # register (not once at construction) because tools are wired
-        # dynamically at bootstrap — the per-account label tools among them.
-        set_resolvable_tools(set(self._tools))
 
     def get(self, name: str) -> Tool | None:
         return self._tools.get(name)

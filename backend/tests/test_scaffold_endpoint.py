@@ -92,7 +92,13 @@ def test_scaffold_creates_and_persists(monkeypatch: pytest.MonkeyPatch) -> None:
 
     # Persisted + fetchable, with the scaffolded steps.
     fetched = client.get(f"/api/workflows/{wf_id}", headers=_H).json()
-    assert {s["id"] for s in fetched["steps"]} == {"extract", "summarize"}
+    # R5 F4: step ids are PLATFORM-MINTED — the model names its own steps, and
+    # step ids are published as dict KEYS in the projected `context.steps`, so a
+    # model-chosen id would be model-derived content on a platform-keyed path.
+    assert {s["id"] for s in fetched["steps"]} == {"step_1", "step_2"}
+    assert "extract" not in json.dumps(fetched) and "summarize" not in json.dumps(fetched), (
+        "a model-chosen step id survived into the persisted definition"
+    )
 
 
 def test_scaffold_requires_description(monkeypatch: pytest.MonkeyPatch) -> None:

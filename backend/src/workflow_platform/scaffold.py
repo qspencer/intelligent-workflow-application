@@ -10,6 +10,7 @@ coerces, ids, structurally validates, and persists it as an editable draft.
 from __future__ import annotations
 
 import json
+import re
 from typing import Any
 
 from workflow_platform.bedrock import BedrockClient
@@ -153,3 +154,53 @@ async def scaffold_workflow(
     if not text.strip():
         raise ScaffoldError("Model returned no text")
     return extract_json(text)
+
+
+def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
+    """Replace MODEL-chosen step ids with platform-minted ones, in place.
+
+    R5 F4. A scaffolded definition is drafted by an LLM and persisted without a
+    human reading it, so its step ids are model-chosen strings — and the trace
+    projection publishes step ids as dictionary KEYS in `context.steps`. That
+    made the projector's `wildcard_keys="platform"` declaration false: the keys
+    were model-derived, and restricting their spelling would not have
+    established their origin.
+
+    The keys cannot simply be withheld: the grant-holder rehydration path walks
+    `context.steps` BY step id to merge raw back, so dropping them would break
+    raw recovery for the people entitled to it. Minting at the source is the
+    fix that keeps both properties.
+
+    Ids become `step_1 … step_n` in declaration order, and every reference is
+    rewritten: edge `from`/`to`, `inputs`, and any occurrence of the old id as
+    a whole word inside free text (conditions, goals, templates), which is
+    where the model refers to its own steps (`steps['classify']['output_text']`).
+    """
+    steps = raw.get("steps")
+    if not isinstance(steps, list):
+        return raw
+
+    mapping: dict[str, str] = {}
+    for i, step in enumerate(steps, 1):
+        if isinstance(step, dict) and isinstance(step.get("id"), str):
+            minted = f"step_{i}"
+            if step["id"] != minted:
+                mapping[step["id"]] = minted
+            step["id"] = minted
+    if not mapping:
+        return raw
+
+    # Longest first, so a short id cannot corrupt a longer one containing it.
+    pattern = re.compile("|".join(re.escape(old) for old in sorted(mapping, key=len, reverse=True)))
+
+    def rewrite(node: Any) -> Any:
+        if isinstance(node, str):
+            return pattern.sub(lambda m: mapping[m.group(0)], node)
+        if isinstance(node, list):
+            return [rewrite(v) for v in node]
+        if isinstance(node, dict):
+            return {k: (v if k == "id" else rewrite(v)) for k, v in node.items()}
+        return node
+
+    rewritten = rewrite(raw)
+    return rewritten if isinstance(rewritten, dict) else raw
