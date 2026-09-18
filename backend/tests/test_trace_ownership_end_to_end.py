@@ -371,3 +371,106 @@ async def test_minting_leaves_ordinary_config_data_alone() -> None:
     assert cfg["evaluation_from"] == "steps.step_1.output_text", "the reference must move"
     assert cfg["note"] == "steps.evaluate is discussed here", "prose was rewritten"
     assert cfg["dest_dir"] == "/out/steps.evaluate/", "a PATH was rewritten"
+
+
+# --- R10: EXECUTION EQUIVALENCE before and after minting --------------------
+
+
+async def _echo_marker_fn(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
+    """Returns its configured marker verbatim — so a downstream condition can
+    compare against it and the comparison is observable in the run."""
+    return {"marker": config.get("marker", "")}
+
+
+async def test_a_config_literal_that_looks_like_a_template_is_not_rewritten() -> None:
+    """R10 P1, by EXECUTION.
+
+    `_rewrite_template` was applied to every string on the reasoning that
+    `{...}` is a platform template form. The engine renders placeholders in
+    exactly ONE place — `learned_memory.observations[].text` — so everywhere
+    else `{steps.a.value}` is DATA. Rewriting it in a `noop` config changed a
+    literal a downstream condition compared against: the original ran both
+    steps, the renamed one silently SKIPPED the second."""
+    from workflow_platform.persistence.models import WorkflowInstanceState
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    raw = {
+        "id": "wf",
+        "name": "wf",
+        "trigger": {"type": "manual"},
+        "steps": [
+            {
+                "id": "a",
+                "type": "deterministic",
+                "function": "echo_marker",
+                "config": {"marker": "{steps.a.value}"},
+            },
+            {
+                "id": "b",
+                "type": "deterministic",
+                "function": "echo_marker",
+                "config": {"marker": "ran"},
+            },
+        ],
+        "edges": [
+            {"from": "a", "to": "b", "condition": "steps['a']['marker'] == '{steps.a.value}'"}
+        ],
+    }
+
+    def engine() -> WorkflowEngine:
+        r = FunctionRegistry()
+        r.register("echo_marker", _echo_marker_fn)
+        return WorkflowEngine(
+            repositories=in_memory_repositories(),
+            functions=r,
+            tools=ToolCatalog([]),
+            bedrock=FakeBedrock([]),
+            world=mock_world(),
+            trace_safe_only=True,
+        )
+
+    e1 = engine()  # ONE engine, or the "before" count reads empty repositories
+    before = await e1.run(load_definition(json.loads(json.dumps(raw))), trigger_payload={})
+    steps_before = await e1.repositories.steps.list_by_instance(before.id)
+    assert before.state is WorkflowInstanceState.COMPLETED
+
+    minted = mint_platform_step_ids(json.loads(json.dumps(raw)))
+    assert minted["steps"][0]["config"]["marker"] == "{steps.a.value}", (
+        "a config literal was rewritten"
+    )
+
+    e2 = engine()
+    after = await e2.run(load_definition(minted), trigger_payload={})
+    assert after.state is WorkflowInstanceState.COMPLETED
+    # EQUIVALENCE: the same number of steps ran, so the condition still matched
+    ran_before = len(steps_before)
+    ran_after = len(await e2.repositories.steps.list_by_instance(after.id))
+    assert ran_after == ran_before, (
+        f"minting changed which steps ran: {ran_before} before, {ran_after} after — "
+        "the condition no longer matches its literal"
+    )
+
+
+async def test_a_non_ascii_step_id_reference_survives_renaming() -> None:
+    """R10 P1: the rewriter's identifier grammar was NARROWER than execution's.
+    The model and `_resolve_context_value` accept any id (the resolver just
+    splits on dots), but the rewriter matched `[A-Za-z0-9_-]`, so a valid id
+    like `prépare` kept a dangling reference and the consumer failed."""
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    for step_id in ("prépare", "a-b", "步骤"):
+        raw = {
+            "steps": [
+                {"id": step_id, "type": "deterministic", "function": "noop", "config": {}},
+                {
+                    "id": "r",
+                    "type": "deterministic",
+                    "function": "record_evaluation",
+                    "config": {"evaluation_from": f"steps.{step_id}.output_text"},
+                },
+            ]
+        }
+        minted = mint_platform_step_ids(json.loads(json.dumps(raw)))
+        assert minted["steps"][1]["config"]["evaluation_from"] == "steps.step_1.output_text", (
+            f"a reference to step id {step_id!r} was left dangling"
+        )

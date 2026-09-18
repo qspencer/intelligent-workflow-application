@@ -340,105 +340,168 @@ def test_minting_every_real_shipped_definition_leaves_no_dangling_reference() ->
     assert not problems, "minting broke real definitions:\n  " + "\n  ".join(problems)
 
 
-def test_every_reference_position_in_the_schema_is_covered() -> None:
-    """SELF-AUDIT, schema-derived (post-R9).
+#: How minting must treat each field of each definition model. R10 P2: the
+#: previous "schema-derived" check built a HANDWRITTEN dict and enumerated
+#: nothing, so adding a reference field to `AgenticStep` did not fail it and
+#: the claim that a new field is caught was unsupported. This is the real
+#: inventory, and `test_every_definition_field_is_classified` fails the build
+#: on any field not listed.
+#:
+#:   ref_id    — holds a bare step id
+#:   ref_path  — holds a `steps.<id>.<field>` context path
+#:   template  — the engine renders `{…}` placeholders in it
+#:   prose     — agent-facing text; DELIMITED references rewritten, prose not
+#:   data      — never rewritten
+FIELD_CLASSIFICATION: dict[str, dict[str, str]] = {
+    "WorkflowDefinition": {
+        "id": "data",
+        "name": "data",
+        "description": "data",
+        "trigger": "data",
+        "steps": "data",
+        "edges": "data",
+        "policies": "data",
+        "capabilities": "data",
+        "learned_memory": "data",
+    },
+    "DeterministicStep": {
+        "id": "ref_id",
+        "type": "data",
+        "function": "data",
+        "config": "data",
+        "outputs": "data",
+        "capabilities": "data",
+        "runtime": "data",
+        "label": "data",
+        "output_renderer": "data",
+    },
+    "AgenticStep": {
+        "id": "ref_id",
+        "type": "data",
+        "goal": "prose",
+        "tools": "data",
+        "model": "data",
+        "system_prompt": "prose",
+        "inputs": "ref_path",
+        "pin_params": "ref_path",
+        "require_tool_call": "data",
+        "policy": "data",
+        "outputs": "data",
+        "capabilities": "data",
+        "runtime": "data",
+        "label": "data",
+        "output_renderer": "data",
+    },
+    "Edge": {
+        "source": "ref_id",
+        "target": "ref_id",
+        "condition": "expression",
+        "condition_label": "data",
+        "on_error": "data",
+    },
+    "LearnedMemorySpec": {
+        "user_id": "data",
+        "source_id": "data",
+        "observations": "data",
+        "recall": "data",
+    },
+    "ObservationSpec": {
+        "text": "template",
+        "author": "data",
+        "derived_from": "data",
+        "event_type": "data",
+        "date_from": "ref_path",
+        "ref_from": "ref_path",
+    },
+    "RecallSpec": {"query_from": "ref_path", "token_budget": "data"},
+    "TriggerSpec": {"type": "data", "config": "data", "example_payload": "data"},
+    "RequireToolCall": {"name": "data", "min_success": "data"},
+    "AgenticStepPolicy": {
+        "max_iterations": "data",
+        "max_total_tokens": "data",
+        "inference_config": "data",
+    },
+    "StepRuntimePolicy": {"retries": "data", "timeout_seconds": "data"},
+    "WorkflowPolicy": {
+        "max_total_tokens": "data",
+        "timeout_seconds": "data",
+        "budget_action": "data",
+    },
+}
 
-    Three consecutive rounds found reference positions we had missed, each
-    time by naming one we had not thought of. So this stops guessing: it puts
-    a reference to one step in EVERY string-bearing position the definition
-    schema has, mints, and asserts that the only survivors are the positions
-    we deliberately leave as prose or sample data.
 
-    A new schema field that can hold a reference will show up here as an
-    unexpected survivor."""
-    import re
+def _definition_models() -> dict[str, type]:
+    """Every Pydantic model the definition schema is built from."""
+    import inspect
 
-    from workflow_platform.scaffold import mint_platform_step_ids
+    from pydantic import BaseModel
 
-    definition = {
-        "id": "wf",
-        "name": "wf",
-        "description": "mentions steps.target_step in prose",
-        "trigger": {
-            "type": "manual",
-            "config": {"path_like": "steps.target_step.x"},
-            "example_payload": {"k": "steps.target_step.x"},
-        },
-        "steps": [
-            {
-                "id": "target_step",
-                "type": "deterministic",
-                "function": "noop",
-                "config": {},
-                "label": "steps.target_step label",
-            },
-            {
-                "id": "consumer",
-                "type": "agentic",
-                "goal": "use `steps.target_step.value`, <steps.target_step.value>, "
-                "{steps.target_step.value}",
-                "model": "m",
-                "system_prompt": "see {steps.target_step.value}",
-                "inputs": ["steps.target_step.value"],
-                "pin_params": {"p": "steps.target_step.value"},
-            },
-            {
-                "id": "det2",
-                "type": "deterministic",
-                "function": "record_evaluation",
-                "config": {"evaluation_from": "steps.target_step.value"},
-            },
-        ],
-        "edges": [
-            {
-                "from": "target_step",
-                "to": "consumer",
-                "condition": "steps['target_step']['value'] == 1",
-                "condition_label": "when steps.target_step.value is 1",
-            }
-        ],
-        "learned_memory": {
-            "user_id": "u",
-            "source_id": "s",
-            "recall": {"query_from": "steps.target_step.value"},
-            "observations": [
-                {
-                    "text": "{steps.target_step.value}",
-                    "author": "system",
-                    "date_from": "steps.target_step.when",
-                    "ref_from": "steps.target_step.id",
-                }
-            ],
-        },
+    from workflow_platform.workflow import definition as defn
+
+    return {
+        name: obj
+        for name, obj in vars(defn).items()
+        if inspect.isclass(obj) and issubclass(obj, BaseModel) and obj.__module__ == defn.__name__
     }
-    minted = mint_platform_step_ids(json.loads(json.dumps(definition)))
 
-    def survivors(node: object, path: str = "") -> list[str]:
-        if isinstance(node, str):
-            pattern = r"(?<![A-Za-z_])steps\.target_step\b|steps\['target_step'\]"
-            return [path] if re.search(pattern, node) else []
-        if isinstance(node, dict):
-            return [p for k, v in node.items() for p in survivors(v, f"{path}.{k}")]
-        if isinstance(node, list):
-            return [p for i, v in enumerate(node) for p in survivors(v, f"{path}[{i}]")]
-        return []
 
-    # Prose and sample data, deliberately untouched: rewriting undelimited
-    # prose is what corrupted a comparison literal in round 6, and labels are
-    # display-only (the engine ignores them).
-    expected = {
-        ".description",
-        ".trigger.config.path_like",
-        ".trigger.example_payload.k",
-        ".steps[0].label",
-        ".edges[0].condition_label",
-    }
-    actual = set(survivors(minted))
-    assert actual == expected, (
-        "reference coverage changed.\n"
-        f"  newly BROKEN (a reference position no longer rewritten): {sorted(actual - expected)}\n"
-        f"  newly rewritten (was prose/data — check this is intended): {sorted(expected - actual)}"
+def _classification_problems(models: dict[str, type]) -> list[str]:
+    """The gate's logic, as a pure function so the CONTROL can exercise it."""
+    problems: list[str] = []
+    for name, model in models.items():
+        declared = set(FIELD_CLASSIFICATION.get(name, {}))
+        actual = set(model.model_fields)  # type: ignore[attr-defined]
+        problems += [
+            f"{name}.{f} is not classified (ref_id/ref_path/template/prose/expression/data)"
+            for f in sorted(actual - declared)
+        ]
+        problems += [
+            f"{name}.{f} is classified but no longer exists" for f in sorted(declared - actual)
+        ]
+    problems += [
+        f"{n} is classified but is not a definition model"
+        for n in sorted(set(FIELD_CLASSIFICATION) - set(models))
+    ]
+    return problems
+
+
+def test_every_definition_field_is_classified() -> None:
+    """R10 P2: ENUMERATE THE MODELS.
+
+    The previous version of this gate built a handwritten dict and enumerated
+    nothing, so a reference field added to `AgenticStep` did not fail it — the
+    reviewer demonstrated exactly that. This reads `model_fields` off every
+    definition model, and an unclassified field fails the build."""
+    problems = _classification_problems(_definition_models())
+    assert not problems, (
+        "definition schema and its classification have diverged:\n  " + "\n  ".join(problems)
     )
+
+
+def test_the_classification_gate_fails_when_a_field_is_added() -> None:
+    """THE CONTROL the reviewer asked for.
+
+    A gate never shown to fire is what made the previous one worthless. This
+    adds a field to a real definition model and asserts the gate FAILS."""
+    from pydantic import create_model
+
+    from workflow_platform.workflow import definition as defn
+
+    augmented = create_model(  # a real AgenticStep plus one unclassified field
+        "AgenticStep",
+        __base__=defn.AgenticStep,
+        summary_from=(str | None, None),
+    )
+    models = {**_definition_models(), "AgenticStep": augmented}
+
+    problems = _classification_problems(models)
+    assert any("AgenticStep.summary_from is not classified" in p for p in problems), (
+        "the gate did NOT fire on a newly added schema field — it is not "
+        f"reading the models. problems={problems}"
+    )
+    # …and it is quiet on the real schema, so the control proves detection,
+    # not a permanently-red gate.
+    assert not _classification_problems(_definition_models())
 
 
 def test_minting_is_correct_when_a_draft_already_contains_a_minted_id() -> None:

@@ -229,15 +229,30 @@ FUNCTION_REFERENCES: dict[str, dict[str, Any]] = {
 _EDGE_ENDPOINT_KEYS = frozenset({"from", "to", "source", "target"})
 
 
-#: A dotted step reference at the head of a CONTEXT PATH.
-_DOTTED_REF = re.compile(r"^(?P<prefix>steps\.)(?P<id>[A-Za-z0-9_\-]+)")
+def _rewrite_context_path(value: Any, mapping: dict[str, str]) -> Any:
+    """Rewrite `steps.<id>…` in a value known to BE a context path.
+
+    R10 P1: this used a regex over `[A-Za-z0-9_-]`, a NARROWER grammar than
+    execution. The model and `_resolve_context_value` accept any step id — the
+    resolver just does `dotted.split(".")` — so a valid id like `prépare` did
+    not match, its reference was left pointing at a renamed step, and the
+    definition loaded and then FAILED. Split the way the resolver splits, and
+    the id segment is whatever lies between the dots.
+    """
+    if not isinstance(value, str):
+        return value
+    head, sep, rest = value.partition(".")
+    if head != "steps" or not sep:
+        return value
+    step_id, sep2, tail = rest.partition(".")
+    if step_id not in mapping:
+        return value
+    return f"steps.{mapping[step_id]}{sep2}{tail}"
 
 
-#: Step references the model writes in an EXPRESSION, matched by parsing
-#: rather than by pattern — a string Constant is never a reference (R6).
-#: A `{steps.<id>...}` placeholder in a TEMPLATE string, anchored on the brace
-#: so prose that merely mentions a step is left alone.
-_TEMPLATE_REF = re.compile(r"(?P<open>\{)(?P<prefix>steps\.)(?P<id>[A-Za-z0-9_\-]+)")
+#: The ENGINE's placeholder grammar, mirrored exactly
+#: (`executor._TEMPLATE_PLACEHOLDER`).
+_ENGINE_PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_.]+)\}")
 
 
 def _rewrite_condition(expr: str, mapping: dict[str, str]) -> str:
@@ -312,34 +327,35 @@ _DELIMITED_REF = re.compile(
 )
 
 
-#: A dotted step reference at the head of a CONTEXT PATH (a value whose
-#: FIELD is declared to be a reference, so no delimiter is needed).
-_DOTTED_REF = re.compile(r"^(?P<prefix>steps\.)(?P<id>[A-Za-z0-9_\-]+)")
-
-
-def _rewrite_context_path(value: Any, mapping: dict[str, str]) -> Any:
-    """Rewrite `steps.<id>…` in a value known to BE a context path."""
-    if not isinstance(value, str):
-        return value
-
-    def sub(m: re.Match[str]) -> str:
-        sid = m.group("id")
-        return m.group(0) if sid not in mapping else f"steps.{mapping[sid]}"
-
-    return _DOTTED_REF.sub(sub, value, count=1)
-
-
 def _rewrite_template(text: str, mapping: dict[str, str]) -> str:
-    """Rewrite `{steps.<id>…}` PLACEHOLDERS. Applies to any string.
+    r"""Rewrite `{steps.<id>…}` placeholders. ONLY for fields the engine
+    actually renders as templates.
 
-    A `{…}` placeholder is a platform template form — the engine renders it in
-    observation text — so rewriting it anywhere is safe."""
+    R10 P1: this was applied to every string on the reasoning that `{…}` is a
+    platform template form. The premise was right and the conclusion was
+    backwards — the engine renders placeholders in EXACTLY ONE place,
+    `learned_memory.observations[].text` (`_render_observation_template`).
+    Everywhere else `{steps.a.value}` is ordinary DATA, and rewriting it
+    changed a `noop` config literal so a downstream condition comparing
+    against that literal stopped matching: the original ran both steps, the
+    renamed one silently skipped the second.
+
+    The placeholder grammar mirrors the engine's `\{([A-Za-z0-9_.]+)\}`
+    deliberately — a placeholder the engine cannot resolve is not one we
+    should rewrite.
+    """
 
     def placeholder(m: re.Match[str]) -> str:
-        sid = m.group("id")
-        return m.group(0) if sid not in mapping else f"{{steps.{mapping[sid]}"
+        path = m.group(1)
+        head, sep, rest = path.partition(".")
+        if head != "steps" or not sep:
+            return m.group(0)
+        step_id, sep2, tail = rest.partition(".")
+        if step_id not in mapping:
+            return m.group(0)
+        return "{" + f"steps.{mapping[step_id]}{sep2}{tail}" + "}"
 
-    return _TEMPLATE_REF.sub(placeholder, text)
+    return _ENGINE_PLACEHOLDER.sub(placeholder, text)
 
 
 def _rewrite_prose_references(text: str, mapping: dict[str, str]) -> str:
@@ -407,14 +423,14 @@ def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
     if all(o == n for o, n in mapping.items()):
         return raw
 
-    def template(node: Any) -> Any:
-        """DATA: only `{steps.x}` placeholders move inside it."""
-        if isinstance(node, str):
-            return _rewrite_template(node, mapping)
-        if isinstance(node, list):
-            return [template(v) for v in node]
-        if isinstance(node, dict):
-            return {k: template(v) for k, v in node.items()}
+    def data(node: Any) -> Any:
+        """DATA is returned UNCHANGED (R10 P1).
+
+        Nothing outside a declared reference position, an agent-facing goal
+        and the one template field the engine renders is a reference. A
+        literal that merely LOOKS like one — `{steps.a.value}` in a config, a
+        path containing a step name, prose — is the workflow's own data, and
+        rewriting it changed behaviour."""
         return node
 
     def path(value: Any) -> Any:
@@ -422,7 +438,7 @@ def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
 
     def rewrite_step(s: Any) -> Any:
         if not isinstance(s, dict):
-            return template(s)
+            return data(s)
         decl = FUNCTION_REFERENCES.get(str(s.get("function")), {"fields": [], "defaults": {}})
         ref_fields = set(decl["fields"])
         out_s: dict[str, Any] = {}
@@ -435,12 +451,12 @@ def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
                 out_s[k] = {pk: path(pv) for pk, pv in v.items()}
             elif k == "config" and isinstance(v, dict):
                 out_s[k] = {
-                    ck: (path(cv) if ck in ref_fields else template(cv)) for ck, cv in v.items()
+                    ck: (path(cv) if ck in ref_fields else data(cv)) for ck, cv in v.items()
                 }
             elif k in ("goal", "system_prompt") and isinstance(v, str):
                 out_s[k] = _rewrite_prose_references(v, mapping)  # AGENT-FACING
             else:
-                out_s[k] = template(v)
+                out_s[k] = data(v)
         # A default names a step by id, so renaming that step dangles it. Only
         # defaults THIS function defines, and only when the named step moved.
         # R9 P1: materialise even when `config` was absent entirely.
@@ -461,16 +477,16 @@ def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
         new_edges = []
         for e in edges:
             if not isinstance(e, dict):
-                new_edges.append(template(e))
+                new_edges.append(data(e))
                 continue
             ne: dict[str, Any] = {}
             for k, v in e.items():
                 if k in _EDGE_ENDPOINT_KEYS and isinstance(v, str):
                     ne[k] = mapping.get(v, v)  # STEP IDs
                 elif k == "condition":
-                    ne[k] = _rewrite_condition(v, mapping) if isinstance(v, str) else template(v)
+                    ne[k] = _rewrite_condition(v, mapping) if isinstance(v, str) else data(v)
                 else:
-                    ne[k] = template(v)
+                    ne[k] = data(v)
             new_edges.append(ne)
         out["edges"] = new_edges
 
@@ -480,23 +496,31 @@ def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
         for k, v in lm.items():
             if k == "recall" and isinstance(v, dict):
                 new_lm[k] = {
-                    rk: (path(rv) if rk == "query_from" else template(rv)) for rk, rv in v.items()
+                    rk: (path(rv) if rk == "query_from" else data(rv)) for rk, rv in v.items()
                 }
             elif k == "observations" and isinstance(v, list):
                 new_lm[k] = [
                     {
-                        ok: (path(ov) if ok in ("date_from", "ref_from") else template(ov))
+                        ok: (
+                            path(ov)
+                            if ok in ("date_from", "ref_from")
+                            else (
+                                _rewrite_template(ov, mapping)
+                                if ok == "text" and isinstance(ov, str)
+                                else data(ov)
+                            )
+                        )
                         for ok, ov in o.items()
                     }
                     if isinstance(o, dict)
-                    else template(o)
+                    else data(o)
                     for o in v
                 ]
             else:
-                new_lm[k] = template(v)
+                new_lm[k] = data(v)
         out["learned_memory"] = new_lm
 
     for k, v in raw.items():
         if k not in ("steps", "edges", "learned_memory"):
-            out[k] = template(v)
+            out[k] = data(v)
     return out
