@@ -69,7 +69,30 @@ the fork-lineage and connector trail already pinned by
 on the READ path too, so this is a small deliberate widening, argued
 per-field rather than taken wholesale.
 
-**The widening beyond those five is a separate, unmade decision.** Most of
+**The widening landed 2026-09-18 (operator decision), projector v9.**
+19 engine-execution fields declared as `_TOKEN` / `_COUNT` / `_AMOUNT` —
+never `_ID`, per the v8 defect. Fully-withheld entries fall **39% → 1%** on
+the production sample, and the vault rate falls **70.3% → 61%** because
+fewer details lose anything.
+
+What decided it was consistency, not the lost trail: a grant-less reader
+already receives `workflow_id` on the INSTANCE surface, so withholding the
+same value on the audit surface protected nothing and only cost the trail.
+And at 39% fully-withheld, operators reach for raw-trace grants as routine —
+which erodes the break-glass control and buries real access in noise. That
+argument runs *for* widening, not against.
+
+Held back deliberately: `user_id` (an email in 416/416 production cases, and
+unlike `actor_id` it names the person ACTED UPON), `trigger` and `output`
+(nested schemas a flat declaration would bypass), and `emitter` (absent from
+the sample, so no evidence it is safe — undeclared means withheld).
+
+One trap worth recording: `steps` was already declared as an `Obj` of step
+OUTPUTS, and adding `Seq(_TOKEN)` under the same key in the same dict
+literal silently replaced it. The completed-step list now has its own key,
+`step_ids`, so both shapes keep a schema.
+
+*(Original framing, retained: )* **The widening beyond those five is a separate decision.** Most of
 what operators now lose is the same ownership class as fields `_AUDIT_DETAIL`
 already declares — `workflow_id`/`instance_id`/`user_id` are `_ID`-shaped like
 `org_id` and `grant_id`; `cost_usd`/token counts/thresholds are counts like

@@ -64,11 +64,11 @@ Also landed, outside the epic:
    subject is not the F1/F5 projection primitive; that line closed after four
    consecutive zero-defect rounds. **Everything touching the trace surface is
    held until it returns.**
-2. **The widening decision** (§5.1 of the round-12 sidecar) — at rest is now
-   the read path, and 39% of audit entries withhold every field. Most of what
-   operators lost is the same ownership class as fields `_AUDIT_DETAIL`
-   already declares, so declaring them is one line each — but it widens what
-   a grant-less reader sees. Asked of the reviewer rather than decided.
+2. ~~The widening decision~~ — **DONE 2026-09-18, projector v9.** 19
+   engine-execution fields declared; fully-withheld entries 39% → 1%, vault
+   rate 70.3% → 61%. `user_id`, `trigger`, `output` and `emitter` stay
+   withheld, each for a stated reason. Decided on consistency: a grant-less
+   reader already gets `workflow_id` on the instance surface.
 3. **The backfill** (`G-Trace-Backfill` below) — unblocked now the tightening
    has landed, still an operator decision because it rewrites production rows
    one-way. The pile is static, so waiting costs only the release gate
