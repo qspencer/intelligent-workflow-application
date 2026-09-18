@@ -69,6 +69,16 @@ the fork-lineage and connector trail already pinned by
 on the READ path too, so this is a small deliberate widening, argued
 per-field rather than taken wholesale.
 
+**Open with the reviewer:** round 13 closed with *"establish its source
+before allowing it through; identifier shape or numeric type alone is
+insufficient"* — which lands on this widening, because we classified by
+SHAPE. That is mechanism M1 in our own ledger. The reasoning, the
+disagreement and four specific questions are written out in
+`docs/TRACE_F1_REVIEW_ROUND14.md` §1 and go out with the next package. The
+concrete gap behind it: `audit_detail` is the only one of five asset kinds
+with no ownership typing, so nothing forced a producer to be stated per
+field.
+
 **The widening landed 2026-09-18 (operator decision), projector v9.**
 19 engine-execution fields declared as `_TOKEN` / `_COUNT` / `_AMOUNT` —
 never `_ID`, per the v8 defect. Fully-withheld entries fall **39% → 1%** on
