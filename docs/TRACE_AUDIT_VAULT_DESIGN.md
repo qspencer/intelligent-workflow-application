@@ -1,4 +1,12 @@
-# Audit-detail vaulting — design note (blocked on two decisions)
+# Deferred trace work — design notes (blocked on operator decisions)
+
+Two items remain in the reviewer's queue. **Both need persistence-schema
+changes**, so they are one decision, not two — kept in one document for
+that reason.
+
+---
+
+# Part 1 — Audit-detail vaulting
 
 **Status: DESIGNED, NOT BUILT.** Two decisions are the operator's, and one of
 them changes a production table. Written while round 10 is out.
@@ -93,3 +101,72 @@ migration is applied to the running DB in the same action as its commit. That
 is an operator's call, not a thing to slip in while a review is out — and the
 multiplicity problem means guessing wrong would silently destroy exactly the
 records this is meant to preserve.
+
+
+---
+
+# Part 2 — The catalog snapshot / digest
+
+**Status: DESIGNED, NOT BUILT.** Also needs schema.
+
+## Correction to an earlier claim of mine
+
+I said this item "needs no schema change". **That was wrong**, and checking it
+before repeating it is the point of the claims rule. It needs two pieces of
+persistence.
+
+## What it is for
+
+Exactly one thing: deciding whether a tool NAME may be shown in a projected
+tool-call record (`_resolved_tool_name`). Since round 5 removed the
+process-wide catalog, **no caller supplies one, so no tool name is ever
+shown** — a real operability cost carried deliberately until this lands.
+
+**Note the contract it belongs to.** Unlike audit-at-rest, this is
+**Contract A** (what an ordinary reader sees), not B1. It is not gated behind
+B1's trigger; it is simply unbuilt.
+
+## The reviewer's specification
+
+> identify a retained, immutable snapshot whose contents are verified during
+> reconstruction; unavailable history should produce an explicit unsupported
+> result. A digest without the corresponding snapshot is insufficient.
+
+## Why it needs schema
+
+1. **The snapshot must be retained.** A catalog is a sorted list of tool
+   names (~30 strings), but it is **deployment-specific**: the per-account
+   tools (`email_label_apply__qspencer_gmail_com`) are wired at boot from
+   `.secrets/gmail/<account>/`, so it changes when accounts change. It cannot
+   be a constant, and a file on disk is neither per-org nor durable. →
+   `catalog_snapshots(digest PK, names, created_at)`.
+2. **The digest must be recorded with the projection.** Its natural home is
+   the ROW, beside `projector_version`. It deliberately cannot go inside the
+   projected output: we just REMOVED the version stamps from there because
+   nothing read them and a supplied value survived as projection metadata.
+   Putting a new stamp back into the same place would re-open exactly that.
+   → a column.
+
+## Reconstruction, per the specification
+
+- Resolve against the snapshot the recorded digest names.
+- **Verify the snapshot hashes to that digest** before trusting it — a digest
+  whose snapshot has been edited is not a digest.
+- A digest with no retained snapshot → **`unsupported`**, audited, degraded,
+  exactly as an unknown projector version behaves. Never `mismatch`, and
+  never a silent fallback to "show the name anyway".
+
+## Decision 3 — do we take schema changes for deferred-contract work?
+
+Both parts need a migration against the running Postgres, applied in the same
+action as the commit. The question is one question:
+
+| | |
+|---|---|
+| **Yes** | Build both. Audit vaulting first (it preserves recovery), then this. Two migrations, applied to the live DB, with the service stopped for each. |
+| **Not yet** | Both stay designed-and-unbuilt. The costs continue: audit details keep storing more than any reader can see, and **no tool name is shown to anyone**, which is the operability price of round 5's fix. |
+
+**Recommendation: yes, but after the review line settles.** Neither item
+reopens the ownership architecture, so they do not conflict with the open
+round — but a production migration is a poor thing to do while a package is
+out and a return might touch the same files.
