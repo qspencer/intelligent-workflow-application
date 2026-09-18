@@ -159,8 +159,8 @@ round narrative, because they apply at the moment a detector is written:
 | M1 | **Per-function reference declaration** — derived from source, drift fails | ✅ `test_function_reference_declaration_matches_the_source` |
 | M2 | **Forgery probe** — every generated field × every asset kind, fed back as hostile input | ✅ `test_M2_no_generated_field_can_carry_a_supplied_value` (found a defect the reviewer had not) |
 | M3 | **Predicate agreement** — functions answering the same question must agree | ✅ `test_M3_predicates_answering_the_same_question_agree` |
-| M3 | **Duplicate-definition sweep** — a watched constant may live in one module | ✅ `test_M3_version_constants_have_exactly_one_definition` — **gap: covers constants, not FUNCTIONS**; two live definitions of `_rewrite_context_path` cost a round-10 fix that appeared to do nothing |
-| M3 | **Grammar agreement** — two components parsing the same thing must accept the same language | ⬜ **not built**; the rewriter's identifier grammar was narrower than the resolver's (R10) |
+| M3 | **Duplicate-definition sweep** — constants AND functions/methods | ✅ `test_M3_version_constants_have_exactly_one_definition` + `test_M3_no_module_defines_the_same_function_twice` (gap closed after R10) |
+| M3 | **Grammar agreement** — two components parsing the same thing must accept the same language | ✅ the scaffold now IMPORTS the engine's placeholder grammar (divergence impossible, not merely detectable), and `test_M3_whatever_the_ENGINE_can_resolve_the_scaffold_can_rewrite` asserts the general property over plain/underscored/hyphenated/non-ASCII/long/numeric ids |
 | M4 | **Golden version guard** — output change without a version bump fails | ✅ `test_projection_golden.py`, proven to fire twice; corpus must widen with new behaviour |
 | M5 | **Totality fuzz** — every entry point, hostile values, at depth | ✅ generative properties |
 | M6 | **Claims register + controls** — every factual claim executed before it is written; every gate has a control | ✅ protocol §4.2 + `test_the_classification_gate_fails_when_a_field_is_added` |
