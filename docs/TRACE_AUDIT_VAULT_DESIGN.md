@@ -1,8 +1,13 @@
-# Deferred trace work — design notes (blocked on operator decisions)
+# Trace work — audit-detail vaulting (BUILT) + catalog digest (OPEN)
 
-Two items remain in the reviewer's queue. **Both need persistence-schema
-changes**, so they are one decision, not two — kept in one document for
-that reason.
+Two items from the reviewer's queue, kept in one document because both need
+persistence-schema changes. **Part 1 shipped 2026-09-18** and this doc is now
+its design record and review brief; **Part 2 is still an open design question**
+with Decision 3 unmade.
+
+The decision sections below are kept in their original form on purpose: they
+are why the built shape is the shape it is, and a reviewer checking the build
+needs the reasoning, not just the outcome. Each is marked with its outcome.
 
 ---
 
@@ -27,7 +32,7 @@ deployed code is the checked-out `main`, so writing code against a missing
 column would break production the moment the service reloaded. There is no
 useful half of this to land.
 
-## BUILT 2026-09-18 — Part 1 mechanism complete, at-rest switch still open
+## BUILT 2026-09-18 — Part 1 complete, vaulting AND the at-rest tightening
 
 Landed: `RawTraceKind.AUDIT_DETAIL`, `RawTrace.audit_entry_id` (+ Alembic
 `0012`, index `ix_raw_traces_audit_entry`), `audit_idempotency_key` as a
@@ -148,8 +153,11 @@ discovered:
 
 # Part 1 — Audit-detail vaulting
 
-**Status: DESIGNED, NOT BUILT.** Two decisions are the operator's, and one of
-them changes a production table. Written while round 10 is out.
+**Status: BUILT 2026-09-18** (`faef5ed` vaulting, `1c348d6` at-rest
+tightening, plus `93c1844` and the mapping fix). Everything from here to Part
+2 was written while round 10 was out, BEFORE the build; it is preserved as the
+design record. The section above states what actually shipped and where the
+build diverged.
 
 ---
 
@@ -194,7 +202,7 @@ payload · content_commitment · created_at
 
 ---
 
-## Decision 1 — how an audit vault row is addressed
+## Decision 1 — how an audit vault row is addressed — **DECIDED: option A, built**
 
 | Option | Shape | Cost |
 |---|---|---|
@@ -256,7 +264,7 @@ Additive and nullable, so every existing row stays valid and rollback is
 dropping an unused column. Applied to the running DB in the same action as
 the commit, with the service stopped, per the standing rule.
 
-## Decision 2 — which audit details get vaulted
+## Decision 2 — which audit details get vaulted — **DECIDED: lose-to-projection, built**
 
 Vaulting every audit detail would roughly double audit storage and vault a
 great deal of content-free governance metadata.
@@ -272,7 +280,7 @@ rule cannot drift from what projection actually does.
 
 ---
 
-## What gets built once decided
+## What gets built once decided — *(built as described, except where the status section notes otherwise)*
 
 1. `RawTraceKind.AUDIT_DETAIL` + the addressing from decision 1 (+ migration).
 2. The `_audit` chokepoint vaults the raw detail **before** projecting it —
@@ -285,13 +293,15 @@ rule cannot drift from what projection actually does.
    recoverable rows) is the one that would have been silently broken by the
    existing key.
 
-## Why it is not built yet
+## Why it was held, and what lifted the hold
 
-Decision 1 changes a production table, and the standing rule is that a
-migration is applied to the running DB in the same action as its commit. That
-is an operator's call, not a thing to slip in while a review is out — and the
-multiplicity problem means guessing wrong would silently destroy exactly the
-records this is meant to preserve.
+Held because Decision 1 changes a production table, and the standing rule is
+that a migration is applied to the running DB in the same action as its
+commit — an operator's call, not a thing to slip in while a review is out.
+The hold lifted when round 11 returned (two bounded P2 corrections, neither
+touching this design). Migration `0012` was rehearsed up/down on a scratch
+database, then applied to production and the service restarted in one
+chained action.
 
 
 ---
