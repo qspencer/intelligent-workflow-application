@@ -746,3 +746,106 @@ def test_parse_ok_producers_match_the_functions_that_compute_it() -> None:
         f"  missing (compute parse_ok but not authorized): {sorted(truth - _PARSE_OK_PRODUCERS)}\n"
         f"  stale   (authorized but do not compute it):    {sorted(_PARSE_OK_PRODUCERS - truth)}"
     )
+
+
+# --- Class detectors (docs/REVIEW_FINDINGS_LEDGER.md §3) ---------------------
+#
+# A class that has returned TWICE gets a detector, not another fix. These are
+# the generalised forms of defects the external reviewer found repeatedly, run
+# over every field/predicate rather than the one instance that was reported.
+
+
+#: Every field the projection GENERATES. M2's whole history is these being
+#: read back from a record an attacker can shape: a prefix-matched marker, a
+#: forged `_withheld_key_count` carrying an SSN, a supplied `projector_version`,
+#: unbounded tool-summary numbers.
+_GENERATED_FIELDS = (
+    "_withheld_keys",
+    "_withheld_key_count",
+    "_redacted",
+    "projector_version",
+    "projection_schema_version",
+    "input_key_count",
+    "content_bytes",
+)
+
+#: Values that would be worth smuggling. None is token-shaped by accident.
+_SMUGGLE = (
+    "AKIAIOSFODNN7EXAMPLE",
+    123456789,
+    987654321,
+    "sk_live_51H8xQ2",
+    {"nested": "SYNTHETIC victim@example.com"},
+    ["SYNTHETIC"],
+)
+
+
+@pytest.mark.parametrize("field", _GENERATED_FIELDS)
+@pytest.mark.parametrize("kind", ["step_output", "step_row", "instance", "context"])
+def test_M2_no_generated_field_can_carry_a_supplied_value(field: str, kind: str) -> None:
+    """M2 DETECTOR: a field the projection generates must never echo a value
+    supplied as input, at any asset kind.
+
+    Generalised from four separate reported instances. The property is not
+    "this one field is safe" but "no generated field is a channel"."""
+    for value in _SMUGGLE:
+        out = redact_tool_data({field: value}, admin=False, kind=kind)
+        rendered = _dumps(out)
+        for needle in (str(value), _dumps(value).strip('"')):
+            if needle in ("True", "true"):
+                continue  # the one legitimate value of a boolean flag
+            assert needle not in rendered, (
+                f"generated field {field!r} carried a supplied value at kind={kind}: "
+                f"{value!r} -> {rendered}"
+            )
+
+
+def test_M3_predicates_answering_the_same_question_agree() -> None:
+    """M3 DETECTOR: two functions that answer the same question must answer it
+    identically, on every shape we can think of.
+
+    Round 6 found completeness (`has_redaction_marker`) and compatibility
+    (`_output_projected`) disagreeing — the same object was 'complete' to one
+    and 'projected' to the other. This asserts agreement over the whole marker
+    vocabulary rather than the two shapes that were reported."""
+    from workflow_platform.trace_rehydrate import _output_projected
+
+    shapes: list[Any] = [
+        {"_withheld_keys": True},
+        {"_withheld_key_count": 1},
+        {"_withheld_key_count": 99},
+        {"_redacted": _REDACTED_FIELD},
+        {"model": _REDACTED_FIELD},
+        {"nested": {"_withheld_keys": True}},
+        {"list": [{"_withheld_keys": True}]},
+    ]
+    for shape in shapes:
+        assert has_redaction_marker(shape) == _output_projected(shape), (
+            f"completeness and compatibility disagree on {shape}: "
+            f"has_redaction_marker={has_redaction_marker(shape)} "
+            f"_output_projected={_output_projected(shape)}"
+        )
+
+
+def test_M3_version_constants_have_exactly_one_definition() -> None:
+    """M3/M4 DETECTOR: a constant defined in two modules drifts. It has
+    happened twice — the projector version (round 3) and the schema version
+    (round 6) — so this sweeps for a THIRD rather than waiting for it."""
+    import ast
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "src" / "workflow_platform"
+    watched = {"PROJECTOR_VERSION", "PROJECTION_SCHEMA_VERSION", "RAW_SCHEMA_VERSION"}
+    definitions: dict[str, list[str]] = {name: [] for name in watched}
+    for py in root.rglob("*.py"):
+        tree = ast.parse(py.read_text())
+        for node in tree.body:  # module level only
+            if isinstance(node, ast.Assign):
+                for tgt in node.targets:
+                    if isinstance(tgt, ast.Name) and tgt.id in watched:
+                        definitions[tgt.id].append(py.name)
+    for name, where in definitions.items():
+        assert len(where) <= 1, (
+            f"{name} is assigned in {len(where)} modules ({where}) — two definitions "
+            f"of one constant drift; re-export instead"
+        )

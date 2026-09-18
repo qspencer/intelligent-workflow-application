@@ -105,8 +105,6 @@ _OWNERSHIP: dict[str, dict[str, Owner]] = {
         "relevance_score": Owner.BUSINESS,
         "concern_count": Owner.BUSINESS,
         "needs_tests": Owner.BUSINESS,
-        "projector_version": Owner.PROJECTION,
-        "projection_schema_version": Owner.PROJECTION,
         "_redacted": Owner.PROJECTION,
     },
     "step_row": {
@@ -119,8 +117,6 @@ _OWNERSHIP: dict[str, dict[str, Owner]] = {
         "error": Owner.ENGINE,
         "output": Owner.ENGINE,
         "step_id": Owner.CONFIG,
-        "projector_version": Owner.PROJECTION,
-        "projection_schema_version": Owner.PROJECTION,
         "_redacted": Owner.PROJECTION,
     },
     "instance": {
@@ -137,8 +133,6 @@ _OWNERSHIP: dict[str, dict[str, Owner]] = {
         "org_id": Owner.CONFIG,
         "owner_user_id": Owner.CONFIG,
         "workflow_id": Owner.CONFIG,
-        "projector_version": Owner.PROJECTION,
-        "projection_schema_version": Owner.PROJECTION,
         "_redacted": Owner.PROJECTION,
     },
     "context": {
@@ -201,11 +195,31 @@ _PARSE_OK_PRODUCERS: frozenset[str] = frozenset(
 )
 
 
+#: Field names the PROJECTOR owns, wherever they appear. Held separately from
+#: the schemas because ownership of a name is a property of the projector, not
+#: of one asset: the version stamps were removed from the projected output
+#: (self-found, ledger M2 — a supplied `projector_version` survived as
+#: projection metadata, and nothing ever read it from the JSON), but a FUNCTION
+#: still must not be able to emit them. Defence in depth: the projector drops
+#: them, and the boundary refuses them.
+_RESERVED_PROJECTION_FIELDS: frozenset[str] = frozenset(
+    {
+        "_withheld_keys",
+        "_withheld_key_count",
+        "_redacted",
+        "projector_version",
+        "projection_schema_version",
+    }
+)
+
+
 def function_may_emit(field: str, function_name: str) -> bool:
     """Whether `function_name` is an authorized producer of `field`.
 
     PROJECTION-owned fields have NO function producer — the projector writes
     them — and a released BUSINESS field has a named one."""
+    if field in _RESERVED_PROJECTION_FIELDS:
+        return False
     if _OWNERSHIP.get("step_output", {}).get(field) is Owner.PROJECTION:
         return False
     if field == "parse_ok":
@@ -302,7 +316,13 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "5"  # R7 §4.4: tool-summary numbers are now BOUNDED
+PROJECTOR_VERSION = "6"  # SELF-FOUND (ledger M2 detector): the version
+# STAMPS were declared inside the projected output, where a supplied
+# `projector_version: "AKIAIOSFODNN7EXAMPLE"` survived as projection metadata.
+# Nothing read them from the JSON — every consumer uses the ROW COLUMN — so an
+# in-output copy was pure attack surface AND a second source of truth for the
+# stamp, which is the exact duplication F5 was raised about. Removed; the row
+# column is the authority. Output changed, so the version moves.
 # (arity clamped, size to an order of magnitude), so a v4 record carrying
 # `content_bytes: 1234` re-projects to 1000 — a changed output, which is a
 # changed version. Caught by reasoning, NOT by the guard: its corpus had only
@@ -590,8 +610,6 @@ _STEP_OUTPUT = Obj(
         "concern_count": _COUNT,
         "needs_tests": _BOOL,
         "tool_calls": ToolCalls(),
-        "projector_version": _TOKEN,
-        "projection_schema_version": _COUNT,
         "_redacted": _MARKER,
     },
     owners=_OWNERSHIP["step_output"],
@@ -688,8 +706,6 @@ _INSTANCE = Obj(
         "context": _CONTEXT,
         "total_tokens": _COUNT,
         "total_cost_usd": _AMOUNT,
-        "projector_version": _TOKEN,
-        "projection_schema_version": _COUNT,
         "_redacted": _MARKER,
     },
     owners=_OWNERSHIP["instance"],
@@ -706,8 +722,6 @@ _STEP_ROW = Obj(
         "output": _STEP_OUTPUT,
         "started_at": _TS_,
         "completed_at": _TS_,
-        "projector_version": _TOKEN,
-        "projection_schema_version": _COUNT,
         "_redacted": _MARKER,
     },
     owners=_OWNERSHIP["step_row"],

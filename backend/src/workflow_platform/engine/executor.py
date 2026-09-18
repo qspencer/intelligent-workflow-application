@@ -1249,7 +1249,7 @@ class WorkflowEngine:
             # Released BUSINESS: permitted only to its AUTHORIZED producer — a
             #   field name cannot establish who computed the value, so
             #   `parse_ok` from a non-parser is a claimed parse that never ran.
-            if owner in (Owner.ENGINE, Owner.PROJECTION) or not function_may_emit(k, step.function):
+            if owner is Owner.ENGINE or not function_may_emit(k, step.function):
                 forbidden.add(k)
         if not forbidden:
             return produced
