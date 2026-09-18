@@ -907,3 +907,94 @@ def test_function_reference_declaration_matches_the_source() -> None:
         f"  stale functions:   {sorted(set(declared) - set(truth))}\n"
         f"  differing:         {sorted(k for k in set(truth) & set(declared) if truth[k] != declared[k])}"
     )
+
+
+def test_M3_no_module_defines_the_same_function_twice() -> None:
+    """M3 DETECTOR, extended to FUNCTIONS (ledger gap, found after R10).
+
+    The duplicate-definition sweep watched CONSTANTS. It did not watch
+    functions — and two live definitions of `_rewrite_context_path` coexisted
+    with Python silently using the stale one, which is why a round-10 fix
+    appeared to do nothing. A shadowed definition is invisible at the call
+    site and passes every type check."""
+    import ast
+    import pathlib
+    from collections import Counter
+
+    root = pathlib.Path(__file__).resolve().parents[1] / "src" / "workflow_platform"
+    problems: list[str] = []
+    for py in sorted(root.rglob("*.py")):
+        tree = ast.parse(py.read_text())
+        defs = [n.name for n in tree.body if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)]
+        problems += [
+            f"{py.relative_to(root)}: {name} defined {count} times at module level"
+            for name, count in Counter(defs).items()
+            if count > 1
+        ]
+        for cls in [n for n in tree.body if isinstance(n, ast.ClassDef)]:
+            methods = [
+                n.name for n in cls.body if isinstance(n, ast.FunctionDef | ast.AsyncFunctionDef)
+            ]
+            problems += [
+                f"{py.relative_to(root)}: {cls.name}.{name} defined {count} times"
+                for name, count in Counter(methods).items()
+                if count > 1
+            ]
+    assert not problems, "a later definition silently shadows an earlier one:\n  " + "\n  ".join(
+        problems
+    )
+
+
+def test_M3_the_scaffold_and_the_engine_share_one_placeholder_grammar() -> None:
+    """M3 DETECTOR: two components parsing the same thing must accept the same
+    language.
+
+    R10: the rewriter's identifier grammar was NARROWER than the resolver's,
+    so a valid step id kept a dangling reference. The placeholder grammar had
+    the same exposure — a hand-copy of the engine's pattern, identical that
+    day. It is imported now, and this pins that: one object, not two strings
+    that happen to match."""
+    from workflow_platform.engine.executor import _TEMPLATE_PLACEHOLDER
+    from workflow_platform.scaffold import _ENGINE_PLACEHOLDER
+
+    assert _ENGINE_PLACEHOLDER is _TEMPLATE_PLACEHOLDER, (
+        "the scaffold has its own copy of the engine's placeholder grammar; "
+        "import it instead, so divergence is impossible rather than detectable"
+    )
+
+
+@pytest.mark.parametrize(
+    "step_id",
+    ["plain", "with_underscore", "with-hyphen", "prépare", "步骤", "a.b", "x" * 80, "1", "_"],
+)
+def test_M3_whatever_the_ENGINE_can_resolve_the_scaffold_can_rewrite(step_id: str) -> None:
+    """M3 DETECTOR, the general form: for every step id the ENGINE can resolve
+    a reference to, minting must rewrite that reference.
+
+    This is the property round 10's `prépare` finding violated. Asserting it
+    over a range of id shapes — rather than the one shape reported — is the
+    §3 R-c rule: enumerate the space, do not patch the instance."""
+    import json
+
+    from workflow_platform.engine.context import WorkflowContext
+    from workflow_platform.engine.executor import _resolve_context_value
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    ctx = WorkflowContext(instance_id="i", workflow_id="w")
+    ctx.steps = {step_id: {"value": "SYNTHETIC"}}
+    path = f"steps.{step_id}.value"
+    resolvable = _resolve_context_value(ctx, path) == "SYNTHETIC"
+    if not resolvable:
+        pytest.skip(f"the engine cannot resolve a reference to {step_id!r} anyway")
+
+    draft = {
+        "steps": [
+            {"id": step_id, "type": "deterministic", "function": "noop", "config": {}},
+            {"id": "consumer", "type": "agentic", "goal": "g", "model": "m", "inputs": [path]},
+        ]
+    }
+    minted = mint_platform_step_ids(json.loads(json.dumps(draft)))
+    assert minted["steps"][1]["inputs"] == ["steps.step_1.value"], (
+        f"the engine resolves a reference to step id {step_id!r}, but minting left it "
+        f"dangling: {minted['steps'][1]['inputs']}"
+    )

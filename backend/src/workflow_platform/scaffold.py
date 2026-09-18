@@ -250,9 +250,19 @@ def _rewrite_context_path(value: Any, mapping: dict[str, str]) -> Any:
     return f"steps.{mapping[step_id]}{sep2}{tail}"
 
 
-#: The ENGINE's placeholder grammar, mirrored exactly
-#: (`executor._TEMPLATE_PLACEHOLDER`).
-_ENGINE_PLACEHOLDER = re.compile(r"\{([A-Za-z0-9_.]+)\}")
+#: The ENGINE's placeholder grammar — IMPORTED, not copied. R10 follow-up:
+#: this was a hand-copy of `executor._TEMPLATE_PLACEHOLDER`, identical that
+#: day and free to diverge the next. Two implementations of one rule is the
+#: M3 class that produced two projector-version constants and a rewriter
+#: whose identifier grammar was narrower than the resolver's. Importing makes
+#: divergence impossible rather than detectable.
+from workflow_platform.engine.executor import (  # noqa: E402
+    _TEMPLATE_PLACEHOLDER as _TEMPLATE_PLACEHOLDER,
+)
+
+#: Local alias, explicitly re-exported so the grammar-agreement test can
+#: assert the two names are ONE object rather than two equal strings.
+_ENGINE_PLACEHOLDER = _TEMPLATE_PLACEHOLDER
 
 
 def _rewrite_condition(expr: str, mapping: dict[str, str]) -> str:
