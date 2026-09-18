@@ -25,9 +25,13 @@ from workflow_platform.trace_cipher import build_trace_cipher, is_sealed_payload
 from workflow_platform.trace_projection import (
     PROJECTOR_VERSION,
     is_withheld_marker,
+    project_audit_detail_at_rest,
     redact_tool_data,
 )
-from workflow_platform.trace_vault import idempotency_key
+from workflow_platform.trace_vault import (
+    audit_idempotency_key,
+    idempotency_key,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -108,6 +112,7 @@ class RawTraceRehydrator:
         instance_id: str,
         step_attempt_id: str | None,
         kind: str,
+        audit_entry_id: str | None = None,
     ) -> Any:
         """The row's raw content, bound to the EXPECTED identity the caller
         asked for — never to metadata trusted from the row (external code
@@ -122,12 +127,13 @@ class RawTraceRehydrator:
         Decryption uses the EXPECTED tuple as AEAD associated data (+ the
         constant schema version we sealed with), so a relabeled/wrong-org
         ciphertext fails to open even if its stored metadata was tampered."""
-        if (row.org_id, row.instance_id, row.step_attempt_id, row.kind.value) != (
-            org_id,
-            instance_id,
-            step_attempt_id,
-            kind,
-        ):
+        if (
+            row.org_id,
+            row.instance_id,
+            row.step_attempt_id,
+            row.kind.value,
+            row.audit_entry_id,
+        ) != (org_id, instance_id, step_attempt_id, kind, audit_entry_id):
             raise RawTraceUnavailable(f"vault row identity mismatch for {kind}")
         # P3a (§4.3): the object must be USABLE — a RESERVED/ABORTED row is not
         # a committed write and must never be handed back as raw (re-review
@@ -154,6 +160,7 @@ class RawTraceRehydrator:
                 step_attempt_id=step_attempt_id,
                 kind=kind,
                 schema_version=RAW_SCHEMA_VERSION,
+                audit_entry_id=audit_entry_id,
             )
         return row.payload
 
@@ -263,6 +270,75 @@ class RawTraceRehydrator:
             outcome="succeeded" if verdict == "ok" else PROJECTION_UNSUPPORTED,
         )
         return full if isinstance(full, dict) else safe_output
+
+    async def rehydrate_audit_detail(
+        self,
+        *,
+        purpose: str,
+        org_id: str,
+        instance_id: str,
+        audit_entry_id: str,
+        action: str,
+        stored_detail: Any,
+        projector_version: str | None,
+    ) -> Any:
+        """Return an audit entry's FULL detail from the vault.
+
+        R12 finding 1: the audit endpoints returned the STORED detail to a
+        grant holder. That was correct while at rest held the raw; once the
+        at-rest tightening landed, stored IS the projection, so a grant holder
+        received `{"_withheld_keys": true}` while the release log recorded
+        `released`. The vault row existed the whole time and nothing read it.
+
+        Raises `RawTraceUnavailable` when the raw cannot be produced, so the
+        caller can record `partial`/`retrieval_failed` rather than reporting a
+        release it did not make.
+        """
+        if projector_version is None:
+            # Never written as a projection, or projection took nothing — so
+            # nothing was vaulted and the stored detail IS the full detail.
+            #
+            # Decided from the PERSISTED STAMP, never by re-running the
+            # predicate on the stored detail: the stored detail is already
+            # projected, so "would projection remove anything?" always answers
+            # no. That mistake made an earlier version of this method a no-op
+            # that returned the projection and called it a recovery.
+            return stored_detail
+        request_id = await self._begin(
+            purpose=purpose,
+            org_id=org_id,
+            instance_id=instance_id,
+            step_attempt_id=None,
+            kinds=[RawTraceKind.AUDIT_DETAIL.value],
+        )
+        key = audit_idempotency_key(org_id, instance_id, audit_entry_id)
+        row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        if row is None:
+            await self._complete(
+                request_id=request_id, instance_id=instance_id, outcome="retrieval_failed"
+            )
+            raise RawTraceUnavailable(f"missing vault audit detail for entry {audit_entry_id}")
+        full = self._payload_of(
+            row,
+            org_id=org_id,
+            instance_id=instance_id,
+            step_attempt_id=None,
+            kind=RawTraceKind.AUDIT_DETAIL.value,
+            audit_entry_id=audit_entry_id,
+        )
+        # Agreement, as for step outputs: re-projecting the fetched raw must
+        # reproduce what is stored. A mismatch means the operational row and
+        # the vault disagree, which is an integrity failure, not a release.
+        if project_audit_detail_at_rest(action, full) != stored_detail:
+            await self._complete(
+                request_id=request_id, instance_id=instance_id, outcome="integrity_failed"
+            )
+            raise RawTraceUnavailable(
+                f"projection disagreement for audit entry {audit_entry_id}: the stored detail "
+                "does not match a re-projection of the vaulted raw"
+            )
+        await self._complete(request_id=request_id, instance_id=instance_id, outcome="succeeded")
+        return full
 
     async def rehydrate_trigger(
         self, *, purpose: str, org_id: str, instance_id: str, safe_trigger: dict[str, Any]

@@ -80,6 +80,62 @@ def test_every_engine_construction_decides_the_flip() -> None:
     )
 
 
+def test_every_engine_entry_point_also_initialises_TRACING() -> None:
+    """R12 finding 2. Reading the flip is half the job: the service also
+    installs the vault master key, and the tools did not. A CLI run with
+    safe-only ON and no key wrote PLAINTEXT vault rows — six reached our own
+    production database. An encryption-enabled reader then rejects them as a
+    downgrade, so the raw is unreadable by anyone.
+
+    Any module that constructs a `WorkflowEngine` must call `init_tracing()`.
+    """
+    offenders = []
+    for path in sorted(_engine_constructions()):
+        if path in EXEMPT:
+            continue
+        if "init_tracing()" not in pathlib.Path(path).read_text():
+            offenders.append(path)
+    assert not offenders, (
+        f"these build a WorkflowEngine without calling init_tracing(): {offenders}. "
+        "With a master key configured but not installed they write plaintext vault "
+        "rows that an encryption-enabled reader will refuse."
+    )
+
+
+def test_a_configured_key_that_cannot_be_resolved_STOPS_execution(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Fail closed. Carrying on unencrypted silently downgrades the contract
+    exactly when the operator asked for encryption."""
+    from workflow_platform.trace_bootstrap import (
+        TraceKeyUnavailable,
+        install_trace_master_key,
+    )
+    from workflow_platform.trace_cipher import ENV_MASTER_KEY_SECRET
+
+    monkeypatch.setenv(ENV_MASTER_KEY_SECRET, "no/such/secret")
+
+    class _Boom:
+        @property
+        def client(self) -> object:
+            raise RuntimeError("secret manager unreachable")
+
+    monkeypatch.setattr("workflow_platform.trace_bootstrap.AwsSecretsManagerStore", _Boom)
+    with pytest.raises(TraceKeyUnavailable, match="Refusing to continue"):
+        install_trace_master_key()
+
+
+def test_no_configured_key_is_not_an_error(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The control must not break the legitimate plaintext (Contract A) path,
+    or every test and replay run becomes a failure."""
+    from workflow_platform.trace_bootstrap import init_tracing
+    from workflow_platform.trace_cipher import ENV_MASTER_KEY, ENV_MASTER_KEY_SECRET
+
+    monkeypatch.delenv(ENV_MASTER_KEY_SECRET, raising=False)
+    monkeypatch.delenv(ENV_MASTER_KEY, raising=False)
+    init_tracing()  # must not raise
+
+
 def test_the_flip_is_read_from_exactly_one_place() -> None:
     """The env var name must appear only in `trace_flip.py` (and this test).
     Two readers is the M3 class, and this control started life as exactly

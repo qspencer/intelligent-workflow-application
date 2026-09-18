@@ -314,6 +314,7 @@ class PostgresAuditRepo(AuditRepo):
                     workflow_instance_id=entry.workflow_instance_id,
                     step_id=entry.step_id,
                     detail=entry.detail,
+                    projector_version=entry.projector_version,
                 )
             )
         return entry
@@ -832,6 +833,7 @@ def _from_audit_row(row: AuditLogRow) -> AuditEntry:
         workflow_instance_id=row.workflow_instance_id,
         step_id=row.step_id,
         detail=_as_dict(row.detail),
+        projector_version=row.projector_version,
     )
 
 

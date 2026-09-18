@@ -340,18 +340,27 @@ async def test_a_detail_that_loses_NOTHING_is_not_vaulted() -> None:
 # SOURCE (rule R-c), so a new writer fails the build until it is classified.
 # --------------------------------------------------------------------------
 
-#: Every module that appends audit entries, and whether its writes go through
-#: the engine chokepoint that vaults. NOT a hand-kept list of what exists —
-#: the enumeration below derives that from source and fails on anything
-#: missing here. This table only records the DISPOSITION.
+#: Every module that WRITES an audit entry, and its disposition.
+#:
+#: R12 finding 4: the previous scanner matched a receiver *named* `audit`
+#: (after stripping underscores), so `self.audit_repo.append(...)` in the
+#: escalation tool was invisible — and the grep I "cross-checked" against
+#: searched for `audit.append(`, the SAME assumption in another syntax. Two
+#: methods agreeing means nothing when they share a blind spot. Discovery now
+#: keys on the TYPE: a module that constructs an `AuditEntry` is a writer.
 AUDIT_WRITERS: dict[str, str] = {
-    # The chokepoint. Vaults raw before appending.
+    # Chokepoint: vaults raw before appending.
     "engine/executor.py": "vaulted",
-    # Deliberately NOT vaulted. Each writes operator/governance metadata about
-    # an action a PERSON took, not model- or mail-derived content, so the
-    # final policy takes nothing away that a forensic reader needs. If any of
-    # these starts carrying model-authored or third-party text, it moves to
-    # the chokepoint — that is the trigger, written down.
+    # Vaults its own detail (it writes outside the chokepoint). R12 finding 4:
+    # it projected `reason`/`context` at rest while vaulting NOTHING, so the
+    # model-authored content the escalation exists to convey was destroyed.
+    "tools/escalation.py": "vaulted",
+    # Not a writer — it maps the type to and from rows. (`models.py` only
+    # DEFINES the class, so it never constructs one and never appears.)
+    "persistence/postgres.py": "persists-the-type",
+    # Operator/governance metadata about an action a PERSON took, not model-
+    # or mail-derived content. If any starts carrying model-authored or
+    # third-party text it moves to a vaulting path; that is the trigger.
     "api/raw_trace_audit.py": "governance-metadata",
     "api/organizations.py": "governance-metadata",
     "api/workflows.py": "governance-metadata",
@@ -360,48 +369,39 @@ AUDIT_WRITERS: dict[str, str] = {
     "auth/raw_trace_grants.py": "governance-metadata",
     "auth/bootstrap.py": "governance-metadata",
     "trace_rehydrate.py": "governance-metadata",
-    # KNOWN GAP, named rather than hidden. The monitoring loop writes
-    # alert_* entries outside the engine, and on production data 100% of them
-    # would lose something to the final policy. They are engine-derived, so
-    # they belong at the chokepoint; routing them there is follow-up work.
+    # KNOWN GAP, named rather than hidden: engine-derived alert_* entries
+    # written outside the chokepoint; on production data 100% would lose
+    # something to the final policy.
     "monitoring/service.py": "UNVAULTED-GAP",
 }
 
 
-def _modules_that_append_audit() -> set[str]:
+def _audit_writers(root: pathlib.Path) -> set[str]:
+    """Modules under `root` that CONSTRUCT an `AuditEntry`.
+
+    Keyed on the type, not on what the receiving variable happens to be
+    called. That is the whole lesson of R12 finding 4.
+    """
     found: set[str] = set()
-    src = pathlib.Path("src/workflow_platform")
-    for f in src.rglob("*.py"):
+    for f in root.rglob("*.py"):
         try:
             tree = ast.parse(f.read_text())
         except SyntaxError:
             continue
         for node in ast.walk(tree):
-            if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
-                continue
-            if node.func.attr != "append":
-                continue
-            # The RECEIVER may be spelled `repositories.audit`, `self._audit`,
-            # or a bare local — matching only one spelling let `auth/local.py`
-            # hide behind a leading underscore. Normalise instead of guessing.
-            recv = node.func.value
-            name = (
-                recv.attr
-                if isinstance(recv, ast.Attribute)
-                else recv.id
-                if isinstance(recv, ast.Name)
-                else ""
-            )
-            if name.lstrip("_") == "audit":
-                found.add(str(f.relative_to(src)))
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id == "AuditEntry"
+            ):
+                found.add(str(f.relative_to(root)))
     return found
 
 
 def test_C3_every_audit_writer_is_classified() -> None:
-    """R-c: an ENUMERATION derived from source, not a list maintained by hand.
-    A new `repositories.audit.append` call site fails this until someone
-    decides whether its details need vaulting."""
-    actual = _modules_that_append_audit()
+    """R-c: an ENUMERATION derived from source. A new writer fails the build
+    until someone decides whether its details need vaulting."""
+    actual = _audit_writers(pathlib.Path("src/workflow_platform"))
     assert actual, "the enumeration found no audit writers — it has stopped working"
     unclassified = actual - set(AUDIT_WRITERS)
     assert not unclassified, (
@@ -409,15 +409,63 @@ def test_C3_every_audit_writer_is_classified() -> None:
         "Decide whether their details need vaulting before the raw is projected away."
     )
     stale = set(AUDIT_WRITERS) - actual
-    assert not stale, f"AUDIT_WRITERS lists modules that no longer append audit: {sorted(stale)}"
+    assert not stale, f"AUDIT_WRITERS lists modules that no longer write audit: {sorted(stale)}"
 
 
-def test_C3_the_enumeration_would_catch_a_new_writer() -> None:
-    """Control for the enumeration (R-b). Without this, `test_C3_...` passing
-    proves only that the table matches whatever the scan happened to find."""
-    actual = _modules_that_append_audit()
-    pretend_new = actual | {"brand/new_writer.py"}
-    assert pretend_new - set(AUDIT_WRITERS) == {"brand/new_writer.py"}
+def test_C3_discovery_finds_a_REAL_new_call_site(tmp_path: pathlib.Path) -> None:
+    """Control for the scanner — and it is a real one this time.
+
+    The previous control did set arithmetic on an already-computed result,
+    which the reviewer correctly said tests nothing about discovery. This
+    writes an actual module containing the exact spelling the old scanner
+    missed and requires the scanner to PARSE it and find it.
+    """
+    (tmp_path / "pkg").mkdir()
+    (tmp_path / "pkg" / "sneaky.py").write_text(
+        "\n".join(
+            [
+                "from workflow_platform.persistence.models import AuditEntry",
+                "class T:",
+                "    def __init__(self, audit_repo):",
+                "        self.audit_repo = audit_repo",
+                "    async def go(self):",
+                "        entry = AuditEntry(actor_type='a', actor_id='a', action='x')",
+                "        await self.audit_repo.append(entry)",
+            ]
+        )
+    )
+    found = _audit_writers(tmp_path)
+    assert "pkg/sneaky.py" in found, (
+        f"discovery missed a real `self.audit_repo.append(...)` call site: {found}. "
+        "This is the exact spelling that hid the escalation tool."
+    )
+
+
+def test_C3_the_old_receiver_name_scanner_would_have_MISSED_it(
+    tmp_path: pathlib.Path,
+) -> None:
+    """Pins WHY the scanner changed, so nobody 'simplifies' it back."""
+    src = "\n".join(
+        [
+            "class T:",
+            "    async def go(self):",
+            "        await self.audit_repo.append(entry)",
+        ]
+    )
+    tree = ast.parse(src)
+    matched = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "append"
+        and isinstance(n.func.value, ast.Attribute)
+        and n.func.value.attr.lstrip("_") == "audit"
+    ]
+    assert not matched, (
+        "the receiver-name scanner now matches `audit_repo`; if that is deliberate, "
+        "this test should be deleted rather than adjusted"
+    )
 
 
 def test_C3_the_known_gap_is_recorded_not_forgotten() -> None:
@@ -496,3 +544,73 @@ async def test_INVARIANT_no_audit_entry_loses_content_without_a_vault_row() -> N
         f"these audited details lost content with no vault row holding the raw: "
         f"{destroyed}. That is destruction, not withholding."
     )
+
+
+async def test_C1_a_RETRIED_logical_write_reuses_one_vault_row() -> None:
+    """R12 finding 5, driven THROUGH `_audit` rather than the helper beneath it.
+
+    The earlier idempotency test called `record_audit_detail` directly with a
+    fixed id, which proved the vault key is stable but said nothing about the
+    path that actually mints ids. Through `_audit`, every call minted a fresh
+    one — so re-driving a write whose append had failed left a second vault
+    row behind and only one entry.
+    """
+    engine = _engine()
+    inst = await _instance(engine)
+    entry_id = "logical-write-1"
+
+    original = engine.repositories.audit.append
+    calls = {"n": 0}
+
+    async def flaky(entry: Any) -> Any:
+        calls["n"] += 1
+        if calls["n"] == 1:
+            raise RuntimeError("audit store unavailable")
+        return await original(entry)
+
+    engine.repositories.audit.append = flaky  # type: ignore[method-assign]
+
+    with pytest.raises(RuntimeError, match="audit store unavailable"):
+        await engine._audit(
+            "tool_param_override_blocked",
+            actor_type="agent",
+            actor_id="a",
+            instance_id=inst.id,
+            detail=RAW_DETAIL,
+            entry_id=entry_id,
+        )
+    # The retry: same logical write, same identity.
+    await engine._audit(
+        "tool_param_override_blocked",
+        actor_type="agent",
+        actor_id="a",
+        instance_id=inst.id,
+        detail=RAW_DETAIL,
+        entry_id=entry_id,
+    )
+
+    rows = await _vault_rows(engine, inst.id)
+    assert len(rows) == 1, f"the retry orphaned a second vault row: {len(rows)} rows"
+    entries = [
+        e
+        for e in await engine.repositories.audit.list_recent(limit=50)
+        if e.action == "tool_param_override_blocked"
+    ]
+    assert len(entries) == 1, f"the retry duplicated the audit entry: {len(entries)}"
+    assert entries[0].id == rows[0].audit_entry_id, "the entry and its vault row disagree"
+
+
+async def test_C1_WITHOUT_an_explicit_id_two_calls_are_two_events() -> None:
+    """The default must stay 'new event', or the multiplicity case breaks:
+    two identical tool calls on one step attempt are two records, not one."""
+    engine = _engine()
+    inst = await _instance(engine)
+    for _ in range(2):
+        await engine._audit(
+            "tool_param_override_blocked",
+            actor_type="agent",
+            actor_id="a",
+            instance_id=inst.id,
+            detail=RAW_DETAIL,
+        )
+    assert len(await _vault_rows(engine, inst.id)) == 2

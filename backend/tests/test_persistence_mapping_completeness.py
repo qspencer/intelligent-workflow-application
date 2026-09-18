@@ -22,6 +22,7 @@ import pytest
 from pydantic import BaseModel
 
 from workflow_platform.persistence.models import (
+    AuditEntry,
     AuthSession,
     RawTrace,
     RawTraceGrant,
@@ -34,6 +35,12 @@ _POSTGRES = pathlib.Path("src/workflow_platform/persistence/postgres.py")
 #: direction"; the write direction is found by locating the `.values(...)`
 #: call that mentions the same fields.
 MAPPERS: dict[str, type[BaseModel]] = {
+    # R12: `AuditEntry` was absent because this table was seeded by hand from
+    # the `_row_to_*` names, and the audit mapper is `_from_audit_row`. A
+    # convention-based inventory misses whatever does not follow it — the same
+    # shape as the round-12 audit-writer finding. `test_every_model_mapper_is_
+    # classified` now derives the set from source instead.
+    "_from_audit_row": AuditEntry,
     "_row_to_user": User,
     "_row_to_auth_session": AuthSession,
     "_row_to_grant": RawTraceGrant,
@@ -45,6 +52,7 @@ MAPPERS: dict[str, type[BaseModel]] = {
 READ_EXCLUSIONS: dict[str, dict[str, str]] = {
     # `User.password_hash` is loaded by a dedicated credential path, never by
     # the general mapper, so it cannot leak into ordinary reads.
+    "_from_audit_row": {},
     "_row_to_user": {},
     "_row_to_auth_session": {},
     "_row_to_grant": {},
@@ -100,6 +108,32 @@ def test_the_raw_trace_WRITE_path_persists_every_model_field() -> None:
         f"the vault INSERT does not persist {sorted(missing)}. These are set on the "
         "RawTrace but never written, so they read back as defaults and "
         "vault_fingerprint compares unequal — every put then raises VaultConflict."
+    )
+
+
+def test_every_model_mapper_is_classified() -> None:
+    """R12: the MAPPERS table above was hand-seeded from the `_row_to_*`
+    naming convention, so `_from_audit_row` — and with it `AuditEntry` — was
+    never checked. Derive the set from source: any module-level function in
+    `postgres.py` whose body constructs one of our persisted models IS a
+    mapper and must be classified."""
+    known = {m.__name__: m for m in MAPPERS.values()}
+    found: set[str] = set()
+    for node in ast.walk(_tree()):
+        if not isinstance(node, ast.FunctionDef):
+            continue
+        for call in ast.walk(node):
+            if (
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Name)
+                and call.func.id in known
+                and call.keywords
+            ):
+                found.add(node.name)
+    missing = sorted(found - set(MAPPERS))
+    assert not missing, (
+        f"these functions build a persisted model but are not classified in MAPPERS: "
+        f"{missing}. A field added to that model would go unpersisted unnoticed."
     )
 
 

@@ -87,6 +87,7 @@ async def run_batch(
     from workflow_platform.persistence import in_memory_repositories
     from workflow_platform.secrets import EnvSecretStore
     from workflow_platform.tools import EmailLabelApplyTool, EmailSendTool, Tool
+    from workflow_platform.trace_bootstrap import init_tracing
     from workflow_platform.trace_flip import trace_safe_only_from_env
     from workflow_platform.workflow import load_definition_from_yaml
     from workflow_platform.world import real_world
@@ -152,6 +153,7 @@ async def run_batch(
             # tasks: bedrock client, gmail connector, memory manager,
             # tool catalog — all read-only or call-scoped.
             repos = in_memory_repositories()
+            init_tracing()
             engine = WorkflowEngine(
                 repositories=repos,
                 functions=default_function_registry(),

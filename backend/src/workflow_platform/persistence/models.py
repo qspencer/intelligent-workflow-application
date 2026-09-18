@@ -108,6 +108,17 @@ class AuditEntry(BaseModel):
     workflow_instance_id: str | None = None
     step_id: str | None = None
     detail: dict[str, Any] = Field(default_factory=dict)
+    # R12 finding 1: set ONLY when this entry's detail was written as a
+    # PROJECTION and its raw was vaulted. Its PRESENCE — not a marker inside
+    # `detail` — is what tells a reader the raw exists and must be fetched,
+    # exactly as `StepExecution.projector_version` does for step rows (P3a).
+    #
+    # A marker check cannot work here and the attempt is instructive: the
+    # stored detail is ALREADY projected, so asking "would projection remove
+    # anything from this?" always answers no. And a marker inside the payload
+    # is operator-editable, which is why P3a moved the signal to a column.
+    # None = never projected, or projection took nothing, so nothing vaulted.
+    projector_version: str | None = None
 
 
 class TriggerCursorState(BaseModel):

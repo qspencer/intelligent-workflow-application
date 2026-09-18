@@ -64,7 +64,7 @@ from workflow_platform.tools import (
     Tool,
 )
 from workflow_platform.tools.email import account_label_tool_name
-from workflow_platform.trace_cipher import ENV_MASTER_KEY_SECRET, install_master_key
+from workflow_platform.trace_bootstrap import init_tracing
 from workflow_platform.trace_flip import trace_safe_only_from_env
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.world import real_world
@@ -178,13 +178,10 @@ def _resolve_trace_master_key() -> None:
     file on disk (§5a secret-manager gate). Decoupled from the GLOBAL secret
     backend on purpose, so it doesn't disturb Gmail credential resolution. No
     secret name → the `WORKFLOW_PLATFORM_TRACE_MASTER_KEY` env fallback stays."""
-    secret_name = os.environ.get(ENV_MASTER_KEY_SECRET)
-    if not secret_name:
-        return
-    # Use the SYNC boto3 client directly — create_app runs inside uvicorn's
-    # running event loop, so asyncio.run() is unavailable here.
-    response = AwsSecretsManagerStore().client.get_secret_value(SecretId=secret_name)
-    install_master_key(str(response["SecretString"]))
+    # R12 finding 2: this logic moved to `trace_bootstrap` so the operator
+    # tools share it. They did not, and a CLI run with safe-only on and no
+    # key wrote plaintext vault rows into production.
+    init_tracing()
 
 
 _DEV_ERROR_BUFFER: ErrorBuffer | None = None

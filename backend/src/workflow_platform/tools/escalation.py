@@ -16,11 +16,15 @@ from __future__ import annotations
 from typing import Any, ClassVar
 
 from workflow_platform.events import EventBus
-from workflow_platform.persistence import AuditEntry, AuditRepo
+from workflow_platform.persistence import AuditEntry, AuditRepo, Repositories
 from workflow_platform.persistence.models import _new_id, _utcnow
 from workflow_platform.tools.base import Tool, ToolContext, ToolResult
 from workflow_platform.trace_flip import trace_safe_only_from_env
-from workflow_platform.trace_projection import project_audit_detail_at_rest
+from workflow_platform.trace_projection import (
+    PROJECTOR_VERSION,
+    project_audit_detail_at_rest,
+)
+from workflow_platform.trace_vault import RawTraceVault, audit_detail_has_raw
 
 
 def _trace_safe_only() -> bool:
@@ -50,8 +54,22 @@ class RequestHumanReviewTool(Tool):
         "required": ["reason"],
     }
 
-    def __init__(self, audit_repo: AuditRepo, events: EventBus | None = None) -> None:
+    def __init__(
+        self,
+        audit_repo: AuditRepo,
+        events: EventBus | None = None,
+        repositories: Repositories | None = None,
+    ) -> None:
         self.audit_repo = audit_repo
+        # R12 finding 4: this tool projected its detail at rest but never
+        # VAULTED it, so `reason` and `context` — the model-authored content
+        # the escalation exists to convey — were DESTROYED rather than
+        # withheld. With repositories it vaults first, like the engine
+        # chokepoint. Without them (older call sites, unit tests) it keeps the
+        # previous behaviour, and `_vault is None` is the only case where
+        # projection is allowed to be lossy.
+        self._repos = repositories
+        self._vault = RawTraceVault(repositories) if repositories is not None else None
         self.events = events
 
     async def execute(
@@ -70,17 +88,47 @@ class RequestHumanReviewTool(Tool):
         # shared action-aware projection itself. The flip is a process-wide env
         # flag, so the tool can read it. (Below-grant READS are gated separately
         # in /api/escalations; this closes the AT-REST write path.)
-        detail: dict[str, Any] = {"reason": reason, "context": extra}
+        raw_detail: dict[str, Any] = {"reason": reason, "context": extra}
+        detail = raw_detail
+        entry_id = _new_id()
+        instance_id = context.workflow_instance_id if context else None
+        stamp: str | None = None
         if _trace_safe_only():
-            detail = project_audit_detail_at_rest("escalation_requested", detail)
+            detail = project_audit_detail_at_rest("escalation_requested", raw_detail)
+            # Vault BEFORE projecting away, addressed by the entry id — the
+            # same order and the same key space as the engine chokepoint.
+            if (
+                self._vault is not None
+                and self._repos is not None
+                and instance_id is not None
+                and audit_detail_has_raw("escalation_requested", raw_detail)
+            ):
+                instance = await self._repos.instances.get(instance_id)
+                if instance is None:
+                    # Fail closed. Guessing the default org would file one
+                    # tenant's raw under another; projecting anyway would
+                    # destroy it. Neither is acceptable, so refuse.
+                    return ToolResult(
+                        error="cannot record escalation: the owning org of "
+                        f"instance {instance_id} could not be resolved"
+                    )
+                await self._vault.record_audit_detail(
+                    org_id=instance.org_id,
+                    instance_id=instance_id,
+                    audit_entry_id=entry_id,
+                    action="escalation_requested",
+                    detail=raw_detail,
+                )
+                stamp = PROJECTOR_VERSION
         entry = AuditEntry(
-            id=_new_id(),
+            id=entry_id,
             timestamp=_utcnow(),
             actor_type="agent",
             actor_id=(context.agent_id if context and context.agent_id else "agent"),
             action="escalation_requested",
-            workflow_instance_id=(context.workflow_instance_id if context else None),
+            workflow_instance_id=instance_id,
             detail=detail,
+            projector_version=stamp,
         )
         await self.audit_repo.append(entry)
         if self.events is not None:

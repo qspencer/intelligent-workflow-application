@@ -103,6 +103,8 @@ class AuditLogRow(Base):
     workflow_instance_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     step_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
     detail: Mapped[dict[str, Any]] = mapped_column(JsonColumn, nullable=False)
+    # See AuditEntry.projector_version — presence means the raw is vaulted.
+    projector_version: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class TriggerCursorRow(Base):

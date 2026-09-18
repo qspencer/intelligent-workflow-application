@@ -58,6 +58,7 @@ from workflow_platform.tools import (
     PdfExtractTool,
     Tool,
 )
+from workflow_platform.trace_bootstrap import init_tracing
 from workflow_platform.trace_flip import trace_safe_only_from_env
 from workflow_platform.workflow import load_definition_from_file
 from workflow_platform.world import real_world
@@ -106,6 +107,7 @@ async def fire(args: argparse.Namespace) -> int:
         learned_db = os.environ.get(
             "WORKFLOW_PLATFORM_LEARNED_MEMORY_DB", str(Path(memory_dir) / "learned.db")
         )
+        init_tracing()
         engine = WorkflowEngine(
             repositories=repos,
             functions=default_function_registry(),

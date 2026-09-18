@@ -61,21 +61,38 @@ def _b64d(text: str) -> bytes:
 
 
 def _aad(
-    *, org_id: str, instance_id: str, step_attempt_id: str | None, kind: str, schema_version: int
+    *,
+    org_id: str,
+    instance_id: str,
+    step_attempt_id: str | None,
+    kind: str,
+    schema_version: int,
+    audit_entry_id: str | None = None,
 ) -> bytes:
     """Canonical, immutable associated data binding the ciphertext to its
-    identity — a substitution across rows changes the AAD and fails to open."""
-    return json.dumps(
-        {
-            "org": org_id,
-            "instance": instance_id,
-            "attempt": step_attempt_id,
-            "kind": kind,
-            "schema": schema_version,
-        },
-        sort_keys=True,
-        separators=(",", ":"),
-    ).encode("utf-8")
+    identity — a substitution across rows changes the AAD and fails to open.
+
+    R12 finding 3: audit-detail rows all carry `step_attempt_id=None` and the
+    same `kind`, so before `audit_entry_id` joined the AAD every audit row in
+    an instance shared ONE identity and entry B's ciphertext opened under
+    entry A's id. The binding is what makes the vault row *that entry's* raw
+    rather than *some* raw from the same run.
+
+    The key is OMITTED when None so every non-audit row's AAD bytes are
+    unchanged — the existing vault opens exactly as before. Only audit rows,
+    which always carry an id, are affected; see `tools/reseal_audit_vault.py`
+    for the rows sealed before this landed.
+    """
+    identity: dict[str, Any] = {
+        "org": org_id,
+        "instance": instance_id,
+        "attempt": step_attempt_id,
+        "kind": kind,
+        "schema": schema_version,
+    }
+    if audit_entry_id is not None:
+        identity["audit_entry"] = audit_entry_id
+    return json.dumps(identity, sort_keys=True, separators=(",", ":")).encode("utf-8")
 
 
 class TraceCipher:
@@ -100,6 +117,7 @@ class TraceCipher:
         step_attempt_id: str | None,
         kind: str,
         schema_version: int,
+        audit_entry_id: str | None = None,
     ) -> dict[str, Any]:
         nonce = os.urandom(12)
         aad = _aad(
@@ -108,6 +126,7 @@ class TraceCipher:
             step_attempt_id=step_attempt_id,
             kind=kind,
             schema_version=schema_version,
+            audit_entry_id=audit_entry_id,
         )
         ct = AESGCM(self._data_key(org_id)).encrypt(
             nonce, json.dumps(payload, default=str).encode("utf-8"), aad
@@ -123,6 +142,7 @@ class TraceCipher:
         step_attempt_id: str | None,
         kind: str,
         schema_version: int,
+        audit_entry_id: str | None = None,
     ) -> Any:
         if not isinstance(sealed, dict) or sealed.get("alg") != _ALG:
             raise TraceCipherError("not a sealed trace payload")
@@ -132,6 +152,7 @@ class TraceCipher:
             step_attempt_id=step_attempt_id,
             kind=kind,
             schema_version=schema_version,
+            audit_entry_id=audit_entry_id,
         )
         try:
             pt = AESGCM(self._data_key(org_id)).decrypt(

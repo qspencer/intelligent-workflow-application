@@ -46,6 +46,7 @@ from workflow_platform.tools import (
     FileWriteTool,
     PdfExtractTool,
 )
+from workflow_platform.trace_bootstrap import init_tracing
 from workflow_platform.trace_flip import trace_safe_only_from_env
 from workflow_platform.workflow import load_definition_from_file
 from workflow_platform.world import mock_world
@@ -66,6 +67,8 @@ async def replay(args: argparse.Namespace) -> int:
     bedrock = BedrockClient(mode=BedrockMode.REPLAY, recordings_dir=args.recordings_dir)
     repos = in_memory_repositories()
     await repos.definitions.save(definition)
+
+    init_tracing()
 
     engine = WorkflowEngine(
         repositories=repos,

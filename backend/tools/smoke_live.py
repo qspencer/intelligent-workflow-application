@@ -40,6 +40,7 @@ from workflow_platform.persistence import (
     WorkflowInstanceState,
     in_memory_repositories,
 )
+from workflow_platform.trace_bootstrap import init_tracing
 from workflow_platform.trace_flip import trace_safe_only_from_env
 from workflow_platform.workflow import load_definition
 from workflow_platform.world import mock_world
@@ -153,6 +154,7 @@ async def step_3_workflow_engine() -> None:
             "edges": [],
         }
     )
+    init_tracing()
     engine = WorkflowEngine(
         repositories=repos,
         functions=FunctionRegistry(),

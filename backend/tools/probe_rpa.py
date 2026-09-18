@@ -45,6 +45,7 @@ async def main() -> int:
         BrowserWaitForTool,
         ImageOcrTool,
     )
+    from workflow_platform.trace_bootstrap import init_tracing
     from workflow_platform.trace_flip import trace_safe_only_from_env
     from workflow_platform.workflow import load_definition_from_yaml
     from workflow_platform.world import real_world
@@ -62,6 +63,7 @@ async def main() -> int:
             await memory.write_raw(f"steps/{definition.id}/{step.id}", memory_text)
 
     repos = in_memory_repositories()
+    init_tracing()
     engine = WorkflowEngine(
         repositories=repos,
         functions=default_function_registry(),

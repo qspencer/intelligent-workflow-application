@@ -1715,16 +1715,36 @@ class WorkflowEngine:
         instance_id: str | None = None,
         step_id: str | None = None,
         detail: dict[str, Any] | None = None,
+        entry_id: str | None = None,
     ) -> None:
+        """Append one audit entry, vaulting its raw first under the flip.
+
+        `entry_id` makes a RETRY of the same logical write addressable. R12
+        finding 5: without it every call minted a fresh id, so re-driving a
+        write whose append had failed produced a SECOND vault row and one
+        entry — an orphan per attempt. Passing the id the first attempt used
+        re-addresses the same vault object.
+
+        Omitting it means "this is a new logical event", which is the right
+        default: two identical tool calls on one step attempt are two events
+        and must not collapse onto one row (criterion 1).
+        """
         raw_detail = dict(detail or {})
         stored_detail = raw_detail
+        # R12 finding 1: set when the raw is vaulted, so a reader knows to
+        # fetch it. The stored detail is already projected, so "would
+        # projection remove anything from this?" always answers no — the
+        # signal has to be persisted, not re-derived. Same reasoning as P3a
+        # for step rows, and it must be a COLUMN so deleting a payload marker
+        # cannot make rehydration skip the vault.
+        vaulted_version: str | None = None
         # The entry id is minted HERE, before any I/O, because the vault row is
         # addressed BY it. Ordering matters and is the reverse of what this
         # method used to do (project, then construct): mint id -> vault the raw,
         # durable-or-fail -> project -> append. Vaulting first is the same rule
         # the step-output path follows — a lost raw write must FAIL the step,
         # not silently drop the raw.
-        entry_id = _new_id()
+        entry_id = entry_id or _new_id()
         # F4 (G-Trace-Review-4): under the flip EVERY raw audit write is projected
         # at rest — retry `str(exc)`, connector/timeout exceptions, memory-recall
         # errors, pin-override params, tool_call input/result. One shared
@@ -1753,6 +1773,7 @@ class WorkflowEngine:
                     action=action,
                     detail=raw_detail,
                 )
+                vaulted_version = PROJECTOR_VERSION
         entry = AuditEntry(
             id=entry_id,
             actor_type=actor_type,
@@ -1761,6 +1782,7 @@ class WorkflowEngine:
             workflow_instance_id=instance_id,
             step_id=step_id,
             detail=stored_detail,
+            projector_version=vaulted_version,
         )
         await self.repositories.audit.append(entry)
         if self.events is not None:

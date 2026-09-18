@@ -129,6 +129,10 @@ class RawTraceVault:
                 step_attempt_id=step_attempt_id,
                 kind=kind.value,
                 schema_version=RAW_SCHEMA_VERSION,
+                # R12 finding 3: without this every audit row in an instance
+                # shares one AEAD identity, so one entry's ciphertext opens
+                # under another entry's id.
+                audit_entry_id=audit_entry_id,
             )
         trace = RawTrace(
             org_id=org_id,

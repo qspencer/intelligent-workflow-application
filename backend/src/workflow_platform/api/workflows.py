@@ -70,7 +70,7 @@ from workflow_platform.secrets import SecretNotFoundError, SecretStore
 from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.templates import default_examples_dir, load_templates, slugify, unique_id
 from workflow_platform.tools import Tool, ToolContext, ToolResult
-from workflow_platform.trace_rehydrate import RawTraceRehydrator
+from workflow_platform.trace_rehydrate import RawTraceRehydrator, RawTraceUnavailable
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.workflow import (
     TriggerSpec,
@@ -1444,18 +1444,94 @@ def build_router(
         ) is not None
 
     def _project_audit(entries: list[AuditEntry], raw_ok: bool) -> list[AuditEntry]:
-        """Raw tool payloads (mail bodies, file contents, error text) are
-        stored in full but read only with a covering raw-trace grant. Below
-        that, ANY tool-call data — whether in a `tool_call` entry OR nested in
-        a `step_completed` entry's step output — is projected to safe
-        metadata, so audit access can't become an intra-org read escalation.
-        Storage is unchanged (a response-layer projection)."""
+        """Below-grant projection of audit details (a response-layer
+        projection; storage is unchanged)."""
         if raw_ok:
             return entries
         return [
             e.model_copy(update={"detail": project_audit_detail(e.action, e.detail)})
             for e in entries
         ]
+
+    async def _release_audit(
+        entries: list[AuditEntry], *, org_id: str, actor_id: str, instance_id: str | None
+    ) -> tuple[list[AuditEntry], list[str], list[str]]:
+        """Restore vaulted audit details for a grant holder.
+
+        R12 finding 1: the audit endpoints handed back the STORED detail.
+        That was right while at rest held the raw; after the at-rest
+        tightening, stored IS the projection, so a grant holder got
+        `{"_withheld_keys": true}` and the release log still said `released`.
+
+        Returns the entries plus the kinds actually returned/withheld, so the
+        caller commits the outcome it achieved rather than the one it
+        intended. Audit is a VAULT-FETCH surface now, which is exactly the
+        case `decide_raw_release` documents itself as not covering.
+        """
+        restored: list[AuditEntry] = []
+        recovered = failed = 0
+        for entry in entries:
+            if entry.workflow_instance_id is None or entry.projector_version is None:
+                restored.append(entry)
+                continue
+            try:
+                full = await rehydrator.rehydrate_audit_detail(
+                    purpose=SURFACE_AUDIT,
+                    org_id=org_id,
+                    instance_id=entry.workflow_instance_id,
+                    audit_entry_id=entry.id,
+                    action=entry.action,
+                    stored_detail=entry.detail,
+                    projector_version=entry.projector_version,
+                )
+            except RawTraceUnavailable:
+                # Fail CLOSED per entry: hand back the projection, and let the
+                # caller report `partial` rather than claim a full release.
+                failed += 1
+                restored.append(entry)
+                continue
+            recovered += 1
+            restored.append(entry.model_copy(update={"detail": full}))
+        returned = ["audit_detail"] if recovered else []
+        withheld = ["audit_detail"] if failed else []
+        return restored, returned, withheld
+
+    async def _audit_response(
+        entries: list[AuditEntry],
+        *,
+        raw_ok: bool,
+        actor_id: str,
+        instance_id: str,
+        org_id: str,
+    ) -> list[AuditEntry]:
+        """Begin the access, fetch from the vault, THEN commit the outcome
+        that actually occurred — the two-phase shape `begin_raw_release`
+        documents for vault-fetch surfaces."""
+        request_id, _reason = await begin_raw_release(
+            repositories,
+            raw_ok=raw_ok,
+            surface=SURFACE_AUDIT,
+            actor_id=actor_id,
+            instance_id=instance_id,
+            kinds=("audit_detail",),
+        )
+        if request_id is None:
+            # Below grant, or the attempt audit failed. Either way: project.
+            return _project_audit(entries, False)
+        restored, returned, withheld = await _release_audit(
+            entries, org_id=org_id, actor_id=actor_id, instance_id=instance_id
+        )
+        audit_ok, _ = await commit_raw_release(
+            repositories,
+            request_id=request_id,
+            surface=SURFACE_AUDIT,
+            actor_id=actor_id,
+            instance_id=instance_id,
+            returned_kinds=returned,
+            withheld_kinds=withheld,
+        )
+        # Fail closed: a release we could not record is a release we do not make.
+        return restored if audit_ok else _project_audit(entries, False)
 
     @router.get(
         "/workflow-instances/{instance_id}/audit",
@@ -1468,15 +1544,14 @@ def build_router(
     ) -> list[AuditEntry]:
         instance = await _visible_instance(instance_id, scope)
         raw_ok = await _raw_reader_for_org(user, instance.org_id)
-        released, _ = await decide_raw_release(
-            repositories,
+        entries = await repositories.audit.list_by_instance(instance_id)
+        return await _audit_response(
+            entries,
             raw_ok=raw_ok,
-            surface=SURFACE_AUDIT,
             actor_id=user.sub,
             instance_id=instance_id,
-            kinds=("tool_calls",),
+            org_id=instance.org_id,
         )
-        return _project_audit(await repositories.audit.list_by_instance(instance_id), released)
 
     @router.get("/audit", response_model=list[AuditEntry])
     async def list_recent_audit(
@@ -1491,16 +1566,14 @@ def build_router(
         if instance_id is not None:
             instance = await _visible_instance(instance_id, scope)
             raw_ok = await _raw_reader_for_org(user, instance.org_id)
-            released, _ = await decide_raw_release(
-                repositories,
+            entries = await repositories.audit.list_by_instance(instance_id)
+            return await _audit_response(
+                entries[: min(limit, 500)],
                 raw_ok=raw_ok,
-                surface=SURFACE_AUDIT,
                 actor_id=user.sub,
                 instance_id=instance_id,
-                kinds=("tool_calls",),
+                org_id=instance.org_id,
             )
-            entries = await repositories.audit.list_by_instance(instance_id)
-            return _project_audit(entries[: min(limit, 500)], released)
         # The global list spans orgs — only a PLATFORM-WIDE grant reads raw
         # here (an org-scoped grant covers only its own org's entries), which
         # `covering(target_org=None)` returns exactly.
