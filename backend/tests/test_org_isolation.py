@@ -512,7 +512,9 @@ def test_ws_redacts_tool_secrets_without_grant(monkeypatch: pytest.MonkeyPatch) 
         got = ws.receive_json()
         blob = str(got)
         assert secret_in not in blob and secret_out not in blob
-        assert got["detail"]["output"]["output_text"].startswith("[redacted")
+        # GR4-R4: the key is now DROPPED and counted in `_withheld_key_count`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
+        assert "output_text" not in got["detail"]["output"]
+        assert got["detail"]["output"]["_withheld_key_count"] >= 1
 
     # Administrator WITHOUT a grant is also below-grant.
     with client.websocket_connect("/ws/events?user=root&groups=admins") as ws:

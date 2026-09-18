@@ -52,6 +52,13 @@ _REGISTERED = ("model", "id", "state", "actor_id", "memory_hash")
 _UNREGISTERED = ("summary", "unregistered_map", "notes", "payload")
 
 
+def _dumps(obj: Any) -> str:
+    """Whole projected structure as text — catches a value hiding in a KEY."""
+    import json
+
+    return json.dumps(obj, default=str)
+
+
 def _containers(leaf: Any) -> list[Any]:
     """The same leaf wrapped every structural way the projector may meet it."""
     out: list[Any] = [leaf, [leaf], {"k": leaf}, [[leaf]], [{"k": leaf}], {"k": [leaf]}]
@@ -111,22 +118,26 @@ def test_p1_token_path_rejects_email_and_prose() -> None:
         assert out["model"] != value, f"`model` admitted free content {value!r} (F1b)"
 
 
-def test_p1_trigger_routing_fields_are_validated() -> None:
-    """Routing ids kept in a projected trigger must pass the SAME validator as
-    anywhere else — copying them verbatim made `id` a free-text channel.
+def test_p1_trigger_routing_fields_are_withheld() -> None:
+    """No routing id survives a projected trigger payload.
 
-    NOTE the deliberate scope. An id-SHAPED value in `message_id` still
-    survives, because §1.3 individually justifies `message_id` as a retained
-    routing field (it is needed for the pinned mutation). That is an ACCEPTED
-    residual, not a bug, so this asserts the actual property — prose and
-    whitespace are rejected — rather than the stronger claim that nothing
-    recognisable survives, which the design does not make."""
+    SUPERSEDED CONTRACT, kept visible rather than deleted. This property used
+    to assert the opposite for the id-shaped case — that `message_id:
+    "18f3a2b9c4d"` was *retained* by design, §1.3 justifying it as operational
+    routing metadata. Round 4 (GR4-R4) showed why that could not hold: these
+    ids come from OUTSIDE (a webhook body, a mail provider), and a token-shaped
+    secret is indistinguishable from a routing token by shape, so "retain if it
+    looks like an id" retains `AKIAIOSFODNN7EXAMPLE` too. The id is now
+    withheld below grant and recoverable from the vault by a grant holder.
+
+    Verified before changing it: nothing in the backend or frontend reads a
+    routing id back out of a PROJECTED payload."""
     out = safe_trigger_payload(
         {"id": f"{SENTINEL} with spaces", "thread_id": "subject: " + SENTINEL}
     )
     assert not _leaks(out), f"trigger routing kept prose: {out}"
-    # …and a legitimately id-shaped routing value is retained, by design.
-    assert safe_trigger_payload({"message_id": "18f3a2b9c4d"})["message_id"] == "18f3a2b9c4d"
+    # …and the id-shaped case, which this property previously ALLOWED.
+    assert safe_trigger_payload({"message_id": "18f3a2b9c4d"})["message_id"] != "18f3a2b9c4d"
 
 
 def test_p1_tool_parameter_names_are_not_content() -> None:
@@ -322,3 +333,66 @@ def test_audit_denylist_covers_correspondent_query() -> None:
     """A memory_recalled detail's raw `query` must not survive at rest."""
     d = {"query": SENTINEL, "edges": 1, "context_hash": "abc"}
     assert not _leaks(project_audit_detail_at_rest("memory_recalled", d))
+
+
+# --- Round-4 containment (GR4-R4) -------------------------------------------
+#
+# The round-4 reviewer executed §3's claim that "all retained token paths are
+# platform-computed" and showed it FALSE. These three properties pin the
+# containment. They are SOURCE-aware, not shape-aware: the fix is to stop
+# emitting values whose source is external/model-chosen, NOT to tighten the
+# regex (which cannot separate a token-shaped secret from a safe token).
+
+# Token-SHAPED secrets. Every one passes _short_token — that is the point:
+# shape cannot save us here, so the key must be rejected on SOURCE.
+TOKEN_SHAPED_SECRETS = (
+    "AKIAIOSFODNN7EXAMPLE",  # AWS access key id
+    "123456789",  # an SSN, unformatted
+    "sk_live_51H8xQ2",  # a payment secret
+)
+
+
+@pytest.mark.parametrize("secret", TOKEN_SHAPED_SECRETS)
+def test_token_shaped_dict_key_is_not_a_leak_channel(secret: str) -> None:
+    """A TOKEN-SHAPED dict key must not survive on a data-keyed container.
+
+    This is the case the round-3 key fix MISSED and the round-4 sidecar wrongly
+    claimed was covered: `_safe_key` admits any field-name-shaped token, so a
+    secret that happens to be token-shaped rode through as a KEY. Shape cannot
+    tell them apart — a data-keyed wildcard must therefore drop unknown keys.
+    """
+    for container, kind in (
+        ({"usage": {secret: 1}}, "step_output"),
+        ({"output": {"usage": {secret: 1}}}, "step_row"),
+    ):
+        out = redact_tool_data(container, admin=False, kind=kind)
+        assert secret not in _dumps(out), f"token-shaped KEY survived: {out} (kind={kind})"
+
+
+@pytest.mark.parametrize("secret", TOKEN_SHAPED_SECRETS)
+def test_externally_supplied_routing_ids_are_grant_gated(secret: str) -> None:
+    """Routing ids come from OUTSIDE (a webhook body, a provider) — they are
+    not platform-computed, so a token-shaped one must not be emitted below
+    grant. It stays recoverable to a grant holder via the vault."""
+    for key in ("id", "message_id", "thread_id"):
+        out = safe_trigger_payload({"type": "webhook", key: secret})
+        assert secret not in _dumps(out), f"external routing id survived at {key}: {out}"
+
+
+def test_unresolved_tool_name_is_not_emitted() -> None:
+    """A tool NAME is model-chosen. It may only be shown when it resolves to a
+    known catalog entry; an unresolved name is the model's own string and must
+    not be echoed into the trace (the reviewer's 'resolved catalog entry rather
+    than the original requested string')."""
+    known = frozenset({"file_read", "pdf_extract"})
+
+    ok = safe_tool_call({"name": "file_read", "input": {"a": 1}}, known_tools=known)
+    assert ok["name"] == "file_read", "a RESOLVED catalog name must still be shown"
+
+    for hostile in ("exfiltrate_sk_live_51H8xQ2", "AKIAIOSFODNN7EXAMPLE", "not_a_real_tool"):
+        out = safe_tool_call({"name": hostile, "input": {"a": 1}}, known_tools=known)
+        assert hostile not in _dumps(out), f"unresolved model-chosen name survived: {out}"
+
+    # Fail CLOSED: with no catalog to resolve against, no name is emitted.
+    blind = safe_tool_call({"name": "file_read", "input": {"a": 1}})
+    assert "file_read" not in _dumps(blind), f"name emitted with no catalog: {blind}"

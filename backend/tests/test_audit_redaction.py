@@ -137,7 +137,9 @@ async def test_below_grant_cannot_recover_tool_secrets_anywhere(
 
     # Routing survives redaction (kept for the reader; needed by pin/resume).
     viewer_detail = client.get(f"/api/workflow-instances/{iid}", headers=_VIEWER).text
-    assert "msg-routing-123" in viewer_detail
+    # GR4-R4: routing ids are EXTERNALLY supplied, so they are grant-gated now
+    # (a token-shaped secret is indistinguishable from a routing token by shape).
+    assert "msg-routing-123" not in viewer_detail
 
     # Now grant the Administrator raw access — forensics are preserved for a
     # grant-holder (criterion 2), incl. the echoed output_text and the trigger.
@@ -184,11 +186,14 @@ def test_redact_projects_trigger_payload_and_recall() -> None:
     blob = _json.dumps(redacted)
     assert "SECRET-SUBJ" not in blob and "SECRET-BODY" not in blob
     assert "SECRET-CORRESPONDENT-HISTORY" not in blob
-    assert redacted["trigger"]["message_id"] == "m1"  # routing kept
+    # GR4-R4: routing ids are externally supplied → grant-gated, not kept.
+    assert redacted["trigger"]["message_id"] != "m1"
     # `category` is a PER-WORKFLOW vocabulary, so the platform-global registry
     # cannot validate it — it is redacted by default (re-review 2026-08-03 /
     # §1.4). The per-workflow safe-schema declaration will opt it back in.
-    assert redacted["steps"]["classify"]["category"].startswith("[redacted")
+    # GR4-R4: the key is now DROPPED and counted in `_withheld_key_count`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
+    assert "category" not in redacted["steps"]["classify"]
+    assert redacted["steps"]["classify"]["_withheld_key_count"] >= 1
 
     # admin=True is unchanged (forensics preserved).
     assert redact_tool_data(obj, admin=True, kind="context") == obj

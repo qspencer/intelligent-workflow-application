@@ -5,6 +5,7 @@ here as they land."""
 from __future__ import annotations
 
 import base64
+import json
 from typing import Any
 
 import pytest
@@ -73,11 +74,14 @@ def test_rr_p1_registered_key_with_unvalidated_value_is_redacted() -> None:
         "model"
     ].startswith("[redacted")
     # an UNREGISTERED numeric field no longer passes "safe by type"
-    assert redact_tool_data({"ssn": 123456789}, admin=False, kind="step_output")["ssn"] != 123456789
-    # a per-workflow business vocabulary is not platform-registered
-    assert redact_tool_data({"category": SECRET}, admin=False, kind="step_output")[
-        "category"
-    ].startswith("[redacted")
+    # GR4-R4: the key is now DROPPED and counted in `_withheld_key_count`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
+    _ssn = redact_tool_data({"ssn": 123456789}, admin=False, kind="step_output")
+    assert "ssn" not in _ssn and 123456789 not in _ssn.values()
+    # a per-workflow business vocabulary is not platform-registered — GR4-R4:
+    # the key is now dropped and counted, not emitted with a redacted value
+    _cat = redact_tool_data({"category": SECRET}, admin=False, kind="step_output")
+    assert "category" not in _cat
+    assert SECRET not in json.dumps(_cat, default=str)
     # …while a correctly-shaped registered value still survives
     assert redact_tool_data({"usage": {"input_tokens": 12}}, admin=False, kind="step_output")[
         "usage"
@@ -136,7 +140,9 @@ def test_f1_no_tool_output_text_is_redacted() -> None:
     safe = redact_tool_data(
         {"output_text": SECRET, "model": "claude-haiku-4-5"}, admin=False, kind="step_output"
     )
-    assert SECRET not in str(safe["output_text"])
+    # GR4-R4: the key is now DROPPED and counted in `_withheld_key_count`, not emitted with a redacted value — an undeclared key is itself a leak channel (a token-shaped secret makes a perfectly good key). Stricter than the assertion this replaces.
+    assert "output_text" not in safe
+    assert SECRET not in json.dumps(safe, default=str)
     assert safe["model"] == "claude-haiku-4-5"  # registered + validated survives
 
 
