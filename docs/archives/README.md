@@ -40,6 +40,7 @@ blocking issues by reading code the spec described inaccurately.
 |---|---|---|---|---|
 | `trace-f1-review-r3-b7cc1d2.tar.gz` | `b7cc1d2` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 3** — the six round-2 findings (R2-1..6) fixed at the CLASS level. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R3 | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-r2-b2f913a.tar.gz` | `b2f913a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 2** — the four G-Trace-Review-4 findings (GR4-1..4) remediated. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R | `docs/TRACE_F1_REVIEW_GUIDE.md` |
+| `trace-f1-review-r9-<built>.tar.gz` | built from the commit recording this row (branch `main`) | 2026-09-18 | **Round-8 return fixed + the first self-audited package.** Minting now rewrites DOTTED config references and materialises step-naming defaults (a renamed workflow parsed then FAILED); the golden corpus is ENTRY-POINT aware and a test instruments the run to prove `safe_tool_call` is reached; the historical fixture was regenerated from `b67391d`, the archive the reviewer holds, after being built from the wrong commit. Ships `docs/REVIEW_FINDINGS_LEDGER.md` — all ~45 findings classified into 7 mechanisms with detectors, whose first run found a defect the reviewer had not (version stamps inside the projected output → projector v6). Sidecar: `docs/TRACE_F1_REVIEW_ROUND9.md`. |
 | `trace-f1-review-r8-7cfed97.tar.gz` | `7cfed97` (branch `main`) | 2026-09-18 | **Round-7 remediation + the GOLDEN VERSION GUARD.** All five round-7 findings fixed (ownership now composes at the schema NODE; no function may write projection metadata or an unearned `parse_ok`; projector v4; minting by PATH with PARSED conditions; invalid legacy marker signals). The guard makes the version bump a build failure instead of a thing to remember — with two proofs it fires, and a v3 fixture REGENERATED from the archived round-6 projector so historical degradation is tested rather than skipped. Adds the end-to-end coverage the reviewer asked for. Sidecar: `docs/TRACE_F1_REVIEW_ROUND8.md`. |
 | `trace-f1-review-r7-38ec7a1.tar.gz` | `38ec7a1` (branch `p1-reprimitive`) | 2026-09-18 | **OWNERSHIP TYPING — the class behind six rounds.** Four owner classes (ENGINE/CONFIG/BUSINESS/PROJECTION) declared for all 57 root fields of the four typed schemas, no default (unclassified = build failure). BUSINESS withheld until a release rule exists (`parse_ok` released, reason recorded). ENGINE defended at the BOUNDARY — a function's output cannot carry engine keys — because StepExecution does not persist the step type, so a verifier could not re-derive the producer. Round-6's three defects also fixed. Sidecar: `docs/TRACE_F1_REVIEW_ROUND7.md`. **Ships the test-time CODE MANIFEST** round 6 asked for. |
 | `trace-f1-review-r6-b67391d.tar.gz` | `b67391d` (branch `p1-reprimitive`) | 2026-09-18 | **F1/F5 round 6 — remediation of the round-5 RETURN.** All six findings fixed, each reproduced first: projector version bumped 2→3 (old rows now degrade, not read as tampering), the process-wide tool catalog REMOVED (projection is a pure function again), the withheld count → BOOLEAN (the count was a raw channel), scaffold mints platform step ids, pinned/pin_overrides → booleans, usage counters restored, tool-name resolution made total. **Two of the six were defects we introduced while fixing round 4.** Sidecar: `docs/TRACE_F1_REVIEW_ROUND6.md`. Gate capture rebuilt after round 5's was shown untrustworthy (masked exit code + wrong commit). |
@@ -54,6 +55,27 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (F1/F5 review ROUND 9)
+
+```
+  38290aafccfa6c279a0cd8f971f4d765e35c037f3e82809b9ac0861bfeedce1e  docs/TRACE_F1_REVIEW_ROUND9.md
+  e868278e8ed8b6d7a27c91e68de51652b052226709e9fac51cc7edcb94d7313d  docs/archives/GATE_OUTPUT_R9.txt
+  768cdd3f038938afc1416095c2979519864092c19b8e06167762083cf5b831db  docs/archives/CODE_MANIFEST_R9.txt
+  4cfde544736904888ad26b08d544b5aa5694c0febd762d879ac7b9be4bd57be4  docs/REVIEW_FINDINGS_LEDGER.md
+  c1a9aa533577c20f0ed3d3ae29283855cff280d5cbbcb4b94d4d3f0672602b21  backend/src/workflow_platform/scaffold.py
+```
+
+**Aggregate source hash** (recomputable from the extracted package, no git):
+
+```
+7a784c9032afab1a73eafb504852c3d8651873e430f278c46452e2254b7ce0bf
+cd backend && find src tests -name '*.py' -type f | sort | xargs sha256sum | sha256sum
+```
+
+Four golden fixtures ship (v3 historical + v4/v5/v6), each naming the commit
+it was frozen from, so a superseded fixture can be RE-DERIVED and shown
+authentic rather than trusted — the round-8 correction.
 
 ## Integrity hashes (F1/F5 review ROUND 8)
 
