@@ -6,6 +6,29 @@ that reason.
 
 ---
 
+## DECIDED (operator, 2026-09-18)
+
+| | Decision |
+|---|---|
+| **1. Addressing** | **Option A** — a new nullable `audit_entry_id` column plus `RawTraceKind.AUDIT_DETAIL`. Taken as accepted on the recommendation; say otherwise and it changes. |
+| **2. Scope** | **Option A** — vault **exactly those details that LOSE something to projection**: `project_audit_detail_at_rest(action, detail) != detail`. The predicate IS the projection, so the rule cannot drift from what projection actually does. |
+| **Timing** | **Hold the migration until round 11 returns.** Nothing is applied to the production DB while a package is out and a return might touch the same files. |
+
+**Build order when the hold lifts**, unchanged from below: migration →
+chokepoint reorder (construct entry → vault raw durable-or-fail → project →
+append) → rehydration by audit entry → **only then** tighten at-rest
+filtering to match the read path. The first test to write is the
+multiplicity case — N tool calls in one step attempt must produce N
+recoverable rows — because that is the one the existing key would have
+silently broken.
+
+**Deliberately NOT started early.** The column does not exist yet, and the
+deployed code is the checked-out `main`, so writing code against a missing
+column would break production the moment the service reloaded. There is no
+useful half of this to land.
+
+---
+
 # Part 1 — Audit-detail vaulting
 
 **Status: DESIGNED, NOT BUILT.** Two decisions are the operator's, and one of
