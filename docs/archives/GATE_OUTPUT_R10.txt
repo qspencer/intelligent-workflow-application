@@ -1,0 +1,42 @@
+Captured standalone gate results — F1/F5 review round 10
+
+Gates ran at tree: 8a12e0625acbf0643d0cac3fa12347fe92ad350b   (manifest aggregate: 641d4ebfcec65c8367af310c78525d93c38ead8805901f0b8176794fa5fc3447)
+Exit codes are real: each command writes to a file and $? is read
+IMMEDIATELY, before any pipe. Five gates.
+
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · 2026-09-18T20:17:26Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+267 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 228 source files
+exit: 0
+
+=== uv run pytest -q ===
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+1143 passed, 14 skipped, 13 warnings in 38.18s
+exit: 0
+
+=== uv run --with pip-audit pip-audit ===
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== the round-9 findings, re-run ===
+ P1 agent inputs      : ['steps.step_1.value']
+ P1 pin_params        : {"p": "steps.step_1.value"}
+ P1 config ABSENT     : {"evaluation_from": "steps.step_1.output_text"}   <- the default is materialised because `evaluate` was renamed
+ P1 learned memory    : {"query_from": "steps.step_1.value"}
+ P2 nothing invented  : {"triage_from": "steps.step_2.output_text"}   <- route_from (a HELPER's default) is absent, as it should be
+
+=== the self-audit's adversarial finding (fixed before sending) ===
+ config DATA untouched : {"dest_dir": "/out/<steps.a>/"}
+ operator vs reference : if x<steps.a.count then use <steps.step_1.value>
