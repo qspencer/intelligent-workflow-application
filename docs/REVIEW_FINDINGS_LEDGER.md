@@ -260,6 +260,34 @@ Three rounds without a projection defect, and the mechanisms have moved from
 progress worth naming, and also the argument for the audit: M6/M7 are the
 classes our own protocol is supposed to catch.
 
+## 5e. Round 10 — and the uncomfortable pattern in M6
+
+Three findings: two M7 (minting collateral) and one **M6**. Still no
+projection defect — four rounds running.
+
+| Finding | Class | Note |
+|---|---|---|
+| Template rewriting changed ordinary config data, silently skipping a step | M7 | Our OWN reasoning from round 9: "`{…}` is a platform template form, so rewriting it anywhere is safe." The premise was right; the engine renders placeholders in exactly ONE field. |
+| Identifier grammar narrower than execution (`prépare`) | M1-ish | The rewriter's regex vs the resolver's `split(".")`. A **grammar mismatch between two components that must agree** — the M3 shape, one level up. |
+| The "schema-derived" gate enumerated nothing | **M6** | It built a handwritten dict. Adding a field to `AgenticStep` did not fail it. |
+
+**The pattern worth naming: M6 has now happened four times, always the same
+way.** A test or a document claims coverage that the code does not provide —
+the key-property test (R4), "whole-word" in a guide (R6), the tool-call golden
+case (R8), and now a "schema-derived" gate that derives nothing. Each time the
+NAME was the only true part.
+
+**The rule this adds to §3:** *a claim about coverage must be executable and
+must have been seen to FAIL.* Every gate now needs a control that
+demonstrates detection — the round-10 fix ships one (add a field to a real
+model, assert the gate fires). A gate that has never been observed failing is
+a claim, not a control.
+
+**And a smaller one:** two definitions of `_rewrite_context_path` coexisted,
+with Python using the stale one — which is why the first attempt at the fix
+appeared to do nothing. The M3 duplicate-definition detector covers watched
+CONSTANTS; it does not cover functions. Worth extending.
+
 ## 6. Convergence record
 
 Tracked so the claim "we are learning" is measurable rather than asserted.
@@ -274,6 +302,7 @@ Tracked so the claim "we are learning" is measurable rather than asserted.
 | 7 | 5 | 5 |
 | 8 | 3 (all M6/M7 — evidence + collateral, no new leaks) | 3 |
 | 9 | 3 (M7 ×2, M6 ×1 — still no projection defect) | 3 |
+| 10 | 3 (M7 ×2, M6 ×1 — four rounds with no projection defect) | 3 |
 
 **The trend to watch:** volume is falling, but the proportion we *could* have
 caught ourselves is rising — round 5 onward is almost entirely self-detectable.
