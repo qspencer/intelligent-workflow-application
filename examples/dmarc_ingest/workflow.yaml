@@ -34,6 +34,11 @@ trigger:
     query: 'has:attachment (filename:zip OR filename:gz)'
     download_dir: /tmp/dmarc-spool
     poll_interval_seconds: 300
+    # Drop UNREAD once the run COMPLETEs, so the mailbox's unread count is a
+    # real backlog signal rather than a permanent one (every report used to
+    # stay unread forever — this workflow never touched message state).
+    # Only a COMPLETED run marks: a failed delivery stays unread on purpose.
+    mark_read_after_success: true
   example_payload:
     subject: "Report domain: quentinspencer.com Submitter: google.com"
     attachment_paths:

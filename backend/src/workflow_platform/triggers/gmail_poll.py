@@ -113,6 +113,7 @@ class GmailPollTrigger(Trigger):
         slim_payload: bool = False,
         annotate_reply_status: bool = False,
         annotate_auth_result: bool = False,
+        mark_read_after_success: bool = False,
         body_max_chars: int | None = None,
         cursor_store: TriggerCursorRepo | None = None,
         cursor_key: str | None = None,
@@ -142,6 +143,10 @@ class GmailPollTrigger(Trigger):
         # Authentication-Results verdict (trusted-authserv policy). Computed
         # BEFORE slimming (slim_payload drops raw headers).
         self.annotate_auth_result = annotate_auth_result
+        # Mutating: after a run COMPLETEs, drop UNREAD so the mailbox's unread
+        # count becomes a real backlog signal. Only an explicit True from the
+        # callback marks; a failed, unknown or errored run stays unread.
+        self.mark_read_after_success = mark_read_after_success
         # Full-coverage mail includes very long newsletter bodies; a
         # classification prompt needs the head, not 30k tokens of it.
         self.body_max_chars = body_max_chars
@@ -261,18 +266,33 @@ class GmailPollTrigger(Trigger):
                 self._mark_seen(msg.message_id)
                 dispatched = True
                 try:
-                    await on_event(await self._build_payload(msg))
+                    processed = await on_event(await self._build_payload(msg))
                 except Exception:
                     logger.exception(
                         "Trigger callback failed for Gmail message %s; loop continues.",
                         msg.message_id,
                     )
+                else:
+                    if self.mark_read_after_success and processed is True:
+                        await self._mark_read(msg.message_id)
 
             if dispatched:
                 await self._persist_cursor()
 
             if await self._wait_or_stop(self.poll_interval_seconds):
                 return
+
+    async def _mark_read(self, message_id: str) -> None:
+        """Drop Gmail's UNREAD label after the workflow processed the message.
+
+        Best-effort by design: the report is already delivered, so a failure
+        here must not fail the run or stop the loop — it only leaves the
+        message unread, which is the safe direction (it will be re-marked on a
+        later successful run, and `remove_labels` is idempotent)."""
+        try:
+            await self.connector.remove_labels(message_id, ["UNREAD"])
+        except Exception:
+            logger.exception("Could not mark Gmail message %s read; it stays unread.", message_id)
 
     async def _persist_cursor(self) -> None:
         """Best-effort write of the poll position (G9). A persistence failure

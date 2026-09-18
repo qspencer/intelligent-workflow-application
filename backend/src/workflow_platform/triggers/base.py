@@ -15,7 +15,11 @@ from abc import ABC, abstractmethod
 from collections.abc import Awaitable, Callable
 from typing import Any, ClassVar
 
-TriggerCallback = Callable[[dict[str, Any]], Awaitable[None]]
+# Returns True when the run it fired COMPLETED, False when it did not, and
+# None when the caller does not report an outcome. A trigger that acts on
+# the result of processing (e.g. marking mail read) must treat None as
+# "unknown" and NOT act — only an explicit True means processed.
+TriggerCallback = Callable[[dict[str, Any]], Awaitable["bool | None"]]
 
 
 class Trigger(ABC):

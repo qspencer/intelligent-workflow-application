@@ -32,6 +32,7 @@ def _make_trigger(
     poll_interval_seconds: float = 0.05,
     auth_revoked_backoff_seconds: float = 0.05,
     label: str | None = "INBOX",
+    mark_read_after_success: bool = False,
 ) -> tuple[GmailPollTrigger, FakeGmailService]:
     svc = svc or FakeGmailService()
     conn = GmailConnector(
@@ -41,6 +42,7 @@ def _make_trigger(
     )
     trig = GmailPollTrigger(
         connector=conn,
+        mark_read_after_success=mark_read_after_success,
         poll_interval_seconds=poll_interval_seconds,
         label=label,
         auth_revoked_backoff_seconds=auth_revoked_backoff_seconds,
@@ -573,3 +575,60 @@ async def test_body_max_chars_truncates_payload() -> None:
     trigger2 = GmailPollTrigger(connector=connector)
     payload2 = await trigger2._build_payload(messages[0])
     assert len(payload2["body_text"]) == 10_000
+
+
+# --- mark-read-after-success (the mailbox's unread count as a backlog signal) ---
+
+
+def _unread_modifies(svc: FakeGmailService) -> list[Any]:
+    return [
+        c
+        for c in svc.calls
+        if c[0] == "messages.modify" and c[1]["body"] == {"removeLabelIds": ["UNREAD"]}
+    ]
+
+
+async def _run_one(processed: bool | None, *, marking: bool) -> FakeGmailService:
+    """One message through the loop; the callback reports `processed`."""
+    svc = FakeGmailService()
+    svc.list_response = {"messages": [{"id": "m-1"}]}
+    svc.get_responses["m-1"] = stage_gmail_message("m-1", subject="Report domain: x")
+    svc.labels_response = {"labels": [{"id": "UNREAD", "name": "UNREAD"}]}
+    seen: list[dict[str, Any]] = []
+
+    async def on_event(payload: dict[str, Any]) -> bool | None:
+        seen.append(payload)
+        return processed
+
+    trig, _ = _make_trigger(svc, mark_read_after_success=marking)
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: len(seen) >= 1)
+        await asyncio.sleep(0.05)  # let any follow-up mailbox write land
+    finally:
+        await trig.stop()
+    return svc
+
+
+async def test_marks_read_only_after_a_completed_run() -> None:
+    svc = await _run_one(True, marking=True)
+    assert len(_unread_modifies(svc)) == 1
+
+
+async def test_failed_run_leaves_the_message_unread() -> None:
+    """The point of the feature: unread must mean UNPROCESSED. A run that did
+    not COMPLETE leaves the mail unread so it stays visible as backlog."""
+    svc = await _run_one(False, marking=True)
+    assert _unread_modifies(svc) == []
+
+
+async def test_unknown_outcome_leaves_the_message_unread() -> None:
+    """A callback that reports nothing is not evidence of success."""
+    svc = await _run_one(None, marking=True)
+    assert _unread_modifies(svc) == []
+
+
+async def test_marking_is_off_by_default() -> None:
+    """Touching the mailbox is opt-in: no config, no mutation."""
+    svc = await _run_one(True, marking=False)
+    assert _unread_modifies(svc) == []

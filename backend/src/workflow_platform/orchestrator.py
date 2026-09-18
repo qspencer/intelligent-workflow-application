@@ -35,6 +35,7 @@ from workflow_platform.connectors.email import (
 from workflow_platform.engine import WorkflowEngine
 from workflow_platform.memory import MemoryManager
 from workflow_platform.persistence import Repositories
+from workflow_platform.persistence.models import WorkflowInstanceState
 from workflow_platform.secrets import EnvSecretStore, SecretStore
 from workflow_platform.triggers import (
     FilesystemTrigger,
@@ -235,6 +236,7 @@ class TriggerOrchestrator:
                     slim_payload=bool(config.get("slim_payload", False)),
                     annotate_reply_status=bool(config.get("annotate_reply_status", False)),
                     annotate_auth_result=bool(config.get("annotate_auth_result", False)),
+                    mark_read_after_success=bool(config.get("mark_read_after_success", False)),
                     body_max_chars=(
                         int(config["body_max_chars"]) if config.get("body_max_chars") else None
                     ),
@@ -263,10 +265,10 @@ class TriggerOrchestrator:
 
     def _make_callback(
         self, definition: WorkflowDefinition
-    ) -> Callable[[dict[str, Any]], Awaitable[None]]:
+    ) -> Callable[[dict[str, Any]], Awaitable[bool | None]]:
         engine = self.engine
 
-        async def callback(payload: dict[str, Any]) -> None:
+        async def callback(payload: dict[str, Any]) -> bool | None:
             try:
                 instance = await engine.run(definition, trigger_payload=payload)
                 logger.info(
@@ -276,6 +278,7 @@ class TriggerOrchestrator:
                     instance.id,
                     instance.state.value,
                 )
+                return instance.state is WorkflowInstanceState.COMPLETED
             except Exception:
                 # The engine itself catches step failures and marks the instance
                 # FAILED. Anything that escapes engine.run is a bug at a layer
@@ -285,5 +288,6 @@ class TriggerOrchestrator:
                     "Unhandled error firing workflow %s; the trigger will keep running.",
                     definition.id,
                 )
+            return False
 
         return callback
