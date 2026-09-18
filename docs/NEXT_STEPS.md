@@ -2,28 +2,81 @@
 
 ## Where things stand
 
-*(Refreshed 2026-07-31.)* The 2026-07 build arc landed: local auth +
-tenant-scoped roles (S1–S3), the acting email triage with two-axis
-classification live on the full mailbox, codification (G13) live with 7
-senders, the IA rework (one catalog, two renderings), the veracium
-memory transparency surface, and the monitoring loop actually running in
-production (five checks incl. the new `alert_stale_trigger`). Current
-open work is the G15/G16 follow-ups below plus the two supervised
-validation windows (two-axis part 2; codify §9), both accumulating on
-live mail.
+*(Refreshed 2026-09-18. Previous refresh 2026-07-31; the summary below
+replaces it.)*
 
-The manual-testing backlog that originally motivated this doc is closed.
-Today you can: `docker compose up -d postgres`, start the backend with
-`WORKFLOW_DEFINITIONS_DIR=../examples`, start the frontend, then drop a
-PDF / click Run / curl a webhook / wait for a schedule — each fires
-end-to-end with live audit events streaming into the dashboard. Role
-switching, eval scores, memory-hash visibility, and Postgres-backed
-persistence all work without leaving the browser.
+**One epic has dominated the seven weeks since: trace governance.** Of 220
+commits, ~130 are the trace work and the review apparatus around it. What
+that bought:
 
-This doc now tracks: (1) one explicitly-deferred item, (2) gaps surfaced
-*during* the manual-testing push that didn't make the original backlog,
-and (3) a "Landed" appendix so you can find where any completed item
-lives.
+- **Contract A is live in production** — read-time grant gating, verified
+  on the running process (`WORKFLOW_PLATFORM_TRACE_SAFE_ONLY=1`). Contract
+  B1 (zero-raw-at-rest) stays deferred behind its named trigger.
+- **Path-scoped, kind-dispatched projection** over five asset schemas, with
+  ownership typing (`ENGINE` / `CONFIG` / `BUSINESS` / `PROJECTION`) as a
+  total table, so the boundary composes through nesting instead of being
+  re-decided per call site. Projector at version 6, guarded by append-only
+  golden fixtures.
+- **A frontend trust wedge for it**: raw-trace grant management + a
+  raw-access log.
+- **Eight external review rounds (4–11)**, of which **8, 9 and 10 found
+  zero defects in the projection itself**. The findings moved to our own
+  evidence (claims whose only true part was a name) and to collateral
+  tooling. Round 11 is out and unreturned.
+
+**The second thing that happened is a process change, and it may outlast
+the epic.** `docs/REVIEW_FINDINGS_LEDGER.md` now classifies every external
+finding into seven mechanisms (M1–M7), pairs each with a detector that is
+either real or honestly marked absent, and gates package assembly behind a
+pre-send protocol. Convergence is tracked as a table, not asserted. The
+stated stopping rule: **end the review line when a round returns nothing a
+§3 detector could have caught** — rounds 8–10 do not meet that bar, because
+every finding was a named class we already knew about.
+
+Also landed, outside the epic:
+
+- **veracium 0.13.0 → 0.26.1** (13 releases), store schema **9 → 14** via
+  the library migration path; `source_id` threaded through the spec →
+  executor → service so third-party writes satisfy `require_source_id`.
+- **Scaffold step-id minting hardened** — references now rewritten *by
+  schema location* with per-function declarations, after a schema-derived
+  audit test found two gaps that the previous prose-scanning approach hid.
+- **Immutable-attempt model** — `EXECUTION_SEMANTICS` §3a, attempt number
+  is first-class.
+- **Email-recall validation harness** — persistent/sequential runner, an
+  interactive labeler for the crux set, and a labeled verdict path (with
+  its minimum-detectable-effect caveat stated rather than buried).
+- **DMARC reports are marked read** once the run reaches `COMPLETED` — only
+  on success, so a failure still leaves the mail visibly unprocessed.
+- **Operability + supply chain**: schema-drift detection at the health
+  endpoint (G26.1), the CI dependency audit un-masked after it hid every
+  other signal for six runs (G26.3), 4 CVEs closed (anyio, soupsieve), all
+  11 open dependabot PRs resolved, and the 42-commit `p1-reprimitive`
+  branch merged.
+
+**Current counts:** 1,170 backend tests collected, 200 frontend tests,
+110 backend source modules.
+
+**Immediate priorities, in order:**
+
+1. **Round 11 verdict** — out with the reviewer; everything touching the
+   trace files is held behind it.
+2. **Audit-detail vaulting** (`G-Trace-Audit-Vault` below) — fully decided
+   (addressing, scope, ordering); the migration is deliberately held until
+   round 11 returns.
+3. **Catalog snapshot/digest** — designed in
+   `docs/TRACE_AUDIT_VAULT_DESIGN.md` Part 2, needs a schema; queued behind
+   audit vaulting because both touch persistence.
+4. **G18 model sweep** — a pure spend decision (~$0.70/model Haiku-class,
+   ~$2 Sonnet, ~$3.50 Opus over the 139-message corpus); the harness has
+   been ready since 2026-07-31.
+
+The manual-testing backlog that originally motivated this doc remains
+closed; the local-loop description below still holds.
+
+This doc tracks: (1) explicitly-deferred items, (2) gaps surfaced during
+the work that didn't make the original backlog, and (3) a "Landed"
+appendix so you can find where any completed item lives.
 
 For larger forward-looking work (knowledge ingestion, LLM-driven
 orchestrator, generative UI, OAuth connectors), see `CLAUDE.md`'s
@@ -855,12 +908,33 @@ capture: a model probing the action surface.
 is already a named follow-up in `TRACE_B1_DEFERRAL.md` ("audit-detail vaulting
 for grant-holder forensic recovery"), now with a second reason to want it.
 
-**Priority, stated:** at-rest over-retention is a **Contract B1** concern (it
-matters to a DB operator), and B1 is deferred behind the first reader whose
-access depends on projection. The reviewer lists audit-at-rest as separate
-outstanding work, which is consistent. So this waits on B1's trigger rather
-than jumping the queue — and CONFIG approval, which is Contract A (live, ordinary
-readers see it), goes first.
+**Status: DECIDED, build held (operator, 2026-09-18).** Superseding the
+earlier "waits on B1's trigger" call — the forensics argument above won, so
+this is being built rather than queued behind B1. Decisions, recorded in
+full in `docs/TRACE_AUDIT_VAULT_DESIGN.md`:
+
+- **Addressing** — a new nullable `audit_entry_id` column plus a
+  `RawTraceKind.AUDIT_DETAIL`. The existing vault key is one row per
+  `(org, instance, step_attempt, kind)`, but one step attempt emits MANY
+  audit entries, so reusing it would silently collapse them; and
+  `step_attempt_id IS NULL` already means "instance-level row", so
+  overloading it would destroy that distinction.
+- **Scope** — vault exactly those details that LOSE something to
+  projection: `project_audit_detail_at_rest(action, detail) != detail`.
+  The predicate *is* the projection, so the rule cannot drift from what
+  projection actually does.
+- **Ordering** — the `_audit` chokepoint currently projects BEFORE
+  constructing the entry, so the id does not exist when it is needed. Fix
+  follows the step-output pattern: construct entry → vault raw by id,
+  durable-or-fail → project → append. Durable-or-fail because *a lost
+  write must fail the step, not silently drop the raw.*
+- **Timing** — **held until the round-11 verdict returns.** A production
+  migration is a poor thing to run while a package is out and the return
+  might touch the same files.
+
+First test to write is the multiplicity case: N tool calls in one step
+attempt must yield N recoverable rows — the one the existing key would
+have broken quietly.
 
 ---
 
