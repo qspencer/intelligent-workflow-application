@@ -41,6 +41,38 @@ def _project_case(case: tuple) -> object:
     return redact_tool_data(inp, admin=False, kind=kind)
 
 
+def _verified_stamp() -> str:
+    """The commit that can actually reproduce this fixture — or an explicit
+    admission that there isn't one yet.
+
+    Round-12 finding: this used to stamp HEAD unconditionally. The usual order
+    is bump -> regenerate -> commit, so HEAD is the commit BEFORE the bump and
+    declares the PREVIOUS version. The authenticity test skipped the current
+    version, so the wrong stamp stayed latent until the next bump and then
+    surfaced as "v7 names a commit declaring 6". v7 and v8 both shipped that
+    way. Verify, and say UNVERIFIED rather than writing a plausible commit
+    that cannot reproduce the fixture.
+    """
+    head = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True
+    ).stdout.strip()
+    if head:
+        declared = subprocess.run(
+            ["git", "show", f"{head}:backend/src/workflow_platform/trace_projection.py"],
+            capture_output=True,
+            text=True,
+        ).stdout
+        if f'PROJECTOR_VERSION = "{PROJECTOR_VERSION}"' in declared:
+            return f"git {head} — the commit that froze this version"
+        print(
+            f"  WARNING: HEAD ({head}) does not declare PROJECTOR_VERSION="
+            f"{PROJECTOR_VERSION}, so it cannot reproduce this fixture.\n"
+            f"  Recording the stamp as UNVERIFIED. Commit the bump, then re-run\n"
+            f"  this tool to record the commit that actually froze the version."
+        )
+    return "UNVERIFIED — regenerate after committing the version bump"
+
+
 def main() -> int:
     out = GOLDEN_DIR / f"projection_v{PROJECTOR_VERSION}.json"
     existing = json.loads(out.read_text())["cases"] if out.exists() else None
@@ -65,6 +97,28 @@ def main() -> int:
             return 1
         added = [c for c in CORPUS if c[0] not in by_id]
         if not added:
+            # Repair an UNVERIFIED stamp. The two-step workflow this tool now
+            # requires — generate, commit the bump, re-run — was unusable
+            # without this: the second run hit "nothing to add" and returned
+            # before it could record the provenance it had just demanded.
+            if existing_source.startswith("UNVERIFIED"):
+                repaired = _verified_stamp()
+                if not repaired.startswith("UNVERIFIED"):
+                    out.write_text(
+                        json.dumps(
+                            {
+                                "projector_version": PROJECTOR_VERSION,
+                                "projection_schema_version": PROJECTION_SCHEMA_VERSION,
+                                "generated_from": repaired,
+                                "cases": existing,
+                            },
+                            indent=2,
+                            sort_keys=True,
+                        )
+                        + "\n"
+                    )
+                    print(f"{out.name}: provenance recorded — {repaired}")
+                    return 0
             print(f"{out.name} is current: {len(existing)} cases, none drifted, nothing to add.")
             return 0
         cases = existing + [
@@ -90,42 +144,10 @@ def main() -> int:
         )
         return 0
     GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
-    # R8 P2: record the commit, so a superseded fixture can later be
-    # RE-DERIVED from its source and shown authentic rather than trusted.
-    head = subprocess.run(
-        ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True
-    ).stdout.strip()
-    # Round-12 pre-package finding: stamping HEAD blindly writes a LIE the
-    # common way this tool is used — you bump the version, regenerate, then
-    # commit, so HEAD is the commit BEFORE the bump and declares the previous
-    # version. `test_historical_fixtures_are_authentic_against_their_declared_source`
-    # skips the CURRENT version, so the lie stays latent until the NEXT bump,
-    # then surfaces as "v7 names a commit declaring 6". v7 and v8 both had it.
-    # Verify instead of assuming; say so loudly rather than writing a
-    # plausible-looking commit that cannot reproduce the fixture.
-    if head:
-        declared = subprocess.run(
-            ["git", "show", f"{head}:backend/src/workflow_platform/trace_projection.py"],
-            capture_output=True,
-            text=True,
-        ).stdout
-        marker = f'PROJECTOR_VERSION = "{PROJECTOR_VERSION}"'
-        if marker not in declared:
-            print(
-                f"  WARNING: HEAD ({head}) does not declare PROJECTOR_VERSION="
-                f"{PROJECTOR_VERSION}, so it cannot reproduce this fixture.\n"
-                f"  Recording the stamp as UNVERIFIED. Commit the bump, then re-run\n"
-                f"  this tool to record the commit that actually froze the version."
-            )
-            head = ""
     payload = {
         "projector_version": PROJECTOR_VERSION,
         "projection_schema_version": PROJECTION_SCHEMA_VERSION,
-        "generated_from": (
-            f"git {head} — the commit that froze this version"
-            if head
-            else "UNVERIFIED — regenerate after committing the version bump"
-        ),
+        "generated_from": _verified_stamp(),
         # R9 P2: the append path was action-aware and this one was not, so
         # creating a fixture for a NEW version raised "too many values to
         # unpack" on the first 4-element corpus entry and wrote nothing.
