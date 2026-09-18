@@ -1,0 +1,74 @@
+Captured standalone gate results — F1/F5 review round 12
+
+Gates ran at tree: 01f0fda12b4f2fe5c4ae0b36b8f96d162dbb2377   (manifest aggregate: 72f372e35c2124a7ce3348b0ef79e4ab583643f7fb9a6c53973e0232fc82b2d9)
+Exit codes are real: each command's output goes to a variable and $? is read
+IMMEDIATELY, before any pipe. Five gates, plus the Postgres-gated suite —
+included because this round's central defect was one ONLY a real database
+could exhibit.
+
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · 2026-09-18T22:13:55Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+272 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 232 source files
+exit: 0
+
+=== uv run pytest ===
+SKIPPED [1] tests/test_postgres_repositories.py:156: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
+1195 passed, 16 skipped, 13 warnings in 40.37s
+exit: 0
+
+=== uv run pip-audit ===
+No known vulnerabilities found
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== TEST_DATABASE_URL=… uv run pytest -m integration ===
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_schema_conformance.py:29: SCHEMA_TESTS not set; skipping schemathesis contract tests
+4 passed, 1 skipped, 1206 deselected, 1 warning in 2.96s
+exit: 0
+
+=== CONTROLS (protocol step 2b — every cited gate observed FAILING) ===
+Each detector was sabotaged with the defect it claims to catch, the suite
+run, the source restored, and the suite re-run. 'sabotaged' must be non-zero
+or the gate is a claim rather than a control.
+
+--- M3 grammar (prose rewriter reach)
+    sabotage: narrow the identifier grammar back to ASCII
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- M8 mapping (postgres WRITE)
+    sabotage: drop audit_entry_id from the INSERT
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- M8 mapping (postgres READ)
+    sabotage: drop audit_entry_id from the row mapper
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- vaulting scope (safety invariant)
+    sabotage: vault nothing
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- trace flip decided at every engine
+    sabotage: one tool stops deciding the flip
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- at-rest tightening (golden guard)
+    sabotage: undeclare the escalation link
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)

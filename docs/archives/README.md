@@ -406,3 +406,38 @@ docs, as archived:
 (`ff37a883…`, `e658c019…`), so `THREAT_MODEL.md` and `EXECUTION_SEMANTICS.md` are
 provably unchanged since that review and need no re-reading. Only the handoff and
 the governance plan moved.
+
+---
+
+## Round 12 — audit-detail vaulting + the at-rest audit tightening (2026-09-18)
+
+First round whose subject is **not** the F1/F5 projection primitive. Rounds
+8–11 found zero defects there, so the line closed and the scope moved to the
+work the reviewer named next.
+
+```
+commit   b60e9da
+tree     01f0fda12b4f2fe5c4ae0b36b8f96d162dbb2377
+archive  cb2d4ac86daa1f38c3873d0189a563ba9747d7cbff75a36739b82383ac70e1c7
+         trace-f1-review-r12-b60e9da.tar.gz
+```
+
+**Manifest is extraction-verified**: unpacking the archive and recomputing
+`find src tests -name '*.py' | sort | xargs sha256sum | sha256sum` yields
+`72f372e3…`, byte-identical to `CODE_MANIFEST_R12.txt` (232 files).
+
+Companions, delivered alongside (not inside the archive, as in prior rounds):
+
+```
+1c2dcc7ec3675398b1039263ce8b721e0994cc2a9d5f5a14ca06b5fc41a73db6  TRACE_F1_REVIEW_ROUND12.md   (sidecar)
+d7ebe59274e29e5eae2825cad74372319c41f72131bf0db806e04592704a217e  TRACE_AUDIT_VAULT_DESIGN.md  (design record)
+4d97e95d0189abdc44f06667dafb9e2bb712de194631441eefb75c305c653427  CODE_MANIFEST_R12.txt
+932a1bdc8613b34294d25330ed96c2a21f0d62e7fb91d3ff003d2a2564db14d5  GATE_OUTPUT_R12.txt
+```
+
+The gate capture carries the six **controls**: each cited detector sabotaged
+with the defect it claims to catch, observed failing, restored, re-run. The
+pre-package protocol found three defects of its own this round — a validator
+admitting an email on routing ids, a golden corpus that could not see the
+fields the change released, and fixture provenance naming the wrong commit —
+all fixed before the package was built.
