@@ -297,30 +297,24 @@ def _rewrite_condition(expr: str, mapping: dict[str, str]) -> str:
 #: round 6, and "the extract step ran" is English, not a reference.
 #: `prior_steps.<id>` is accepted too: when an agentic step declares no
 #: `inputs`, the engine hands the model `{"trigger": …, "prior_steps":
-#: context.steps}`, so goals name steps THAT way. It is not a resolvable
-#: path (the resolver only accepts `trigger.`/`steps.` heads) but it IS
-#: what the agent sees, so a delimited one goes stale on rename.
-_DELIMITED_REF = re.compile(r"(?P<open>[`<])(?P<prefix>(?:prior_)?steps\.)(?P<id>[A-Za-z0-9_\-]+)")
+#: context.steps}`, so goals name steps that way. Not a resolvable path (the
+#: resolver takes only `trigger.`/`steps.` heads) but it IS what the agent
+#: reads, so a delimited one goes stale on rename.
+#:
+#: BOTH delimiters must CLOSE. Self-audit: `<` alone matched the less-than in
+#: prose like "if x<steps.a.count", and an unterminated backtick matched
+#: nothing meaningful — requiring the closing delimiter makes the form a
+#: reference by construction rather than by luck.
+_DELIMITED_REF = re.compile(
+    r"(?P<open>`)(?P<prefix>(?:prior_)?steps\.)(?P<id>[A-Za-z0-9_\-]+)(?P<rest>[A-Za-z0-9_.*\-]*)`"
+    r"|"
+    r"(?P<open2><)(?P<prefix2>(?:prior_)?steps\.)(?P<id2>[A-Za-z0-9_\-]+)(?P<rest2>[A-Za-z0-9_.*\-]*)>"
+)
 
 
-def _rewrite_template(text: str, mapping: dict[str, str]) -> str:
-    """Rewrite `{steps.<id>…}` placeholders and DELIMITED references.
-
-    Bare prose is NOT rewritten. The distinction is delimiters: a placeholder
-    and a backticked path are references by construction; "the extract step
-    ran" is English."""
-
-    def placeholder(m: re.Match[str]) -> str:
-        sid = m.group("id")
-        return m.group(0) if sid not in mapping else f"{{steps.{mapping[sid]}"
-
-    def delimited(m: re.Match[str]) -> str:
-        sid = m.group("id")
-        if sid not in mapping:
-            return m.group(0)
-        return f"{m.group('open')}{m.group('prefix')}{mapping[sid]}"
-
-    return _DELIMITED_REF.sub(delimited, _TEMPLATE_REF.sub(placeholder, text))
+#: A dotted step reference at the head of a CONTEXT PATH (a value whose
+#: FIELD is declared to be a reference, so no delimiter is needed).
+_DOTTED_REF = re.compile(r"^(?P<prefix>steps\.)(?P<id>[A-Za-z0-9_\-]+)")
 
 
 def _rewrite_context_path(value: Any, mapping: dict[str, str]) -> Any:
@@ -333,6 +327,40 @@ def _rewrite_context_path(value: Any, mapping: dict[str, str]) -> Any:
         return m.group(0) if sid not in mapping else f"steps.{mapping[sid]}"
 
     return _DOTTED_REF.sub(sub, value, count=1)
+
+
+def _rewrite_template(text: str, mapping: dict[str, str]) -> str:
+    """Rewrite `{steps.<id>…}` PLACEHOLDERS. Applies to any string.
+
+    A `{…}` placeholder is a platform template form — the engine renders it in
+    observation text — so rewriting it anywhere is safe."""
+
+    def placeholder(m: re.Match[str]) -> str:
+        sid = m.group("id")
+        return m.group(0) if sid not in mapping else f"{{steps.{mapping[sid]}"
+
+    return _TEMPLATE_REF.sub(placeholder, text)
+
+
+def _rewrite_prose_references(text: str, mapping: dict[str, str]) -> str:
+    """Additionally rewrite DELIMITED references, for AGENT-FACING text only.
+
+    Self-audit finding: applied to every string, this rewrote ordinary config
+    data (`dest_dir: "/out/<steps.a>/"`) and trigger config, where `<…>` is
+    not a template form — nothing in the platform renders it. The convention
+    lives in prose the MODEL reads (`goal`, `system_prompt`), so that is where
+    it is applied. Elsewhere a backticked or bracketed path is data.
+    """
+
+    def delimited(m: re.Match[str]) -> str:
+        sid = m.group("id") or m.group("id2")
+        if sid not in mapping:
+            return m.group(0)
+        if m.group("open"):
+            return f"`{m.group('prefix')}{mapping[sid]}{m.group('rest')}`"
+        return f"<{m.group('prefix2')}{mapping[sid]}{m.group('rest2')}>"
+
+    return _DELIMITED_REF.sub(delimited, _rewrite_template(text, mapping))
 
 
 def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
@@ -409,6 +437,8 @@ def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
                 out_s[k] = {
                     ck: (path(cv) if ck in ref_fields else template(cv)) for ck, cv in v.items()
                 }
+            elif k in ("goal", "system_prompt") and isinstance(v, str):
+                out_s[k] = _rewrite_prose_references(v, mapping)  # AGENT-FACING
             else:
                 out_s[k] = template(v)
         # A default names a step by id, so renaming that step dangles it. Only
