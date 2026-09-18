@@ -829,6 +829,65 @@ provenance.** The credible paths are (a) build §1.4a provenance + a positive
 B1 behind the first real external tenant. "Patch the six" is NOT a third option;
 it will fail a seventh review the same way. Recommendation: **(b)**.
 
+### G-Trace-Review-R6 — the §4.4 ENUMERATION (2026-09-18) — **the answer we asked for twice; ARCHITECTURE, not a patch**
+
+Rounds 4, 5 and 6 each closed the named leaks and each found more, from a
+different direction. Round 6 finally answered *why*, and the answer is one
+sentence:
+
+> **The projector knows the asset KIND and the field PATH, but it does not
+> establish which PRODUCER supplied the value.**
+
+Every round's findings were instances. The reviewer's enumeration of what
+remains — each item verified here before recording:
+
+| Retained group | Why it is unsound |
+|---|---|
+| **Workflow ids + definition metadata** | The scaffold still derives `workflow_id` from the model's proposed NAME; slugging preserves recognisable content. Model selection and capability paths/hosts also come from definition config. Minting step ids established the origin of step ids and nothing else. |
+| **Model-derived decisions** | `faithfulness_score`, `category_score`, `relevance_score`, `needs_tests` are PARSED FROM MODEL OUTPUT; `concern_count` derives from its list. Numeric or boolean shape does not make them platform measurements. |
+| **Fields presented as engine metadata** | ✅ reproduced: the registered `noop` function returns its config unchanged and it is projected under the same schema as engine output — a step output carrying `model: "attacker-supplied"`, `memory_hash: …` and `usage.input_tokens: 999999` survives **verbatim**, with `output_has_raw()` returning **False**. This is the whole accepted-output-field class, not one field. |
+| **Tool-summary numbers** | ✅ reproduced: the already-projected branch accepts supplied `input_key_count` / `content_bytes` on SHAPE, so arbitrary numbers survive — raw data presenting itself as projection metadata, the same class as the withheld-count defect. |
+| **Other audit actions at rest** | `tool_param_override_blocked` still retains the requested tool name; `tool_pin_unresolved` retains definition-derived parameter/path values. Ordinary-reader audit projection drops these, so it is specifically an AT-REST gap — "tool names are withheld everywhere" was too broad a claim. |
+
+**The prescribed correction (reviewer's words, adopted):** distinguish
+**engine-owned metadata**, **approved configuration**, **business output** and
+**stored projection metadata** at their boundaries, and **withhold unapproved
+business fields until their release rules exist**. That addresses the class
+instead of adding a field-specific exception every round.
+
+This is the §1.4a provenance primitive arriving from the consumer side, scoped
+as ownership typing at four boundaries rather than per-field provenance
+everywhere. **It is a build, not a patch, and it is NOT started.**
+
+**Also answered by round 6** (design questions we put to them):
+- **Catalog digest beside the stamp — YES**, but it must name an immutable
+  RETAINED snapshot, reconstruction must verify the snapshot against the
+  digest, and an unavailable historical catalog degrades to an audited
+  `unsupported` while keeping normal authorization. *A digest without the
+  snapshot is insufficient.*
+- **Boolean disclosure — reasonable as an explicit product choice**, but
+  input-supplied `true` is not evidence that projection omitted anything: it
+  makes unchanged raw look incomplete. Generated metadata needs a defined
+  **ownership rule** (which is the same finding as the table above).
+- **Mechanical version guard — YES.** Immutable reference fixtures per released
+  version; an explicit new version required when expected projections change;
+  cover every asset kind, repeated projection, and reconstruction of
+  historical records; include schema-version consistency.
+
+**Fixed in `4d9f39c` (the round-6 return's three defects):** the scaffold
+substring rewrite (it mangled `pdf_extract` → `pdf_step_1`, a path, and a
+comparison literal, and silently minted duplicate ids apart); withholding vs
+completeness disagreement (three cases, now one shared predicate that also
+recognises the round-5 representation); and `PROJECTION_SCHEMA_VERSION` still
+at 1 with two independent definitions (now 2, one authority, pinned by a test).
+
+**Open packaging item:** the reviewer cannot verify our "docs-only difference"
+claim from inside a package — `git archive` carries no history. Ship a
+**test-time code manifest** (hashes of the source tree the gates ran against)
+so the claim is checkable from the package alone.
+
+---
+
 ### G-Trace-Review-R4 — F1/F5 CONFIRMATION round (2026-09-18) — **verdict: keep the flip ON under a corrected restriction; Contract A/B1 NOT accepted**
 
 Package `trace-f1-review-r4-1fa67c2.tar.gz`, reviewed at the archive's embedded
