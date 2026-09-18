@@ -46,6 +46,7 @@ from workflow_platform.tools import (
     FileWriteTool,
     PdfExtractTool,
 )
+from workflow_platform.trace_flip import trace_safe_only_from_env
 from workflow_platform.workflow import load_definition_from_file
 from workflow_platform.world import mock_world
 
@@ -72,6 +73,7 @@ async def replay(args: argparse.Namespace) -> int:
         tools=_default_tools(),
         bedrock=bedrock,
         world=mock_world(),
+        trace_safe_only=trace_safe_only_from_env(),
     )
 
     instance = await engine.run(definition, trigger_payload=trigger_payload)

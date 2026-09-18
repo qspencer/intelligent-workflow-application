@@ -87,6 +87,7 @@ async def run_batch(
     from workflow_platform.persistence import in_memory_repositories
     from workflow_platform.secrets import EnvSecretStore
     from workflow_platform.tools import EmailLabelApplyTool, EmailSendTool, Tool
+    from workflow_platform.trace_flip import trace_safe_only_from_env
     from workflow_platform.workflow import load_definition_from_yaml
     from workflow_platform.world import real_world
 
@@ -158,6 +159,7 @@ async def run_batch(
                 bedrock=bedrock,
                 world=real_world(),
                 memory=memory,
+                trace_safe_only=trace_safe_only_from_env(),
             )
             trigger = json.loads(fixture_path.read_text())
             trigger = _trim_trigger(trigger, max_body_chars=max_body_chars, strip_html=strip_html)

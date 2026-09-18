@@ -65,6 +65,7 @@ from workflow_platform.tools import (
 )
 from workflow_platform.tools.email import account_label_tool_name
 from workflow_platform.trace_cipher import ENV_MASTER_KEY_SECRET, install_master_key
+from workflow_platform.trace_flip import trace_safe_only_from_env
 from workflow_platform.triggers import WebhookRegistry
 from workflow_platform.world import real_world
 
@@ -127,8 +128,7 @@ def _default_engine(
         # safe projection and raw lives in the vault (rehydrated on
         # resume/fork). Default OFF (dark dual-write); flip at the external-org
         # gate. See docs/TRACE_GOVERNANCE_PLAN.md §4.
-        trace_safe_only=os.environ.get("WORKFLOW_PLATFORM_TRACE_SAFE_ONLY", "").lower()
-        in ("1", "true", "yes"),
+        trace_safe_only=trace_safe_only_from_env(),
     )
 
 

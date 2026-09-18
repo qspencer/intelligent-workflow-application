@@ -13,21 +13,21 @@ when the orchestrator gets its active-reasoning brain.
 
 from __future__ import annotations
 
-import os
 from typing import Any, ClassVar
 
 from workflow_platform.events import EventBus
 from workflow_platform.persistence import AuditEntry, AuditRepo
 from workflow_platform.persistence.models import _new_id, _utcnow
 from workflow_platform.tools.base import Tool, ToolContext, ToolResult
+from workflow_platform.trace_flip import trace_safe_only_from_env
 from workflow_platform.trace_projection import project_audit_detail_at_rest
 
 
 def _trace_safe_only() -> bool:
-    """The safe-only flip, read from the same process-wide env flag the engine
-    uses (`main._build`); the escalation tool writes audit outside the engine's
-    `_audit` chokepoint, so it consults the flag directly."""
-    return os.environ.get("WORKFLOW_PLATFORM_TRACE_SAFE_ONLY", "").lower() in ("1", "true", "yes")
+    """The safe-only flip. The escalation tool writes audit outside the
+    engine's `_audit` chokepoint, so it consults the flag itself — but through
+    the ONE reader, not its own copy of the spelling."""
+    return trace_safe_only_from_env()
 
 
 class RequestHumanReviewTool(Tool):

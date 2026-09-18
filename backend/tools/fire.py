@@ -58,6 +58,7 @@ from workflow_platform.tools import (
     PdfExtractTool,
     Tool,
 )
+from workflow_platform.trace_flip import trace_safe_only_from_env
 from workflow_platform.workflow import load_definition_from_file
 from workflow_platform.world import real_world
 
@@ -111,6 +112,7 @@ async def fire(args: argparse.Namespace) -> int:
             tools=ToolCatalog(_build_tools()),
             bedrock=bedrock,
             world=real_world(),
+            trace_safe_only=trace_safe_only_from_env(),
             memory=memory,
             learned_memory=LearnedMemoryService(bedrock, learned_db),
         )

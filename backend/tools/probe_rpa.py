@@ -45,6 +45,7 @@ async def main() -> int:
         BrowserWaitForTool,
         ImageOcrTool,
     )
+    from workflow_platform.trace_flip import trace_safe_only_from_env
     from workflow_platform.workflow import load_definition_from_yaml
     from workflow_platform.world import real_world
 
@@ -82,6 +83,7 @@ async def main() -> int:
         ),
         bedrock=BedrockClient(mode=BedrockMode.LIVE, region="us-east-1"),
         world=real_world(),
+        trace_safe_only=trace_safe_only_from_env(),
         memory=memory,
         browser_downloads_dir=workdir / "downloads",
     )

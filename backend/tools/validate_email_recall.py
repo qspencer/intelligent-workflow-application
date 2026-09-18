@@ -81,6 +81,7 @@ def _classify(inst: Any) -> tuple[str | None, str, bool]:
 async def _run_one(definition: Any, trigger: dict[str, Any], learned: Any, deps: dict[str, Any]):
     from workflow_platform.engine import WorkflowEngine
     from workflow_platform.persistence import in_memory_repositories
+    from workflow_platform.trace_flip import trace_safe_only_from_env
     from workflow_platform.world import real_world
 
     engine = WorkflowEngine(
@@ -91,6 +92,7 @@ async def _run_one(definition: Any, trigger: dict[str, Any], learned: Any, deps:
         world=real_world(),
         memory=deps["memory"],
         learned_memory=learned,
+        trace_safe_only=trace_safe_only_from_env(),
     )
     try:
         inst = await engine.run(definition, trigger_payload=trigger)
