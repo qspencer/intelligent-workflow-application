@@ -1,0 +1,41 @@
+Captured standalone gate results — F1/F5 review round 8
+
+Gates ran at tree: d04db9093ee5413e73502301f8c231801909fb89
+Source pinned by docs/archives/CODE_MANIFEST_R8.txt; aggregate:
+    0f0b823eca1ca56ae56c4d1d2fddcbf66333801a66b4604a7114d7577be84212
+
+Exit codes are real: each command writes to a file and $? is read
+IMMEDIATELY, before any pipe. (Round 5 printed tail's status and called
+a red tree clean.) FIVE gates are run, not four — the audit job was
+missing from the local set and a red CI went unnoticed for several pushes.
+
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · 2026-09-18T19:17:53Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+267 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 228 source files
+exit: 0
+
+=== uv run pytest -q ===
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+1096 passed, 14 skipped, 13 warnings in 37.19s
+exit: 0
+
+=== uv run --with pip-audit pip-audit ===
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== the guard fires (both simulations, re-run here) ===
+  see docs/TRACE_F1_REVIEW_ROUND8.md §1; the fixtures are in backend/tests/golden/
+  projection_v3.json: projector v3, schema 2, 12 cases
+  projection_v4.json: projector v4, schema 2, 12 cases
