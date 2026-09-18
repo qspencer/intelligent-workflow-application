@@ -316,7 +316,18 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "8"  # v8: the five fields v7 declared used `_ID`, which
+PROJECTOR_VERSION = "9"  # v9: the AT-REST WIDENING (operator decision,
+# 2026-09-18). v8 made at rest equal the read path and 39% of audit entries
+# then withheld EVERY field, because `_AUDIT_DETAIL` was written for
+# governance entries and never classified the engine-EXECUTION fields.
+# 19 of them are now declared as `_TOKEN`/`_COUNT`/`_AMOUNT` — never `_ID`,
+# per v8. What decided it: a grant-less reader ALREADY gets `workflow_id`
+# on the instance surface, so withholding it on the audit surface protected
+# nothing and only cost the trail. Measured 39% -> 1% fully withheld.
+# `user_id` (an email in 416/416 production cases), `trigger` and `output`
+# stay withheld. Audit output changed, so the version moves.
+#
+# v8: the five fields v7 declared used `_ID`, which
 # admits `@` (it exists for operator-identity paths). They are ROUTING ids, so
 # the rule at `_OPAQUE_ID_RE` says `_short_token`. Caught by the round-12
 # forgery pass, not by a reviewer: `from_step_id: "victim@example.com"`
@@ -693,6 +704,58 @@ _AUDIT_DETAIL = Obj(
         "from_step_id": _TOKEN,
         "preserved_step_ids": Seq(_TOKEN),
         "connector": _TOKEN,
+        # --- The AT-REST WIDENING (2026-09-18, operator decision).
+        #
+        # The tightening made at rest equal the read path, and 39% of audit
+        # entries then withheld EVERY field. `_AUDIT_DETAIL` was written for
+        # governance entries and had never classified the engine-EXECUTION
+        # fields, so their absence was an oversight rather than a judgement.
+        #
+        # What decided it was not the lost trail but an INCONSISTENCY: a
+        # reader with no grant already gets `workflow_id` on the INSTANCE
+        # surface. Withholding the same value on the audit surface protects
+        # nothing — the reader fetches it next door — and only costs the
+        # trail. Measured: entries withholding everything fall 39% -> 1%.
+        #
+        # Every field here is `_TOKEN` / `_COUNT` / `_AMOUNT`, never `_ID`.
+        # `_ID` admits `@` because it exists for operator-identity paths, so
+        # a routing id declared as `_ID` can carry an email — the v8 defect.
+        # Verified against 4,000 production entries: 100% token-shaped, max
+        # 43 chars, none containing `@` or a space.
+        #
+        # DELIBERATELY NOT declared:
+        #   `user_id`    — an email in 416/416 production cases, and unlike
+        #                  `actor_id` it names the person ACTED UPON, who may
+        #                  be a third party. Grant-only.
+        #   `trigger`, `output` — they have their own nested schemas above;
+        #                  declaring them flat would bypass those.
+        #   `emitter`    — never appeared in the sample, so there is no
+        #                  evidence it is safe. Undeclared = withheld, which
+        #                  is the right default for a field we cannot vouch for.
+        "workflow_id": _TOKEN,
+        "instance_id": _TOKEN,
+        # NOT `steps`: that key is ALREADY declared below as an Obj of step
+        # OUTPUTS (a context snapshot), and re-declaring it here would have
+        # silently replaced that node — same dict literal, later key wins.
+        # `workflow_completed` emits the completed step IDS, a different
+        # thing, so it gets its own key rather than a union node.
+        "step_ids": Seq(_TOKEN),
+        "model": _TOKEN,
+        "event_type": _TOKEN,
+        "author": _TOKEN,
+        "text_hash": _TOKEN,
+        "context_hash": _TOKEN,
+        "evidence_ref": _TOKEN,
+        "derived_from": _TOKEN,
+        "cost_usd": _AMOUNT,
+        "threshold_seconds": _AMOUNT,
+        "running_for_seconds": _AMOUNT,
+        "input_tokens": _COUNT,
+        "output_tokens": _COUNT,
+        "facts": _COUNT,
+        "quarantined": _COUNT,
+        "edges": _COUNT,
+        "observation": _COUNT,
         "trigger": TriggerPayload(),
         "trigger_payload": TriggerPayload(),
         "tool_calls": ToolCalls(),

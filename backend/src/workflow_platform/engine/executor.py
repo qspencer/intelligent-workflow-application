@@ -622,7 +622,10 @@ class WorkflowEngine:
             actor_type="engine",
             actor_id="workflow_engine",
             instance_id=instance.id,
-            detail={"steps": list(context.steps)},
+            # `step_ids`, not `steps`: the audit schema already declares
+            # `steps` as an Obj of step OUTPUTS (a context snapshot). These
+            # are completed step IDS — a different shape needing its own key.
+            detail={"step_ids": list(context.steps)},
         )
         return instance
 

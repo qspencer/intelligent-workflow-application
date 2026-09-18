@@ -199,6 +199,51 @@ CORPUS: list[tuple[Any, ...]] = [
         {"connector": "browser", "detail": "SYNTHETIC free text"},
         "connector_opened",
     ),
+    # --- the at-rest WIDENING (v9). Without cases holding these fields the
+    # golden guard cannot see a regression in the only fields v9 released —
+    # the same corpus gap the round-12 pre-package review found for v8.
+    (
+        "at_rest.engine_execution_metadata",
+        "audit_detail",
+        {
+            "workflow_id": "dmarc-ingest",
+            "instance_id": "i-1",
+            "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            "cost_usd": 0.0123,
+            "input_tokens": 1200,
+            "output_tokens": 47,
+            "observation": 3,
+            "free_form": "SYNTHETIC prose that must NOT survive",
+        },
+        "memory_observed",
+    ),
+    (
+        "at_rest.completed_step_ids",
+        "audit_detail",
+        {"step_ids": ["extract_reports", "deliver_reports"]},
+        "workflow_completed",
+    ),
+    (
+        "at_rest.widened_fields_reject_content",
+        "audit_detail",
+        {
+            # Each declared field handed a value its validator must refuse.
+            "workflow_id": "an id with spaces",
+            "instance_id": "victim@example.com",
+            "model": "SYNTHETIC prose in a token field",
+            "cost_usd": -1,
+            "input_tokens": "not a number",
+            "step_ids": ["ok-1", "leak@example.com"],
+            "text_hash": "x" * 300,
+        },
+        "memory_observed",
+    ),
+    (
+        "at_rest.user_id_stays_withheld",
+        "audit_detail",
+        {"user_id": "person@example.com", "workflow_id": "wf"},
+        "user_updated",
+    ),
     (
         "audit_detail.governance",
         "audit_detail",

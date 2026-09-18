@@ -528,6 +528,17 @@ async def test_INVARIANT_no_audit_entry_loses_content_without_a_vault_row() -> N
         }
     )
     instance = await engine.run(definition, trigger_payload={"secret": "SYNTHETIC-RAW"})
+    # Plus one write that certainly loses something. After the v9 widening an
+    # ordinary run may audit nothing lossy at all — a good outcome, and fewer
+    # vault rows — but it would make the invariant below vacuous, and the
+    # guard on `lossy` correctly refused to let that pass silently.
+    await engine._audit(
+        "tool_param_override_blocked",
+        actor_type="agent",
+        actor_id="a",
+        instance_id=instance.id,
+        detail=RAW_DETAIL,
+    )
 
     lossy = [
         (action, raw) for action, raw in seen if project_audit_detail_at_rest(action, raw) != raw
