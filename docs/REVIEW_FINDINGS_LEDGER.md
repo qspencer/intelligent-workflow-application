@@ -224,6 +224,42 @@ ledger with a detector written down and not run.*
 round-trip probe (M7) and "assert the function was actually called" (M6) are
 now executable tests, not protocol steps.
 
+## 5d. Round 9, and the audit that followed it
+
+Round 9's three findings were **M7** (minting collateral) ×2 and **M6**
+(a generator path with no test). Again: no projection defects. But the
+reference model had now been wrong in three consecutive rounds, always the
+same way — *a position nobody had thought of* — so the response was an audit
+of the surface rather than another position.
+
+**The method that replaces guessing:** enumerate every field of every
+definition model, put a reference in EVERY string-bearing position, mint, and
+assert which survive. What survives is either a deliberate exclusion or the
+next round's finding.
+
+Result: the executable surface is complete, and the five survivors are prose
+and sample data we decline to rewrite on purpose. Two gaps closed on the way —
+a delimited `prior_steps.<id>` (what an agent actually reads when a step
+declares no `inputs`), and confirmation that a draft already containing
+`step_1` is handled rather than assumed to be.
+
+**The generalisable lesson, added to §3:** when a class recurs as "another
+position we missed", the detector is not another position — it is an
+**enumeration of the space from the schema**, with the deliberate exclusions
+written down. The same shape as the ownership totality table: no default, and
+an unclassified member fails the build.
+
+| Round | Findings | Class |
+|---|---|---|
+| 7 | 5 | projection defects (M1/M2/M3) |
+| 8 | 3 | M6 evidence ×2, M7 collateral ×1 |
+| 9 | 3 | M7 ×2, M6 ×1 |
+
+Three rounds without a projection defect, and the mechanisms have moved from
+"the thing under review is wrong" to "our tooling around it is wrong". That is
+progress worth naming, and also the argument for the audit: M6/M7 are the
+classes our own protocol is supposed to catch.
+
 ## 6. Convergence record
 
 Tracked so the claim "we are learning" is measurable rather than asserted.
@@ -237,6 +273,7 @@ Tracked so the claim "we are learning" is measurable rather than asserted.
 | 6 | 3 + the architecture | 3 |
 | 7 | 5 | 5 |
 | 8 | 3 (all M6/M7 — evidence + collateral, no new leaks) | 3 |
+| 9 | 3 (M7 ×2, M6 ×1 — still no projection defect) | 3 |
 
 **The trend to watch:** volume is falling, but the proportion we *could* have
 caught ourselves is rising — round 5 onward is almost entirely self-detectable.
