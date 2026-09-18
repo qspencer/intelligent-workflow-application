@@ -829,6 +829,41 @@ provenance.** The credible paths are (a) build §1.4a provenance + a positive
 B1 behind the first real external tenant. "Patch the six" is NOT a third option;
 it will fail a seventh review the same way. Recommendation: **(b)**.
 
+### G-Trace-Audit-Vault — the audit-at-rest fix has a PREREQUISITE (found 2026-09-18)
+
+Picked up the reviewer's audit-at-rest item and found it cannot be done the
+obvious way. Recording the dependency rather than shipping the wrong fix.
+
+**The gap, reproduced:** at rest, `tool_param_override_blocked` stores the
+model-chosen tool name AND the attempted value verbatim
+(`{"tool": "exfiltrate_sk_live_…", "attempted": "/etc/shadow"}`), because
+`project_audit_detail_at_rest` is a DENYLIST — anything outside
+`_RAW_AUDIT_FIELDS` passes through. The READ path default-denies the same
+detail to `{"_withheld_keys": true}`. So we store strictly more than any
+ordinary reader can ever see.
+
+**Why the obvious fix is wrong: audit details are NOT VAULTED.** The vault
+holds `output`, `tool_calls`, `model_output`, `trigger_payload`, `recall`,
+`error` — there is no audit kind. Aligning at-rest with the read path's
+default-deny would therefore not WITHHOLD the model-chosen tool name, it would
+DESTROY it, permanently and for everyone, including the grant holder. On a
+security system that trades a disclosure problem for a forensics one — and the
+record destroyed is exactly the signal `tool_param_override_blocked` exists to
+capture: a model probing the action surface.
+
+**Correct order: vault the audit detail FIRST, then project it at rest.** That
+is already a named follow-up in `TRACE_B1_DEFERRAL.md` ("audit-detail vaulting
+for grant-holder forensic recovery"), now with a second reason to want it.
+
+**Priority, stated:** at-rest over-retention is a **Contract B1** concern (it
+matters to a DB operator), and B1 is deferred behind the first reader whose
+access depends on projection. The reviewer lists audit-at-rest as separate
+outstanding work, which is consistent. So this waits on B1's trigger rather
+than jumping the queue — and CONFIG approval, which is Contract A (live, ordinary
+readers see it), goes first.
+
+---
+
 ### G-Trace-Review-R6 — the §4.4 ENUMERATION (2026-09-18) — **the answer we asked for twice; ARCHITECTURE, not a patch**
 
 Rounds 4, 5 and 6 each closed the named leaks and each found more, from a

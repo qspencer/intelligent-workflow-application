@@ -23,6 +23,7 @@ import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Any
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response
 from pydantic import ValidationError
@@ -402,7 +403,14 @@ def build_router(
         name = raw.get("name") if isinstance(raw.get("name"), str) and raw.get("name") else None
         new_name = name or "Scaffolded workflow"
         raw["name"] = new_name
-        raw["id"] = unique_id(slugify(new_name), existing)
+        # R7 §4.4 (CONFIG ownership): the id was `slugify(<the model's proposed
+        # name>)`, and the projection publishes `workflow_id` to ordinary
+        # readers as CONFIG — operator-approved content. It was not: slugging
+        # preserves whatever the model wrote, so a model-authored string sat in
+        # a trusted position. The id is MINTED now, exactly as step ids are.
+        # The model's `name` survives on the definition for display; no trace
+        # kind declares a workflow name, so none of it reaches a trace.
+        raw["id"] = unique_id(f"wf-{uuid4().hex[:8]}", existing)
         # R5 F4: the model names its own steps, and step ids are published as
         # dictionary KEYS in the projected `context.steps`. Mint platform ids
         # (rewriting every reference) so the projector's platform-keyed

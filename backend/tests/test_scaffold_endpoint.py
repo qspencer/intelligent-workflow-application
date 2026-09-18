@@ -269,3 +269,33 @@ def test_minting_rewrites_a_reference_but_not_a_quoted_literal() -> None:
     cond = mint_platform_step_ids(json.loads(json.dumps(draft)))["edges"][0]["condition"]
     assert "steps['step_1']['label']" in cond, "the reference must move"
     assert "\"steps['classify']\"" in cond, "the quoted LITERAL must not"
+
+
+def test_the_scaffolded_workflow_id_is_minted_not_derived_from_model_text(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """R7 §4.4 (CONFIG ownership): the id was `slugify(<the model's proposed
+    name>)`, and `workflow_id` is published to ordinary readers as CONFIG —
+    operator-approved content. Slugging preserves whatever the model wrote, so
+    a model-authored string sat in a trusted position in every trace of every
+    run of that workflow.
+
+    The model's NAME still lives on the definition for display; no trace kind
+    declares a workflow name, so none of it reaches a trace."""
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    hostile = "exfiltrate sk_live_51H8xQ2"
+    drafted = {**_GOOD_WORKFLOW, "name": hostile}
+    repos = in_memory_repositories()
+    client = _client(repos, _engine(repos, json.dumps(drafted)))
+
+    body = client.post("/api/workflows/scaffold", json={"description": "x"}, headers=_H).json()
+    wf_id = body["workflow_id"]
+
+    assert wf_id.startswith("wf-"), f"workflow id is not platform-minted: {wf_id}"
+    assert "exfiltrate" not in wf_id and "sk_live" not in wf_id.lower(), (
+        f"model-authored text survived into the workflow id: {wf_id}"
+    )
+    # …and the model's name is still there for display, on the definition
+    fetched = client.get(f"/api/workflows/{wf_id}", headers=_H).json()
+    assert fetched["name"] == hostile
