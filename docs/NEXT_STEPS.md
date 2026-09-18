@@ -59,9 +59,11 @@ Also landed, outside the epic:
 
 **Immediate priorities, in order:**
 
-1. **Round 11 verdict** — out with the reviewer; everything touching the
-   trace files is held behind it.
-2. **Audit-detail vaulting** (`G-Trace-Audit-Vault` below) — fully decided
+1. ~~Round 11 verdict~~ — **returned 2026-09-18**: two bounded P2
+   corrections (scaffold reference grammar; an equivalence test that counted
+   rows), both fixed in `2db6e2f`. No new defect in the projection primitive.
+   The F1/F5 projector review line is **closed** — see the ledger disposition.
+2. **Audit-detail vaulting** — now the ACTIVE build, (`G-Trace-Audit-Vault` below) — fully decided
    (addressing, scope, ordering); the migration is deliberately held until
    round 11 returns.
 3. **Catalog snapshot/digest** — designed in
@@ -928,9 +930,14 @@ full in `docs/TRACE_AUDIT_VAULT_DESIGN.md`:
   follows the step-output pattern: construct entry → vault raw by id,
   durable-or-fail → project → append. Durable-or-fail because *a lost
   write must fail the step, not silently drop the raw.*
-- **Timing** — **held until the round-11 verdict returns.** A production
-  migration is a poor thing to run while a package is out and the return
-  might touch the same files.
+- **Timing** — hold LIFTED 2026-09-18; round 11 returned with two bounded P2
+  corrections, both outside this design and both fixed (`2db6e2f`).
+- **Round-11 qualifier** — the "loses something" predicate must call the
+  **final action-aware** storage policy, not today's lenient one. Otherwise
+  details that currently pass through unchanged go unvaulted, and start
+  losing information the moment at-rest filtering is tightened. The tightened
+  policy is therefore written FIRST and the predicate calls it, even though it
+  is only switched on last.
 
 First test to write is the multiplicity case: N tool calls in one step
 attempt must yield N recoverable rows — the one the existing key would

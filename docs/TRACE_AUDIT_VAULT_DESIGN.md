@@ -27,6 +27,52 @@ deployed code is the checked-out `main`, so writing code against a missing
 column would break production the moment the service reloaded. There is no
 useful half of this to land.
 
+**Hold lifted 2026-09-18: round 11 returned.** Two bounded P2 corrections,
+both outside this design (scaffold grammar, an equivalence test), both fixed.
+No new defect in the F1/F5 projection primitive.
+
+### Round 11 confirmed both options — with one qualifier that reorders the build
+
+The reviewer favours the same two: an explicit `audit_entry_id`, and vaulting
+the details that lose information through projection. The qualifier:
+
+> That predicate must use the **final action-aware storage policy**.
+
+This is not a restatement, it names a trap. The build order below tightens
+at-rest filtering **last**. If the vaulting predicate is evaluated against
+today's lenient `project_audit_detail_at_rest`, every detail that currently
+passes through *unchanged* is judged "loses nothing" and is **not vaulted** —
+and the moment the tightening lands, those same details begin losing
+information with no vault row behind them. That is precisely the forensic
+destruction this design exists to prevent, arriving one commit later and
+looking like an unrelated bug.
+
+**So the predicate and the final policy must land together.** Concretely: the
+tightened, action-aware `project_audit_detail_at_rest` is written FIRST and the
+predicate calls it, even though the tightened projection is only switched ON at
+the end. The predicate must never be a snapshot of what projection happens to
+do this week — it has to be a call into what it will do.
+
+### What the next review must establish
+
+Recorded now as acceptance criteria, so they are built to rather than
+discovered:
+
+1. **Stable identity across a retried write, distinct identity across
+   entries.** Re-driving the same audit write must address the same vault row
+   (no orphan accumulation); two different audit entries from one step attempt
+   must never collide. This is the multiplicity case — the first test to write.
+2. **Recovery when the vault write succeeds and the audit append then fails.**
+   Durable-or-fail protects the opposite order. This direction leaves a vault
+   row with no entry pointing at it; the behaviour must be stated and tested,
+   not left to chance.
+3. **Coverage of every audit writer and every relevant entry scope.** Per
+   ledger rule R-c this is an ENUMERATION derived from the source — every call
+   site reaching `_audit`, including instance-level entries where
+   `step_attempt_id IS NULL` — with deliberate exclusions written down. A
+   detector, not a hand-maintained list. Per R-d it must be shown to reach
+   every one of those surfaces, not just the first.
+
 ---
 
 # Part 1 — Audit-detail vaulting

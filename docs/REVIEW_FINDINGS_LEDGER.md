@@ -152,6 +152,17 @@ round narrative, because they apply at the moment a detector is written:
 > the schema or the source, with the deliberate exclusions written down. The
 > ownership table, the per-function reference declaration and the field
 > classification are all this shape: no default, unclassified fails the build.
+>
+> **R-d. A detector covering ONE caller of a rule is not a detector for the
+> rule.** Round 11 returned two findings, and both landed on rows in the
+> table below that were already marked ✅. The grammar-agreement detector
+> asserted its property over the context path only, so the prose rewriter
+> kept a narrower grammar unseen; the execution-equivalence gate compared row
+> COUNTS, so it could not distinguish a step that ran from one that was
+> skipped. Neither ✅ was a lie about whether a test existed — both were a lie
+> about **what it reached**. So a ✅ must now name the surfaces it covers, and
+> R-b's control obligation applies **per surface**: a gate seen failing on one
+> caller is evidence about that caller and nothing else.
 
 | For | Detector | State |
 |---|---|---|
@@ -160,12 +171,12 @@ round narrative, because they apply at the moment a detector is written:
 | M2 | **Forgery probe** — every generated field × every asset kind, fed back as hostile input | ✅ `test_M2_no_generated_field_can_carry_a_supplied_value` (found a defect the reviewer had not) |
 | M3 | **Predicate agreement** — functions answering the same question must agree | ✅ `test_M3_predicates_answering_the_same_question_agree` |
 | M3 | **Duplicate-definition sweep** — constants AND functions/methods | ✅ `test_M3_version_constants_have_exactly_one_definition` + `test_M3_no_module_defines_the_same_function_twice` (gap closed after R10) |
-| M3 | **Grammar agreement** — two components parsing the same thing must accept the same language | ✅ the scaffold now IMPORTS the engine's placeholder grammar (divergence impossible, not merely detectable), and `test_M3_whatever_the_ENGINE_can_resolve_the_scaffold_can_rewrite` asserts the general property over plain/underscored/hyphenated/non-ASCII/long/numeric ids |
+| M3 | **Grammar agreement** — two components parsing the same thing must accept the same language | ✅ **both reference surfaces** (R11). The scaffold IMPORTS the engine's placeholder grammar, and `_remap_step_ref` is now the single splitter behind *both* the context-path and the agent-prose rewriters — the delimited regex no longer decides where an id ends. `test_M3_whatever_the_ENGINE_can_resolve_the_scaffold_can_rewrite` asserts the property over `inputs`, `goal` AND `system_prompt` for plain/underscored/hyphenated/non-ASCII/long/numeric ids. Control: reverted to the old grammar, saw it fail on exactly the two non-ASCII ids. *Was ✅ before R11 while covering the context path only.* |
 | M4 | **Golden version guard** — output change without a version bump fails | ✅ `test_projection_golden.py`, proven to fire twice; corpus must widen with new behaviour |
 | M5 | **Totality fuzz** — every entry point, hostile values, at depth | ✅ generative properties |
 | M6 | **Claims register + controls** — every factual claim executed before it is written; every gate has a control | ✅ protocol §4.2 + `test_the_classification_gate_fails_when_a_field_is_added` |
 | M7 | **Round-trip probe** — a REAL artifact through the change, diffed | ✅ `test_minting_every_real_shipped_definition_leaves_no_dangling_reference` (found the edge-alias no-op) |
-| M7 | **Execution equivalence** — the same run before and after a transformation | ✅ `test_a_config_literal_that_looks_like_a_template_is_not_rewritten` asserts the same steps ran |
+| M7 | **Execution equivalence** — the same run before and after a transformation | ✅ **with a control** (R11). `_assert_same_steps_ran` maps original→minted ids and compares terminal state keyed by `(step_id, attempt)`, so a differing retry count also counts. Control: `test_the_equivalence_check_can_fail` drives the reviewer's sabotage (config literal preserved, renamed branch forced `False`) and requires the comparison to report it. *Was ✅ before R11 while comparing `len(rows)` — and a SKIPPED step still writes a row, so it could not see the very substitution it existed to catch.* |
 | — | **Schema-field classification** — every definition field classified, unclassified fails | ✅ with a control |
 
 ## 4. The pre-package protocol (our own "round 0")
@@ -261,19 +272,36 @@ Tracked so "we are learning" stays measurable rather than asserted.
 | 8 | 3 | M6 ×2, M7 | **0** |
 | 9 | 3 | M7 ×2, M6 | **0** |
 | 10 | 3 | M7 ×2, M6 | **0** |
+| 11 | 2 | M3, M6 | **0** |
 
-**The trend that matters:** volume flat at three, but **four consecutive
+**The trend that matters:** volume down to two, and **four consecutive
 rounds with no defect in the thing under review**. The work has moved to the
 tooling around it — which is real progress and also the indictment, because
 M6 and M7 are precisely what §4 exists to catch before sending.
 
+**Round 11 is the sharpest version of that.** Both findings landed on rows
+in §3 that were already ✅. Not absent detectors — detectors whose reach was
+narrower than the rule they claimed. That is a different failure from rounds
+8–10 and it is the one R-d now exists for: we had stopped asking *what does
+this gate actually touch?* once it went green.
+
 **Target for the next epic: ≤5 rounds and zero M6.** On the evidence, M6 is
-the one that decides whether that is achievable: it has appeared in four
+the one that decides whether that is achievable: it has appeared in five
 rounds, every time as a name that was the only true part of a claim.
 
 ### When to stop reviewing
 
 Worth stating so the line is not extended out of habit: this epic should end
 when a round returns **no finding that a detector in §3 could have caught**.
-Rounds 8–10 do not meet that bar — every finding was a named class. That is
+Rounds 8–11 do not meet that bar — every finding was a named class. That is
 the test, not round count.
+
+**Disposition of the F1/F5 projector line (2026-09-18): CLOSED, and not
+because it met the bar.** It did not. It closes because the bar is the wrong
+instrument for what is left: the projector itself has been defect-free for
+four consecutive rounds, and every remaining finding is in *our evidence
+about it*, which more external rounds on the same artifact cannot fix — only
+detectors can. The reviewer independently reached the same place, recommending
+audit vaulting as the next substantive review. Existing projection regression
+checks are retained; the next external round is scoped to audit vaulting and
+catalog snapshots.
