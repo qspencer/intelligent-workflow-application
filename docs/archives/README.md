@@ -40,7 +40,7 @@ blocking issues by reading code the spec described inaccurately.
 |---|---|---|---|---|
 | `trace-f1-review-r3-b7cc1d2.tar.gz` | `b7cc1d2` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 3** — the six round-2 findings (R2-1..6) fixed at the CLASS level. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R3 | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-r2-b2f913a.tar.gz` | `b2f913a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 2** — the four G-Trace-Review-4 findings (GR4-1..4) remediated. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R | `docs/TRACE_F1_REVIEW_GUIDE.md` |
-| `trace-f1-review-r5-<built>.tar.gz` | built from the commit recording this row (branch `p1-reprimitive`) | 2026-09-18 | **F1/F5 round 5 — CONTAINMENT of the round-4 findings.** All three round-4 reproductions closed WITHOUT §1.4a, test-first (each RED against the r4 tree): token-shaped dict keys dropped + counted (`_withheld_key_count`), external routing ids grant-gated, tool names resolved against the live catalog. Round-4's verdict accepted in full, nothing disputed. Sidecar: `docs/TRACE_F1_REVIEW_ROUND5.md`. **Ships captured standalone gate output** at `docs/archives/GATE_OUTPUT_R5.txt` (round 4's reviewer could resolve no deps offline). F3/F4/F6 + B1 still out of scope. |
+| `trace-f1-review-r5-d67d427.tar.gz` | `d67d427` (branch `p1-reprimitive`) | 2026-09-18 | **F1/F5 round 5 — CONTAINMENT of the round-4 findings.** All three round-4 reproductions closed WITHOUT §1.4a, test-first (each RED against the r4 tree): token-shaped dict keys dropped + counted (`_withheld_key_count`), external routing ids grant-gated, tool names resolved against the live catalog. Round-4's verdict accepted in full, nothing disputed. Sidecar: `docs/TRACE_F1_REVIEW_ROUND5.md`. **Ships captured standalone gate output** at `docs/archives/GATE_OUTPUT_R5.txt` (round 4's reviewer could resolve no deps offline). F3/F4/F6 + B1 still out of scope. |
 | `trace-f1-review-r4-1fa67c2.tar.gz` | `1fa67c2` (branch `p1-reprimitive`) | 2026-09-18 | **F1/F5 CONFIRMATION round 4** — ships the two remediation commits no reviewer has seen (`8e9d0d1` class-level fixes: keys-are-content, list decomposition, routing ids, marker totality, audit denylist; `29e2c4e` the masked lint + the disposition). Narrowed on purpose: asks whether the foundation can carry Contract A **now that the flip is ON in production**, and asks the reviewer to challenge the shape-vs-provenance ceiling rather than produce a seventh finding list. Sidecar: `docs/TRACE_F1_REVIEW_ROUND4.md`. F3/F4/F6 + B1 out of scope. |
 | `trace-f1-review-ebceb6a.tar.gz` | `ebceb6a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 FOUNDATION code review** — the path-scoped, kind-dispatched projection re-primitive answering the third review's F1 + F5. F3/F4/F6 out of scope. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-governance-review-r3-8657f88.tar.gz` | `8657f88` | 2026-08-08 | **CODE review, round 3** — the four remediation primitives (P1 validator registry · P2 surface routing · P3a projection stamp + §4.3 predicate · P4 grant/vault CAS) built in response to rounds 1–2. **Decides whether Contract A / B1 hold** | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
@@ -63,6 +63,23 @@ cannot contain its own tarball hash; that is appended below after the build):
   315908fe5067c5336b44ce17b212dc0ab3766c85a0a1b9fee89b84c64b6e7eb1  docs/archives/GATE_OUTPUT_R5.txt  (captured gates)
   77b0d7393b0a364575159298da7ce1a5f12e5a8b2aff508e2f0b00e346b8e46e  backend/.../trace_projection.py  (the projector)
   41947b246f9c4a2d1cbccda7cb8b2817ea20671730c10c3ee91b2dd34f443275  backend/tests/test_trace_boundary_properties.py  (39 properties)
+```
+
+Tarball hash (appended post-build, necessarily — a package cannot contain its
+own hash; the per-file hashes above are inside it and verify the same content):
+
+```
+66caa92f09a7acf299eda80d9bf89756738cae6c5de86db6ee3ca9834a9a7880
+         trace-f1-review-r5-d67d427.tar.gz   (614 files)
+```
+
+Verified at build: no `.secrets`/`.env`/refresh-token/`.venv`/`.memory` paths,
+and no personal mail data (`data/email_triage|qspencer|backups/`) — both sweeps
+returned nothing.
+
+Rebuild byte-identically:
+```sh
+git archive --format=tar d67d427 | gzip -n > docs/archives/trace-f1-review-r5-d67d427.tar.gz
 ```
 
 Round-4 packaging failures fixed here: the record lands BEFORE the build, so
