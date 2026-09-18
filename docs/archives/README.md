@@ -40,6 +40,7 @@ blocking issues by reading code the spec described inaccurately.
 |---|---|---|---|---|
 | `trace-f1-review-r3-b7cc1d2.tar.gz` | `b7cc1d2` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 3** — the six round-2 findings (R2-1..6) fixed at the CLASS level. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R3 | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-r2-b2f913a.tar.gz` | `b2f913a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 2** — the four G-Trace-Review-4 findings (GR4-1..4) remediated. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R | `docs/TRACE_F1_REVIEW_GUIDE.md` |
+| `trace-f1-review-r5-<built>.tar.gz` | built from the commit recording this row (branch `p1-reprimitive`) | 2026-09-18 | **F1/F5 round 5 — CONTAINMENT of the round-4 findings.** All three round-4 reproductions closed WITHOUT §1.4a, test-first (each RED against the r4 tree): token-shaped dict keys dropped + counted (`_withheld_key_count`), external routing ids grant-gated, tool names resolved against the live catalog. Round-4's verdict accepted in full, nothing disputed. Sidecar: `docs/TRACE_F1_REVIEW_ROUND5.md`. **Ships captured standalone gate output** at `docs/archives/GATE_OUTPUT_R5.txt` (round 4's reviewer could resolve no deps offline). F3/F4/F6 + B1 still out of scope. |
 | `trace-f1-review-r4-1fa67c2.tar.gz` | `1fa67c2` (branch `p1-reprimitive`) | 2026-09-18 | **F1/F5 CONFIRMATION round 4** — ships the two remediation commits no reviewer has seen (`8e9d0d1` class-level fixes: keys-are-content, list decomposition, routing ids, marker totality, audit denylist; `29e2c4e` the masked lint + the disposition). Narrowed on purpose: asks whether the foundation can carry Contract A **now that the flip is ON in production**, and asks the reviewer to challenge the shape-vs-provenance ceiling rather than produce a seventh finding list. Sidecar: `docs/TRACE_F1_REVIEW_ROUND4.md`. F3/F4/F6 + B1 out of scope. |
 | `trace-f1-review-ebceb6a.tar.gz` | `ebceb6a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 FOUNDATION code review** — the path-scoped, kind-dispatched projection re-primitive answering the third review's F1 + F5. F3/F4/F6 out of scope. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-governance-review-r3-8657f88.tar.gz` | `8657f88` | 2026-08-08 | **CODE review, round 3** — the four remediation primitives (P1 validator registry · P2 surface routing · P3a projection stamp + §4.3 predicate · P4 grant/vault CAS) built in response to rounds 1–2. **Decides whether Contract A / B1 hold** | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
@@ -50,6 +51,24 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (F1/F5 review ROUND 5)
+
+Per-file hashes of the archived content (computed from the committed objects
+BEFORE the build, which is why they can appear inside the package — a package
+cannot contain its own tarball hash; that is appended below after the build):
+
+```
+  1f2626daf6f8b5165b9405c9b0274a7d68ee7621de0b72447f24f2666ae94fb1  docs/TRACE_F1_REVIEW_ROUND5.md  (the sidecar)
+  315908fe5067c5336b44ce17b212dc0ab3766c85a0a1b9fee89b84c64b6e7eb1  docs/archives/GATE_OUTPUT_R5.txt  (captured gates)
+  77b0d7393b0a364575159298da7ce1a5f12e5a8b2aff508e2f0b00e346b8e46e  backend/.../trace_projection.py  (the projector)
+  41947b246f9c4a2d1cbccda7cb8b2817ea20671730c10c3ee91b2dd34f443275  backend/tests/test_trace_boundary_properties.py  (39 properties)
+```
+
+Round-4 packaging failures fixed here: the record lands BEFORE the build, so
+the index inside the package carries this row; and captured standalone gate
+output ships inside, because round 4's reviewer could resolve no dependencies
+offline and could therefore verify none of our suite/lint/type claims.
 
 ## Integrity hashes (F1/F5 review ROUND 4)
 
