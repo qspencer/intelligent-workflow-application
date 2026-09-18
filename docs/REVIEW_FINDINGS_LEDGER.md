@@ -205,6 +205,25 @@ property of the projector, not of one asset schema.
 in different clothes; generalising it over every field and kind found an
 instance nobody had reported yet, before a package went out.
 
+## 5c. Round 8 — classified, and what it says about the detectors
+
+Three findings; **round-7's 1, 2, 3 and 5 closed**, 4 partially.
+
+| Finding | Class | Would a detector have caught it? |
+|---|---|---|
+| Minting omitted dotted context paths (`evaluation_from`), so a renamed workflow parsed then FAILED — and omitting the key failed too, via the function's default | **M7** | **Yes, and we had the detector and didn't run it.** The ledger's own round-trip probe says "take a REAL artifact through the change and diff". A real definition would have shown it. We tested the helper, not a run. |
+| The golden `tool_call` case never invoked `safe_tool_call` — flat record, generic schema, frozen `{"_withheld_keys": true}` | **M6** | **Yes.** The case's NAME was the only true thing about it — the same fig leaf as the key-property test in round 4, one layer up. "Assert the function was called" is now a test. |
+| The historical fixture was generated from `4d9f39c` (the remediation written AFTER round 6), not `b67391d` (the archive they hold) — disagreeing on a case and on the schema version | **M6** | **Yes.** We asserted provenance we had not verified. Fixtures now re-derive from the commit they name. |
+
+**All three are M6/M7 — evidence and collateral damage — not new leaks.** The
+M1/M2/M3 detectors held: nothing in round 8 was a projection defect. That is
+the shape of progress, but two of the three were classes *already in this
+ledger with a detector written down and not run.*
+
+**Correction to §3:** a detector that exists in prose is not a detector. The
+round-trip probe (M7) and "assert the function was actually called" (M6) are
+now executable tests, not protocol steps.
+
 ## 6. Convergence record
 
 Tracked so the claim "we are learning" is measurable rather than asserted.
@@ -217,7 +236,7 @@ Tracked so the claim "we are learning" is measurable rather than asserted.
 | 5 | 6 | 6 |
 | 6 | 3 + the architecture | 3 |
 | 7 | 5 | 5 |
-| 8 | *pending* | — |
+| 8 | 3 (all M6/M7 — evidence + collateral, no new leaks) | 3 |
 
 **The trend to watch:** volume is falling, but the proportion we *could* have
 caught ourselves is rising — round 5 onward is almost entirely self-detectable.
