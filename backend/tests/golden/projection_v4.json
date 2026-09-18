@@ -236,6 +236,7 @@
       "kind": "audit_detail"
     }
   ],
+  "generated_from": "git dab4217 \u2014 the commit that froze this version",
   "projection_schema_version": 2,
   "projector_version": "4"
 }

@@ -849,3 +849,55 @@ def test_M3_version_constants_have_exactly_one_definition() -> None:
             f"{name} is assigned in {len(where)} modules ({where}) — two definitions "
             f"of one constant drift; re-export instead"
         )
+
+
+def test_context_path_keys_match_the_functions_that_read_them() -> None:
+    """R8 P1 DRIFT GUARD: the scaffold rewrites a config value as a reference
+    only when its KEY says so, and the key list was derived from
+    `engine/functions.py`. A new `*_from` key that nobody adds here silently
+    stops being rewritten, and a renamed workflow breaks at run time again.
+
+    Same shape as the parse_ok producer guard: derive the truth from source
+    and fail the build on drift."""
+    import ast
+    import pathlib
+
+    from workflow_platform.scaffold import _CONTEXT_PATH_KEYS, _STEP_PATH_DEFAULTS
+
+    src = pathlib.Path(
+        str(
+            pathlib.Path(__file__).resolve().parents[1]
+            / "src/workflow_platform/engine/functions.py"
+        )
+    ).read_text()
+    tree = ast.parse(src)
+    keys, defaults = set(), {}
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and isinstance(node.args[0].value, str)
+            and node.args[0].value.endswith("_from")
+        ):
+            keys.add(node.args[0].value)
+            if (
+                len(node.args) > 1
+                and isinstance(node.args[1], ast.Constant)
+                and isinstance(node.args[1].value, str)
+                and node.args[1].value.startswith("steps.")
+            ):
+                defaults[node.args[0].value] = node.args[1].value
+
+    assert keys == _CONTEXT_PATH_KEYS, (
+        "context-path key list has drifted from the functions that read them.\n"
+        f"  missing: {sorted(keys - _CONTEXT_PATH_KEYS)}\n"
+        f"  stale:   {sorted(_CONTEXT_PATH_KEYS - keys)}"
+    )
+    assert defaults == _STEP_PATH_DEFAULTS, (
+        "step-naming DEFAULTS have drifted.\n"
+        f"  missing: {sorted(set(defaults) - set(_STEP_PATH_DEFAULTS))}\n"
+        f"  stale:   {sorted(set(_STEP_PATH_DEFAULTS) - set(defaults))}"
+    )

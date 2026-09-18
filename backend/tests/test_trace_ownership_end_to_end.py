@@ -140,3 +140,85 @@ async def test_the_boundary_drops_the_forgery_but_still_vaults_the_real_output()
     assert "attacker-supplied" not in raw_blob, (
         "the forged engine field was vaulted; it should not be stored at all"
     )
+
+
+# --- R8 P1: minting must preserve BEHAVIOUR, not just parse ------------------
+
+
+async def _echo_fn(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
+    return {"output_text": "SYNTHETIC verdict"}
+
+
+async def _consume_fn(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
+    """Resolves a dotted context path with the ENGINE'S OWN resolver and the
+    same default as the stock `record_evaluation`, so the test exercises real
+    resolution rather than a reimplementation of it."""
+    from workflow_platform.engine.functions import _resolve_path
+    from workflow_platform.engine.registry import StepFailure
+
+    resolved = _resolve_path(ctx, config.get("evaluation_from", "steps.evaluate.output_text"))
+    if resolved is None:
+        # Exactly how the stock `record_*` functions behave on a dangling
+        # reference — the run FAILS. Asserting on instance state rather than
+        # on the step output, because safe-only storage withholds undeclared
+        # output fields and would hide the very signal under test.
+        raise StepFailure("evaluation reference did not resolve")
+    return {"resolved_len": len(str(resolved))}
+
+
+def _two_step(evaluation_from: str | None) -> Any:
+    cfg: dict[str, Any] = {} if evaluation_from is None else {"evaluation_from": evaluation_from}
+    return {
+        "id": "wf",
+        "name": "wf",
+        "trigger": {"type": "manual"},
+        "steps": [
+            {"id": "evaluate", "type": "deterministic", "function": "echo", "config": {}},
+            {"id": "record", "type": "deterministic", "function": "consume", "config": cfg},
+        ],
+        "edges": [{"from": "evaluate", "to": "record"}],
+    }
+
+
+@pytest.mark.parametrize("explicit", [True, False], ids=["explicit_ref", "implicit_default"])
+async def test_minting_preserves_execution_behaviour(explicit: bool) -> None:
+    """R8 P1, the reviewer's reproduction: renaming produced a definition that
+    PARSED and then FAILED, because `evaluation_from: steps.evaluate.…` still
+    named a step that no longer existed — and omitting the key failed too,
+    since the function's DEFAULT names the same step.
+
+    So the property is behavioural, not structural: the renamed workflow must
+    resolve what the original resolved."""
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    raw = _two_step("steps.evaluate.output_text" if explicit else None)
+    engine = _engine({"echo": _echo_fn, "consume": _consume_fn})
+    from workflow_platform.persistence.models import WorkflowInstanceState
+
+    before = await engine.run(load_definition(json.loads(json.dumps(raw))), trigger_payload={})
+    assert before.state is WorkflowInstanceState.COMPLETED, (
+        "the ORIGINAL definition must complete, or the test proves nothing"
+    )
+
+    minted = mint_platform_step_ids(json.loads(json.dumps(raw)))
+    engine2 = _engine({"echo": _echo_fn, "consume": _consume_fn})
+    after = await engine2.run(load_definition(minted), trigger_payload={})
+    assert after.state is WorkflowInstanceState.COMPLETED, (
+        "the RENAMED definition did not complete — minting left a reference "
+        "pointing at a step that no longer exists"
+    )
+
+
+async def test_minting_leaves_ordinary_config_data_alone_in_a_real_run() -> None:
+    """The other half: preserving behaviour must not come from rewriting
+    everything. Ordinary config that merely LOOKS like a reference stays."""
+    from workflow_platform.scaffold import mint_platform_step_ids
+
+    raw = _two_step("steps.evaluate.output_text")
+    raw["steps"][1]["config"]["note"] = "steps.evaluate is discussed here"
+    raw["steps"][1]["config"]["dest_dir"] = "/out/steps.evaluate/"
+    minted = mint_platform_step_ids(json.loads(json.dumps(raw)))
+    cfg = minted["steps"][1]["config"]
+    assert cfg["evaluation_from"] == "steps.step_1.output_text"
+    assert cfg["note"] == "steps.evaluate is discussed here", "prose was rewritten"
+    assert cfg["dest_dir"] == "/out/steps.evaluate/", "a PATH was rewritten"

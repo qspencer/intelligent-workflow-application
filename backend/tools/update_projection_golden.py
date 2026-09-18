@@ -14,6 +14,7 @@ answer — the failure that shipped twice, in rounds 6 and 7.
 from __future__ import annotations
 
 import json
+import subprocess
 import sys
 from pathlib import Path
 
@@ -23,24 +24,81 @@ from _projection_corpus import CORPUS
 from workflow_platform.trace_projection import (
     PROJECTION_SCHEMA_VERSION,
     PROJECTOR_VERSION,
+    project_audit_detail_at_rest,
     redact_tool_data,
 )
 
 GOLDEN_DIR = Path(__file__).resolve().parents[1] / "tests" / "golden"
 
 
+def _project_case(case: tuple) -> object:
+    """Route a corpus case through its entry point: a 4th element names an
+    audit ACTION and goes through the at-rest dispatcher instead."""
+    _cid, kind, inp = case[0], case[1], case[2]
+    action = case[3] if len(case) > 3 else None
+    if action is not None:
+        return project_audit_detail_at_rest(action, inp)
+    return redact_tool_data(inp, admin=False, kind=kind)
+
+
 def main() -> int:
     out = GOLDEN_DIR / f"projection_v{PROJECTOR_VERSION}.json"
-    if out.exists():
-        print(f"REFUSED: {out.name} already exists.")
-        print("A released version's golden output is immutable. If the projector's")
-        print("output changed, bump PROJECTOR_VERSION and re-run; if it did not,")
-        print("there is nothing to write.")
-        return 1
+    existing = json.loads(out.read_text())["cases"] if out.exists() else None
+    if existing is not None:
+        # R8 P2 refinement: immutability applies to a frozen case's EXPECTED
+        # OUTPUT, not to the SET of cases. Coverage must be able to grow
+        # without pretending the projector changed — but an existing entry may
+        # never move, so appending re-verifies every one of them first.
+        existing_source = json.loads(out.read_text()).get("generated_from", "")
+        by_id = {c["id"]: c for c in existing}
+        drifted = [
+            c["id"]
+            for c in existing
+            if _project_case(
+                (c["id"], c["kind"], c["input"], *([c["action"]] if c.get("action") else []))
+            )
+            != c["expected"]
+        ]
+        if drifted:
+            print(f"REFUSED: {out.name} has cases whose output has CHANGED: {drifted}")
+            print("A released version's frozen output is immutable. Bump PROJECTOR_VERSION.")
+            return 1
+        added = [c for c in CORPUS if c[0] not in by_id]
+        if not added:
+            print(f"{out.name} is current: {len(existing)} cases, none drifted, nothing to add.")
+            return 0
+        cases = existing + [
+            {
+                "id": c[0],
+                "kind": c[1],
+                "input": c[2],
+                **({"action": c[3]} if len(c) > 3 else {}),
+                "expected": _project_case(c),
+            }
+            for c in added
+        ]
+        payload = {
+            "projector_version": PROJECTOR_VERSION,
+            "projection_schema_version": PROJECTION_SCHEMA_VERSION,
+            "generated_from": existing_source,
+            "cases": cases,
+        }
+        out.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n")
+        print(
+            f"appended {len(added)} new case(s) to {out.name}; "
+            f"{len(existing)} existing cases re-verified unchanged"
+        )
+        return 0
     GOLDEN_DIR.mkdir(parents=True, exist_ok=True)
+    # R8 P2: record the commit, so a superseded fixture can later be
+    # RE-DERIVED from its source and shown authentic rather than trusted.
+    head = subprocess.run(
+        ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True
+    ).stdout.strip()
     payload = {
         "projector_version": PROJECTOR_VERSION,
         "projection_schema_version": PROJECTION_SCHEMA_VERSION,
+        "generated_from": f"git {head} — the commit that froze this version" if head else "",
         "cases": [
             {
                 "id": cid,

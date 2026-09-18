@@ -32,11 +32,23 @@ from workflow_platform.trace_projection import (
     PROJECTION_SCHEMA_VERSION,
     PROJECTOR_VERSION,
     SCHEMAS,
+    project_audit_detail_at_rest,
     redact_tool_data,
 )
 from workflow_platform.trace_rehydrate import verify_projection_agreement
 
 GOLDEN_DIR = Path(__file__).resolve().parent / "golden"
+
+
+def _project(case: dict[str, Any]) -> Any:
+    """Route a frozen case through ITS entry point (R8 P2).
+
+    Every check used `redact_tool_data`, so an action-dispatched case would
+    have been re-projected through the wrong door — and the case named
+    `audit_detail.tool_call` never reached `safe_tool_call` at all."""
+    if case.get("action"):
+        return project_audit_detail_at_rest(case["action"], case["input"])
+    return redact_tool_data(case["input"], admin=False, kind=case["kind"])
 
 
 def _fixtures() -> dict[str, dict[str, Any]]:
@@ -66,7 +78,7 @@ def test_current_projection_matches_its_frozen_golden() -> None:
     fixture = _fixtures()[PROJECTOR_VERSION]
     drifted = []
     for case in fixture["cases"]:
-        actual = redact_tool_data(case["input"], admin=False, kind=case["kind"])
+        actual = _project(case)
         if actual != case["expected"]:
             drifted.append(
                 f"    {case['id']} ({case['kind']})\n"
@@ -96,8 +108,8 @@ def test_every_golden_case_is_a_projection_fixed_point() -> None:
     already-backfilled row look raw forever (R5)."""
     fixture = _fixtures()[PROJECTOR_VERSION]
     for case in fixture["cases"]:
-        once = redact_tool_data(case["input"], admin=False, kind=case["kind"])
-        twice = redact_tool_data(once, admin=False, kind=case["kind"])
+        once = _project(case)
+        twice = _project({**case, "input": once})
         assert twice == once, f"{case['id']}: not idempotent\n  once={once}\n  twice={twice}"
 
 
@@ -133,3 +145,108 @@ def test_schema_version_consistency() -> None:
         "the frozen fixture was written under a different schema version; if the "
         "projected STRUCTURE changed, both stamps move together"
     )
+
+
+def test_the_corpus_actually_reaches_tool_call_projection() -> None:
+    """R8 P2: a case NAMED `audit_detail.tool_call` passed a flat record
+    through the generic audit-detail schema and froze `{"_withheld_keys":
+    true}` — `safe_tool_call` was never called, so tool-call projection could
+    change without this guard noticing. A name is not coverage; this asserts
+    the function is actually invoked."""
+    import workflow_platform.trace_projection as tp
+
+    fixture = _fixtures()[PROJECTOR_VERSION]
+    calls: list[Any] = []
+    original = tp.safe_tool_call
+
+    def _spy(*args: Any, **kwargs: Any) -> Any:
+        calls.append(args)
+        return original(*args, **kwargs)
+
+    tp.safe_tool_call = _spy
+    try:
+        for case in fixture["cases"]:
+            _project(case)
+    finally:
+        tp.safe_tool_call = original
+
+    assert calls, "no golden case reaches safe_tool_call — tool-call projection is unguarded"
+    # …and via BOTH doors: the nested schema position and the action dispatch
+    assert any(c.get("action") == "tool_call" for c in fixture["cases"]), (
+        "no case exercises the action-dispatched at-rest tool-call path"
+    )
+    assert any("tool_calls" in _dumps_case(c) for c in fixture["cases"]), (
+        "no case exercises tool calls in their nested schema position"
+    )
+
+
+def _dumps_case(case: dict[str, Any]) -> str:
+    return json.dumps(case.get("input", {}), sort_keys=True, default=str)
+
+
+def test_historical_fixtures_are_authentic_against_their_declared_source() -> None:
+    """R8 P2: a historical fixture must be REGENERABLE from the commit it
+    names, or the degradation check passes without establishing that the
+    expected historical output is real.
+
+    The previous v3 fixture named `4d9f39c` — the remediation written AFTER
+    the round-6 return, not the code the reviewer held — and disagreed with
+    the actual archive on the forged-marker case and the schema version. This
+    re-derives each historical fixture from its declared commit and compares.
+
+    Skipped where git is unavailable (inside an extracted review package, for
+    instance), because the claim it checks is about OUR repository.
+    """
+    import importlib.util
+    import subprocess
+    import sys
+
+    for version, fixture in _fixtures().items():
+        if version == PROJECTOR_VERSION:
+            continue
+        source = str(fixture.get("generated_from", ""))
+        commit = source.split()[1] if source.startswith("git ") else ""
+        assert commit, f"v{version} fixture does not name its source commit"
+
+        try:
+            blob = subprocess.run(
+                ["git", "show", f"{commit}:backend/src/workflow_platform/trace_projection.py"],
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=Path(__file__).resolve().parents[2],
+            ).stdout
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            pytest.skip(f"git unavailable or {commit} not present; cannot re-derive v{version}")
+
+        tmp = Path(__file__).resolve().parent / f"_historical_{version}.py"
+        tmp.write_text(blob)
+        try:
+            spec = importlib.util.spec_from_file_location(f"_hist_{version}", tmp)
+            assert spec and spec.loader
+            mod = importlib.util.module_from_spec(spec)
+            sys.modules[f"_hist_{version}"] = mod
+            spec.loader.exec_module(mod)
+
+            assert str(mod.PROJECTOR_VERSION) == version, (
+                f"v{version} fixture names {commit}, which declares "
+                f"PROJECTOR_VERSION={mod.PROJECTOR_VERSION!r}"
+            )
+            assert fixture["projection_schema_version"] == mod.PROJECTION_SCHEMA_VERSION, (
+                f"v{version} fixture records schema "
+                f"{fixture['projection_schema_version']}, source declares "
+                f"{mod.PROJECTION_SCHEMA_VERSION}"
+            )
+            for case in fixture["cases"]:
+                if case.get("action"):
+                    actual = mod.project_audit_detail_at_rest(case["action"], case["input"])
+                else:
+                    actual = mod.redact_tool_data(case["input"], admin=False, kind=case["kind"])
+                assert actual == case["expected"], (
+                    f"v{version} case {case['id']} does not match what {commit} produces:\n"
+                    f"  fixture: {json.dumps(case['expected'], sort_keys=True)}\n"
+                    f"  source:  {json.dumps(actual, sort_keys=True)}"
+                )
+        finally:
+            sys.modules.pop(f"_hist_{version}", None)
+            tmp.unlink(missing_ok=True)

@@ -96,9 +96,7 @@
       "kind": "step_output"
     },
     {
-      "expected": {
-        "_withheld_keys": true
-      },
+      "expected": {},
       "id": "step_output.withheld_forged",
       "input": {
         "_withheld_keys": 123456789
@@ -200,7 +198,7 @@
       "expected": {
         "_withheld_keys": true
       },
-      "id": "audit_detail.tool_call",
+      "id": "audit_detail.flat_record_under_generic_schema",
       "input": {
         "input": {
           "path": "/x"
@@ -215,6 +213,176 @@
         "result": {
           "text": "SYNTHETIC"
         }
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "expected": {
+        "tool_calls": [
+          {
+            "_redacted": "raw tool input/result withheld (admin-tier only)",
+            "content_bytes": 987654321,
+            "error_present": false,
+            "input_key_count": 123456789,
+            "name": "[redacted \u2014 raw-trace grant required]",
+            "pin_overrides_present": false,
+            "pinned_present": false,
+            "result_ok": true
+          }
+        ]
+      },
+      "id": "step_output.tool_call_large_numbers",
+      "input": {
+        "tool_calls": [
+          {
+            "content_bytes": 987654321,
+            "error_present": false,
+            "input_key_count": 123456789,
+            "name": "file_read",
+            "result_ok": true
+          }
+        ]
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "tool_calls": [
+          {
+            "_redacted": "raw tool input/result withheld (admin-tier only)",
+            "error_present": false,
+            "input_key_count": 50,
+            "name": "[redacted \u2014 raw-trace grant required]",
+            "pin_overrides_present": false,
+            "pinned_present": false,
+            "result_ok": true
+          }
+        ]
+      },
+      "id": "step_output.tool_call_wide_arity",
+      "input": {
+        "tool_calls": [
+          {
+            "input": {
+              "p0": 0,
+              "p1": 1,
+              "p10": 10,
+              "p11": 11,
+              "p12": 12,
+              "p13": 13,
+              "p14": 14,
+              "p15": 15,
+              "p16": 16,
+              "p17": 17,
+              "p18": 18,
+              "p19": 19,
+              "p2": 2,
+              "p20": 20,
+              "p21": 21,
+              "p22": 22,
+              "p23": 23,
+              "p24": 24,
+              "p25": 25,
+              "p26": 26,
+              "p27": 27,
+              "p28": 28,
+              "p29": 29,
+              "p3": 3,
+              "p30": 30,
+              "p31": 31,
+              "p32": 32,
+              "p33": 33,
+              "p34": 34,
+              "p35": 35,
+              "p36": 36,
+              "p37": 37,
+              "p38": 38,
+              "p39": 39,
+              "p4": 4,
+              "p40": 40,
+              "p41": 41,
+              "p42": 42,
+              "p43": 43,
+              "p44": 44,
+              "p45": 45,
+              "p46": 46,
+              "p47": 47,
+              "p48": 48,
+              "p49": 49,
+              "p5": 5,
+              "p6": 6,
+              "p7": 7,
+              "p8": 8,
+              "p9": 9
+            },
+            "name": "file_read",
+            "result": {
+              "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          }
+        ]
+      },
+      "kind": "step_output"
+    },
+    {
+      "action": "tool_call",
+      "expected": {
+        "_redacted": "raw tool input/result withheld (admin-tier only)",
+        "error_present": false,
+        "input_key_count": 2,
+        "name": "[redacted \u2014 raw-trace grant required]",
+        "pin_overrides_present": true,
+        "pinned_present": true,
+        "result_ok": true
+      },
+      "id": "at_rest.tool_call_action",
+      "input": {
+        "input": {
+          "mode": "r",
+          "path": "/x"
+        },
+        "name": "file_read",
+        "pin_overrides": [
+          "path"
+        ],
+        "pinned": [
+          "path"
+        ],
+        "result": {
+          "text": "SYNTHETIC"
+        }
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "memory_recalled",
+      "expected": {
+        "context_hash": "abc",
+        "edges": 3,
+        "query": "[redacted \u2014 raw-trace grant required]"
+      },
+      "id": "at_rest.memory_recalled_action",
+      "input": {
+        "context_hash": "abc",
+        "edges": 3,
+        "query": "SYNTHETIC correspondent"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "escalation_requested",
+      "expected": {
+        "context": "[redacted \u2014 raw-trace grant required]",
+        "grant_id": "g-1",
+        "reason": "[redacted \u2014 raw-trace grant required]"
+      },
+      "id": "at_rest.escalation_requested_action",
+      "input": {
+        "context": {
+          "body": "SYNTHETIC"
+        },
+        "grant_id": "g-1",
+        "reason": "SYNTHETIC reason"
       },
       "kind": "audit_detail"
     },
@@ -240,8 +408,8 @@
       "kind": "audit_detail"
     }
   ],
-  "generated_from": "git 4d9f39c \u2014 the round-6 projector, as it shipped",
-  "note": "HISTORICAL. Regenerated from the archived source, not hand-written. Frozen so the degradation property is tested against a real older projection rather than skipped.",
-  "projection_schema_version": 2,
+  "generated_from": "git b67391d \u2014 the commit of the round-6 ARCHIVE actually sent for review",
+  "note": "HISTORICAL, regenerated from the archived source. R8 P2: the previous version was generated from 4d9f39c, which is the remediation written AFTER the round-6 return \u2014 not the code the reviewer held. It disagreed with the real archive on the forged-marker case and on the schema version.",
+  "projection_schema_version": 1,
   "projector_version": "3"
 }

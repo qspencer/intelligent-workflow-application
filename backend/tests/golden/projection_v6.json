@@ -342,6 +342,90 @@
         "query": "SYNTHETIC correspondent"
       },
       "kind": "audit_detail"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true
+      },
+      "id": "audit_detail.flat_record_under_generic_schema",
+      "input": {
+        "input": {
+          "path": "/x"
+        },
+        "name": "file_read",
+        "pin_overrides": [
+          "path"
+        ],
+        "pinned": [
+          "path"
+        ],
+        "result": {
+          "text": "SYNTHETIC"
+        }
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "tool_call",
+      "expected": {
+        "_redacted": "raw tool input/result withheld (admin-tier only)",
+        "error_present": false,
+        "input_key_count": 2,
+        "name": "[redacted \u2014 raw-trace grant required]",
+        "pin_overrides_present": true,
+        "pinned_present": true,
+        "result_ok": true
+      },
+      "id": "at_rest.tool_call_action",
+      "input": {
+        "input": {
+          "mode": "r",
+          "path": "/x"
+        },
+        "name": "file_read",
+        "pin_overrides": [
+          "path"
+        ],
+        "pinned": [
+          "path"
+        ],
+        "result": {
+          "text": "SYNTHETIC"
+        }
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "memory_recalled",
+      "expected": {
+        "context_hash": "abc",
+        "edges": 3,
+        "query": "[redacted \u2014 raw-trace grant required]"
+      },
+      "id": "at_rest.memory_recalled_action",
+      "input": {
+        "context_hash": "abc",
+        "edges": 3,
+        "query": "SYNTHETIC correspondent"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "escalation_requested",
+      "expected": {
+        "context": "[redacted \u2014 raw-trace grant required]",
+        "grant_id": "g-1",
+        "reason": "[redacted \u2014 raw-trace grant required]"
+      },
+      "id": "at_rest.escalation_requested_action",
+      "input": {
+        "context": {
+          "body": "SYNTHETIC"
+        },
+        "grant_id": "g-1",
+        "reason": "SYNTHETIC reason"
+      },
+      "kind": "audit_detail"
     }
   ],
   "projection_schema_version": 2,

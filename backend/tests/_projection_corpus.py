@@ -11,10 +11,18 @@ from __future__ import annotations
 
 from typing import Any
 
-#: (case id, asset kind, input). The expected OUTPUT is not here — it lives in
-#: the frozen per-version fixture, so an old fixture stays meaningful even if
-#: this corpus later grows.
-CORPUS: list[tuple[str, str, Any]] = [
+#: (case id, asset kind, input[, audit action]). The expected OUTPUT is not
+#: here — it lives in the frozen per-version fixture, so an old fixture stays
+#: meaningful even if this corpus later grows.
+#:
+#: A 4th element routes the case through `project_audit_detail_at_rest(action,
+#: …)` instead of `redact_tool_data`. R8 P2: the corpus could only reach ONE
+#: entry point, so the action-dispatched at-rest path — where a `tool_call`
+#: detail becomes `safe_tool_call` and denylisted fields are redacted — was
+#: entirely unguarded, and the case NAMED `audit_detail.tool_call` in fact
+#: projected a flat record through the generic schema and never called
+#: `safe_tool_call` at all.
+CORPUS: list[tuple[Any, ...]] = [
     # --- engine metadata + model-derived business fields (R6/R7 ownership) ---
     (
         "step_output.engine_and_business",
@@ -81,7 +89,7 @@ CORPUS: list[tuple[str, str, Any]] = [
     ),
     # --- tool calls: names, list fields, hostile shapes (R4/R5/R6) ---
     (
-        "audit_detail.tool_call",
+        "audit_detail.flat_record_under_generic_schema",
         "audit_detail",
         {
             "name": "file_read",
@@ -123,6 +131,31 @@ CORPUS: list[tuple[str, str, Any]] = [
                 }
             ]
         },
+    ),
+    # --- the ACTION-DISPATCHED at-rest path (R8 P2) ---
+    (
+        "at_rest.tool_call_action",
+        "audit_detail",
+        {
+            "name": "file_read",
+            "input": {"path": "/x", "mode": "r"},
+            "result": {"text": "SYNTHETIC"},
+            "pinned": ["path"],
+            "pin_overrides": ["path"],
+        },
+        "tool_call",
+    ),
+    (
+        "at_rest.memory_recalled_action",
+        "audit_detail",
+        {"query": "SYNTHETIC correspondent", "edges": 3, "context_hash": "abc"},
+        "memory_recalled",
+    ),
+    (
+        "at_rest.escalation_requested_action",
+        "audit_detail",
+        {"reason": "SYNTHETIC reason", "context": {"body": "SYNTHETIC"}, "grant_id": "g-1"},
+        "escalation_requested",
     ),
     (
         "audit_detail.governance",

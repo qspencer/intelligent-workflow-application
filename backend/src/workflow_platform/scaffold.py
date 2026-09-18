@@ -165,6 +165,89 @@ class ScaffoldIdError(ScaffoldError):
     """The draft's step ids are not usable as a mapping source."""
 
 
+#: Config keys whose VALUE is a dotted context path (`steps.<id>.<field>`),
+#: derived from `engine/functions.py` and pinned against drift by
+#: `test_context_path_keys_match_the_functions_that_read_them`. R8 P1: minting
+#: renamed the steps and left these pointing at the old id, so a renamed
+#: workflow PERSISTED and then FAILED at run time. They are rewritten as
+#: references; every other config value stays data.
+_CONTEXT_PATH_KEYS: frozenset[str] = frozenset(
+    {
+        "attention_from",
+        "classification_from",
+        "content_from",
+        "evaluation_from",
+        "extraction_from",
+        "filepath_from",
+        "paths_from",
+        "route_from",
+        "rows_from",
+        "source_from",
+        "triage_from",
+        "value_from",
+    }
+)
+
+#: The learned-memory spec's own reference fields (same shape, different home).
+_LEARNED_MEMORY_PATH_KEYS: frozenset[str] = frozenset({"query_from", "date_from", "ref_from"})
+
+#: A config key left UNSET still resolves — through a default that names a
+#: step by id. Rename that step and the default dangles, so omitting the key
+#: fails just as surely as setting it. Where a default names a step being
+#: renamed, minting MATERIALISES it with the new id.
+_STEP_PATH_DEFAULTS: dict[str, str] = {
+    "classification_from": "steps.classify.output_text",
+    "evaluation_from": "steps.evaluate.output_text",
+    "extraction_from": "steps.extract.output_text",
+    "route_from": "steps.precheck.route",
+    "triage_from": "steps.triage.output_text",
+}
+
+#: A dotted step reference inside a context path: `steps.<id>` at the start.
+_DOTTED_REF = re.compile(r"^(?P<prefix>steps\.)(?P<id>[A-Za-z0-9_\-]+)")
+
+
+def _reads_config_key(function: Any, key: str) -> bool:
+    """Whether a default for `key` should be materialised onto this function.
+
+    FAIL-SAFE by design: True unless the function is KNOWN and provably does
+    not read the key. Writing a config key a function ignores is cosmetic
+    noise; omitting one it needs produces a definition that parses and then
+    FAILS at run time, which is the defect this whole path exists to prevent
+    (R8 P1). An unregistered or custom function is therefore treated as a
+    reader, not as a non-reader.
+
+    Only the five keys in `_STEP_PATH_DEFAULTS` reach here, and only when the
+    step their default names is actually being renamed, so the noise is
+    bounded to references that would otherwise dangle.
+    """
+    if not isinstance(function, str):
+        return True
+    from workflow_platform.engine.functions import default_function_registry
+
+    fn = default_function_registry().get(function)
+    if fn is None:
+        return True  # unknown function → assume it reads it
+    import inspect
+
+    try:
+        return f'"{key}"' in (inspect.getsource(fn) or "")
+    except (OSError, TypeError):
+        return True
+
+
+def _rewrite_context_path(value: Any, mapping: dict[str, str]) -> Any:
+    """Rewrite `steps.<id>…` in a value known to BE a context path."""
+    if not isinstance(value, str):
+        return value
+
+    def sub(m: re.Match[str]) -> str:
+        sid = m.group("id")
+        return m.group(0) if sid not in mapping else f"steps.{mapping[sid]}"
+
+    return _DOTTED_REF.sub(sub, value, count=1)
+
+
 #: A `{steps.<id>...}` placeholder in a TEMPLATE string (goals, text). Anchored
 #: on the opening brace so it cannot match prose that merely mentions a step.
 _TEMPLATE_REF = re.compile(r"(?P<open>\{)(?P<prefix>steps\.)(?P<id>[A-Za-z0-9_\-]+)")
@@ -275,6 +358,31 @@ def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
             _rewrite_condition(node, mapping) if is_condition else _rewrite_template(node, mapping)
         )
 
+    def _rewrite_config(cfg: dict[str, Any], function: Any, m: dict[str, str]) -> dict[str, Any]:
+        """steps[i].config: rewrite CONTEXT PATHS, leave every other value alone.
+
+        R8 P1. `evaluation_from: "steps.evaluate.output_text"` is a reference,
+        and minting left it pointing at a step that no longer exists — the
+        definition persisted and then FAILED at run time. A config value is a
+        reference only when its KEY says so; everything else stays data, the
+        rule R6/R7 established for `from`/`to`/`inputs`.
+        """
+        out_cfg: dict[str, Any] = {}
+        for k, v in cfg.items():
+            if k in _CONTEXT_PATH_KEYS or k in _LEARNED_MEMORY_PATH_KEYS:
+                out_cfg[k] = _rewrite_context_path(v, m)
+            else:
+                out_cfg[k] = walk_value(v)
+        # An UNSET key still resolves, through a default that names a step. If
+        # that step is renamed the default dangles, so write it out explicitly.
+        for key, default in _STEP_PATH_DEFAULTS.items():
+            if key in out_cfg:
+                continue
+            rewritten = _rewrite_context_path(default, m)
+            if rewritten != default and _reads_config_key(function, key):
+                out_cfg[key] = rewritten
+        return out_cfg
+
     def walk_value(node: Any) -> Any:
         """Ordinary DATA: only `{steps.x}` placeholders move inside it."""
         if isinstance(node, str):
@@ -298,6 +406,8 @@ def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
                 ns[k] = mapping.get(v, v)  # steps[i].id
             elif k == "inputs" and isinstance(v, list):  # steps[i].inputs[*]
                 ns[k] = [mapping.get(x, x) if isinstance(x, str) else walk_value(x) for x in v]
+            elif k == "config" and isinstance(v, dict):  # steps[i].config.*_from
+                ns[k] = _rewrite_config(v, s.get("function"), mapping)
             else:
                 ns[k] = walk_value(v)
         new_steps.append(ns)
