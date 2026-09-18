@@ -683,7 +683,12 @@ def test_a_round6_projection_degrades_rather_than_reading_as_tampering() -> None
     raw = {"faithfulness_score": 5, "output_text": "secret", "model": "m"}
     round6_stored = {"faithfulness_score": 5, "model": "m", "_withheld_keys": True}
     assert verify_projection_agreement(raw, round6_stored, "3") == "unsupported"
-    assert PROJECTOR_VERSION == "4", "output changed, so the projector version must have moved"
+    # NOT a literal version: pinning "4" here duplicated the constant and broke
+    # the moment the next real change bumped it to "5". The property is that a
+    # SUPERSEDED version degrades; enforcing that the version MOVES when output
+    # moves is the golden guard's job (test_projection_golden.py), and one
+    # owner per rule is the point.
+    assert PROJECTOR_VERSION != "3", "the round-6 version must have been superseded"
     assert (
         verify_projection_agreement(
             raw, redact_tool_data(raw, admin=False, kind="step_output"), PROJECTOR_VERSION

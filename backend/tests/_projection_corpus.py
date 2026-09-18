@@ -91,6 +91,39 @@ CORPUS: list[tuple[str, str, Any]] = [
             "pin_overrides": ["path"],
         },
     ),
+    # --- tool-summary numbers: the BOUNDED range (R7 §4.4) ---
+    # Added after the guard PASSED on a change it should have caught: the
+    # corpus had only small tool calls, so nothing reached the range where
+    # bounding alters the output. A golden guard protects exactly what its
+    # corpus reaches, and no more — which is the limit the reviewer named.
+    (
+        "step_output.tool_call_large_numbers",
+        "step_output",
+        {
+            "tool_calls": [
+                {
+                    "name": "file_read",
+                    "input_key_count": 123456789,
+                    "content_bytes": 987654321,
+                    "result_ok": True,
+                    "error_present": False,
+                }
+            ]
+        },
+    ),
+    (
+        "step_output.tool_call_wide_arity",
+        "step_output",
+        {
+            "tool_calls": [
+                {
+                    "name": "file_read",
+                    "input": {f"p{i}": i for i in range(50)},
+                    "result": {"text": "x" * 4096},
+                }
+            ]
+        },
+    ),
     (
         "audit_detail.governance",
         "audit_detail",

@@ -229,6 +229,39 @@ def is_withheld_marker(obj: Any) -> bool:
     return isinstance(legacy, int) and not isinstance(legacy, bool) and legacy > 0
 
 
+#: A tool call's parameter arity above this is not operationally meaningful,
+#: and the number's only remaining job would be to carry a value.
+_MAX_ARITY = 32
+
+
+def _bounded_arity(value: Any) -> int:
+    """Clamp a parameter count so it cannot carry data (R7 §4.4).
+
+    `input_key_count` is PROJECTION metadata — we compute it — but on the
+    already-projected branch the raw is gone, so it can only be read back from
+    the record, and the reviewer showed an arbitrary supplied number surviving
+    there as if we had produced it. It cannot be recomputed and it cannot be
+    dropped (projection must stay a fixed point), so it is BOUNDED: an int in
+    0..32, which is ~5 bits instead of 64. Clamping is idempotent.
+    """
+    if not isinstance(value, int) or isinstance(value, bool) or value < 0:
+        return 0
+    return min(value, _MAX_ARITY)
+
+
+def _bounded_size(value: Any) -> int:
+    """Reduce a byte size to its ORDER OF MAGNITUDE, for the same reason.
+
+    A size must stay meaningful over a huge range, so clamping is wrong; it is
+    rounded down to a power of ten instead ("about 10 KB"). That is ~10
+    distinct values, and it is a fixed point: the bucket of a bucket is itself.
+    """
+    if not isinstance(value, int) or isinstance(value, bool) or value <= 0:
+        return 0
+    power = 10 ** (len(str(value)) - 1)
+    return int(power)
+
+
 def _resolved_tool_name(name: Any, known_tools: frozenset[str] | None) -> Any:
     """A tool name may be shown only when it RESOLVES against a catalog the
     caller supplies; otherwise it is the model's own string and is withheld.
@@ -269,7 +302,12 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "4"  # R7 P1: bumped AGAIN, and for the same reason as
+PROJECTOR_VERSION = "5"  # R7 §4.4: tool-summary numbers are now BOUNDED
+# (arity clamped, size to an order of magnitude), so a v4 record carrying
+# `content_bytes: 1234` re-projects to 1000 — a changed output, which is a
+# changed version. Caught by reasoning, NOT by the guard: its corpus had only
+# small tool calls, so nothing exercised the range the bounding alters. The
+# corpus now covers it.
 # "3" — round 7 withholds model-derived BUSINESS fields that round 6 emitted,
 # so a round-6 record re-projected under round 7 disagrees and reads as
 # TAMPERING rather than degrading. Bumping PROJECTION_SCHEMA_VERSION did not
@@ -845,18 +883,24 @@ def safe_tool_call(
         # signals come from the record because the raw result is gone.
         result_ok = bool(tc.get("result_ok"))
         error_present = bool(tc.get("error_present"))
-        input_key_count = tc["input_key_count"] if _count(tc.get("input_key_count")) else 0
-        content_bytes = tc.get("content_bytes")
-        content_bytes = content_bytes if _count(content_bytes) else None
+        # R7 §4.4: read back from the record because the raw is gone — so
+        # BOUNDED, since an unbounded number read from input is a channel, not
+        # metadata we produced.
+        input_key_count = _bounded_arity(tc.get("input_key_count"))
+        cb = tc.get("content_bytes")
+        content_bytes = _bounded_size(cb) if _count(cb) else None
     else:
         result = tc.get("result") or {}
         content = result.get("content")
         result_ok = not result.get("error")
         error_present = bool(result.get("error"))
         # F1d: only the arity survives — never the model-chosen parameter names.
-        input_key_count = len(tc.get("input") or {})
+        # Bounded on THIS branch too, or projection stops being a fixed point:
+        # an exact count here and a clamped one on re-projection would disagree
+        # for any call above the bound.
+        input_key_count = _bounded_arity(len(tc.get("input") or {}))
         content_bytes = (
-            len(json.dumps(content, sort_keys=True, default=str).encode())
+            _bounded_size(len(json.dumps(content, sort_keys=True, default=str).encode()))
             if content is not None
             else None
         )
