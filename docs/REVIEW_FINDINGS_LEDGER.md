@@ -275,6 +275,7 @@ Tracked so "we are learning" stays measurable rather than asserted.
 | 10 | 3 | M7 ×2, M6 | **0** |
 | 11 | 2 | M3, M6 | **0** |
 | — (self-found, audit-vault build) | 1 | **M8 (new)** | n/a |
+| — (self-found, at-rest tightening) | 2 | M6 ×2 | n/a |
 
 **The trend that matters:** volume down to two, and **four consecutive
 rounds with no defect in the thing under review**. The work has moved to the
@@ -297,6 +298,27 @@ Worth stating so the line is not extended out of habit: this epic should end
 when a round returns **no finding that a detector in §3 could have caught**.
 Rounds 8–11 do not meet that bar — every finding was a named class. That is
 the test, not round count.
+
+### R-b earning its keep (2026-09-18, at-rest tightening)
+
+Two M6 instances caught by our own controls during one change, both mine:
+
+1. The vaulting gate in `_audit` was written against the LENIENT at-rest
+   diff, so it vaulted nothing for the motivating case — the exact trap round
+   11's "use the final policy" qualifier named. The new tests failed
+   immediately.
+2. The end-to-end safety invariant was **vacuous**. It compared
+   `project(entry.detail) != entry.detail`, but `entry.detail` is what was
+   already stored — already projected, hence a fixed point by construction.
+   It passed with vaulting switched off. Only running the control (disable
+   vaulting, watch it go red) exposed it; rewritten to capture the raw as the
+   engine sees it, it now names the two actions that would be destroyed.
+
+The second is the more useful lesson, because the test LOOKED like the
+strongest one in the file. R-b is not a formality for gates you doubt — it is
+the only thing that distinguishes an invariant from a sentence.
+
+---
 
 ### M8 — a test double that cannot exhibit the failure mode
 

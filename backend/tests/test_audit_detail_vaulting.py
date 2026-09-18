@@ -424,3 +424,75 @@ def test_C3_the_known_gap_is_recorded_not_forgotten() -> None:
     """The monitoring loop is unvaulted. Pinned so closing it is a deliberate
     edit to this test, and so the gap cannot quietly become untrue."""
     assert AUDIT_WRITERS["monitoring/service.py"] == "UNVAULTED-GAP"
+
+
+async def _echo_fn(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
+    """A deterministic step output with a free-form field, so the projection
+    has something to withhold."""
+    return {"note": "SYNTHETIC free-form output", "count": 1}
+
+
+async def test_INVARIANT_no_audit_entry_loses_content_without_a_vault_row() -> None:
+    """The safety property the whole design reduces to, over a REAL run.
+
+    For every detail the engine audits: if at-rest projection takes anything
+    away, the vault must hold that raw. Anything else is destruction.
+
+    **This test was written wrong first, and the control caught it.** The
+    first version compared `project(entry.detail) != entry.detail` — but
+    `entry.detail` is what was ALREADY stored, i.e. already projected, so it
+    is a fixed point by construction and the comparison was vacuous. It
+    passed with vaulting switched off. The raw never reaches the audit row
+    (that is the point), so the raw has to be captured as the engine sees it.
+    """
+    from workflow_platform.trace_projection import project_audit_detail_at_rest
+    from workflow_platform.workflow import load_definition
+
+    seen: list[tuple[str, dict[str, Any]]] = []
+
+    class _CapturingEngine(WorkflowEngine):
+        async def _audit(
+            self, action: str, *, detail: dict[str, Any] | None = None, **kw: Any
+        ) -> None:
+            seen.append((action, dict(detail or {})))
+            await super()._audit(action, detail=detail, **kw)
+
+    registry = FunctionRegistry()
+    registry.register("echo", _echo_fn)
+    engine = _CapturingEngine(
+        repositories=in_memory_repositories(),
+        functions=registry,
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+        trace_safe_only=True,
+    )
+    definition = load_definition(
+        {
+            "id": "wf",
+            "name": "wf",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {"id": "a", "type": "deterministic", "function": "echo", "config": {}},
+                {"id": "b", "type": "deterministic", "function": "echo", "config": {}},
+            ],
+            "edges": [{"from": "a", "to": "b"}],
+        }
+    )
+    instance = await engine.run(definition, trigger_payload={"secret": "SYNTHETIC-RAW"})
+
+    lossy = [
+        (action, raw) for action, raw in seen if project_audit_detail_at_rest(action, raw) != raw
+    ]
+    assert lossy, (
+        "no audited detail lost anything to projection in this run, so the "
+        "invariant below is vacuous — the workflow no longer exercises the path"
+    )
+
+    rows = await engine.repositories.raw_trace_vault.list_by_instance(instance.id)
+    payloads = [r.payload for r in rows if r.kind is RawTraceKind.AUDIT_DETAIL]
+    destroyed = [action for action, raw in lossy if raw not in payloads]
+    assert not destroyed, (
+        f"these audited details lost content with no vault row holding the raw: "
+        f"{destroyed}. That is destruction, not withholding."
+    )
