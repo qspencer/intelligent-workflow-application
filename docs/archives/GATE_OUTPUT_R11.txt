@@ -1,0 +1,42 @@
+Captured standalone gate results — F1/F5 review round 11
+
+Gates ran at tree: a8dcda4859c39da8ad079a6d2d07fb9a5e1db4a3   (manifest aggregate: d8d8859441a332cc78eef9998ebeb2c8c79900d20ea56f00286b985a7b3be8e2)
+Exit codes are real: each command writes to a file and $? is read
+IMMEDIATELY, before any pipe. Five gates.
+
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · 2026-09-18T20:48:20Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+267 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 228 source files
+exit: 0
+
+=== uv run pytest -q ===
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
+1156 passed, 15 skipped, 13 warnings in 38.56s
+exit: 0
+
+=== uv run --with pip-audit pip-audit ===
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== the round-10 findings, re-run against this tree ===
+ P1 config literal PRESERVED : {"marker": "{steps.a.value}"}
+ P1 condition literal intact : steps['step_1']['marker'] == '{steps.a.value}'
+ P1 non-ASCII id rewritten   : steps.step_1.output_text
+ the ONE rendered field still: {steps.step_1.v}
+
+=== the two detectors built before sending ===
+ grammar is ONE object, not two equal strings: True
+SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
+12 passed, 1 skipped, 99 deselected in 0.66s
