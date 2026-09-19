@@ -95,6 +95,48 @@ class LearnedObservation(BaseModel):
     model: str
 
 
+def memory_observed_detail(
+    observation: LearnedObservation, *, namespace: str, index: int, backfill: bool = False
+) -> dict[str, Any]:
+    """Build the `memory_observed` audit detail from the RECORD.
+
+    The writer-side half of the per-(action, field) registry. The reviewer's
+    round-16 answer on what makes a value canonical: *"a constructor
+    accepting the already-loaded record and deriving its identifier
+    internally is a reasonable default. Avoid another database lookup solely
+    to repeat that check."*
+
+    So this takes the `LearnedObservation` the service produced and reads
+    its fields, rather than accepting a free-form dict a caller assembled.
+    The call site was `{"user_id": namespace, "observation": index,
+    **result.model_dump()}` — which is how a field could change meaning
+    without anything noticing, because nothing named the fields.
+
+    Every key here has a rule in `AUDIT_FIELD_RULES["memory_observed"]`, and
+    `test_the_constructor_emits_exactly_the_classified_fields` fails if the
+    two drift apart. Fields the registry withholds are still EMITTED and
+    vaulted — classification governs disclosure, not recording, which is the
+    reviewer's point that *"raw business fields may still be emitted and
+    vaulted"*.
+    """
+    return {
+        "user_id": namespace,
+        "observation": index,
+        "text_hash": observation.text_hash,
+        "author": observation.author,
+        "derived_from": observation.derived_from,
+        "event_type": observation.event_type,
+        "evidence_ref": observation.evidence_ref,
+        "facts": observation.facts,
+        "quarantined": observation.quarantined,
+        "input_tokens": observation.input_tokens,
+        "output_tokens": observation.output_tokens,
+        "cost_usd": observation.cost_usd,
+        "model": observation.model,
+        **({"backfill": True} if backfill else {}),
+    }
+
+
 class _BedrockComplete:
     """veracium `Complete` adapter over the platform's BedrockClient.
 

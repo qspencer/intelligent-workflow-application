@@ -4,6 +4,7 @@ from workflow_platform.memory.learned import (
     LearnedObservation,
     RecalledMemory,
     memory_namespace,
+    memory_observed_detail,
     normalize_entity,
 )
 from workflow_platform.memory.manager import MemoryManager
@@ -15,5 +16,6 @@ __all__ = [
     "MemoryManager",
     "RecalledMemory",
     "memory_namespace",
+    "memory_observed_detail",
     "normalize_entity",
 ]

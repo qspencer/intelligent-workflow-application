@@ -316,7 +316,19 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "10"  # v10: the widening, CORRECTED by source (R14 F1).
+PROJECTOR_VERSION = "11"  # v11: the per-(action, field) REGISTRY, first
+# action (`memory_observed`). Classification by SOURCE, stated per action
+# rather than per field, because the same NAME has different producers under
+# different actions — `evidence_ref` is engine-set in the fork and judge
+# paths and context-resolved in the observe path, which a flat table got
+# wrong (R14 F1). Each rule carries owner + validator + disclosure, because
+# an ownership label is an assertion and the validator is what enforces it.
+#
+# Output changes for `memory_observed` only, and only by releasing
+# `backfill` (an engine-set bool, the same class as `attempt`). Everything
+# the v10 flat schema withheld here stays withheld.
+#
+# v10: the widening, CORRECTED by source (R14 F1).
 # v9 declared 19 fields by SHAPE and we argued content could not survive the
 # validators. The reviewer disproved it: `evidence_ref` is resolved from the
 # workflow CONTEXT, so a trigger field became a token-shaped value released
@@ -1147,6 +1159,106 @@ _RAW_AUDIT_FIELDS = (
 )
 
 
+@dataclass(frozen=True)
+class FieldRule:
+    """What one field of one ACTION's audit detail is.
+
+    Three things, deliberately separate, because the reviewer's round-16
+    answer was that they are not interchangeable: *"an ownership label
+    documents an assertion; writer-side construction and tests must support
+    it"*.
+
+    - `owner`    — WHO produces the value. The assertion.
+    - `node`     — how it is validated. Shape, which bounds damage.
+    - `disclose` — whether a reader with no raw-trace grant may see it.
+                   Stated per field rather than inferred from the owner,
+                   because an ENGINE-owned value can still be one we choose
+                   to withhold.
+
+    Ownership alone never releases anything: a field is disclosed only when
+    `disclose` is True AND its node validates the value.
+    """
+
+    owner: Owner
+    node: Node
+    disclose: bool
+
+
+#: Per-(action, field) classification — the registry the round-14/16 reviews
+#: asked for, replacing a flat per-field table that could not express the
+#: same NAME having different PRODUCERS under different actions.
+#:
+#: That is not hypothetical: `evidence_ref` is engine-set to an instance id
+#: in the fork and judge paths, and resolved from the workflow CONTEXT in the
+#: observe path. A flat table classified it once and was wrong for one of
+#: them — round-14 finding 1.
+#:
+#: Built incrementally, per the reviewer: *"start with the actions whose
+#: metadata you want to expose"*. An action absent here falls back to the
+#: flat `_AUDIT_DETAIL` schema, which is default-deny, so adding an action
+#: can only ever RELEASE more — never accidentally leak by omission.
+AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
+    "memory_observed": {
+        # --- ENGINE: computed by the component that emits the record.
+        "observation": FieldRule(Owner.ENGINE, _COUNT, True),
+        "facts": FieldRule(Owner.ENGINE, _COUNT, True),
+        "quarantined": FieldRule(Owner.ENGINE, _COUNT, True),
+        "input_tokens": FieldRule(Owner.ENGINE, _COUNT, True),
+        "output_tokens": FieldRule(Owner.ENGINE, _COUNT, True),
+        "cost_usd": FieldRule(Owner.ENGINE, _AMOUNT, True),
+        # `"sha256:" + sha256(text)`, computed inside the service.
+        "text_hash": FieldRule(Owner.ENGINE, _TOKEN, True),
+        "model": FieldRule(Owner.ENGINE, _TOKEN, True),
+        # Set by the offline backfill tool, never by a caller.
+        "backfill": FieldRule(Owner.ENGINE, _BOOL, True),
+        # Canonical ids from records. Present in the flat schema too, and
+        # kept here deliberately: a registry entry that omits a field the
+        # flat schema released would silently WITHDRAW it for that action.
+        # `test_a_registry_action_does_not_silently_withdraw_a_flat_field`
+        # is the coverage check for exactly that.
+        "workflow_id": FieldRule(Owner.ENGINE, _TOKEN, True),
+        "instance_id": FieldRule(Owner.ENGINE, _TOKEN, True),
+        # --- CONFIG: declared in the workflow YAML.
+        # Closed enums, so the validator encodes the set rather than
+        # accepting anything token-shaped.
+        "author": FieldRule(Owner.CONFIG, Leaf(_enum("user", "third_party", "system")), True),
+        "derived_from": FieldRule(Owner.CONFIG, Leaf(_enum("user", "third_party", "system")), True),
+        # A free `str` on the spec, so in a SCAFFOLDED workflow the model
+        # wrote it. Classified, and withheld.
+        "event_type": FieldRule(Owner.CONFIG, _TOKEN, False),
+        # --- BUSINESS: derived from the workflow's input.
+        # Resolved from the CONTEXT via `ObservationSpec.ref_from`, so the
+        # trigger controls it. This is the round-14 P1.
+        "evidence_ref": FieldRule(Owner.BUSINESS, _TOKEN, False),
+        # The memory namespace key — a mailbox address in production, not a
+        # platform user id. Withheld; see G-Trace-Subject-Identity.
+        "user_id": FieldRule(Owner.BUSINESS, _ID, False),
+    },
+}
+
+
+def _project_by_rules(detail: dict[str, Any], rules: dict[str, FieldRule]) -> dict[str, Any]:
+    """Project one detail under its action's rules. Default-deny: a field
+    with no rule is withheld, exactly as an undeclared field is under the
+    flat schema."""
+    out: dict[str, Any] = {}
+    withheld = False
+    for key, value in detail.items():
+        rule = rules.get(key)
+        if rule is None or not rule.disclose:
+            withheld = True
+            continue
+        projected = _project(rule.node, value)
+        if projected != value:
+            # Declared and disclosable, but the value failed its validator.
+            out[key] = projected
+            continue
+        out[key] = value
+    if withheld:
+        out[_WITHHELD] = True
+    return out
+
+
 def project_audit_detail_final(action: str | None, detail: Any) -> Any:
     """The at-rest policy, defined as **the read path**: at rest must never
     hold more than a reader without a raw-trace grant can already see.
@@ -1162,6 +1274,12 @@ def project_audit_detail_final(action: str | None, detail: Any) -> Any:
         return detail
     if action == "tool_call":
         return safe_tool_call(detail)
+    # Per-(action, field) rules first. Only actions listed in the registry
+    # take this path; everything else keeps the flat default-deny schema, so
+    # adding an action can release more but never leak by omission.
+    rules = AUDIT_FIELD_RULES.get(action or "")
+    if rules is not None:
+        return _project_by_rules(detail, rules)
     return redact_tool_data(detail, admin=False, kind="audit_detail")
 
 

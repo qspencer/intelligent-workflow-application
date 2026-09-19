@@ -41,6 +41,7 @@ from workflow_platform.memory import (
     MemoryManager,
     RecalledMemory,
     memory_namespace,
+    memory_observed_detail,
     normalize_entity,
 )
 from workflow_platform.observability import Metrics, NoopMetrics
@@ -1623,7 +1624,10 @@ class WorkflowEngine:
                 actor_type="engine",
                 actor_id="learned_memory",
                 instance_id=instance_id,
-                detail={"user_id": namespace, "observation": index, **result.model_dump()},
+                # Typed constructor, not a dict splat: it derives every
+                # field from the RECORD, and a drift test ties its keys to
+                # the registry's rules for this action.
+                detail=memory_observed_detail(result, namespace=namespace, index=index),
             )
 
     # --- repository helpers ---

@@ -15,6 +15,7 @@ from typing import Any
 
 from workflow_platform.trace_projection import (
     has_redaction_marker,
+    project_audit_detail_final,
     redact_error,
     redact_tool_data,
     safe_tool_call,
@@ -43,8 +44,14 @@ def project_audit_detail(action: str | None, detail: dict[str, Any]) -> dict[str
 
     The projector is path-keyed and stateless, so it cannot see the action; the
     dispatch belongs here, at the boundary that holds it. This is the same
-    (asset kind, path) rule the re-primitive is built on, applied to audit."""
-    if action == "tool_call":
-        return safe_tool_call(detail)
-    result: dict[str, Any] = redact_tool_data(detail, admin=False, kind="audit_detail")
+    (asset kind, path) rule the re-primitive is built on, applied to audit.
+
+    **Delegates rather than repeating the dispatch.** This function used to
+    carry its own copy of the `tool_call` branch plus the flat-schema
+    fallback — a second implementation of one rule, which is the M3 class.
+    The two agreed only because they happened to; adding the per-(action,
+    field) registry to the at-rest side made them disagree immediately, and
+    the read path silently kept the old behaviour. One function now, so a
+    future registry entry reaches every surface at once."""
+    result: dict[str, Any] = project_audit_detail_final(action, detail)
     return result

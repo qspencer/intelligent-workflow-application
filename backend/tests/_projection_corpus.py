@@ -269,6 +269,43 @@ CORPUS: list[tuple[Any, ...]] = [
         {"user_id": "person@example.com", "workflow_id": "wf"},
         "user_updated",
     ),
+    # v11: the per-(action, field) registry. The corpus must reach the
+    # registry path, or the golden guard cannot see a rule change.
+    (
+        "at_rest.registry_memory_observed",
+        "audit_detail",
+        {
+            "observation": 3,
+            "facts": 2,
+            "quarantined": 0,
+            "text_hash": "sha256:abc123",
+            "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            "cost_usd": 0.0123,
+            "input_tokens": 100,
+            "output_tokens": 20,
+            "backfill": True,
+            "author": "third_party",
+            "derived_from": "system",
+            # withheld by rule, not by omission:
+            "event_type": "SYNTHETIC-author-controlled",
+            "evidence_ref": "SYNTHETIC-from-the-trigger",
+            "user_id": "alice@example.com",
+        },
+        "memory_observed",
+    ),
+    (
+        "at_rest.registry_rejects_bad_values",
+        "audit_detail",
+        {
+            # Declared and disclosable, but each value fails its validator.
+            "author": "SYNTHETIC-not-an-author",
+            "facts": "not a number",
+            "cost_usd": -1,
+            "text_hash": "x" * 300,
+            "backfill": "not a bool",
+        },
+        "memory_observed",
+    ),
     (
         "audit_detail.governance",
         "audit_detail",
