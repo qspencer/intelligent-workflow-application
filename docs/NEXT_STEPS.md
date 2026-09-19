@@ -581,6 +581,37 @@ Trigger to start: after the two-axis split (G11) — the `attention`
 axis is where elicited context pays off — and after outcome tracking
 ships (0.3.x), so question value is measurable. Effort: **M-L**.
 
+**Both triggers met; DESIGNED 2026-09-19 — `docs/ASK_THE_USER_PLAN.md`.**
+The injection constraint decides the design, so it was answered first:
+questions are **enum-derived, never free text**. The operator catalogues
+topics in the YAML (prompt, answer enum, volatility, fact template); the
+classifier's only output into the path is a **topic id**; the engine
+composes the stored fact from operator-authored parts. The
+USER-authored fact — veracium's highest, assertable trust class —
+therefore contains zero attacker-influenced bytes. Same privilege-split
+shape as `EMAIL_TRIAGE_ACT_PLAN`'s `apply_labels`. The residual is
+stated: a hostile email can still steer WHICH catalogued question is
+asked, which is a nuisance channel, not an authority one.
+
+The budget is structural rather than advisory: a question exists only
+where the classifier emitted a **conditional** naming the topic, so
+decision-relevance is proved by the verdict carrying both branches in
+enum vocabulary; only durable-or-longer topics are askable; and a topic
+is asked **once ever**, with a decline recorded as a fact.
+
+**Two things the build must not inherit from the backlog entry:**
+- *"PR #9 outcome tracking is how the system learns which question types
+  pay for themselves"* — `times_used` no longer accumulates (act-time use
+  recording removed 2026-09-19 as quadratic). Value is measured on the
+  **correction rate** of classifications that consumed an elicited fact,
+  which is what "paid for itself" always meant.
+- `observe()` takes no `volatility`; veracium's distiller infers it from
+  the fact text. Pin each catalogue entry's inferred class in the suite,
+  and raise an explicit ingest parameter as a coordination item.
+
+Four stages, **C1 asks nothing** — it logs what it WOULD ask so the
+budget is observable before it is spent. Not built.
+
 ### G13 — Codification loop, slice 1: evidence-driven sender pre-filter — **Done 2026-07-30**
 
 Built + cut over (`docs/EMAIL_TRIAGE_CODIFY_PLAN.md` holds the
