@@ -80,6 +80,17 @@ Also landed, outside the epic:
 5. **`monitoring/service.py` vaulting** — the one audit writer outside a
    vaulting path. Blocked on a DECISION, not on work: its `alert_*` entries
    are frequently instance-less and the vault is instance-scoped.
+   **Raised in priority by the v12 registry.** The registry classified the
+   five `alert_*` actions, and `alert_stale_trigger.account` is the first
+   field it WITHHOLDS on an action this writer emits. The read path honours
+   that; at rest does not, because the service calls
+   `repositories.audit.append` directly rather than the engine's `_audit`
+   chokepoint — so a live row reads
+   `{"account": "qrsconsulting@quentinspencer.com", …}` in the table while
+   a grant-less reader correctly sees it withheld. Verified 2026-09-19 on
+   the running box. That is the pre-existing gap, not a regression, but it
+   is now a stated rule being violated at rest rather than an unclassified
+   field sitting there.
 6. **G-Trace-Subject-Identity** — **L**, sequenced after the registry
    because it needs that classification. Contains an identity-lifecycle
    decision (rename / deletion / org transfer) and a migration.
