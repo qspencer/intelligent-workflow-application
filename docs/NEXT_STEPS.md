@@ -141,6 +141,14 @@ all history, the two exceptions being pre-fix history owned by item 3 below.
      would be inventing the record the entry exists to be.
    - the one orphaned vault row with a NULL `audit_entry_id`, already
      named below. Sweepable.
+   - two `triage` step rows sharing `attempt = 1` with their cancelled
+     predecessors (instances `f873a271` / `32ad7e35`, 2026-09-19), created
+     by the resume path before it learned to continue the counter.
+     **Deliberately not repaired:** renumbering means rewriting a terminal
+     step row, which §3a forbids outright. The rows are honest history of
+     what happened; the fix stops new ones. So `reality_check` reports
+     18/20 until these two instances age out of the data, and that is the
+     correct reading — a documented past violation, not a live one.
 
    **New input (2026-09-19).** A sweep of the live table under v13 shows
    what is still lossy at rest, and all of it is HISTORY — no live writer

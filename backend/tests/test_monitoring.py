@@ -568,3 +568,72 @@ async def test_the_alert_does_not_carry_the_instance_error_text() -> None:
     entries = await repos.audit.list_recent(limit=20)
     stored = next(e for e in entries if e.action == "alert_abandoned_pause")
     assert "SYNTHETIC" not in str(stored.detail)
+
+
+async def test_a_resumed_old_run_is_not_immediately_stuck() -> None:
+    """`_check_stuck_workflows` measured from `started_at`, and resume does
+    not reset it — so both 2026-09-19 resumes alerted eleven seconds in, on
+    runs that had just started working again. Age comes from the last step
+    activity instead."""
+    repos = in_memory_repositories()
+    now = datetime.now(UTC)
+    old_start = now - timedelta(hours=6)
+    instance = await repos.instances.create(
+        WorkflowInstance(
+            workflow_id="wf",
+            state=WorkflowInstanceState.RUNNING,
+            created_at=old_start,
+            started_at=old_start,
+        )
+    )
+    # The interrupted attempt, plus the freshly-started resumed one.
+    await repos.steps.create(
+        StepExecution(
+            instance_id=instance.id,
+            step_id="s1",
+            attempt=1,
+            state=StepExecutionState.CANCELLED,
+            started_at=old_start,
+            completed_at=old_start,
+        )
+    )
+    await repos.steps.create(
+        StepExecution(
+            instance_id=instance.id,
+            step_id="s1",
+            attempt=2,
+            state=StepExecutionState.RUNNING,
+            started_at=now - timedelta(seconds=11),
+        )
+    )
+    service = MonitoringService(repos, config=_config())
+    assert not [a for a in await service.run_once() if a["action"] == "alert_stuck_workflow"]
+
+
+async def test_a_genuinely_stuck_run_still_alerts() -> None:
+    """The counterpart. A run whose in-flight step started hours ago is
+    stuck by the same measure, so the change loses no detection."""
+    repos = in_memory_repositories()
+    now = datetime.now(UTC)
+    old = now - timedelta(hours=6)
+    instance = await repos.instances.create(
+        WorkflowInstance(
+            workflow_id="wf",
+            state=WorkflowInstanceState.RUNNING,
+            created_at=old,
+            started_at=old,
+        )
+    )
+    await repos.steps.create(
+        StepExecution(
+            instance_id=instance.id,
+            step_id="s1",
+            attempt=1,
+            state=StepExecutionState.RUNNING,
+            started_at=old,
+        )
+    )
+    service = MonitoringService(repos, config=_config())
+    alerts = [a for a in await service.run_once() if a["action"] == "alert_stuck_workflow"]
+    assert len(alerts) == 1
+    assert alerts[0]["running_for_seconds"] > 5 * 3600

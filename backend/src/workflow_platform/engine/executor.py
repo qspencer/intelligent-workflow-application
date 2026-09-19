@@ -1024,13 +1024,26 @@ class WorkflowEngine:
         attempts = runtime.retries + 1
         last_error: Exception | None = None
 
-        for attempt in range(1, attempts + 1):
+        # The attempt NUMBER continues from what this (instance, step) already
+        # has; only the in-run retry BUDGET resets per step-run. They were the
+        # same counter until 2026-09-19, so an operator resume re-ran a
+        # cancelled step as "attempt 1" beside the existing attempt-1 row —
+        # breaking the `(instance_id, step_id, attempt)` uniqueness that
+        # EXECUTION_SEMANTICS §3a states, and making "the latest attempt"
+        # (which `explain` and the dashboard read) ambiguous. Found by
+        # `tools/reality_check.py` the first time a cancelled step was ever
+        # resumed; no DB constraint enforces the tuple, so it wrote cleanly.
+        prior = await self.repositories.steps.list_by_instance(instance_id)
+        base = max((s.attempt for s in prior if s.step_id == step.id), default=0)
+
+        for offset in range(1, attempts + 1):
+            attempt = base + offset
             try:
                 await self._run_step_once(step, context, instance_id, capabilities, attempt)
                 return
             except StepFailure as exc:
                 last_error = exc
-                if attempt < attempts:
+                if offset < attempts:
                     await self._audit(
                         "step_retry",
                         actor_type="engine",

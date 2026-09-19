@@ -221,15 +221,29 @@ class MonitoringService:
             if instance.state != WorkflowInstanceState.RUNNING:
                 continue
             started = instance.started_at or instance.created_at
+            # Cheap bound first: nothing can be stuck longer than it has existed.
             if now - started < threshold:
                 continue
             if instance.id in self._alerted_stuck:
+                continue
+            # Age from the last STEP activity, not from `started_at`. Resume
+            # does not reset `started_at`, so measuring from it called every
+            # resumed old run stuck the instant it restarted — both 2026-09-19
+            # resumes alerted eleven seconds in. A run that is genuinely stuck
+            # has an in-flight step whose `started_at` is itself old, so this
+            # loses no real detection.
+            steps = await self.repositories.steps.list_by_instance(instance.id)
+            stamps = [s.completed_at or s.started_at for s in steps]
+            last_activity = max([t for t in stamps if t is not None], default=started)
+            if now - last_activity < threshold:
                 continue
             self._alerted_stuck.add(instance.id)
             detail = {
                 "instance_id": instance.id,
                 "workflow_id": instance.workflow_id,
-                "running_for_seconds": (now - started).total_seconds(),
+                # Since the last step activity — the same clock the threshold
+                # is compared against, so the number explains the alert.
+                "running_for_seconds": (now - last_activity).total_seconds(),
                 "threshold_seconds": self.config.stuck_threshold_seconds,
             }
             await self._emit_alert("alert_stuck_workflow", detail, instance.id)

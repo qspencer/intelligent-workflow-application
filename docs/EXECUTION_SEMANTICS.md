@@ -47,7 +47,11 @@ then it is a human reasoning aid, not a guarantee.
   Not addressed by re-running: a prior `dispatched_outcome_unknown`
   effect (the retry re-runs blind — see the §4 invariant), cancelled
   siblings (re-evaluated from the graph), and downstream skips
-  (re-evaluated). Retry counters reset per step-run.
+  (re-evaluated). The in-run retry BUDGET resets per step-run; the
+  persisted `attempt` NUMBER does not — it continues from the highest
+  attempt that `(instance, step)` already has, so a resumed step appends
+  the next number rather than colliding with the interrupted one. Those
+  were the same counter until 2026-09-19.
 - Every state transition and every agent tool call appends an audit
   entry; step outputs persist when the step completes.
 
@@ -163,7 +167,12 @@ first-class, referenceable identity. **Built 2026-08-01.**
   attempt does not satisfy `already_done`.
 - **Retry ordering.** Attempt N+1's row is created only after attempt N
   reached a terminal state; attempts are strictly ordered by creation and by
-  the `attempt` counter. **Attempt isolation:** attempt N never reads
+  the `attempt` counter. The counter is per `(instance, step)` and spans
+  step-runs: an operator resume continues it. **No database constraint
+  enforces the uniqueness** — it is an engine invariant, checked by
+  `tools/reality_check.py` against the live table. It was violated between
+  2026-08-01 and 2026-09-19 by the resume path, undetected because nothing
+  had resumed a cancelled step until then. **Attempt isolation:** attempt N never reads
   attempt N−1's vault objects — the vault key includes the step-attempt id,
   so each attempt's raw is bound to its own row (`TRACE_GOVERNANCE_PLAN`
   §4.2/§4.3).

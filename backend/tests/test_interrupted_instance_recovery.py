@@ -296,3 +296,92 @@ async def test_list_by_state_finds_the_oldest_rows_not_just_recent_ones() -> Non
 
     found = await repos.instances.list_by_state([WorkflowInstanceState.RUNNING.value], limit=5)
     assert [i.id for i in found] == [old.id]
+
+
+# --- attempt numbering across a resume (2026-09-19) ------------------------
+#
+# `EXECUTION_SEMANTICS` §3a: "(instance_id, step_id, attempt) is unique" and
+# "a retry APPENDS ... a new row for the next attempt". The in-run retry
+# counter and the persisted attempt NUMBER were the same counter, so an
+# operator resume re-ran a cancelled step as attempt 1 beside the existing
+# attempt-1 row. Found by `tools/reality_check.py` the first time a
+# cancelled step was ever resumed on the live box — no DB constraint
+# enforces the tuple, so it wrote cleanly.
+
+
+async def test_a_resumed_step_appends_the_NEXT_attempt_number() -> None:
+    _STARTED.clear()  # the resumed step must not block
+    repos = in_memory_repositories()
+    instance = await repos.instances.create(
+        WorkflowInstance(workflow_id="wf", state=WorkflowInstanceState.PAUSED)
+    )
+    # The interrupted attempt, exactly as `_cancel_pending` leaves it.
+    await repos.steps.create(
+        StepExecution(
+            instance_id=instance.id,
+            step_id="slow",
+            attempt=1,
+            state=StepExecutionState.CANCELLED,
+        )
+    )
+    registry = FunctionRegistry()
+
+    async def _quick(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
+        return {"ok": True}
+
+    registry.register("blocks", _quick)
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=registry,
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+    )
+    await repos.definitions.save(_definition())
+    await engine.resume(_definition(), instance.id)
+
+    steps = sorted(await repos.steps.list_by_instance(instance.id), key=lambda s: s.attempt)
+    assert [(s.attempt, s.state) for s in steps] == [
+        (1, StepExecutionState.CANCELLED),
+        (2, StepExecutionState.COMPLETED),
+    ], "the resumed attempt collided with the interrupted one instead of appending"
+
+
+async def test_attempt_numbers_stay_unique_per_instance_and_step() -> None:
+    """The invariant itself, stated as the reality check states it — so a
+    future path that re-runs a step is measured against the claim rather
+    than against one scenario."""
+    _STARTED.clear()
+    repos = in_memory_repositories()
+    instance = await repos.instances.create(
+        WorkflowInstance(workflow_id="wf", state=WorkflowInstanceState.PAUSED)
+    )
+    for state in (StepExecutionState.FAILED, StepExecutionState.CANCELLED):
+        await repos.steps.create(
+            StepExecution(
+                instance_id=instance.id,
+                step_id="slow",
+                attempt=1 if state is StepExecutionState.FAILED else 2,
+                state=state,
+            )
+        )
+    registry = FunctionRegistry()
+
+    async def _quick(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
+        return {"ok": True}
+
+    registry.register("blocks", _quick)
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=registry,
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+    )
+    await repos.definitions.save(_definition())
+    await engine.resume(_definition(), instance.id)
+
+    steps = await repos.steps.list_by_instance(instance.id)
+    keys = [(s.instance_id, s.step_id, s.attempt) for s in steps]
+    assert len(keys) == len(set(keys)), f"duplicate (instance, step, attempt): {keys}"
+    assert max(s.attempt for s in steps) == 3
