@@ -317,7 +317,8 @@ Tracked so "we are learning" stays measurable rather than asserted.
 | 14 | 4 (1×P1) | **M1**, M9 ×2, M5 | n/a |
 | — (self-found, r15 step 0) | 1 | M8 | n/a |
 | 15 | 2 | **M9 ×2** | n/a |
-| 16 | *not yet sent* | — | — |
+| — (self-found, r16 pre-package) | 4 | **M9**, M6 ×3 | n/a |
+| 16 | *out* | — | — |
 
 ### M9 — a path built from ONE END
 
@@ -352,6 +353,40 @@ question round 13's sidecar asked and could not answer itself.
 
 **The detector, therefore, is a question asked before the work, not a test
 written after it.** Added to §4 as step 0.
+
+---
+
+### Round 16: the first time the discipline beat the reviewer to it
+
+The pre-package pass found four things, and one of them was a real defect
+of the class that has driven the last three returns: `explain_step` calling
+`merge_output` between `begin_raw_release` and `commit_raw_release` with no
+handler — R15 finding 1 on a fourth surface.
+
+**This is the first M9 instance caught before a package left rather than
+after it returned.** What changed was not diligence but method: R-g said
+enumerate, so the counterpart question was answered with a command that
+lists the CALLERS of the recovery helpers. Five rows, one of them visibly
+lacking a handler. The same question answered from memory one round earlier
+produced two returned findings.
+
+The other three were M6 — our evidence, not our code:
+
+- **A control that did not fire.** `merge_error`'s normalisation is shadowed
+  by `merge_trigger` in the endpoint path, so no test reached it. Sabotaging
+  it changed nothing, which is the only reason we learned the coverage was
+  imaginary. Now parametrised per helper.
+- **Two follow-ups the reviewer named were in no backlog** — the trigger
+  agreement contract and the ownership registry — although recording
+  deferred follow-ups is part of our definition of done.
+- **A stale count** in the design doc: "19 declared fields", true of v9 and
+  not of v10.
+
+**Worth noting against the 4–5 round target:** the epic is at 16, but the
+shape has changed. Rounds 12–15 each returned instances of a class we had
+not named; round 16 went out having found its own. If the next return is
+small or empty, the cause is nameable — the class was named and the check
+became a command — rather than luck.
 
 ---
 
