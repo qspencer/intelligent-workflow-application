@@ -166,7 +166,14 @@ async def test_criterion_1_three_workflows_concurrent_local_and_s3(tmp_path: Pat
     )
 
     pdf_path = tmp_path / "invoice.pdf"
-    _make_pdf(pdf_path, "Invoice text")
+    # Longer than PdfExtractTool.NATIVE_THRESHOLD (30 chars) ON PURPOSE.
+    # At "Invoice text" — 12 chars — the tool fell to the OCR path, so this
+    # assertion silently depended on the local tesseract build. The external
+    # reviewer's environment read "Thvoice" and reported a failing test in
+    # every round from 12 to 16; ours read "Invoice" and looked fine. The
+    # test is about the PDF flow reading the actual file, not about OCR
+    # accuracy, so take the deterministic native path.
+    _make_pdf(pdf_path, "Invoice from Acme Corp, total $1,234.56, dated 2026-05-10.")
 
     pdf_run = pdf_engine.run(pdf_def, trigger_payload={"file_path": str(pdf_path)})
     webhook_run = webhook_engine.run(webhook_def, trigger_payload={"src": "ui-test"})
