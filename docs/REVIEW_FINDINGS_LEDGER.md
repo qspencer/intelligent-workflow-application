@@ -328,7 +328,7 @@ Tracked so "we are learning" stays measurable rather than asserted.
 | — (self-found, r17 review) | 2 | **M9**, M6 | n/a |
 | 17 | 1 | **M9** | n/a |
 | — (self-found, r18 review) | 0 | — | n/a |
-| 18 | *out* | — | — |
+| 18 | **0 — ACCEPTED** | — | **0** |
 
 ### M9 — a path built from ONE END
 
@@ -363,6 +363,65 @@ question round 13's sidecar asked and could not answer itself.
 
 **The detector, therefore, is a question asked before the work, not a test
 written after it.** Added to §4 as step 0.
+
+---
+
+## THE LINE IS CLOSED — round 18 accepted, 2026-09-19
+
+Eighteen rounds. The target was four or five. Both facts below are true and
+the second one is the useful one.
+
+### What the number actually measures
+
+Rounds 1–11 reviewed ONE artifact, the F1/F5 projector. It reached zero
+defects at round 8 and held. Rounds 12–18 reviewed six further artifacts as
+scope grew — audit-detail vaulting, the at-rest tightening, the widening,
+the recovery paths, the response construction, the completeness accounting
+— each a new subject, each entering at several findings and converging.
+
+So the count is not eighteen iterations on one thing. It is eleven on the
+first and roughly one-and-a-bit per artifact after. Measured per artifact
+we are close to the target; measured as a project we are nowhere near it,
+because scope kept being added to a line that was already open.
+
+**The lesson is about scoping a review line, not about iteration speed:**
+once the projector was accepted at round 8, the vaulting work should have
+opened its OWN line with its own round count, and the decision to extend
+scope into an open review should have been explicit.
+
+### The one mechanism that cost the most
+
+**M9 — a path built from one end** produced ELEVEN findings across rounds
+12–18, and went unnamed until round 16. Every fix wired a recovered value
+into one more place and the next return found the place it had not
+reached: write without read, attempt without completion, two endpoints of
+three, response without completeness check.
+
+It was visible after round 12. Naming it then and running its enumeration
+over the whole feature would have collapsed rounds 13–18 into roughly one.
+**The cost of not naming a class is not the findings it produces; it is
+that each instance looks like a different bug, so you fix instances.**
+
+### What actually changed the trajectory
+
+Not effort — the reviews were thorough throughout. Three specific things:
+
+1. **R-g: enumerate, do not recollect.** The counterpart question answered
+   from memory produced two returned findings in round 15. Answered as a
+   command, it found the defect before sending in round 16.
+2. **R-b with teeth.** Controls that must be SEEN failing, and (after a
+   dangling `try` produced a collection error that looked like success) a
+   harness that `ast.parse`s the sabotage first.
+3. **`scripts/gate.sh`.** Two commits went out with mypy red despite the
+   gates having been run, because five commands have five exit codes. One
+   command, one exit code, chained with `&&`.
+
+### Carried forward
+
+The mechanisms (M1–M9) and rules (R-a…R-h) are the durable output, not the
+fixes. The pre-package protocol — now nine steps, starting with the
+counterpart enumeration — applies to any review line, and the next one
+should start with it rather than arrive at it.
 
 ---
 
