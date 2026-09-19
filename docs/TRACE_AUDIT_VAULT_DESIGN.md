@@ -69,6 +69,24 @@ the fork-lineage and connector trail already pinned by
 on the READ path too, so this is a small deliberate widening, argued
 per-field rather than taken wholesale.
 
+**ANSWERED, and the widening was corrected (round 14, projector v10).**
+The reviewer demonstrated the premise false: `evidence_ref` is resolved from
+the workflow CONTEXT, so a trigger field reached a grant-less reader through
+a `_TOKEN` validator. Shape bounds damage, not provenance — M1.
+
+Their answers, and what we did:
+
+| Question | Answer | Action |
+|---|---|---|
+| 1. Is visibility elsewhere sufficient? | Yes, for the **same authoritative value under equivalent authorization** — not for arbitrary content under those field names | `workflow_id`/`instance_id` retained; input-derived values withdrawn |
+| 2. Ownership per (action, field)? | Yes, **plus writer-side checks**: canonical ids from records, closed enums for classifications, measurements from the components that compute them. Ownership labels alone do not establish source | `author`/`derived_from` are now closed enums; engine-computed hashes and counts retained on that basis |
+| 3. Keep v9? | **No.** Retain established-source fields, withdraw the rest incl. unrestricted `evidence_ref`; if binary, restore v8 behaviour **under a new version** | v10: narrowed rather than reverted, new version so historical meanings hold |
+| 4. `user_id`? | Withhold the raw email by default, but give a **useful subject identity** — an opaque internal subject id for correlation, directory-resolved display for authorized operators. "Person acted upon" is not by itself the rule; audience and permitted use matter for actor and subject alike | Still withheld. The opaque-subject-id design is **not built** — see `docs/NEXT_STEPS.md` |
+
+Still outstanding from their answers: the **per-(action, field) registry with
+typed constructors** (Q2's full form — we did the closed-enum half), and the
+**opaque subject identity** for `user_id` (Q4).
+
 **Open with the reviewer:** round 13 closed with *"establish its source
 before allowing it through; identifier shape or numeric type alone is
 insufficient"* — which lands on this widening, because we classified by
