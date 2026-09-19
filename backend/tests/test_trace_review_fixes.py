@@ -467,6 +467,7 @@ async def test_f7_projected_trigger_missing_vault_fails_closed() -> None:
             org_id="o",
             instance_id="i",
             safe_trigger={"_redacted": "routing only"},  # marker → raw was projected away
+            projector_version=PROJECTOR_VERSION,
         )
 
 
@@ -474,7 +475,11 @@ async def test_f7_unprojected_trigger_with_no_row_is_fine() -> None:
     # a trigger with no sensitive content was never projected → no vault row needed
     r = RawTraceRehydrator(in_memory_repositories())
     out = await r.rehydrate_trigger(
-        purpose="resume", org_id="o", instance_id="i", safe_trigger={"message_id": "m1"}
+        purpose="resume",
+        org_id="o",
+        instance_id="i",
+        safe_trigger={"message_id": "m1"},
+        projector_version=PROJECTOR_VERSION,
     )
     assert out == {"message_id": "m1"}
 

@@ -31,6 +31,7 @@ from workflow_platform.trace_projection import (
     is_withheld_marker,
     project_audit_detail_at_rest,
     redact_tool_data,
+    safe_trigger_payload,
 )
 from workflow_platform.trace_vault import (
     audit_idempotency_key,
@@ -119,6 +120,40 @@ def verify_audit_projection_agreement(
     if not _version_reproducible(recorded_projector_version):
         return "unsupported"
     return "ok" if project_audit_detail_at_rest(action, raw) == stored_detail else "mismatch"
+
+
+def verify_trigger_projection_agreement(
+    raw: Any, stored_safe: Any, recorded_projector_version: str | None
+) -> str:
+    """`verify_projection_agreement` for a TRIGGER payload, which is projected
+    by `safe_trigger_payload` rather than by asset kind or by action.
+
+    The third and last surface to get one (G-Trace-Agreement, reviewer-named
+    in the round-15 return: *"trigger recovery should have an explicit,
+    version-aware projection-agreement contract. A redaction marker helps
+    identify missing data but does not establish agreement."*). Until now
+    `rehydrate_trigger` checked only whether a `_redacted` marker was
+    present, which detects ABSENCE and not DISAGREEMENT — a vault object
+    that did not belong to the row was accepted and the run resumed on it.
+
+    WHICH STAMP IS AUTHORITATIVE — the open question in the spec, answered
+    from the code rather than chosen. The trigger is instance-level, so the
+    stamp is `WorkflowInstance.projector_version`, and it is the right one
+    because it is written at the same moment and never rewritten:
+    `_stamp_projection(instance)` runs once at instance creation (and once
+    for a fork's new instance), beside the `safe_trigger_payload` call that
+    projects the payload. `_mark_instance` rewrites state, context,
+    `completed_at` and `error` on every transition and does NOT touch the
+    stamp — so a resume under a newer build cannot restamp an instance whose
+    trigger an older projector wrote, which would have turned a version
+    difference into a spurious `mismatch`.
+
+    Same three verdicts and the same rule behind `unsupported`: a projector
+    bump must not make pre-change rows read as corrupt (criterion 17).
+    """
+    if not _version_reproducible(recorded_projector_version):
+        return "unsupported"
+    return "ok" if safe_trigger_payload(raw) == stored_safe else "mismatch"
 
 
 class RawTraceRehydrator:
@@ -464,11 +499,23 @@ class RawTraceRehydrator:
         return full
 
     async def rehydrate_trigger(
-        self, *, purpose: str, org_id: str, instance_id: str, safe_trigger: dict[str, Any]
+        self,
+        *,
+        purpose: str,
+        org_id: str,
+        instance_id: str,
+        safe_trigger: dict[str, Any],
+        projector_version: str | None,
     ) -> dict[str, Any]:
         """Return the full trigger payload from the vault (instance-level).
         If nothing is vaulted, the safe trigger is returned as-is (a trigger
-        with no sensitive content was never projected)."""
+        with no sensitive content was never projected).
+
+        `projector_version` is the OWNING INSTANCE's stamp — required, not
+        defaulted, because `None` means "this build cannot reproduce it" and
+        a caller that simply forgot would silently downgrade every trigger
+        read to `unsupported`. Making it explicit puts the omission in
+        mypy's hands instead."""
         key = idempotency_key(org_id, instance_id, None, RawTraceKind.TRIGGER_PAYLOAD)
         request_id = await self._begin(
             purpose=purpose,
@@ -511,7 +558,24 @@ class RawTraceRehydrator:
             step_attempt_id=None,
             kind=RawTraceKind.TRIGGER_PAYLOAD.value,
         )
-        await self._complete(request_id=request_id, instance_id=instance_id, outcome="succeeded")
+        # G-Trace-Agreement: re-project the fetched raw under the RECORDED
+        # version and require it to reproduce the stored safe payload. The
+        # marker check above establishes that raw EXISTS; only this
+        # establishes that it is THIS row's raw.
+        verdict = verify_trigger_projection_agreement(opened, safe_trigger, projector_version)
+        if verdict == "mismatch":
+            await self._complete(
+                request_id=request_id, instance_id=instance_id, outcome="integrity_failed"
+            )
+            raise RawTraceUnavailable(
+                f"projection disagreement for the trigger of {instance_id}: the operational "
+                "row does not match a re-projection of the vaulted raw"
+            )
+        await self._complete(
+            request_id=request_id,
+            instance_id=instance_id,
+            outcome="succeeded" if verdict == "ok" else PROJECTION_UNSUPPORTED,
+        )
         return opened if isinstance(opened, dict) else safe_trigger
 
     async def merge_output(

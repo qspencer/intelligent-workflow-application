@@ -763,6 +763,7 @@ async def test_trigger_recovery_completes_its_access_record_on_failure(
     called `_payload_of` directly, so an undecryptable trigger recorded only
     `..._access_attempted` with no completion explaining it."""
     from workflow_platform.persistence.models import RawTraceKind
+    from workflow_platform.trace_projection import PROJECTOR_VERSION
     from workflow_platform.trace_rehydrate import RawTraceRehydrator, RawTraceUnavailable
 
     _client, repos, iid = await _instance_with_vaulted_output(monkeypatch)
@@ -777,7 +778,11 @@ async def test_trigger_recovery_completes_its_access_record_on_failure(
 
     with pytest.raises(RawTraceUnavailable):
         await RawTraceRehydrator(repos).rehydrate_trigger(
-            purpose="detail", org_id="default", instance_id=iid, safe_trigger=safe_trigger
+            purpose="detail",
+            org_id="default",
+            instance_id=iid,
+            safe_trigger=safe_trigger,
+            projector_version=PROJECTOR_VERSION,
         )
 
     entries = await repos.audit.list_by_instance(iid)

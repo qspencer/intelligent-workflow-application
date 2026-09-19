@@ -324,7 +324,9 @@ class WorkflowEngine:
             for s in prior
             if s.state in (StepExecutionState.COMPLETED, StepExecutionState.SKIPPED)
         }
-        await self._rehydrate_context(context, prior, purpose="resume")
+        await self._rehydrate_context(
+            context, prior, purpose="resume", projector_version=instance.projector_version
+        )
         result = await self._drive(definition, instance, context, already_done=already_done)
         self._record_workflow_finished(definition.id, result, resumed_at)
         return result
@@ -381,6 +383,7 @@ class WorkflowEngine:
                 org_id=source.org_id,
                 instance_id=source_instance_id,
                 safe_trigger=raw_trigger,
+                projector_version=source.projector_version,
             )
             for step_id, safe_output in list(usable_outputs.items()):
                 usable_outputs[step_id] = await self._rehydrator.rehydrate_output(
@@ -1779,7 +1782,12 @@ class WorkflowEngine:
     # --- repository helpers ---
 
     async def _rehydrate_context(
-        self, context: WorkflowContext, prior: list[StepExecution], *, purpose: str
+        self,
+        context: WorkflowContext,
+        prior: list[StepExecution],
+        *,
+        purpose: str,
+        projector_version: str | None,
     ) -> None:
         """Under the safe-only flip, the persisted trigger + step outputs are
         projected; restore full fidelity from the vault before driving
@@ -1793,6 +1801,11 @@ class WorkflowEngine:
             org_id=context.org_id,
             instance_id=context.instance_id,
             safe_trigger=context.trigger,
+            # The OWNING INSTANCE's stamp: written beside the trigger at
+            # creation and never rewritten (`_mark_instance` leaves it
+            # alone), so it still names the projector that wrote this
+            # payload even after a resume on a newer build.
+            projector_version=projector_version,
         )
         # The latest COMPLETED attempt per step is the one whose output the
         # context carries (immutable-attempt model, EXECUTION_SEMANTICS §3a).

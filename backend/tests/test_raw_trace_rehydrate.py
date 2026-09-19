@@ -15,8 +15,12 @@ from workflow_platform.api.redaction import redact_tool_data
 from workflow_platform.engine import FunctionRegistry, ToolCatalog, WorkflowEngine
 from workflow_platform.persistence import in_memory_repositories
 from workflow_platform.tools import Tool, ToolContext, ToolResult
-from workflow_platform.trace_projection import PROJECTOR_VERSION
-from workflow_platform.trace_rehydrate import RawTraceRehydrator, RawTraceUnavailable
+from workflow_platform.trace_projection import PROJECTOR_VERSION, safe_trigger_payload
+from workflow_platform.trace_rehydrate import (
+    PROJECTION_UNSUPPORTED,
+    RawTraceRehydrator,
+    RawTraceUnavailable,
+)
 from workflow_platform.workflow import load_definition
 from workflow_platform.world import mock_world
 
@@ -177,5 +181,144 @@ async def test_trigger_rehydrates_from_vault() -> None:
         org_id=instance.org_id,
         instance_id=instance.id,
         safe_trigger={"_redacted": "routing only"},
+        projector_version=instance.projector_version,
     )
     assert full["body"] == "TRIG"  # raw trigger restored from the vault
+
+
+# --- G-Trace-Agreement: the trigger's version-aware agreement contract ------
+#
+# Reviewer, round-15 return: *"trigger recovery should have an explicit,
+# version-aware projection-agreement contract. A redaction marker helps
+# identify missing data but does not establish agreement."* Until
+# 2026-09-19 `rehydrate_trigger` checked only for a `_redacted` marker,
+# which detects ABSENCE and not DISAGREEMENT — a vault object that did not
+# belong to the row was accepted and the run resumed on it. Step outputs
+# and audit details have had this check since R13.
+
+
+async def test_a_trigger_whose_vault_raw_does_not_match_the_row_FAILS_CLOSED() -> None:
+    """THE GAP. The marker says raw exists; only re-projection says it is
+    THIS row's raw. A substituted payload must not resume the run."""
+    engine, instance, _ = await _run()
+    rehydrator = RawTraceRehydrator(engine.repositories)
+
+    with pytest.raises(RawTraceUnavailable, match="projection disagreement"):
+        await rehydrator.rehydrate_trigger(
+            purpose="resume",
+            org_id=instance.org_id,
+            instance_id=instance.id,
+            # Not what `safe_trigger_payload` produces from the vaulted raw.
+            safe_trigger={"_redacted": "routing only", "message_id": "SYNTHETIC-not-this-row"},
+            projector_version=PROJECTOR_VERSION,
+        )
+
+    entries = await engine.repositories.audit.list_by_instance(instance.id)
+    completed = [e for e in entries if e.action == "raw_trace_system_access_completed"]
+    assert completed, "the failed recovery recorded no completion"
+    assert completed[-1].detail["outcome"] == "integrity_failed"
+
+
+async def test_an_older_projector_version_reads_unsupported_not_corrupt() -> None:
+    """Criterion 17, the rule all three surfaces share: a projector bump must
+    not make pre-change rows read as TAMPERED. The caller degrades with an
+    explicit audited outcome instead."""
+    engine, instance, _ = await _run()
+    safe = safe_trigger_payload({"body": "TRIG"})
+
+    full = await RawTraceRehydrator(engine.repositories).rehydrate_trigger(
+        purpose="resume",
+        org_id=instance.org_id,
+        instance_id=instance.id,
+        safe_trigger=safe,
+        projector_version="1",  # a version this build cannot reproduce
+    )
+    assert full["body"] == "TRIG", "an unsupported version must still return the raw"
+
+    entries = await engine.repositories.audit.list_by_instance(instance.id)
+    completed = [e for e in entries if e.action == "raw_trace_system_access_completed"]
+    assert completed[-1].detail["outcome"] == PROJECTION_UNSUPPORTED
+
+
+async def test_an_agreeing_trigger_still_succeeds() -> None:
+    """The counterpart. A check that refuses everything is not a check —
+    the honest safe payload must still verify and return the raw."""
+    engine, instance, _ = await _run()
+    safe = safe_trigger_payload({"body": "TRIG"})
+
+    full = await RawTraceRehydrator(engine.repositories).rehydrate_trigger(
+        purpose="resume",
+        org_id=instance.org_id,
+        instance_id=instance.id,
+        safe_trigger=safe,
+        projector_version=PROJECTOR_VERSION,
+    )
+    assert full["body"] == "TRIG"
+    entries = await engine.repositories.audit.list_by_instance(instance.id)
+    completed = [e for e in entries if e.action == "raw_trace_system_access_completed"]
+    assert completed[-1].detail["outcome"] == "succeeded"
+
+
+def test_the_three_surfaces_share_one_version_gate() -> None:
+    """R13 finding 5 was two surfaces asking the same question separately
+    and coming to disagree. The third must not re-ask it either."""
+    import inspect
+
+    from workflow_platform import trace_rehydrate as tr
+
+    for fn in (
+        tr.verify_projection_agreement,
+        tr.verify_audit_projection_agreement,
+        tr.verify_trigger_projection_agreement,
+    ):
+        assert "_version_reproducible(" in inspect.getsource(fn), (
+            f"{fn.__name__} does not go through the shared version gate"
+        )
+
+
+def test_the_instance_stamp_is_never_rewritten_after_creation() -> None:
+    """WHY the instance stamp is the authoritative one for a trigger, pinned
+    because the answer depends on a property of OTHER code.
+
+    `_mark_instance` runs on every state transition. If it restamped, a
+    resume on a newer build would relabel an instance whose trigger an older
+    projector wrote, and this check would turn a version difference into a
+    spurious `mismatch` — the exact failure criterion 17 exists to prevent.
+    """
+    import inspect
+
+    from workflow_platform.engine.executor import WorkflowEngine
+
+    body = inspect.getsource(WorkflowEngine._mark_instance)
+    assert "projector_version" not in body and "_stamp_projection" not in body, (
+        "_mark_instance now touches the projection stamp; the trigger agreement "
+        "check keys off it and would read a re-stamped instance as tampered"
+    )
+
+
+async def test_a_flipped_run_stamps_the_instance_with_the_current_projector() -> None:
+    """The claim the trigger check rests on, end to end rather than argued:
+    under the flip, the instance carries the stamp of the projector that
+    wrote its trigger, so `instance.projector_version` is a usable input and
+    not always None."""
+    engine = _engine()
+    engine.trace_safe_only = True
+    instance = await engine.run(load_definition(_DEF), trigger_payload={"body": "TRIG"})
+
+    fresh = await engine.repositories.instances.get(instance.id)
+    assert fresh is not None
+    assert fresh.projector_version == PROJECTOR_VERSION
+
+    full = await RawTraceRehydrator(engine.repositories).rehydrate_trigger(
+        purpose="resume",
+        org_id=fresh.org_id,
+        instance_id=fresh.id,
+        safe_trigger=fresh.trigger_payload,
+        projector_version=fresh.projector_version,
+    )
+    assert full["body"] == "TRIG"
+    entries = await engine.repositories.audit.list_by_instance(fresh.id)
+    completed = [e for e in entries if e.action == "raw_trace_system_access_completed"]
+    assert completed[-1].detail["outcome"] == "succeeded", (
+        "a real flipped run's own stamp and trigger must agree"
+    )

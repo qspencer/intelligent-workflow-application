@@ -286,9 +286,10 @@ against all of today's changes: 10/10.
    `workflow_deleted`'s `deleted_instances`/`deleted_steps` are counts of
    rows that no longer exist. Everything else is instance-scoped and can
    be vaulted normally.
-4. **G-Trace-Agreement** — the version-aware trigger projection-agreement
-   contract. **S**, and the two existing precedents make it mostly
-   mechanical.
+4. ~~**G-Trace-Agreement**~~ — **DONE 2026-09-19.** The trigger now has the
+   same version-aware agreement contract as step outputs and audit details;
+   the last reviewer-named follow-up from the F1/F5 line is closed. See the
+   section below for the stamp question it turned on.
 5. ~~**`monitoring/service.py` vaulting**~~ — **DONE 2026-09-19.** The
    chokepoint moved off `WorkflowEngine` into `audit_writer.AuditWriter`;
    the engine and the monitoring service both delegate to it and neither
@@ -1184,6 +1185,33 @@ older version reports `unsupported` rather than reading as corrupt
 (criterion 17). Effort: **S**. The two precedents make this mostly
 mechanical; the open part is which stamp is authoritative for a trigger,
 since it is instance-level rather than per-attempt.
+
+**BUILT 2026-09-19.** `verify_trigger_projection_agreement` beside the
+other two, through the same `_version_reproducible` gate (an AST test now
+pins that all three go through it — R13 finding 5 was two surfaces asking
+that question separately and drifting). `rehydrate_trigger` runs it after
+opening the vault row: `mismatch` completes the access record
+`integrity_failed` and raises, `unsupported` completes with
+`projector_version_unsupported` and still returns the raw.
+
+**The open question, answered from the code rather than chosen:** the
+authoritative stamp is `WorkflowInstance.projector_version`, because it is
+written at the same moment as the projected trigger
+(`_stamp_projection(instance)` at creation, beside the
+`safe_trigger_payload` call) **and never rewritten** — `_mark_instance`
+touches state, context, `completed_at` and `error` on every transition and
+leaves the stamp alone. That property is load-bearing: if it restamped, a
+resume on a newer build would relabel an instance whose trigger an older
+projector wrote, and the new check would turn a version difference into a
+spurious `mismatch` — precisely what criterion 17 exists to prevent. It is
+pinned by an AST test over `_mark_instance`, since it is a property of
+*other* code that this check depends on.
+
+`projector_version` is a REQUIRED keyword on `rehydrate_trigger`, not a
+defaulted one: `None` means "this build cannot reproduce it", so a caller
+that simply forgot would silently downgrade every trigger read to
+`unsupported`. Making it required put the omission in mypy's hands — which
+immediately named the four call sites that had not been updated.
 
 ---
 
