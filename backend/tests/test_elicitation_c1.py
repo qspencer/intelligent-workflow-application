@@ -363,3 +363,137 @@ async def test_INVARIANT_the_capacity_update_SERIALIZES_deterministically() -> N
         "B took a slot that A had already committed"
     )
     await engine.dispose()
+
+
+# --- 6. the engine wiring ---------------------------------------------------
+#
+# C1 is shadow-only, so the most important test here is the one asserting
+# that a workflow WITHOUT a `questions:` block runs no question machinery
+# at all — the experiment must cost the other workflows nothing.
+
+
+def _definition(with_questions: bool) -> Any:
+    from workflow_platform.workflow import load_definition
+
+    spec: dict[str, Any] = {
+        "id": "wf",
+        "name": "wf",
+        "trigger": {"type": "manual"},
+        "steps": [{"id": "record", "type": "deterministic", "function": "emit", "config": {}}],
+        "edges": [],
+    }
+    if with_questions:
+        spec["questions"] = {
+            "candidate_from": "steps.record.question_candidate",
+            "subject": "owner@example.com",
+            "recipient": "owner@example.com",
+            "catalog": {
+                "topics": [EMPLOYMENT.model_dump()],
+                "max_outstanding_per_recipient": 2,
+                "pending_expiry_hours": 48,
+            },
+        }
+    return load_definition(spec)
+
+
+async def _run(with_questions: bool, candidate: Any) -> tuple[Any, Any]:
+    from tests._bedrock_fakes import FakeBedrock
+    from workflow_platform.elicitation import InMemoryShadowStore
+    from workflow_platform.engine.executor import ToolCatalog, WorkflowEngine
+    from workflow_platform.engine.registry import FunctionRegistry
+    from workflow_platform.persistence import in_memory_repositories
+    from workflow_platform.world import mock_world
+
+    async def _emit(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
+        return {"question_candidate": candidate} if candidate is not None else {"ok": True}
+
+    registry = FunctionRegistry()
+    registry.register("emit", _emit)
+    repos = in_memory_repositories()
+    store = InMemoryShadowStore()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=registry,
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+        question_store=store,
+    )
+    instance = await engine.run(_definition(with_questions), trigger_payload={})
+    entries = await repos.audit.list_by_instance(instance.id)
+    return [e for e in entries if e.action == "question_candidate_shadowed"], store
+
+
+async def test_a_workflow_without_a_questions_block_runs_NO_question_machinery() -> None:
+    """The experiment must cost every other workflow nothing — no audit
+    entry, no shadow row, no branch taken."""
+    audited, store = await _run(False, {"topic": "employment_status", "if_answer": "seeking"})
+    assert audited == []
+    assert await store.list_questions() == []
+
+
+async def test_a_candidate_is_shadow_scheduled_and_audited() -> None:
+    audited, store = await _run(
+        True,
+        {"topic": "employment_status", "if_answer": "seeking", "then": {"priority": "relevant"}},
+    )
+    assert len(audited) == 1
+    detail = audited[0].detail
+    assert detail["asked"] is True
+    assert detail["topic"] == "employment_status"
+    assert detail["suppressed_because"] is None
+    assert len(await store.list_questions()) == 1, "the shadow question was not created"
+
+
+async def test_the_audit_entry_carries_the_experiment_limits() -> None:
+    """Round 2/3: explicit, configurable limits, reported WITH the
+    results. A limit that lives only in a config file is not reported —
+    an analyst reading the audit log would have to guess what produced
+    the numbers."""
+    audited, _ = await _run(
+        True,
+        {"topic": "employment_status", "if_answer": "seeking", "then": {"priority": "relevant"}},
+    )
+    detail = audited[0].detail
+    assert detail["max_outstanding"] == 2
+    assert detail["pending_expiry_hours"] == 48
+
+
+async def test_C1_records_that_it_has_no_answer_store() -> None:
+    """`answers_backed: false` — C1 predates the answer records (C3), so
+    suppression by `answer_already_known` is structurally impossible and
+    its demand figure is an UPPER BOUND. Without this flag a reader takes
+    it for the steady-state number."""
+    audited, _ = await _run(
+        True,
+        {"topic": "employment_status", "if_answer": "seeking", "then": {"priority": "relevant"}},
+    )
+    assert audited[0].detail["answers_backed"] is False
+
+
+async def test_a_malformed_candidate_is_recorded_not_dropped() -> None:
+    """The classifier failing to speak the catalogue's vocabulary is the
+    thing C1 measures, so it is a datum rather than a parse error to
+    swallow."""
+    audited, store = await _run(True, {"nonsense": True})
+    assert len(audited) == 1
+    assert audited[0].detail["suppressed_because"] == "candidate_malformed"
+    assert await store.list_questions() == []
+
+
+async def test_an_out_of_vocabulary_outcome_is_suppressed_and_recorded() -> None:
+    """`priority: review` specifically — C1 must not be able to redefine
+    the two-axis rubric, so the attempt is refused and counted."""
+    audited, store = await _run(
+        True,
+        {"topic": "employment_status", "if_answer": "seeking", "then": {"priority": "review"}},
+    )
+    assert audited[0].detail["suppressed_because"] == "outcome_not_in_vocabulary"
+    assert await store.list_questions() == []
+
+
+async def test_no_candidate_in_the_output_means_no_entry() -> None:
+    """Most runs will not produce a candidate. They must not produce an
+    audit entry either, or the log stops being a record of demand."""
+    audited, _ = await _run(True, None)
+    assert audited == []

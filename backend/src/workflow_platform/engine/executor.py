@@ -35,6 +35,7 @@ from workflow_platform.audit_writer import AuditWriter
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.connectors.browser import BrowserConnector, PlaywrightConnector
 from workflow_platform.cost import cost_for_usage
+from workflow_platform.elicitation import QuestionCandidate, QuestionStore, schedule
 from workflow_platform.engine.context import WorkflowContext
 from workflow_platform.engine.registry import (
     FunctionRegistry,
@@ -89,6 +90,22 @@ logger = logging.getLogger(__name__)
 #: Bound on the instance->org memo used by audit vaulting. Cleared wholesale
 #: when exceeded: this is a lookup cache, not state, so dropping it costs one
 #: query per instance and never changes behaviour.
+
+
+class _NoAnswersYet:
+    """C1's answer lookup. There are no answer records until C3, so this
+    is truthful rather than a stub: no answer exists, and the absence is
+    real rather than a failed read.
+
+    It deliberately does NOT raise. `answer_lookup_unavailable` means a
+    lookup that failed, and reporting "no store yet" as a failure would
+    put the wrong token in the one figure C1 exists to produce. The
+    `answers_backed: false` flag on every audit entry is how a reader
+    knows suppression-by-known-answer could not fire.
+    """
+
+    async def has_current_answer(self, subject: str, topic: str) -> bool:
+        return False
 
 
 class DryRunNotResumable(ValueError):
@@ -198,6 +215,9 @@ class WorkflowEngine:
     #: the sandbox is a property of the RECORD, not of the request that made
     #: it — see `WorkflowContext.dry_run`.
     dry_run: bool = False
+    #: G12 C1 shadow state. None = the experiment is not wired, which is
+    #: every deployment until an operator opts a workflow in.
+    question_store: QuestionStore | None = None
     _vault: RawTraceVault = field(init=False)
     _audit_writer: AuditWriter = field(init=False)
     _rehydrator: RawTraceRehydrator = field(init=False)
@@ -715,6 +735,7 @@ class WorkflowEngine:
         # token/cost spend lands in the instance totals. A failed observation
         # never fails the run — it audits and moves on.
         await self._observe_learned_memory(definition, context, instance.id)
+        await self._shadow_schedule_question(definition, context, instance.id)
         instance = await self._mark_instance(
             instance, WorkflowInstanceState.COMPLETED, context, error=None
         )
@@ -1705,6 +1726,79 @@ class WorkflowEngine:
         return recalled
 
     # --- learned memory (veracium, write-only slice) ---
+
+    async def _shadow_schedule_question(
+        self, definition: WorkflowDefinition, context: WorkflowContext, instance_id: str
+    ) -> None:
+        """G12 C1: run the REAL scheduling rules against SHADOW state and
+        audit what would have happened (`docs/ASK_THE_USER_PLAN.md` §3b).
+
+        **Nobody is asked anything.** The store is the shadow store; no
+        question surface exists; there is no answer path. This runs after
+        the workflow completes, like the learned-memory observation, so a
+        candidate from a run that failed is never counted as demand.
+
+        Never raises: a shadow experiment must not be able to fail a
+        production run. That is also why it is the LAST thing the run
+        does.
+        """
+        spec = definition.questions
+        if spec is None or self.question_store is None:
+            return
+        raw = _resolve_context_value(context, spec.candidate_from)
+        if not isinstance(raw, dict):
+            return
+        try:
+            candidate = QuestionCandidate.model_validate(raw)
+        except Exception:
+            # A malformed candidate IS a datum — it is the classifier
+            # failing to speak the catalogue's vocabulary, which is the
+            # thing C1 measures. Recorded, not dropped.
+            await self._audit(
+                "question_candidate_shadowed",
+                actor_type="engine",
+                actor_id="elicitation_shadow",
+                instance_id=instance_id,
+                detail={"asked": False, "suppressed_because": "candidate_malformed"},
+            )
+            return
+
+        try:
+            decision = await schedule(
+                candidate,
+                catalog=spec.catalog,
+                store=self.question_store,
+                answers=_NoAnswersYet(),
+                org_id=context.org_id,
+                subject=spec.subject,
+                recipient=spec.recipient,
+            )
+        except Exception:
+            logger.exception("shadow question scheduling failed")
+            return
+
+        await self._audit(
+            "question_candidate_shadowed",
+            actor_type="engine",
+            actor_id="elicitation_shadow",
+            instance_id=instance_id,
+            detail={
+                "topic": decision.topic,
+                "asked": decision.asked,
+                "suppressed_because": decision.suppressed_because,
+                # The experiment's limits, recorded WITH each result —
+                # round 2/3 asked for explicit configurable limits
+                # reported beside the data, and a limit that lives only
+                # in a config file is not reported.
+                "max_outstanding": spec.catalog.max_outstanding_per_recipient,
+                "pending_expiry_hours": spec.catalog.pending_expiry_hours,
+                # C1 HAS NO ANSWER STORE (that is C3), so suppression by
+                # `answer_already_known` is structurally impossible here.
+                # Without this flag a reader would take C1's demand
+                # figure for the steady-state one; it is an upper bound.
+                "answers_backed": False,
+            },
+        )
 
     async def _observe_learned_memory(
         self,

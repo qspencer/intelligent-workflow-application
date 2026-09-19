@@ -509,6 +509,25 @@ CORPUS: list[tuple[Any, ...]] = [
         "memory_observed",
     ),
     (
+        "at_rest.registry_question_candidate_shadowed",
+        "audit_detail",
+        {
+            "topic": "employment_status",
+            "asked": False,
+            "suppressed_because": "recipient_at_capacity",
+            "max_outstanding": 3,
+            "pending_expiry_hours": 72,
+            "answers_backed": False,
+        },
+        "question_candidate_shadowed",
+    ),
+    (
+        "at_rest.registry_question_candidate_forged_reason",
+        "audit_detail",
+        {"topic": "t", "asked": False, "suppressed_because": "SYNTHETIC-reason"},
+        "question_candidate_shadowed",
+    ),
+    (
         "at_rest.registry_audit_detail_migrated",
         "audit_detail",
         {

@@ -780,11 +780,33 @@ at all.
 
 | | what | gated on |
 |---|---|---|
-| **C1** | catalog + candidate emission + validation + the real scheduling code against **shadow state** | §3a atomic scheduling · §3b shadow state · §4a identity grouping · §5a candidate vocabulary — **the four round-2 decisions, all now taken** |
+| **C1** | catalog + candidate emission + validation + the real scheduling code against **shadow state** | **BUILT 2026-09-19** — `elicitation/{catalog,store,scheduler}.py`, Alembic `0014`, wired into the engine behind an opt-in `questions:` block, projector **v19** for the shadow log |
 | C2 | question record (§2a), subject binding (§1b), escalation surface, authorized respondent, enum answer + assertion confirmation, **question↔answer-revision links recorded as they happen** | authorization (§1b) |
 | C3 | answer records as source of truth, profile assembly (§1a), validity on the single route (§6), **supplied-context links recorded as they happen** | retrieval, validity and revision guarantees |
 | C3b | memory ingestion + the two-route validity rule | **blocked**: needs a veracium expiry/retire primitive (§6) |
 | C4 | matched comparison and the analysis (§5) | C2/C3 evidence existing |
+
+**How C1 is wired.** A `questions:` block on the workflow definition,
+absent everywhere by default — a workflow without one runs no question
+machinery at all, test-pinned, because an experiment must cost the other
+workflows nothing. `candidate_from` is a context path, the same idiom as
+`recall.query_from`, so the classifier emits its candidate in the JSON
+verdict and a deterministic step surfaces it: **no tool, no authorized
+call from model output into the question path** (§3). Scheduling runs
+after the workflow completes, beside the learned-memory observation, so
+a candidate from a failed run is never counted as demand. It cannot fail
+a run: it is last, and it swallows its own errors.
+
+**Every shadow decision is audited** as `question_candidate_shadowed`,
+carrying the topic, whether it would have been asked, the suppression
+token, **and the experiment's limits** — a limit that lives only in a
+config file is not reported, and an analyst reading the log should not
+have to guess what produced the numbers.
+
+**`answers_backed: false` rides on every entry.** C1 predates the answer
+records, so suppression by `answer_already_known` is structurally
+impossible and **C1's demand figure is an upper bound**. Flagged in the
+data rather than in a footnote someone has to find.
 
 **What C1 can and cannot establish** — round 2 narrowed this and the
 narrower claim is the honest one:

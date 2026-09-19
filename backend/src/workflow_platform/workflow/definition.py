@@ -14,6 +14,7 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from workflow_platform.elicitation.catalog import QuestionCatalog
 from workflow_platform.security import CapabilityPolicy
 
 
@@ -195,6 +196,29 @@ class WorkflowPolicy(BaseModel):
     budget_action: Literal["notify", "pause", "escalate"] = "pause"
 
 
+class QuestionSpec(BaseModel):
+    """Opt-in clarification elicitation (G12). **C1 is SHADOW-ONLY**: a
+    workflow carrying this block logs what it WOULD ask and asks nobody
+    anything. Enabling real questions is C2 and needs the subject
+    binding (`ASK_THE_USER_PLAN` §1b), which does not exist yet.
+
+    `candidate_from` is a context path, the same idiom as
+    `recall.query_from` and `observations[].ref_from` — the classifier's
+    verdict carries a `question_candidate` and a deterministic step
+    surfaces it, so the engine stays generic and no new tool exists.
+    """
+
+    #: Context path to the classifier's `{topic, if_answer, then}`.
+    candidate_from: str
+    #: WHO the resulting assertion would be about, and who would be
+    #: asked. Literals in C1; C2 replaces them with the validated
+    #: platform-identity binding (§1b), which is why they are separate
+    #: fields now rather than one.
+    subject: str
+    recipient: str
+    catalog: QuestionCatalog
+
+
 class WorkflowDefinition(BaseModel):
     id: str
     name: str
@@ -205,3 +229,6 @@ class WorkflowDefinition(BaseModel):
     policies: WorkflowPolicy = Field(default_factory=WorkflowPolicy)
     capabilities: CapabilityPolicy | None = None
     learned_memory: LearnedMemorySpec | None = None
+    #: G12 C1 (`docs/ASK_THE_USER_PLAN.md`). Absent = no question
+    #: machinery runs at all, which is the state of every workflow today.
+    questions: QuestionSpec | None = None

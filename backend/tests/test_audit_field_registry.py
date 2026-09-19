@@ -453,6 +453,17 @@ _WIDENED_BEYOND_FLAT: dict[str, set[str]] = {
     },
     # v17 stage 3: counts and outcomes, never the names resolved.
     "directory_resolved": {"requested", "resolved", "not_found", "not_resolvable"},
+    # v19: G12 C1's shadow log. Every field is engine-measured or
+    # operator-configured; the limits ride with each result so the data
+    # is readable without the config that produced it.
+    "question_candidate_shadowed": {
+        "topic",
+        "asked",
+        "suppressed_because",
+        "max_outstanding",
+        "pending_expiry_hours",
+        "answers_backed",
+    },
     # v18: the migration ledger. Lossless by necessity — see the registry.
     "audit_detail_migrated": {
         "rows",
@@ -626,3 +637,20 @@ def test_no_audit_writer_puts_an_EMAIL_in_actor_id() -> None:
         "belongs in the subject-identity design (docs/TRACE_SUBJECT_IDENTITY_PLAN.md), "
         "not inlined into the actor column."
     )
+
+
+def test_the_suppression_enum_is_the_elicitation_one() -> None:
+    """`_SUPPRESSION` spells out `elicitation.SUPPRESSION_REASONS` so the
+    projector stays a domain leaf. A spelled-out copy that drifts is
+    worse than an import, so the equality is a test — the same treatment
+    `_STOP_REASON` gets, and that one caught a missing member on its
+    first run."""
+    from workflow_platform.elicitation import SUPPRESSION_REASONS
+    from workflow_platform.trace_projection import _SUPPRESSION
+
+    for reason in SUPPRESSION_REASONS:
+        assert _SUPPRESSION.validate(reason), f"{reason} rejected by the projector"
+    # The engine adds one the scheduler cannot produce: a candidate that
+    # fails to parse never reaches the scheduler at all.
+    assert _SUPPRESSION.validate("candidate_malformed")
+    assert not _SUPPRESSION.validate("SYNTHETIC-reason")

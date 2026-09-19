@@ -363,6 +363,7 @@ FIELD_CLASSIFICATION: dict[str, dict[str, str]] = {
         "policies": "data",
         "capabilities": "data",
         "learned_memory": "data",
+        "questions": "data",
     },
     "DeterministicStep": {
         "id": "ref_id",
@@ -398,6 +399,18 @@ FIELD_CLASSIFICATION: dict[str, dict[str, str]] = {
         "condition": "expression",
         "condition_label": "data",
         "on_error": "data",
+    },
+    # G12 C1. `candidate_from` is a context PATH like `recall.query_from`;
+    # subject/recipient are literals in C1 and become the validated
+    # platform-identity binding in C2 (ASK_THE_USER_PLAN §1b). The
+    # catalog is operator-authored data whose own templates are checked
+    # at load — a `{trigger.*}` placeholder in a prompt or a stored
+    # assertion is refused there, not here.
+    "QuestionSpec": {
+        "candidate_from": "ref_path",
+        "subject": "data",
+        "recipient": "data",
+        "catalog": "data",
     },
     "LearnedMemorySpec": {
         "user_id": "data",

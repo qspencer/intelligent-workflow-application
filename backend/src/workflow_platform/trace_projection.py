@@ -331,7 +331,15 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "18"  # v18: `audit_detail_migrated`, the ledger for
+PROJECTOR_VERSION = "19"  # v19: `question_candidate_shadowed` (G12 C1).
+# Engine-measured or operator-configured throughout — a catalogued topic
+# id, a suppression token from a closed set, and the experiment's own
+# limits recorded beside every result, because a limit that lives only in
+# a config file is not reported. No part of the classifier's free text
+# reaches the entry: the candidate contributes a topic id and nothing
+# else, which is the same enum gate the label path uses.
+#
+# v18: `audit_detail_migrated`, the ledger for
 # G-Trace-Audit-Rest. Instance-less by nature (a batch spans instances), so
 # it has to be projection-lossless: a withheld field here would be a
 # deleted field in the evidence for a deletion. Carries row ids, counts,
@@ -1343,6 +1351,23 @@ _USER_ORIGIN = Leaf(_enum("permanent_admin", "test_seed"))
 #: readable at the rule.
 _IP = _TOKEN
 
+#: G12 C1's suppression vocabulary. Spelled out rather than imported for
+#: the same reason `_STOP_REASON` is — the projector is a domain leaf —
+#: and pinned equal to `elicitation.SUPPRESSION_REASONS` by a test so the
+#: copy cannot drift.
+_SUPPRESSION = Leaf(
+    _enum(
+        "topic_not_catalogued",
+        "branch_answer_not_offered",
+        "outcome_not_in_vocabulary",
+        "answer_already_known",
+        "answer_lookup_unavailable",
+        "already_asked",
+        "recipient_at_capacity",
+        "candidate_malformed",
+    )
+)
+
 #: `agent.StopReason`, spelled out rather than imported — the projector is a
 #: domain leaf and importing the agent package to read an enum would invert
 #: that. `test_the_stop_reason_enum_is_the_agents_enum` pins the two equal,
@@ -1685,6 +1710,19 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         "changed": FieldRule(Owner.ENGINE, Seq(_TOKEN), True),
         "sessions_revoked": FieldRule(Owner.ENGINE, _BOOL, True),
         "raw_grants_revoked": FieldRule(Owner.ENGINE, _COUNT, True),
+    },
+    "question_candidate_shadowed": {
+        # G12 C1. Everything here is engine-measured or operator-
+        # configured: a topic id from the catalogue, a suppression token
+        # from a closed set, the experiment's own limits. NO part of the
+        # classifier's free text reaches it — the candidate contributes a
+        # catalogued topic id and nothing else.
+        "topic": FieldRule(Owner.CONFIG, _TOKEN, True),
+        "asked": FieldRule(Owner.ENGINE, _BOOL, True),
+        "suppressed_because": FieldRule(Owner.ENGINE, _SUPPRESSION, True),
+        "max_outstanding": FieldRule(Owner.CONFIG, _COUNT, True),
+        "pending_expiry_hours": FieldRule(Owner.CONFIG, _COUNT, True),
+        "answers_backed": FieldRule(Owner.ENGINE, _BOOL, True),
     },
     "audit_detail_migrated": {
         # The ledger for G-Trace-Audit-Rest: the one mutation the audit log
