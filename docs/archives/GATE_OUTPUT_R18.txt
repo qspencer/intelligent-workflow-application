@@ -1,0 +1,75 @@
+Captured standalone gate results — F1/F5 review round 18
+
+Gates ran at tree: cc4171af051caf31d32cc0d2b3e54f11798f9d19   (manifest aggregate: 9b1b321894326e7b21328ada505cb07d1617cfd3fc872011ce8e1f0a8804703d)
+Exit codes captured before any pipe; all five also run under
+scripts/gate.sh as ONE exit code, chained to the commit with &&.
+
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · 2026-09-19T03:01:39Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+277 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 235 source files
+exit: 0
+
+=== uv run pytest ===
+SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
+1245 passed, 19 skipped, 13 warnings in 41.19s
+exit: 0
+
+=== uv run pip-audit ===
+No known vulnerabilities found
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== pytest -m integration (real Postgres) ===
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_schema_conformance.py:29: SCHEMA_TESTS not set; skipping schemathesis contract tests
+7 passed, 1 skipped, 1256 deselected, 1 warning in 3.91s
+exit: 0
+
+=== alembic up/down/up ===
+INFO  [alembic.runtime.migration] Running upgrade 0012 -> 0013, Audit-entry projection stamp (round-12 finding 1).
+INFO  [alembic.runtime.migration] Running downgrade 0013 -> 0012, Audit-entry projection stamp (round-12 finding 1).
+INFO  [alembic.runtime.migration] Running upgrade 0012 -> 0013, Audit-entry projection stamp (round-12 finding 1).
+exit: 0
+
+=== CONTROLS (step 2b) ===
+Each detector sabotaged with the defect it claims to catch; the harness
+ast.parses the sabotaged file first, so a syntax break cannot be read
+as a control firing. All four fired.
+
+--- completeness covers the recovered error
+    sabotage: check only the step output, as before
+    sabotaged exit=1  (want 1, not 2)
+    restored  exit=0  (want 0)
+--- error is a declared access kind
+    sabotage: stop declaring error as releasable
+    sabotaged exit=1  (want 1, not 2)
+    restored  exit=0  (want 0)
+--- explain uses the recovered error
+    sabotage: render the stored marker
+    sabotaged exit=1  (want 1, not 2)
+    restored  exit=0  (want 0)
+--- explain uses the recovered output
+    sabotage: discard the recovered output
+    sabotaged exit=1  (want 1, not 2)
+    restored  exit=0  (want 0)
+=== EDGE CASES (the completeness predicate) ===
+=== the completeness predicate on every error shape it can see ===
+  [ok  ] no error (successful step)   blocks full release: False
+  [ok  ] empty                        blocks full release: False
+  [ok  ] a real error                 blocks full release: False
+  [ok  ] the redaction marker         blocks full release: True
+

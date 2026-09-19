@@ -604,3 +604,37 @@ Two things this round that are not findings but matter:
   fixture cannot fail here, because our tesseract reads it correctly —
   which is the defect. The evidence is an environment-independent property
   instead (`is_native` becomes True, so tesseract is never invoked).
+
+---
+
+## Round 18 — the round-17 fix, and a vocabulary question (2026-09-19)
+
+```
+commit   66f87a9
+tree     cc4171af051caf31d32cc0d2b3e54f11798f9d19
+archive  5494951b7e03e978e6c57325c7d14f8170414764a0e7fa91ebd901733fcf5c72
+         trace-f1-review-r18-66f87a9.tar.gz
+```
+
+**Manifest extraction-verified**: `9b1b3218…`, byte-identical to
+`CODE_MANIFEST_R18.txt` (235 files).
+
+Companions:
+
+```
+34e30b12f49639bb297f749fd22d886f1a9d0056135b8c2c55493df620a16783  TRACE_F1_REVIEW_ROUND18.md   (sidecar)
+3b960f1144260cd6d86f815567501116a2ad132abdfe1f41dd2cfc7352906ccf  TRACE_AUDIT_VAULT_DESIGN.md  (design record)
+9e2129e63c1313fb42f96eb38bdb11b5172fba29828fc9d740480d73cb7a4bf8  CODE_MANIFEST_R18.txt
+34b78f296bfe90f75c7697fcd307f0d6cbab12128142d984175aa6663a04e628  GATE_OUTPUT_R18.txt
+```
+
+The finding was our own half-wiring from round 17 — the recovered error
+reached the response and not the decision that reports it. The rule drawn
+from it (enumerate a recovered value's CONSUMERS, not its sources) was then
+applied to this round's own change before packaging, and the capture
+includes the completeness predicate's behaviour on every error shape,
+because it is now load-bearing for release decisions.
+
+§3 raises a cross-surface vocabulary question rather than acting on it: a
+deterministic step's released output is named by no declared kind, and the
+vocabulary is written into existing audit records.
