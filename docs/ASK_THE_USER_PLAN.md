@@ -33,10 +33,21 @@ the engine from those two. Nothing the email contains reaches any of it.
 > answer fact.
 
 This is the harder constraint and it is not a filter problem. The answer
-lands in veracium as `author="user"` — the **highest trust class, and
-assertable**. A path from email text to a user-authored fact is a
-privilege escalation from `third_party` to `user`, which is the exact
-boundary `EMAIL_TRIAGE_ACT_PLAN` spent its design on for labels.
+lands in veracium as `author="user"`, and **that is the only ingest class
+whose edges the gate will state as fact**. Verified rather than assumed:
+`Edge.assertable` is `active ∧ ¬quarantined ∧ ¬use_only ∧ valid_now`;
+third-party CLAIMS are quarantined by relation (`QUARANTINE_RELATION =
+"third_party_claim"`), and benign third-party *inferences* are marked
+`use_only` at ingest. Either way, content arriving as `third_party` is not
+assertable and user-authored content is. So a path from email text into a
+user-authored fact is a **privilege escalation across exactly that
+boundary** — the one `EMAIL_TRIAGE_ACT_PLAN` spent its design on for
+labels.
+
+*(Precision matters here: `assertable` is a property of the EDGE, not a
+field called "trust". Author drives it indirectly, through quarantine and
+`use_only`. An earlier draft of this document said "highest trust class",
+which is the right conclusion from the wrong mechanism.)*
 
 **So the same answer: enum-derived, never free text.**
 
@@ -93,11 +104,12 @@ The answer becomes `observe(..., author="user")` — correct, and the only
 class in veracium whose facts are assertable rather than fenced.
 
 **`LearnedMemoryService.observe` has no `volatility` parameter**, and
-neither does veracium's ingest: volatility is inferred by the distiller
-from the fact text (`Volatility.PERMANENT` … `EPHEMERAL`, defaulting to
-`DURABLE`). So a catalogue entry's declared volatility is, today, a hint
-to whoever writes the `fact` template rather than something the platform
-can enforce.
+neither does veracium's `Memory.remember` — both signatures executed, and
+the parameter is absent from each. Volatility is inferred by the distiller
+from the fact text (`permanent · durable · slow · transient · ephemeral`,
+field default `DURABLE`). So a catalogue entry's declared volatility is,
+today, a hint to whoever writes the `fact` template rather than something
+the platform can enforce.
 
 Two ways forward, and the second needs the other side:
 1. **Phrase for the distiller and test it** — pin each catalogue entry's
