@@ -153,6 +153,12 @@ round narrative, because they apply at the moment a detector is written:
 > ownership table, the per-function reference declaration and the field
 > classification are all this shape: no default, unclassified fails the build.
 >
+> **R-h. When you wire a recovered value in, enumerate its CONSUMERS.**
+> Round 17: the recovered error reached the response field and not the
+> completeness check, so a missing record was reported as a full release.
+> Sources and consumers are different lists — a value can be read
+> correctly and still be absent from the decision that reports it.
+>
 > **R-g. Step 0 is an ENUMERATION, not a recollection.** Round 15 returned
 > two M9 findings in code changed the round before, because
 > "begins ↔ completes" was answered from memory. If the counterpart
@@ -318,7 +324,9 @@ Tracked so "we are learning" stays measurable rather than asserted.
 | — (self-found, r15 step 0) | 1 | M8 | n/a |
 | 15 | 2 | **M9 ×2** | n/a |
 | — (self-found, r16 pre-package) | 4 | **M9**, M6 ×3 | n/a |
-| 16 | *out* | — | — |
+| 16 | 1 | **M9** | n/a |
+| — (self-found, r17 review) | 2 | **M9**, M6 | n/a |
+| 17 | 1 | **M9** | n/a |
 
 ### M9 — a path built from ONE END
 
@@ -353,6 +361,39 @@ question round 13's sidecar asked and could not answer itself.
 
 **The detector, therefore, is a question asked before the work, not a test
 written after it.** Added to §4 as step 0.
+
+---
+
+### Rounds 16–17: the class narrows but does not stop
+
+Three consecutive returns, one finding each, all M9 — and each one a
+*smaller* slice of the same thing:
+
+| Round | The counterpart that was missing |
+|---|---|
+| 16 | recovery ran, and the response was built from the projection anyway |
+| 17 (self-found) | the same, on a third field (`error`) the return had not named |
+| 17 | the recovered error reached the RESPONSE but not the COMPLETENESS CHECK |
+
+The pattern inside the pattern: each fix wired the recovered value into one
+more place, and the next return found the place it had not reached. That is
+what "a path built from one end" looks like once the path has several ends.
+
+**What would have caught round 17 earlier:** asking, for the value just
+recovered, *every* consumer of it — response field, completeness
+computation, access-kind declaration, audit outcome. We enumerated the
+handler's stored-value references (which found the `error` field) but not
+the recovered value's consumers, which is a different list.
+
+**R-h: when you wire a recovered value in, enumerate its CONSUMERS, not
+just its sources.** A value can be read correctly and still be missing from
+the decision that reports it.
+
+**One genuinely good sign:** the OCR fixture fix worked — the reviewer's
+round-17 validation reports **zero failures** for the first time since
+round 11. A test that had failed in their environment every round was ours,
+not theirs, and finding it required checking a fixture against a threshold
+rather than believing the label "known environment quirk".
 
 ---
 
