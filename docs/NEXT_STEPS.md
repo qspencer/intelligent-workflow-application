@@ -74,23 +74,48 @@ Also landed, outside the epic:
    2,000-instance sample. One-way, operator's call. Its precondition (the
    at-rest tightening) has been met since 2026-09-18, and the pile is
    static, so waiting costs only the release gate staying un-certifiable.
+
+   **New input (2026-09-19).** A sweep of the live table under v13 shows
+   what is still lossy at rest, and all of it is HISTORY — no live writer
+   produces any of it:
+
+   | rows | action | instance-less | newest |
+   |---|---|---|---|
+   | 5,983 | `step_completed` | no | 2026-09-18 |
+   | 2,014 | `workflow_started` | no | 2026-09-18 |
+   | 1,441 | `alert_stale_trigger` | **yes** | 2026-09-19 11:49 |
+   | 1,058 | `tool_call` | no | 2026-09-18 |
+   | 77 | `memory_recalled` | no | 2026-08-14 |
+   | 7 | `workflow_deleted` | **yes** | 2026-07-30 |
+   | 14 | `memory_observed` / `memory_observe_failed` / `step_failed` / `step_retry` | no | 2026-08-15 |
+
+   The two **instance-less** groups are the ones worth deciding
+   separately: they can never be vaulted under the rule adopted in item 5,
+   so the backfill's only choices for them are project-in-place or leave.
+   Project-in-place is the easy call for both — `alert_stale_trigger`'s
+   `account` is recoverable from the workflow definition, and
+   `workflow_deleted`'s `deleted_instances`/`deleted_steps` are counts of
+   rows that no longer exist. Everything else is instance-scoped and can
+   be vaulted normally.
 4. **G-Trace-Agreement** — the version-aware trigger projection-agreement
    contract. **S**, and the two existing precedents make it mostly
    mechanical.
-5. **`monitoring/service.py` vaulting** — the one audit writer outside a
-   vaulting path. Blocked on a DECISION, not on work: its `alert_*` entries
-   are frequently instance-less and the vault is instance-scoped.
-   **Raised in priority by the v12 registry.** The registry classified the
-   five `alert_*` actions, and `alert_stale_trigger.account` is the first
-   field it WITHHOLDS on an action this writer emits. The read path honours
-   that; at rest does not, because the service calls
-   `repositories.audit.append` directly rather than the engine's `_audit`
-   chokepoint — so a live row reads
-   `{"account": "qrsconsulting@quentinspencer.com", …}` in the table while
-   a grant-less reader correctly sees it withheld. Verified 2026-09-19 on
-   the running box. That is the pre-existing gap, not a regression, but it
-   is now a stated rule being violated at rest rather than an unclassified
-   field sitting there.
+5. ~~**`monitoring/service.py` vaulting**~~ — **DONE 2026-09-19.** The
+   chokepoint moved off `WorkflowEngine` into `audit_writer.AuditWriter`;
+   the engine and the monitoring service both delegate to it and neither
+   constructs an `AuditEntry` any more. **The decision it was blocked on,
+   recorded:** the vault stays instance-scoped, and the rule runs the other
+   way — *an instance-less audit entry must carry a projection-lossless
+   detail*. Widening the vault to an org-level space would have cost a
+   migration, a second key space and a second rehydration path for a
+   handful of writers. Enforced with `InstanceLessRawAudit`: the entry is
+   refused, never stored half-projected, and the monitoring loop
+   catches-and-logs so one bad alert cannot take the stuck-workflow
+   detector with it. Exactly one field breached the rule
+   (`alert_stale_trigger.account`) and it is no longer emitted — it is a
+   field of the workflow definition `workflow_id` names, readable under
+   the same authorization. Cutover verified on the running box: last row
+   carrying the address 11:49:37, first clean row 11:54:50.
 6. **G-Trace-Subject-Identity** — **L**, sequenced after the registry
    because it needs that classification. Contains an identity-lifecycle
    decision (rename / deletion / org transfer) and a migration.
@@ -1043,6 +1068,34 @@ proves inadequate, not on principle.
 (`step_skipped`, `workflow_paused`, `workflow_resumed`, `auth_logout`)
 have nothing to classify, and a registry entry for them would be an empty
 rule set — which the totality check rejects. Left alone deliberately.
+
+---
+
+### G-Trace-Chokepoint-Rest — the API and auth audit writers (2026-09-19)
+
+Closing the monitoring gap surfaced that "the one audit writer outside a
+vaulting path" understated it: **15 of 17 audit append sites** bypass the
+chokepoint. The other 14 are the API and auth surfaces
+(`api/{workflows,users,organizations,raw_trace_audit}.py`,
+`auth/{local,bootstrap,raw_trace_grants}.py`, `trace_rehydrate.py`), all
+classified `governance-metadata` in `AUDIT_WRITERS` — and on the live table
+only ONE of them has ever written something projection would strip:
+`workflow_deleted` (7 rows, instance-less, `deleted_instances` /
+`deleted_steps` undeclared counts).
+
+So the risk today is small, and the work is not urgent. It is worth doing
+anyway, for the reason the monitoring gap existed at all: the
+classification is a judgement about what those writers emit TODAY, and
+nothing enforces it tomorrow. Routing them through `AuditWriter` makes the
+judgement structural — and the instance-less rule then applies to them
+automatically, which is the check `workflow_deleted` would have failed.
+
+Two pieces: (a) give those call sites a writer (they hold `repositories`
+already, so it is a construction and a call-signature change, not a
+redesign); (b) add a `workflow_deleted` registry entry so its counts are
+classified rather than stripped. Effort: **S–M**. Trigger to do it sooner:
+any of those surfaces starting to carry model- or correspondent-derived
+text.
 
 ---
 

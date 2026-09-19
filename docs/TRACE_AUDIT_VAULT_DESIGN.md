@@ -153,12 +153,29 @@ vaulting costs rows; under-vaulting costs the record permanently. Refining
 `_AUDIT_DETAIL` to classify the engine fields is the follow-up — and it is a
 security-visible change, because it WIDENS what a grant-less reader sees.
 
-**Known coverage gap, pinned by a test rather than hidden.** Only the engine
-chokepoint vaults. Of the ten modules that append audit entries, eight write
-operator/governance metadata about a human action; `monitoring/service.py`
-writes `alert_*` entries that are engine-derived and would lose something
-100% of the time. Routing it through the chokepoint is follow-up work;
-`test_C3_the_known_gap_is_recorded_not_forgotten` keeps it from going quiet.
+**That coverage gap is CLOSED (2026-09-19).** It was: only the engine
+chokepoint vaults, and `monitoring/service.py` wrote engine-derived `alert_*`
+entries outside it. The chokepoint now lives in `audit_writer.AuditWriter`
+and both the engine and the monitoring service delegate to it.
+
+The decision the gap was blocked on — where instance-less raw lives — went
+the other way from widening the vault: **an instance-less audit entry must
+carry a projection-lossless detail**, enforced by `InstanceLessRawAudit`
+(refuse the entry; never store it half-projected). One field breached it,
+`alert_stale_trigger.account`, and it is no longer emitted — the polled
+mailbox is a field of the workflow definition the alert already names,
+readable under the same authorization, which is Q1's rule applied exactly.
+`test_C3_the_known_gap_is_recorded_not_forgotten` became its inverse so the
+gap cannot reopen under its old name, and
+`test_C3_the_moved_writers_stay_on_the_chokepoint` asserts the positive —
+the discovery scan lists modules that CONSTRUCT an `AuditEntry`, so a module
+that stops doing so vanishes from it, and vanishing is what both "routed
+onto the chokepoint" and "audit writes dropped" look like.
+
+The remaining 14 append sites are the API/auth governance surfaces. On live
+data exactly one of them has ever written something projection would strip
+(`workflow_deleted`, 7 rows). Routing them too is
+`G-Trace-Chokepoint-Rest` in `docs/NEXT_STEPS.md`.
 
 ---
 
