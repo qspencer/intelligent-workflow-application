@@ -1,0 +1,77 @@
+Captured standalone gate results — F1/F5 review round 17
+
+Gates ran at tree: 4721cb814cdd44cee2ea6a28a5c3319de996f71e   (manifest aggregate: 836b8ba8be33b9f76b38f640b1a8a21798432cf0728db597d1ef3ba3e01ad848)
+Exit codes captured before any pipe; all five also run under
+scripts/gate.sh as ONE exit code, chained to the commit with &&.
+
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · tesseract 5.3.4 · 2026-09-19T02:41:44Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+277 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 235 source files
+exit: 0
+
+=== uv run pytest ===
+SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
+1244 passed, 19 skipped, 13 warnings in 51.36s
+exit: 0
+
+=== uv run pip-audit ===
+No known vulnerabilities found
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== pytest -m integration (real Postgres) ===
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_schema_conformance.py:29: SCHEMA_TESTS not set; skipping schemathesis contract tests
+7 passed, 1 skipped, 1255 deselected, 1 warning in 4.96s
+exit: 0
+
+=== alembic up/down/up ===
+INFO  [alembic.runtime.migration] Running upgrade 0012 -> 0013, Audit-entry projection stamp (round-12 finding 1).
+INFO  [alembic.runtime.migration] Running downgrade 0013 -> 0012, Audit-entry projection stamp (round-12 finding 1).
+INFO  [alembic.runtime.migration] Running upgrade 0012 -> 0013, Audit-entry projection stamp (round-12 finding 1).
+exit: 0
+
+=== CONTROLS (step 2b) ===
+Each detector sabotaged with the defect it claims to catch. The harness
+ast.parses the sabotaged file first, so a syntax break cannot be
+mistaken for a control firing. One control below did NOT fire and says
+so, with the reason.
+
+--- explain uses the recovered output
+    sabotage: discard the recovered output
+    sabotaged exit=1  (want 1, not 2)
+    restored  exit=0  (want 0)
+--- explain uses the recovered error
+    sabotage: render the stored error marker
+    sabotaged exit=1  (want 1, not 2)
+    restored  exit=0  (want 0)
+--- explain completes on failure
+    sabotage: let the merge failure escape
+    sabotaged exit=1  (want 1, not 2)
+    restored  exit=0  (want 0)
+--- PDF fixture takes the native path
+    sabotage: shorten the fixture back below the threshold
+    sabotaged exit=0   <-- DID NOT FIRE, and cannot, locally.
+    restored  exit=0
+    Reverting the fixture restores the OCR path, but THIS machine's
+    tesseract 5.3.4 reads "Invoice" correctly, so the test still passes
+    here. That is the whole defect: it is invisible in our environment and
+    has failed in the reviewer's in every round from 12 to 16.
+    Evidence for this fix is therefore NOT a control but a direct,
+    environment-independent property: with the longer fixture
+    PdfExtractTool reports is_native=True, so extraction never reaches
+    tesseract at all. Verified by executing the tool on the new fixture.

@@ -570,3 +570,37 @@ enumerating the CALLERS of the recovery helpers instead of answering the
 counterpart question from memory. It also found a control that did not
 fire, two follow-ups missing from the backlog, and a stale field count in
 the design doc.
+
+---
+
+## Round 17 — the round-16 fix, the same defect on a third field, and the OCR test (2026-09-19)
+
+```
+commit   b4dbab5
+tree     4721cb814cdd44cee2ea6a28a5c3319de996f71e
+archive  55a70d3707b5a43ba5776b3a5a9b1b785eb7738338cc084469c7462dc67b2505
+         trace-f1-review-r17-b4dbab5.tar.gz
+```
+
+**Manifest extraction-verified**: `836b8ba8…`, byte-identical to
+`CODE_MANIFEST_R17.txt` (235 files).
+
+Companions:
+
+```
+8bb22c07392842305759184c0dd883e9355b678461f22d70e4cb32344b7dc757  TRACE_F1_REVIEW_ROUND17.md   (sidecar)
+3b960f1144260cd6d86f815567501116a2ad132abdfe1f41dd2cfc7352906ccf  TRACE_AUDIT_VAULT_DESIGN.md  (design record)
+21366bcfcfe30fcaa548dcc73c9c635a6231ec5ac17483509ac08dbffb142f60  CODE_MANIFEST_R17.txt
+5caf206a5510581a7ca562428630b57428bf22e9773b43ad1a835fa969190cc3  GATE_OUTPUT_R17.txt
+```
+
+Two things this round that are not findings but matter:
+
+- The failing test the reviewer reported in **every round since 12** was
+  ours, not their environment: a 12-character PDF fixture fell below the
+  30-char native threshold, so extraction silently used OCR and the
+  assertion depended on the local tesseract build.
+- **One control in the capture did not fire, and says so.** Reverting that
+  fixture cannot fail here, because our tesseract reads it correctly —
+  which is the defect. The evidence is an environment-independent property
+  instead (`is_native` becomes True, so tesseract is never invoked).
