@@ -327,6 +327,8 @@ Tracked so "we are learning" stays measurable rather than asserted.
 | 16 | 1 | **M9** | n/a |
 | — (self-found, r17 review) | 2 | **M9**, M6 | n/a |
 | 17 | 1 | **M9** | n/a |
+| — (self-found, r18 review) | 0 | — | n/a |
+| 18 | *out* | — | — |
 
 ### M9 — a path built from ONE END
 
@@ -361,6 +363,36 @@ question round 13's sidecar asked and could not answer itself.
 
 **The detector, therefore, is a question asked before the work, not a test
 written after it.** Added to §4 as step 0.
+
+---
+
+### Round 18: the first pre-package review that found nothing
+
+Recorded because a zero is only meaningful if it is written down with the
+same weight as a finding — and because one clean review is weak evidence,
+not a trend.
+
+The review was not lighter than the previous ones. It applied R-h to our
+own change (every consumer of both recovered values: response field,
+completeness computation, kind declaration, audit outcome — no fifth
+consumer exists), exercised the completeness predicate against every error
+shape it can receive (only the marker blocks a full release; `None`, `""`
+and a real message do not — a successful step has `error=None`, so getting
+that wrong would have broken every successful explain), and re-derived the
+raise-versus-best-effort classification of all six helpers.
+
+**It did catch one of our own errors**, just not a product defect: the
+first raise-versus-best-effort classification reported all six helpers as
+best-effort, because the inspection window cut off before the `raise`.
+Corrected before it reached the sidecar. Stating it wrongly there would
+have been M6 — a false claim about our own code in a document whose
+purpose is to be trusted.
+
+**What it declined to do** is also part of the record: a deterministic
+step's released output is named by no declared access kind, and the same
+vocabulary is used by `get_instance` and written into existing audit rows.
+Changing it alters the meaning of historical entries, so it went to the
+reviewer as a question rather than into the fix for something else.
 
 ---
 
