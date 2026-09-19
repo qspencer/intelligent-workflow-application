@@ -441,6 +441,17 @@ CORPUS: list[tuple[Any, ...]] = [
         "alert_stale_trigger",
     ),
     (
+        "at_rest.registry_alert_abandoned_pause",
+        "audit_detail",
+        {
+            "instance_id": "inst-1",
+            "workflow_id": "email-triage-apply",
+            "paused_for_seconds": 14400.5,
+            "threshold_seconds": 10800.0,
+        },
+        "alert_abandoned_pause",
+    ),
+    (
         "at_rest.registry_alert_high_error_rate",
         "audit_detail",
         {

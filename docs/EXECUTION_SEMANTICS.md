@@ -280,6 +280,14 @@ first-class, referenceable identity. **Built 2026-08-01.**
     (`POST /api/workflow-instances/{id}/resume`). Deliberately: an
     interrupted run of a mutating workflow must not re-drive itself on
     boot.
+  - **An operator-driven state needs an operator-facing signal.** Landing
+    interrupted runs in PAUSED made the state correct and, briefly, silent:
+    monitoring watched RUNNING and PENDING and nothing watched PAUSED, so
+    the fix for a loud-but-wrong state produced a correct-but-invisible
+    one. `alert_abandoned_pause` closes it — PAUSED with no activity for
+    **3 hours**, measured from the newest step row (falling back to the
+    run's start, because an interruption before the first step persists
+    leaves no step rows at all), one alert per instance per process.
 - **Honest limitation (external review §6): recovery is
   restart-triggered, not lease-arbitrated.** There are no worker leases,
   heartbeats, stale-running timeouts, or atomic ownership. The boot sweep

@@ -449,3 +449,122 @@ async def test_an_alert_WITH_an_instance_vaults_its_raw() -> None:
     assert entries[0].projector_version is not None, "no vault pointer on the entry"
     rows = await repos.raw_trace_vault.list_by_instance(instance.id)
     assert any("SYNTHETIC" in str(r.payload) for r in rows), "the raw was not vaulted"
+
+
+# --- abandoned pauses (2026-09-19) -----------------------------------------
+#
+# Fixing one blindness created another. Until today an interrupted run was
+# stranded RUNNING — wrong, but LOUD: `alert_stuck_workflow` fired on it
+# forever. Marking those runs PAUSED made the state correct and the signal
+# vanish, because the five existing checks watch RUNNING and PENDING and
+# nothing watched PAUSED. These pin the replacement signal.
+
+
+async def _paused(repos: Any, *, age_hours: float, with_step: bool = True) -> WorkflowInstance:
+    now = datetime.now(UTC)
+    at = now - timedelta(hours=age_hours)
+    instance: WorkflowInstance = await repos.instances.create(
+        WorkflowInstance(
+            workflow_id="wf",
+            state=WorkflowInstanceState.PAUSED,
+            created_at=at,
+            started_at=at,
+        )
+    )
+    if with_step:
+        await repos.steps.create(
+            StepExecution(
+                instance_id=instance.id,
+                step_id="s1",
+                attempt=1,
+                state=StepExecutionState.CANCELLED,
+                started_at=at,
+                completed_at=at,
+            )
+        )
+    return instance
+
+
+async def test_a_pause_nobody_resumed_alerts_after_the_threshold() -> None:
+    repos = in_memory_repositories()
+    old = await _paused(repos, age_hours=4)
+    service = MonitoringService(repos, config=_config())
+
+    alerts = [a for a in await service.run_once() if a["action"] == "alert_abandoned_pause"]
+    assert len(alerts) == 1
+    assert alerts[0]["instance_id"] == old.id
+    assert alerts[0]["paused_for_seconds"] > 3 * 3600
+    assert alerts[0]["threshold_seconds"] == 10_800.0
+
+
+async def test_a_recent_pause_is_not_an_abandoned_one() -> None:
+    """PAUSED is a legitimate state. The signal is that nobody came back,
+    not that someone paused."""
+    repos = in_memory_repositories()
+    await _paused(repos, age_hours=1)
+    service = MonitoringService(repos, config=_config())
+    assert not [a for a in await service.run_once() if a["action"] == "alert_abandoned_pause"]
+
+
+async def test_an_abandoned_pause_alerts_once_per_process() -> None:
+    repos = in_memory_repositories()
+    await _paused(repos, age_hours=4)
+    service = MonitoringService(repos, config=_config())
+
+    assert [a for a in await service.run_once() if a["action"] == "alert_abandoned_pause"]
+    again = [a for a in await service.run_once() if a["action"] == "alert_abandoned_pause"]
+    assert not again, "the same abandoned pause alerted twice in one process"
+
+
+async def test_an_instance_interrupted_before_any_step_persisted_still_alerts() -> None:
+    """58 of the 2026-09-19 orphans had an instance row and no step rows at
+    all — the accept-before-persist window. Measuring the age from the last
+    step would skip exactly those."""
+    repos = in_memory_repositories()
+    bare = await _paused(repos, age_hours=4, with_step=False)
+    service = MonitoringService(repos, config=_config())
+
+    alerts = [a for a in await service.run_once() if a["action"] == "alert_abandoned_pause"]
+    assert [a["instance_id"] for a in alerts] == [bare.id]
+
+
+async def test_the_age_is_measured_from_the_last_STEP_not_the_run_start() -> None:
+    """A long run that paused a minute ago is not abandoned. `started_at`
+    alone would call it one — the run has existed for hours."""
+    repos = in_memory_repositories()
+    now = datetime.now(UTC)
+    instance = await repos.instances.create(
+        WorkflowInstance(
+            workflow_id="wf",
+            state=WorkflowInstanceState.PAUSED,
+            created_at=now - timedelta(hours=9),
+            started_at=now - timedelta(hours=9),
+        )
+    )
+    await repos.steps.create(
+        StepExecution(
+            instance_id=instance.id,
+            step_id="s1",
+            attempt=1,
+            state=StepExecutionState.COMPLETED,
+            started_at=now - timedelta(minutes=2),
+            completed_at=now - timedelta(minutes=1),
+        )
+    )
+    service = MonitoringService(repos, config=_config())
+    assert not [a for a in await service.run_once() if a["action"] == "alert_abandoned_pause"]
+
+
+async def test_the_alert_does_not_carry_the_instance_error_text() -> None:
+    """The error string is engine-authored on an interrupted run, but on a
+    budget pause or failure-then-retry it can carry step error text."""
+    repos = in_memory_repositories()
+    instance = await _paused(repos, age_hours=4)
+    instance.error = "SYNTHETIC raw step failure text"
+    await repos.instances.update(instance)
+
+    service = MonitoringService(repos, config=_config())
+    await service.run_once()
+    entries = await repos.audit.list_recent(limit=20)
+    stored = next(e for e in entries if e.action == "alert_abandoned_pause")
+    assert "SYNTHETIC" not in str(stored.detail)

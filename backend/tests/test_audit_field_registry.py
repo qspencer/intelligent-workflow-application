@@ -298,6 +298,12 @@ def test_a_registry_action_classifies_every_field_it_can_actually_emit() -> None
             "window_seconds",
         },
         "alert_high_queue_depth": {"depth", "threshold"},
+        "alert_abandoned_pause": {
+            "instance_id",
+            "workflow_id",
+            "paused_for_seconds",
+            "threshold_seconds",
+        },
         "alert_high_token_burn": {"tokens", "cost_usd", "threshold_tokens", "window_seconds"},
         "memory_recalled": {
             "user_id",
@@ -369,6 +375,9 @@ _WIDENED_BEYOND_FLAT: dict[str, set[str]] = {
     "alert_high_queue_depth": {"depth", "threshold"},
     "alert_high_token_burn": {"tokens", "threshold_tokens", "window_seconds"},
     "alert_stale_trigger": {"trigger_type", "last_run_at"},
+    # `threshold_seconds` and the ids are already in the flat schema; only
+    # the measured age is new.
+    "alert_abandoned_pause": {"paused_for_seconds"},
     # What the budget check actually compared.
     "budget_exceeded": {"tokens_used", "tokens_limit", "action"},
     "budget_escalated": {"tokens_used", "tokens_limit", "action"},

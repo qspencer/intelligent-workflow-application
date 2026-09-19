@@ -331,7 +331,21 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "13"  # v13: two v12 validators corrected against the
+PROJECTOR_VERSION = "14"  # v14: `alert_abandoned_pause` classified — the
+# monitoring check added when fixing the stranded-RUNNING orphans created a
+# second blindness (a correct PAUSED state that nothing watched). Four
+# fields, all platform arithmetic or operator-configured thresholds; the
+# instance's `error` string is deliberately NOT emitted, because on a budget
+# pause or a failure-then-retry it can carry step error text.
+#
+# A new action has no stored rows, so nothing can disagree under it and the
+# bump buys no compatibility. It happens anyway: the rule is that a change
+# to what the projection emits moves this constant, and the reason the rule
+# is absolute is that two people already judged an exception safe and were
+# wrong (rounds 6 and 7, both read as tampering afterwards). An absolute
+# rule costs one regenerated fixture; a judged one costs the guard.
+#
+# v13: two v12 validators corrected against the
 # production data they were written for. Both were caught by running the
 # projector over the live audit table rather than by review, which is the
 # lesson: a rule is a claim about values, and only the values settle it.
@@ -1471,6 +1485,12 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         # because the corpus case used an int literal. The corpus now uses
         # the type production actually stores.
         "window_seconds": FieldRule(Owner.CONFIG, _AMOUNT, True),
+    },
+    "alert_abandoned_pause": {
+        "instance_id": FieldRule(Owner.ENGINE, _TOKEN, True),
+        "workflow_id": FieldRule(Owner.CONFIG, _TOKEN, True),
+        "paused_for_seconds": FieldRule(Owner.ENGINE, _AMOUNT, True),
+        "threshold_seconds": FieldRule(Owner.CONFIG, _AMOUNT, True),
     },
     "alert_high_queue_depth": {
         "depth": FieldRule(Owner.ENGINE, _COUNT, True),

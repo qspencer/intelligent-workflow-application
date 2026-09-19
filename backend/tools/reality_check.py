@@ -116,6 +116,18 @@ CHECKS: list[tuple[str, str, str]] = [
         "where state='running' and started_at < now() - interval '2 hours' limit 20",
     ),
     (
+        "ES §1",
+        "no instance sits PAUSED past the abandoned-pause threshold unalerted",
+        """select i.id, i.workflow_id, i.started_at from workflow_instances i
+           where i.state = 'paused'
+             and coalesce(i.started_at, i.created_at) < now() - interval '3 hours'
+             and coalesce(i.started_at, i.created_at) > :since
+             and not exists (
+               select 1 from audit_log a where a.workflow_instance_id = i.id
+                 and a.action = 'alert_abandoned_pause')
+           limit 20""",
+    ),
+    (
         "TM §5",
         "every definition carries an org",
         "select id from workflow_definitions where org_id is null or org_id='' limit 20",

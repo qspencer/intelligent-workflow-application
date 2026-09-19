@@ -4,6 +4,7 @@ Background asyncio task that runs every `interval_seconds` and checks for
 operational problems:
 
 - Stuck workflows: instances that have been RUNNING for too long.
+- Abandoned pauses: instances PAUSED for too long with nobody resuming.
 - High error rate: ratio of FAILED to terminal instances over a recent window.
 - Queue depth: count of PENDING instances (trigger backlog).
 - Token burn: total tokens consumed across recent agentic steps.
@@ -41,6 +42,23 @@ class MonitoringConfig(BaseModel):
     interval_seconds: float = 30.0
 
     stuck_threshold_seconds: float = 600.0  # alert RUNNING longer than 10 min
+    # PAUSED is a legitimate state — a budget pause, an operator pause, or an
+    # interrupted run the engine parked for resume — so the signal is not that
+    # an instance is paused but that NOBODY CAME BACK for it.
+    #
+    # This check exists because fixing one blindness created another. Until
+    # 2026-09-19 an interrupted run was stranded RUNNING, which was wrong but
+    # LOUD: `alert_stuck_workflow` fired on it forever (26,462 rows, the
+    # largest action in the audit log). Marking those runs PAUSED made the
+    # state correct and the signal disappear — the five existing checks watch
+    # RUNNING and PENDING, and nothing watched PAUSED. A correct-but-silent
+    # state is how the original problem survived two months.
+    #
+    # 3 hours: long enough that a deliberate pause-and-investigate is not
+    # nagged, short enough that a day of accumulation cannot pass unseen
+    # (`alert_stale_trigger`'s 3 days is the right scale for "is the poller
+    # blind", not for "did an operator forget a run").
+    abandoned_pause_threshold_seconds: float = 10_800.0
     error_rate_window_seconds: float = 600.0
     error_rate_threshold: float = 0.5
     error_rate_min_sample: int = 5  # require at least N terminal instances
@@ -94,6 +112,7 @@ class MonitoringService:
         # already alerted on (per process). Resets when a process restarts.
         self._alerted_stuck: set[str] = set()
         self._alerted_stale: set[str] = set()
+        self._alerted_paused: set[str] = set()
         self._last_high_error_alert_at: datetime | None = None
         self._last_high_queue_alert_at: datetime | None = None
         self._last_high_burn_alert_at: datetime | None = None
@@ -136,6 +155,7 @@ class MonitoringService:
         now = now or datetime.now(UTC)
         alerts: list[dict[str, Any]] = []
         alerts.extend(await self._check_stuck_workflows(now))
+        alerts.extend(await self._check_abandoned_pauses(now))
         alerts.extend(await self._check_error_rate(now))
         alerts.extend(await self._check_queue_depth(now))
         alerts.extend(await self._check_token_burn(now))
@@ -143,6 +163,53 @@ class MonitoringService:
         return alerts
 
     # --- checks ---
+
+    async def _check_abandoned_pauses(self, now: datetime) -> list[dict[str, Any]]:
+        """A PAUSED instance nobody resumed. One alert per instance per process.
+
+        Queries by STATE rather than by recency: an abandoned pause is old by
+        definition, and `list_recent`'s window is exactly what would hide it.
+        Oldest first, so a backlog is reported worst-first.
+
+        "How long paused" has no column — `_mark_instance` stamps
+        `completed_at` only for COMPLETED/FAILED. The last step row is the
+        closest honest answer, so the age is measured from the newest step
+        activity, falling back to the run's own start when a run was
+        interrupted before any step persisted (58 of the 2026-09-19 orphans
+        were exactly that: an instance row and nothing else).
+        """
+        threshold = timedelta(seconds=self.config.abandoned_pause_threshold_seconds)
+        paused = await self.repositories.instances.list_by_state(
+            [WorkflowInstanceState.PAUSED.value], limit=self.config.instance_sample_limit
+        )
+        emitted: list[dict[str, Any]] = []
+        for instance in paused:
+            if instance.id in self._alerted_paused:
+                continue
+            started = instance.started_at or instance.created_at
+            # Short-circuit before touching the steps table: an instance
+            # cannot have been paused longer than it has existed.
+            if now - started < threshold:
+                continue
+            steps = await self.repositories.steps.list_by_instance(instance.id)
+            stamps = [s.completed_at or s.started_at for s in steps]
+            last_activity = max([t for t in stamps if t is not None], default=started)
+            if now - last_activity < threshold:
+                continue
+            self._alerted_paused.add(instance.id)
+            detail = {
+                "instance_id": instance.id,
+                "workflow_id": instance.workflow_id,
+                "paused_for_seconds": (now - last_activity).total_seconds(),
+                "threshold_seconds": self.config.abandoned_pause_threshold_seconds,
+            }
+            # NOT the instance's `error` string: on an interrupted run it is
+            # engine-authored, but on a budget pause or a failure-then-retry
+            # it can carry step error text. The action plus the instance id is
+            # enough to find the run; the reason is one click away.
+            await self._emit_alert("alert_abandoned_pause", detail, instance.id)
+            emitted.append({"action": "alert_abandoned_pause", **detail})
+        return emitted
 
     async def _check_stuck_workflows(self, now: datetime) -> list[dict[str, Any]]:
         threshold = timedelta(seconds=self.config.stuck_threshold_seconds)
