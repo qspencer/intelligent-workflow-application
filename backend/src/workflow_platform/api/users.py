@@ -23,12 +23,14 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from workflow_platform.audit_writer import AuditWriter
 from workflow_platform.auth import Role, UserIdentity, require_roles
 from workflow_platform.auth.local import canonical_email
 from workflow_platform.auth.passwords import hash_password
 from workflow_platform.auth.provisioning import current_issuer
 from workflow_platform.auth.raw_trace_grants import RawTraceGrantService
-from workflow_platform.persistence import LOCAL_ISSUER, AuditEntry, Repositories, User
+from workflow_platform.persistence import LOCAL_ISSUER, Repositories, User
+from workflow_platform.trace_flip import trace_safe_only_from_env
 
 VALID_ROLES = {r.value for r in Role}
 
@@ -90,10 +92,10 @@ def build_users_router(repositories: Repositories) -> APIRouter:
             raise HTTPException(status_code=403, detail="No platform user record")
         return ActorScope(identity_sub=actor.sub, is_administrator=False, org_id=row.org_id)
 
+    audit = AuditWriter(repositories, trace_safe_only=trace_safe_only_from_env())
+
     async def _audit(scope: ActorScope, action: str, detail: dict[str, Any]) -> None:
-        await repositories.audit.append(
-            AuditEntry(actor_type="user", actor_id=scope.identity_sub, action=action, detail=detail)
-        )
+        await audit.append(action, actor_type="user", actor_id=scope.identity_sub, detail=detail)
 
     async def _other_active_administrators(excluding_id: str) -> int:
         users = await repositories.users.list_all()

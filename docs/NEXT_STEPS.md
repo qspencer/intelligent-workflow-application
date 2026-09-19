@@ -1314,6 +1314,41 @@ classified rather than stripped. Effort: **S–M**. Trigger to do it sooner:
 any of those surfaces starting to carry model- or correspondent-derived
 text.
 
+**BUILT 2026-09-19 — and the estimate above was wrong in the way that
+mattered.** "Only `workflow_deleted` is lossy" came from reading the
+reality-check output for one action. Checked properly against the live
+table it was **six**: `workflow_deleted`, `org_created`, `user_created`,
+`user_updated`, `auth_login`, `auth_login_failed`.
+
+**Every one of them is instance-less, and an instance-less entry has no
+vault.** So routing those writers unclassified would not have *withheld*
+those fields — it would have **deleted** them, and two of the six are the
+authentication audit. The "mechanical change" would have silently removed
+the record of who logged in from where. Only the `InstanceLessRawAudit`
+refusal added with the monitoring fix would have caught it, by dropping
+the entries entirely — a different silent failure.
+
+So the work was: classify first (projector **v16**, eight actions), then
+route. Seven modules moved onto `AuditWriter`
+(`api/{raw_trace_audit,organizations,users}.py`,
+`auth/{local,raw_trace_grants,bootstrap}.py`, `trace_rehydrate.py`);
+`LocalAuthService` now takes an `AuditWriter` rather than an `AuditRepo`.
+
+**Two decisions inside it worth knowing:**
+- `_LABEL` — the projector's first DISCLOSED free-text position (org display
+  names). Ground stated at its definition: Administrator authorship,
+  Administrator-only audience (THREAT_MODEL §5), and destruction rather
+  than withholding as the alternative — `org_renamed.from` is the only
+  record the old name has. Bounded printable / single-line / ≤120, and
+  pinned by a test that it refuses control characters and overlength.
+- `auth_login_failed.email` is BUSINESS (whatever was typed at the form)
+  **and disclosed**, which breaks the standing "no BUSINESS field is
+  disclosed" invariant. Resolved by naming the exception in
+  `_REGISTRY_RELEASED_BUSINESS` with its argument — the sibling of
+  `_RELEASED_BUSINESS` for step outputs — rather than relabelling the
+  owner, which is the one move that would make the taxonomy worthless. A
+  test requires every exemption to carry a real argument.
+
 ---
 
 ### G-Trace-Subject-Identity — an opaque subject identity for `user_id` (reviewer-specified, 2026-09-19)

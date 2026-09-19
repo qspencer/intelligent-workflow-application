@@ -19,13 +19,15 @@ import logging
 import uuid
 from typing import Any
 
-from workflow_platform.persistence import AuditEntry, RawTrace, RawTraceKind, Repositories
+from workflow_platform.audit_writer import AuditWriter
+from workflow_platform.persistence import RawTrace, RawTraceKind, Repositories
 from workflow_platform.persistence.models import RAW_SCHEMA_VERSION, RawTraceState
 from workflow_platform.trace_cipher import (
     TraceCipherError,
     build_trace_cipher,
     is_sealed_payload,
 )
+from workflow_platform.trace_flip import trace_safe_only_from_env
 from workflow_platform.trace_projection import (
     PROJECTOR_VERSION,
     is_withheld_marker,
@@ -162,6 +164,10 @@ class RawTraceRehydrator:
     ) -> None:
         self._repos = repositories
         self._workload = workload_identity
+        # G-Trace-Chokepoint-Rest: the access records go through the shared
+        # writer too, so the trail of who read raw is itself projected at
+        # rest like everything else.
+        self._audit = AuditWriter(repositories, trace_safe_only=trace_safe_only_from_env())
         # Contract B1: decrypt sealed vault payloads (matches the vault's cipher
         # via the shared env master key). None = plaintext vault.
         self._cipher = build_trace_cipher()
@@ -252,21 +258,19 @@ class RawTraceRehydrator:
         recorded — access we can't record is access we don't take."""
         request_id = uuid.uuid4().hex
         try:
-            await self._repos.audit.append(
-                AuditEntry(
-                    actor_type="system",
-                    actor_id=self._workload,
-                    action="raw_trace_system_access_attempted",
-                    workflow_instance_id=instance_id,
-                    step_id=step_attempt_id,
-                    detail={
-                        "request_id": request_id,
-                        "workload_identity": self._workload,
-                        "purpose": purpose,
-                        "org_id": org_id,
-                        "kinds": sorted(kinds),
-                    },
-                )
+            await self._audit.append(
+                "raw_trace_system_access_attempted",
+                actor_type="system",
+                actor_id=self._workload,
+                instance_id=instance_id,
+                step_id=step_attempt_id,
+                detail={
+                    "request_id": request_id,
+                    "workload_identity": self._workload,
+                    "purpose": purpose,
+                    "org_id": org_id,
+                    "kinds": sorted(kinds),
+                },
             )
         except Exception as exc:
             logger.warning("system-access audit append failed; fail-closed", exc_info=True)
@@ -333,14 +337,12 @@ class RawTraceRehydrator:
 
     async def _complete(self, *, request_id: str, instance_id: str, outcome: str) -> None:
         try:
-            await self._repos.audit.append(
-                AuditEntry(
-                    actor_type="system",
-                    actor_id=self._workload,
-                    action="raw_trace_system_access_completed",
-                    workflow_instance_id=instance_id,
-                    detail={"request_id": request_id, "outcome": outcome},
-                )
+            await self._audit.append(
+                "raw_trace_system_access_completed",
+                actor_type="system",
+                actor_id=self._workload,
+                instance_id=instance_id,
+                detail={"request_id": request_id, "outcome": outcome},
             )
         except Exception:
             logger.warning("system-access completion audit append failed", exc_info=True)

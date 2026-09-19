@@ -22,6 +22,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
+from workflow_platform.audit_writer import AuditWriter
 from workflow_platform.auth.local import SESSION_COOKIE, LocalAuthService, LoginRateLimiter
 from workflow_platform.auth.passwords import hash_password, verify_password
 from workflow_platform.main import create_app
@@ -161,7 +162,7 @@ def test_deactivation_revokes_immediately(monkeypatch: pytest.MonkeyPatch) -> No
 def test_expired_session_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
     repos = in_memory_repositories()
     user = _make_user(repos)
-    service = LocalAuthService(repos.users, repos.auth_sessions, repos.audit)
+    service = LocalAuthService(repos.users, repos.auth_sessions, AuditWriter(repos))
     from workflow_platform.auth.local import hash_token
 
     asyncio.run(

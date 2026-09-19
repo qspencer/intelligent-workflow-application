@@ -482,6 +482,57 @@ CORPUS: list[tuple[Any, ...]] = [
         },
         "memory_recalled",
     ),
+    # v16: the governance surface. One case per newly-registered action,
+    # each carrying the shape production actually stores.
+    (
+        "at_rest.registry_auth_login",
+        "audit_detail",
+        {"email": "operator@example.com", "source_ip": "127.0.0.1"},
+        "auth_login",
+    ),
+    (
+        "at_rest.registry_auth_login_failed",
+        "audit_detail",
+        {"email": "operator@example.com", "source_ip": "10.0.0.7", "cause": "bad_password"},
+        "auth_login_failed",
+    ),
+    (
+        "at_rest.registry_auth_login_failed_forged_cause",
+        "audit_detail",
+        {"email": "operator@example.com", "source_ip": "10.0.0.7", "cause": "SYNTHETIC-cause"},
+        "auth_login_failed",
+    ),
+    (
+        "at_rest.registry_user_updated",
+        "audit_detail",
+        {
+            "user_id": "d44047f2-061a-4ab0-9389-fb3556c1ffe9",
+            "changed": ["org_id", "roles"],
+            "sessions_revoked": True,
+            "raw_grants_revoked": 0,
+        },
+        "user_updated",
+    ),
+    (
+        "at_rest.registry_org_renamed",
+        "audit_detail",
+        {"org_id": "ext-beta", "from": "Test Org Beta", "to": "Beta Holdings Ltd"},
+        "org_renamed",
+    ),
+    (
+        "at_rest.registry_org_created_hostile_label",
+        "audit_detail",
+        # `_LABEL` is the projector's first disclosed free-text position, so
+        # the corpus pins what it refuses: control characters and overlength.
+        {"org_id": "ext-x", "name": "line one\nline two"},
+        "org_created",
+    ),
+    (
+        "at_rest.registry_workflow_deleted",
+        "audit_detail",
+        {"workflow_id": "dmarc-ingest", "deleted_instances": 4, "deleted_steps": 8},
+        "workflow_deleted",
+    ),
     (
         "at_rest.registry_memory_observe_failed",
         "audit_detail",

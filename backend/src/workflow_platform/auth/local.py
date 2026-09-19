@@ -21,10 +21,11 @@ import secrets
 import time
 from datetime import timedelta
 
+from workflow_platform.audit_writer import AuditWriter
 from workflow_platform.auth.identity import UserIdentity
 from workflow_platform.auth.passwords import dummy_verify, hash_password, verify_password
-from workflow_platform.persistence.models import AuditEntry, AuthSession, _utcnow
-from workflow_platform.persistence.repository import AuditRepo, AuthSessionRepo, UserRepo
+from workflow_platform.persistence.models import AuthSession, _utcnow
+from workflow_platform.persistence.repository import AuthSessionRepo, UserRepo
 
 SESSION_COOKIE = "wp_session"
 _DEFAULT_TTL_HOURS = 24 * 7
@@ -82,7 +83,7 @@ class LocalAuthService:
         self,
         users: UserRepo,
         sessions: AuthSessionRepo,
-        audit: AuditRepo,
+        audit: AuditWriter,
     ) -> None:
         self._users = users
         self._sessions = sessions
@@ -122,12 +123,10 @@ class LocalAuthService:
             )
         )
         await self._audit.append(
-            AuditEntry(
-                actor_type="user",
-                actor_id=user.sub,
-                action="auth_login",
-                detail={"email": canonical, "source_ip": source_ip},
-            )
+            "auth_login",
+            actor_type="user",
+            actor_id=user.sub,
+            detail={"email": canonical, "source_ip": source_ip},
         )
         return token
 
@@ -154,12 +153,10 @@ class LocalAuthService:
         if deleted and session is not None:
             user = await self._users.get(session.user_id)
             await self._audit.append(
-                AuditEntry(
-                    actor_type="user",
-                    actor_id=user.sub if user else session.user_id,
-                    action="auth_logout",
-                    detail={},
-                )
+                "auth_logout",
+                actor_type="user",
+                actor_id=user.sub if user else session.user_id,
+                detail={},
             )
         return deleted
 
@@ -177,10 +174,8 @@ class LocalAuthService:
         # dangle. `cause` is operator-facing; the HTTP response never
         # differentiates.
         await self._audit.append(
-            AuditEntry(
-                actor_type="anonymous",
-                actor_id="login",
-                action="auth_login_failed",
-                detail={"email": email, "source_ip": source_ip, "cause": cause},
-            )
+            "auth_login_failed",
+            actor_type="anonymous",
+            actor_id="login",
+            detail={"email": email, "source_ip": source_ip, "cause": cause},
         )

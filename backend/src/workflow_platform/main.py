@@ -299,7 +299,11 @@ def create_app(
     # memory service) without rebuilding the router closure.
     app.state.engine = engine
     local_auth = LocalAuthService(
-        repositories.users, repositories.auth_sessions, repositories.audit
+        repositories.users,
+        repositories.auth_sessions,
+        # The shared chokepoint, not the raw repo: login/logout entries are
+        # projected at rest like every other one (G-Trace-Chokepoint-Rest).
+        AuditWriter(repositories, trace_safe_only=trace_safe_only_from_env()),
     )
     app.add_middleware(
         AuthMiddleware,

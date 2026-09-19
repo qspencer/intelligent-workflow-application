@@ -25,10 +25,12 @@ import asyncio
 import logging
 import os
 
+from workflow_platform.audit_writer import AuditWriter
 from workflow_platform.auth.local import canonical_email
 from workflow_platform.auth.passwords import hash_password
 from workflow_platform.auth.rbac import Role
-from workflow_platform.persistence import LOCAL_ISSUER, AuditEntry, Repositories, User
+from workflow_platform.persistence import LOCAL_ISSUER, Repositories, User
+from workflow_platform.trace_flip import trace_safe_only_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -52,13 +54,11 @@ async def _ensure_user(
     user.sub = user.id
     user.password_hash = await asyncio.to_thread(hash_password, password)
     await repositories.users.save(user)
-    await repositories.audit.append(
-        AuditEntry(
-            actor_type="system",
-            actor_id="user_bootstrap",
-            action="user_created",
-            detail={"user_id": user.id, "email": email, "origin": origin},
-        )
+    await AuditWriter(repositories, trace_safe_only=trace_safe_only_from_env()).append(
+        "user_created",
+        actor_type="system",
+        actor_id="user_bootstrap",
+        detail={"user_id": user.id, "email": email, "origin": origin},
     )
     return True
 

@@ -26,8 +26,11 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
-from workflow_platform.persistence import AuditEntry, Repositories
+from workflow_platform.audit_writer import AuditWriter
+from workflow_platform.persistence import Repositories
+from workflow_platform.trace_flip import trace_safe_only_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -43,9 +46,22 @@ SURFACE_DRY_RUN = "dry_run"
 ACCESS_AUDIT_UNAVAILABLE = "access_audit_unavailable"
 
 
-async def _append(repositories: Repositories, entry: AuditEntry) -> bool:
+async def _append(
+    repositories: Repositories,
+    action: str,
+    *,
+    actor_id: str,
+    instance_id: str | None,
+    detail: dict[str, Any],
+) -> bool:
+    """Through the shared chokepoint (G-Trace-Chokepoint-Rest), so these
+    entries are projected at rest like every other one. Takes the FIELDS
+    rather than a built `AuditEntry`, because the writer mints the id — it
+    is the key the vault addresses a detail by."""
     try:
-        await repositories.audit.append(entry)
+        await AuditWriter(repositories, trace_safe_only=trace_safe_only_from_env()).append(
+            action, actor_type="human", actor_id=actor_id, instance_id=instance_id, detail=detail
+        )
         return True
     except Exception:
         # Any persistence failure fails closed (caller degrades to projected).
@@ -73,13 +89,10 @@ async def begin_raw_release(
     request_id = uuid.uuid4().hex
     ok = await _append(
         repositories,
-        AuditEntry(
-            actor_type="human",
-            actor_id=actor_id,
-            action="raw_trace_access_attempted",
-            workflow_instance_id=instance_id,
-            detail={"request_id": request_id, "surface": surface, "intended_kinds": sorted(kinds)},
-        ),
+        "raw_trace_access_attempted",
+        actor_id=actor_id,
+        instance_id=instance_id,
+        detail={"request_id": request_id, "surface": surface, "intended_kinds": sorted(kinds)},
     )
     return (request_id, None) if ok else (None, ACCESS_AUDIT_UNAVAILABLE)
 
@@ -107,19 +120,16 @@ async def commit_raw_release(
         outcome = "released"
     ok = await _append(
         repositories,
-        AuditEntry(
-            actor_type="human",
-            actor_id=actor_id,
-            action="raw_trace_release_decided",
-            workflow_instance_id=instance_id,
-            detail={
-                "request_id": request_id,
-                "surface": surface,
-                "outcome": outcome,
-                "released_kinds": sorted(returned_kinds),
-                "withheld_kinds": sorted(withheld_kinds),
-            },
-        ),
+        "raw_trace_release_decided",
+        actor_id=actor_id,
+        instance_id=instance_id,
+        detail={
+            "request_id": request_id,
+            "surface": surface,
+            "outcome": outcome,
+            "released_kinds": sorted(returned_kinds),
+            "withheld_kinds": sorted(withheld_kinds),
+        },
     )
     if not ok:
         return False, ACCESS_AUDIT_UNAVAILABLE

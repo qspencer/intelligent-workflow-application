@@ -14,10 +14,12 @@ from typing import Any
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
+from workflow_platform.audit_writer import AuditWriter
 from workflow_platform.auth import Role, UserIdentity, require_roles
 from workflow_platform.auth.provisioning import current_issuer
-from workflow_platform.persistence import AuditEntry, Organization, Repositories
+from workflow_platform.persistence import Organization, Repositories
 from workflow_platform.templates import slugify
+from workflow_platform.trace_flip import trace_safe_only_from_env
 
 
 class CreateOrgRequest(BaseModel):
@@ -31,11 +33,13 @@ class RenameOrgRequest(BaseModel):
 
 def build_organizations_router(repositories: Repositories) -> APIRouter:
     router = APIRouter(prefix="/api")
+    # G-Trace-Chokepoint-Rest: through the shared writer, so these entries
+    # are projected at rest like every other one. Built once per router —
+    # the writer owns a vault and therefore a cipher.
+    audit = AuditWriter(repositories, trace_safe_only=trace_safe_only_from_env())
 
     async def _audit(actor: UserIdentity, action: str, detail: dict[str, Any]) -> None:
-        await repositories.audit.append(
-            AuditEntry(actor_type="user", actor_id=actor.sub, action=action, detail=detail)
-        )
+        await audit.append(action, actor_type="user", actor_id=actor.sub, detail=detail)
 
     @router.get("/organizations")
     async def list_organizations(

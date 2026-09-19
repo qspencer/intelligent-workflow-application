@@ -368,14 +368,7 @@ AUDIT_WRITERS: dict[str, str] = {
     # Operator/governance metadata about an action a PERSON took, not model-
     # or mail-derived content. If any starts carrying model-authored or
     # third-party text it moves to a vaulting path; that is the trigger.
-    "api/raw_trace_audit.py": "governance-metadata",
-    "api/organizations.py": "governance-metadata",
     "api/workflows.py": "governance-metadata",
-    "api/users.py": "governance-metadata",
-    "auth/local.py": "governance-metadata",
-    "auth/raw_trace_grants.py": "governance-metadata",
-    "auth/bootstrap.py": "governance-metadata",
-    "trace_rehydrate.py": "governance-metadata",
 }
 
 #: Modules moved ONTO the chokepoint, and therefore expected to construct no
@@ -383,7 +376,22 @@ AUDIT_WRITERS: dict[str, str] = {
 #: can only see writers that exist: a regression here would make a module
 #: silently VANISH from the enumeration, which is the failure mode an
 #: enumeration is least able to notice.
-ON_THE_CHOKEPOINT = ("engine/executor.py", "monitoring/service.py")
+ON_THE_CHOKEPOINT = (
+    "engine/executor.py",
+    "monitoring/service.py",
+    # G-Trace-Chokepoint-Rest, 2026-09-19: the API and auth surfaces. Routing
+    # them was NOT mechanical — six of their actions were losing fields to
+    # the read path while storing them in the clear, and all six are
+    # instance-less, so the move would have destroyed the trail unless the
+    # fields were classified first (projector v16).
+    "api/raw_trace_audit.py",
+    "api/organizations.py",
+    "api/users.py",
+    "auth/local.py",
+    "auth/raw_trace_grants.py",
+    "auth/bootstrap.py",
+    "trace_rehydrate.py",
+)
 
 
 def _audit_writers(root: pathlib.Path) -> set[str]:

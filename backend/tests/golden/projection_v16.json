@@ -1,0 +1,1075 @@
+{
+  "cases": [
+    {
+      "expected": {
+        "_withheld_keys": true,
+        "cost_usd": 0.01,
+        "model": "haiku",
+        "parse_ok": true,
+        "usage": {
+          "input_tokens": 10,
+          "iterations": 3,
+          "output_tokens": 2
+        }
+      },
+      "id": "step_output.engine_and_business",
+      "input": {
+        "category_score": 4,
+        "concern_count": 2,
+        "cost_usd": 0.01,
+        "faithfulness_score": 5,
+        "model": "haiku",
+        "needs_tests": true,
+        "parse_ok": true,
+        "usage": {
+          "input_tokens": 10,
+          "iterations": 3,
+          "output_tokens": 2
+        }
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true,
+        "model": "haiku"
+      },
+      "id": "step_output.free_text_is_raw",
+      "input": {
+        "model": "haiku",
+        "output_text": "SYNTHETIC raw body",
+        "summary": "SYNTHETIC"
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "usage": {
+          "_withheld_keys": true
+        }
+      },
+      "id": "step_output.token_shaped_key",
+      "input": {
+        "usage": {
+          "AKIAIOSFODNN7EXAMPLE": 1
+        }
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true,
+        "model": "m"
+      },
+      "id": "step_output.hostile_key",
+      "input": {
+        "a key with spaces": "x",
+        "model": "m"
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true,
+        "model": "m"
+      },
+      "id": "step_output.withheld_current",
+      "input": {
+        "_withheld_keys": true,
+        "model": "m"
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true,
+        "model": "m"
+      },
+      "id": "step_output.withheld_legacy",
+      "input": {
+        "_withheld_key_count": 3,
+        "model": "m"
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true
+      },
+      "id": "step_output.withheld_forged",
+      "input": {
+        "_withheld_keys": 123456789
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "dry_run": false,
+        "steps": {
+          "eval": {
+            "_withheld_keys": true,
+            "model": "m"
+          }
+        },
+        "total_tokens": 12,
+        "workflow_id": "wf"
+      },
+      "id": "context.nested_business",
+      "input": {
+        "dry_run": false,
+        "steps": {
+          "eval": {
+            "faithfulness_score": 5,
+            "model": "m",
+            "output_text": "SYNTHETIC"
+          }
+        },
+        "total_tokens": 12,
+        "workflow_id": "wf"
+      },
+      "kind": "context"
+    },
+    {
+      "expected": {
+        "id": "row-1",
+        "output": {
+          "_withheld_keys": true,
+          "model": "m"
+        },
+        "state": "completed",
+        "step_id": "classify"
+      },
+      "id": "step_row.nested_business",
+      "input": {
+        "id": "row-1",
+        "output": {
+          "faithfulness_score": 5,
+          "model": "m"
+        },
+        "state": "completed",
+        "step_id": "classify"
+      },
+      "kind": "step_row"
+    },
+    {
+      "expected": {
+        "context": {
+          "steps": {
+            "s": {
+              "_withheld_keys": true,
+              "model": "m"
+            }
+          }
+        },
+        "id": "inst-1",
+        "state": "completed",
+        "total_tokens": 3,
+        "trigger_payload": {
+          "_redacted": "raw trigger payload withheld (raw-trace privilege only)",
+          "id": "[redacted \u2014 raw-trace grant required]"
+        },
+        "workflow_id": "wf"
+      },
+      "id": "instance.nested_context",
+      "input": {
+        "context": {
+          "steps": {
+            "s": {
+              "model": "m",
+              "relevance_score": 3
+            }
+          }
+        },
+        "id": "inst-1",
+        "state": "completed",
+        "total_tokens": 3,
+        "trigger_payload": {
+          "body": "SYNTHETIC",
+          "id": "sk_live_SYNTHETIC",
+          "type": "webhook"
+        },
+        "workflow_id": "wf"
+      },
+      "kind": "instance"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true
+      },
+      "id": "audit_detail.flat_record_under_generic_schema",
+      "input": {
+        "input": {
+          "path": "/x"
+        },
+        "name": "file_read",
+        "pin_overrides": [
+          "path"
+        ],
+        "pinned": [
+          "path"
+        ],
+        "result": {
+          "text": "SYNTHETIC"
+        }
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "expected": {
+        "tool_calls": [
+          {
+            "_redacted": "raw tool input/result withheld (admin-tier only)",
+            "content_bytes": 100000000,
+            "error_present": false,
+            "input_key_count": 32,
+            "name": "[redacted \u2014 raw-trace grant required]",
+            "pin_overrides_present": false,
+            "pinned_present": false,
+            "result_ok": true
+          }
+        ]
+      },
+      "id": "step_output.tool_call_large_numbers",
+      "input": {
+        "tool_calls": [
+          {
+            "content_bytes": 987654321,
+            "error_present": false,
+            "input_key_count": 123456789,
+            "name": "file_read",
+            "result_ok": true
+          }
+        ]
+      },
+      "kind": "step_output"
+    },
+    {
+      "expected": {
+        "tool_calls": [
+          {
+            "_redacted": "raw tool input/result withheld (admin-tier only)",
+            "error_present": false,
+            "input_key_count": 32,
+            "name": "[redacted \u2014 raw-trace grant required]",
+            "pin_overrides_present": false,
+            "pinned_present": false,
+            "result_ok": true
+          }
+        ]
+      },
+      "id": "step_output.tool_call_wide_arity",
+      "input": {
+        "tool_calls": [
+          {
+            "input": {
+              "p0": 0,
+              "p1": 1,
+              "p10": 10,
+              "p11": 11,
+              "p12": 12,
+              "p13": 13,
+              "p14": 14,
+              "p15": 15,
+              "p16": 16,
+              "p17": 17,
+              "p18": 18,
+              "p19": 19,
+              "p2": 2,
+              "p20": 20,
+              "p21": 21,
+              "p22": 22,
+              "p23": 23,
+              "p24": 24,
+              "p25": 25,
+              "p26": 26,
+              "p27": 27,
+              "p28": 28,
+              "p29": 29,
+              "p3": 3,
+              "p30": 30,
+              "p31": 31,
+              "p32": 32,
+              "p33": 33,
+              "p34": 34,
+              "p35": 35,
+              "p36": 36,
+              "p37": 37,
+              "p38": 38,
+              "p39": 39,
+              "p4": 4,
+              "p40": 40,
+              "p41": 41,
+              "p42": 42,
+              "p43": 43,
+              "p44": 44,
+              "p45": 45,
+              "p46": 46,
+              "p47": 47,
+              "p48": 48,
+              "p49": 49,
+              "p5": 5,
+              "p6": 6,
+              "p7": 7,
+              "p8": 8,
+              "p9": 9
+            },
+            "name": "file_read",
+            "result": {
+              "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+            }
+          }
+        ]
+      },
+      "kind": "step_output"
+    },
+    {
+      "action": "tool_call",
+      "expected": {
+        "_redacted": "raw tool input/result withheld (admin-tier only)",
+        "error_present": false,
+        "input_key_count": 2,
+        "name": "[redacted \u2014 raw-trace grant required]",
+        "pin_overrides_present": true,
+        "pinned_present": true,
+        "result_ok": true
+      },
+      "id": "at_rest.tool_call_action",
+      "input": {
+        "input": {
+          "mode": "r",
+          "path": "/x"
+        },
+        "name": "file_read",
+        "pin_overrides": [
+          "path"
+        ],
+        "pinned": [
+          "path"
+        ],
+        "result": {
+          "text": "SYNTHETIC"
+        }
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "memory_recalled",
+      "expected": {
+        "_withheld_keys": true,
+        "context_hash": "abc",
+        "edges": 3
+      },
+      "id": "at_rest.memory_recalled_action",
+      "input": {
+        "context_hash": "abc",
+        "edges": 3,
+        "query": "SYNTHETIC correspondent"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "escalation_requested",
+      "expected": {
+        "_withheld_keys": true,
+        "grant_id": "g-1"
+      },
+      "id": "at_rest.escalation_requested_action",
+      "input": {
+        "context": {
+          "body": "SYNTHETIC"
+        },
+        "grant_id": "g-1",
+        "reason": "SYNTHETIC reason"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "escalation_resolved",
+      "expected": {
+        "_withheld_keys": true,
+        "original_id": "esc-1"
+      },
+      "id": "at_rest.escalation_resolved_link",
+      "input": {
+        "original_id": "esc-1",
+        "resolution": "SYNTHETIC free text"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "workflow_forked",
+      "expected": {
+        "_withheld_keys": true,
+        "from_step_id": "b",
+        "preserved_step_ids": [
+          "a",
+          "b"
+        ],
+        "source_instance_id": "i-1"
+      },
+      "id": "at_rest.fork_lineage_trail",
+      "input": {
+        "from_step_id": "b",
+        "note": "SYNTHETIC free text",
+        "preserved_step_ids": [
+          "a",
+          "b"
+        ],
+        "source_instance_id": "i-1"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "workflow_forked",
+      "expected": {
+        "_withheld_keys": true,
+        "from_step_id": "[redacted \u2014 raw-trace grant required]",
+        "preserved_step_ids": [
+          "ok-1",
+          "[redacted \u2014 raw-trace grant required]"
+        ],
+        "source_instance_id": "[redacted \u2014 raw-trace grant required]"
+      },
+      "id": "at_rest.routing_id_cannot_hold_an_email",
+      "input": {
+        "from_step_id": "victim@example.com",
+        "original_id": "esc@example.com",
+        "preserved_step_ids": [
+          "ok-1",
+          "leak@example.com"
+        ],
+        "source_instance_id": "also@example.com"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "connector_opened",
+      "expected": {
+        "_withheld_keys": true,
+        "connector": "browser"
+      },
+      "id": "at_rest.connector_identity",
+      "input": {
+        "connector": "browser",
+        "detail": "SYNTHETIC free text"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "memory_observed",
+      "expected": {
+        "_withheld_keys": true,
+        "cost_usd": 0.0123,
+        "input_tokens": 1200,
+        "instance_id": "i-1",
+        "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "observation": 3,
+        "output_tokens": 47,
+        "workflow_id": "dmarc-ingest"
+      },
+      "id": "at_rest.engine_execution_metadata",
+      "input": {
+        "cost_usd": 0.0123,
+        "free_form": "SYNTHETIC prose that must NOT survive",
+        "input_tokens": 1200,
+        "instance_id": "i-1",
+        "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "observation": 3,
+        "output_tokens": 47,
+        "workflow_id": "dmarc-ingest"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "workflow_completed",
+      "expected": {
+        "step_ids": [
+          "extract_reports",
+          "deliver_reports"
+        ]
+      },
+      "id": "at_rest.completed_step_ids",
+      "input": {
+        "step_ids": [
+          "extract_reports",
+          "deliver_reports"
+        ]
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "memory_observed",
+      "expected": {
+        "_withheld_keys": true,
+        "cost_usd": "[redacted \u2014 raw-trace grant required]",
+        "input_tokens": "[redacted \u2014 raw-trace grant required]",
+        "instance_id": "[redacted \u2014 raw-trace grant required]",
+        "model": "[redacted \u2014 raw-trace grant required]",
+        "text_hash": "[redacted \u2014 raw-trace grant required]",
+        "workflow_id": "[redacted \u2014 raw-trace grant required]"
+      },
+      "id": "at_rest.widened_fields_reject_content",
+      "input": {
+        "cost_usd": -1,
+        "input_tokens": "not a number",
+        "instance_id": "victim@example.com",
+        "model": "SYNTHETIC prose in a token field",
+        "step_ids": [
+          "ok-1",
+          "leak@example.com"
+        ],
+        "text_hash": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "workflow_id": "an id with spaces"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "memory_observed",
+      "expected": {
+        "_withheld_keys": true,
+        "facts": 2,
+        "text_hash": "sha256:abc123"
+      },
+      "id": "at_rest.input_derived_reference_withheld",
+      "input": {
+        "event_type": "SYNTHETIC-author-controlled",
+        "evidence_ref": "SYNTHETIC-from-the-trigger",
+        "facts": 2,
+        "text_hash": "sha256:abc123"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "memory_observed",
+      "expected": {
+        "author": "third_party",
+        "derived_from": "system"
+      },
+      "id": "at_rest.classifications_are_closed_enums",
+      "input": {
+        "author": "third_party",
+        "derived_from": "system"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "memory_observed",
+      "expected": {
+        "author": "[redacted \u2014 raw-trace grant required]",
+        "derived_from": "[redacted \u2014 raw-trace grant required]"
+      },
+      "id": "at_rest.forged_classification_refused",
+      "input": {
+        "author": "SYNTHETIC-not-an-author",
+        "derived_from": "also-not-one"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "user_updated",
+      "expected": {
+        "_withheld_keys": true,
+        "user_id": "person@example.com"
+      },
+      "id": "at_rest.user_id_stays_withheld",
+      "input": {
+        "user_id": "person@example.com",
+        "workflow_id": "wf"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "memory_observed",
+      "expected": {
+        "_withheld_keys": true,
+        "author": "third_party",
+        "backfill": true,
+        "cost_usd": 0.0123,
+        "derived_from": "system",
+        "facts": 2,
+        "input_tokens": 100,
+        "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "observation": 3,
+        "output_tokens": 20,
+        "quarantined": 0,
+        "text_hash": "sha256:abc123"
+      },
+      "id": "at_rest.registry_memory_observed",
+      "input": {
+        "author": "third_party",
+        "backfill": true,
+        "cost_usd": 0.0123,
+        "derived_from": "system",
+        "event_type": "SYNTHETIC-author-controlled",
+        "evidence_ref": "SYNTHETIC-from-the-trigger",
+        "facts": 2,
+        "input_tokens": 100,
+        "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+        "observation": 3,
+        "output_tokens": 20,
+        "quarantined": 0,
+        "text_hash": "sha256:abc123",
+        "user_id": "alice@example.com"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "memory_observed",
+      "expected": {
+        "author": "[redacted \u2014 raw-trace grant required]",
+        "backfill": "[redacted \u2014 raw-trace grant required]",
+        "cost_usd": "[redacted \u2014 raw-trace grant required]",
+        "facts": "[redacted \u2014 raw-trace grant required]",
+        "text_hash": "[redacted \u2014 raw-trace grant required]"
+      },
+      "id": "at_rest.registry_rejects_bad_values",
+      "input": {
+        "author": "SYNTHETIC-not-an-author",
+        "backfill": "not a bool",
+        "cost_usd": -1,
+        "facts": "not a number",
+        "text_hash": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "expected": {
+        "_withheld_keys": true,
+        "grant_id": "g-1",
+        "kinds": [
+          "step_output"
+        ],
+        "purpose": "investigation"
+      },
+      "id": "audit_detail.governance",
+      "input": {
+        "error": "SYNTHETIC trace",
+        "grant_id": "g-1",
+        "kinds": [
+          "step_output"
+        ],
+        "purpose": "investigation",
+        "query": "SYNTHETIC correspondent"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "step_started",
+      "expected": {
+        "attempt": 1,
+        "type": "agentic"
+      },
+      "id": "at_rest.registry_step_started",
+      "input": {
+        "attempt": 1,
+        "type": "agentic"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "step_started",
+      "expected": {
+        "attempt": 1,
+        "type": "[redacted \u2014 raw-trace grant required]"
+      },
+      "id": "at_rest.registry_step_started_forged_type",
+      "input": {
+        "attempt": 1,
+        "type": "SYNTHETIC-not-a-step-type"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "step_completed",
+      "expected": {
+        "attempt": 2,
+        "output": {
+          "_withheld_keys": true,
+          "cost_usd": 0.0001,
+          "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+          "usage": {
+            "input_tokens": 10,
+            "output_tokens": 3
+          }
+        }
+      },
+      "id": "at_rest.registry_step_completed",
+      "input": {
+        "attempt": 2,
+        "output": {
+          "cost_usd": 0.0001,
+          "faithfulness_score": 4,
+          "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+          "output_text": "SYNTHETIC model prose",
+          "usage": {
+            "input_tokens": 10,
+            "output_tokens": 3
+          }
+        }
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "step_failed",
+      "expected": {
+        "_withheld_keys": true,
+        "attempt": 3,
+        "unexpected": true
+      },
+      "id": "at_rest.registry_step_failed",
+      "input": {
+        "attempt": 3,
+        "error": "SYNTHETIC exception text",
+        "unexpected": true
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "step_postcondition_failed",
+      "expected": {
+        "actual_success": 0,
+        "min_success": 1,
+        "require_tool_call": "email_label_apply",
+        "stop_reason": "max_iterations"
+      },
+      "id": "at_rest.registry_step_postcondition_failed",
+      "input": {
+        "actual_success": 0,
+        "min_success": 1,
+        "require_tool_call": "email_label_apply",
+        "stop_reason": "max_iterations"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "workflow_started",
+      "expected": {
+        "trigger": {
+          "_redacted": "raw trigger payload withheld (raw-trace privilege only)",
+          "message_id": "[redacted \u2014 raw-trace grant required]"
+        },
+        "workflow_id": "email-triage"
+      },
+      "id": "at_rest.registry_workflow_started",
+      "input": {
+        "trigger": {
+          "from": "alice@example.com",
+          "message_id": "msg-1",
+          "subject": "SYNTHETIC subject"
+        },
+        "workflow_id": "email-triage"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "workflow_completed",
+      "expected": {
+        "step_ids": [
+          "fetch",
+          "classify"
+        ],
+        "steps": [
+          "fetch",
+          "classify"
+        ]
+      },
+      "id": "at_rest.registry_workflow_completed",
+      "input": {
+        "step_ids": [
+          "fetch",
+          "classify"
+        ],
+        "steps": [
+          "fetch",
+          "classify"
+        ]
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "workflow_failed",
+      "expected": {
+        "_withheld_keys": true,
+        "unexpected": true
+      },
+      "id": "at_rest.registry_workflow_failed",
+      "input": {
+        "error": "SYNTHETIC failure",
+        "exception": "SYNTHETIC exc",
+        "unexpected": true
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "workflow_forked",
+      "expected": {
+        "from_step_id": "[redacted \u2014 raw-trace grant required]",
+        "preserved_step_ids": [
+          "fetch",
+          "classify"
+        ],
+        "source_instance_id": "inst-1"
+      },
+      "id": "at_rest.registry_workflow_forked",
+      "input": {
+        "from_step_id": "victim@example.com",
+        "preserved_step_ids": [
+          "fetch",
+          "classify"
+        ],
+        "source_instance_id": "inst-1"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "budget_exceeded",
+      "expected": {
+        "action": "pause",
+        "cost_usd": 0.12,
+        "tokens_limit": 4000,
+        "tokens_used": 5000
+      },
+      "id": "at_rest.registry_budget_exceeded",
+      "input": {
+        "action": "pause",
+        "cost_usd": 0.12,
+        "tokens_limit": 4000,
+        "tokens_used": 5000
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "alert_stuck_workflow",
+      "expected": {
+        "instance_id": "inst-1",
+        "running_for_seconds": 3600.5,
+        "threshold_seconds": 900.0,
+        "workflow_id": "email-triage"
+      },
+      "id": "at_rest.registry_alert_stuck_workflow",
+      "input": {
+        "instance_id": "inst-1",
+        "running_for_seconds": 3600.5,
+        "threshold_seconds": 900.0,
+        "workflow_id": "email-triage"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "alert_stale_trigger",
+      "expected": {
+        "_withheld_keys": true,
+        "last_run_at": "2026-09-15T10:49:28.384385+00:00",
+        "threshold_seconds": 86400.0,
+        "trigger_type": "email",
+        "workflow_id": "email-triage"
+      },
+      "id": "at_rest.registry_alert_stale_trigger",
+      "input": {
+        "account": "inbox@example.com",
+        "last_run_at": "2026-09-15T10:49:28.384385+00:00",
+        "threshold_seconds": 86400.0,
+        "trigger_type": "email",
+        "workflow_id": "email-triage"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "alert_abandoned_pause",
+      "expected": {
+        "instance_id": "inst-1",
+        "paused_for_seconds": 14400.5,
+        "threshold_seconds": 10800.0,
+        "workflow_id": "email-triage-apply"
+      },
+      "id": "at_rest.registry_alert_abandoned_pause",
+      "input": {
+        "instance_id": "inst-1",
+        "paused_for_seconds": 14400.5,
+        "threshold_seconds": 10800.0,
+        "workflow_id": "email-triage-apply"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "alert_high_error_rate",
+      "expected": {
+        "failed": 21,
+        "rate": 0.42,
+        "threshold": 0.2,
+        "total_terminal": 50,
+        "window_seconds": 900.0
+      },
+      "id": "at_rest.registry_alert_high_error_rate",
+      "input": {
+        "failed": 21,
+        "rate": 0.42,
+        "threshold": 0.2,
+        "total_terminal": 50,
+        "window_seconds": 900.0
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "memory_recalled",
+      "expected": {
+        "_withheld_keys": true,
+        "context_hash": "sha256:def456",
+        "edges": 4,
+        "episodes": 2,
+        "injected": true,
+        "outcomes_seconds": 142.93,
+        "recall_seconds": 1.94,
+        "token_budget": 800,
+        "uses_recorded": {
+          "failed": 0,
+          "recorded": 3,
+          "upgraded": 1
+        }
+      },
+      "id": "at_rest.registry_memory_recalled",
+      "input": {
+        "context_hash": "sha256:def456",
+        "edges": 4,
+        "episodes": 2,
+        "injected": true,
+        "outcomes_seconds": 142.93,
+        "query": "SYNTHETIC correspondent question",
+        "recall_seconds": 1.94,
+        "token_budget": 800,
+        "user_id": "alice@example.com",
+        "uses_recorded": {
+          "failed": 0,
+          "recorded": 3,
+          "upgraded": 1
+        }
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "auth_login",
+      "expected": {
+        "email": "operator@example.com",
+        "source_ip": "127.0.0.1"
+      },
+      "id": "at_rest.registry_auth_login",
+      "input": {
+        "email": "operator@example.com",
+        "source_ip": "127.0.0.1"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "auth_login_failed",
+      "expected": {
+        "cause": "bad_password",
+        "email": "operator@example.com",
+        "source_ip": "10.0.0.7"
+      },
+      "id": "at_rest.registry_auth_login_failed",
+      "input": {
+        "cause": "bad_password",
+        "email": "operator@example.com",
+        "source_ip": "10.0.0.7"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "auth_login_failed",
+      "expected": {
+        "cause": "[redacted \u2014 raw-trace grant required]",
+        "email": "operator@example.com",
+        "source_ip": "10.0.0.7"
+      },
+      "id": "at_rest.registry_auth_login_failed_forged_cause",
+      "input": {
+        "cause": "SYNTHETIC-cause",
+        "email": "operator@example.com",
+        "source_ip": "10.0.0.7"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "user_updated",
+      "expected": {
+        "changed": [
+          "org_id",
+          "roles"
+        ],
+        "raw_grants_revoked": 0,
+        "sessions_revoked": true,
+        "user_id": "d44047f2-061a-4ab0-9389-fb3556c1ffe9"
+      },
+      "id": "at_rest.registry_user_updated",
+      "input": {
+        "changed": [
+          "org_id",
+          "roles"
+        ],
+        "raw_grants_revoked": 0,
+        "sessions_revoked": true,
+        "user_id": "d44047f2-061a-4ab0-9389-fb3556c1ffe9"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "org_renamed",
+      "expected": {
+        "from": "Test Org Beta",
+        "org_id": "ext-beta",
+        "to": "Beta Holdings Ltd"
+      },
+      "id": "at_rest.registry_org_renamed",
+      "input": {
+        "from": "Test Org Beta",
+        "org_id": "ext-beta",
+        "to": "Beta Holdings Ltd"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "org_created",
+      "expected": {
+        "name": "[redacted \u2014 raw-trace grant required]",
+        "org_id": "ext-x"
+      },
+      "id": "at_rest.registry_org_created_hostile_label",
+      "input": {
+        "name": "line one\nline two",
+        "org_id": "ext-x"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "workflow_deleted",
+      "expected": {
+        "deleted_instances": 4,
+        "deleted_steps": 8,
+        "workflow_id": "dmarc-ingest"
+      },
+      "id": "at_rest.registry_workflow_deleted",
+      "input": {
+        "deleted_instances": 4,
+        "deleted_steps": 8,
+        "workflow_id": "dmarc-ingest"
+      },
+      "kind": "audit_detail"
+    },
+    {
+      "action": "memory_observe_failed",
+      "expected": {
+        "_withheld_keys": true,
+        "observation": 0
+      },
+      "id": "at_rest.registry_memory_observe_failed",
+      "input": {
+        "error": "SYNTHETIC veracium failure",
+        "observation": 0
+      },
+      "kind": "audit_detail"
+    }
+  ],
+  "generated_from": "UNVERIFIED \u2014 regenerate after committing the version bump",
+  "projection_schema_version": 2,
+  "projector_version": "16"
+}

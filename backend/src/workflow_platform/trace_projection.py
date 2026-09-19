@@ -331,7 +331,25 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "15"  # v15: `memory_recalled` gains the two timings
+PROJECTOR_VERSION = "16"  # v16: the GOVERNANCE surface joins the registry
+# (G-Trace-Chokepoint-Rest). Eight actions written by the API and auth
+# routers — auth_login(_failed), user_created/updated, org_created/renamed,
+# workflow_deleted, instance_deleted — classified so those writers can move
+# onto the audit chokepoint without the move destroying what they record.
+#
+# Every one is INSTANCE-LESS, and an instance-less entry has no vault, so
+# "withheld" there means GONE rather than grant-recoverable. Six of the
+# eight were losing fields to the read path already while storing them in
+# the clear; registering makes at rest and the read path agree WITHOUT
+# discarding the operator trail, which is the only outcome that closes the
+# gap rather than moving it.
+#
+# One new leaf: `_LABEL`, an operator-authored display name (org names).
+# It is the first free-text position the projector discloses, on narrow
+# ground stated at its definition — Administrator authorship,
+# Administrator-only audience, and destruction as the alternative.
+#
+# v15: `memory_recalled` gains the two timings
 # that explain where a run's wall clock goes — `recall_seconds` and
 # `outcomes_seconds`, both engine-measured floats. Added after measuring
 # that `triage` averaged 155.8s of which the model call was 0.8s: the cost
@@ -1270,6 +1288,41 @@ _STEP_TYPE = Leaf(_enum("deterministic", "agentic"))
 _EMAIL_TRIGGER_TYPE = Leaf(_enum("email", "gmail_poll"))
 #: `WorkflowPolicy.budget_action`, a Pydantic `Literal`.
 _BUDGET_ACTION = Leaf(_enum("notify", "pause", "escalate"))
+#: An operator-authored DISPLAY LABEL — an org name and the like. Distinct
+#: from `_CONFIG` only in allowing spaces, which is the whole reason it
+#: exists: `_CONFIG` was shaped for capability globs and rejects any
+#: whitespace, and "Test Org Beta" is not a glob.
+#:
+#: Disclosing free text at all is a departure from §1.1 ("free-form model
+#: output is raw by taint"), so the narrow ground it stands on:
+#:  - AUTHORSHIP. Org create/rename is Administrator-gated, so the text is
+#:    operator-authored, the same class as the capability strings `_CONFIG`
+#:    already releases. It is not third-party content.
+#:  - AUDIENCE. Instance-less audit is Administrator-only (THREAT_MODEL §5),
+#:    so the reader of these entries is the author's peer.
+#:  - THE ALTERNATIVE IS DESTRUCTION, not withholding. An instance-less
+#:    entry has no vault to fall back on, so "withhold" means the previous
+#:    org name is gone — and `org_renamed.from` is the only record of it.
+#: Bounded hard: printable, single line, <=120 chars. Control characters
+#: are refused, not stripped.
+_LABEL = Leaf(
+    lambda v: (
+        isinstance(v, str)
+        and 0 < len(v) <= 120
+        and v.isprintable()
+        and "\n" not in v
+        and "\r" not in v
+    )
+)
+#: `LocalAuth._audit_failed`'s three call sites, which are the whole set.
+_LOGIN_FAILURE_CAUSE = Leaf(_enum("unknown", "bad_password", "inactive"))
+#: `auth/bootstrap.py`'s two origins.
+_USER_ORIGIN = Leaf(_enum("permanent_admin", "test_seed"))
+#: An IP literal as the login path records it. `_TOKEN`'s charset already
+#: covers IPv4 and IPv6 (digits, `.`, `:`); named here so the intent is
+#: readable at the rule.
+_IP = _TOKEN
+
 #: `agent.StopReason`, spelled out rather than imported — the projector is a
 #: domain leaf and importing the agent package to read an enum would invert
 #: that. `test_the_stop_reason_enum_is_the_agents_enum` pins the two equal,
@@ -1318,6 +1371,28 @@ class FieldRule:
     node: Node
     disclose: bool
 
+
+#: BUSINESS-owned fields the registry deliberately DISCLOSES, by
+#: `(action, field)`. The general rule is that input-derived values are
+#: withheld — `test_no_BUSINESS_owned_field_is_disclosed` enforces it — and
+#: an exception must be named here rather than obtained by relabelling the
+#: owner, which is the one move that would make the taxonomy useless.
+#:
+#: The sibling of `_RELEASED_BUSINESS` for step outputs (`parse_ok`), and
+#: held to the same standard: state what the field is, why release is
+#: necessary rather than convenient, and what release actually costs.
+_REGISTRY_RELEASED_BUSINESS: dict[tuple[str, str], str] = {
+    ("auth_login_failed", "email"): (
+        "Whatever was typed at the login form, so caller-supplied and BUSINESS "
+        "by provenance. Released because it IS the security trail this entry "
+        "exists to be — 'who is being targeted, from where' is the whole "
+        "content of a failed-login record, and the entry is instance-less so "
+        "withholding destroys it rather than deferring it to a grant. Cost is "
+        "bounded: `_ID` shape, an Administrator-only surface (THREAT_MODEL "
+        "§5), and the login path is enumeration-resistant, so the row tells "
+        "an attacker nothing about the account that they do not already know."
+    ),
+}
 
 #: Per-(action, field) classification — the registry the round-14/16 reviews
 #: asked for, replacing a flat per-field table that could not express the
@@ -1529,6 +1604,67 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         # so (measured 2026-09-19).
         "recall_seconds": FieldRule(Owner.ENGINE, _AMOUNT, True),
         "outcomes_seconds": FieldRule(Owner.ENGINE, _AMOUNT, True),
+    },
+    # --- THE GOVERNANCE SURFACE (G-Trace-Chokepoint-Rest, 2026-09-19).
+    # These are written by the API and auth routers, which now go through
+    # the same chokepoint as the engine. Every one of them is
+    # INSTANCE-LESS, and an instance-less entry cannot be vaulted — so for
+    # these actions "withheld" does not mean "recoverable with a grant", it
+    # means GONE. Registering them is therefore not a widening for
+    # convenience; it is the only way routing them does not destroy the
+    # operator trail it exists to keep.
+    #
+    # Audience: instance-less audit is Administrator-only (THREAT_MODEL §5),
+    # so the reader is an operator, not a tenant.
+    "auth_login": {
+        # The account that logged in. `_ID` deliberately — it admits `@`,
+        # which is what it exists for (operator identity).
+        "email": FieldRule(Owner.CONFIG, _ID, True),
+        "source_ip": FieldRule(Owner.ENGINE, _IP, True),
+    },
+    "auth_login_failed": {
+        # CALLER-SUPPLIED: whatever was typed at the login form, so this one
+        # is third-party by provenance. Disclosed anyway, shape-bounded,
+        # because "who is being targeted, from where" IS the security trail
+        # this entry exists to be — and the login path is already
+        # enumeration-resistant, so the entry reveals nothing about whether
+        # the account exists that the attacker does not already know.
+        "email": FieldRule(Owner.BUSINESS, _ID, True),
+        "source_ip": FieldRule(Owner.ENGINE, _IP, True),
+        "cause": FieldRule(Owner.ENGINE, _LOGIN_FAILURE_CAUSE, True),
+    },
+    "user_created": {
+        "user_id": FieldRule(Owner.ENGINE, _ID, True),
+        "email": FieldRule(Owner.CONFIG, _ID, True),
+        "origin": FieldRule(Owner.ENGINE, _USER_ORIGIN, True),
+    },
+    "user_updated": {
+        "user_id": FieldRule(Owner.ENGINE, _ID, True),
+        # Field NAMES that changed, never their values.
+        "changed": FieldRule(Owner.ENGINE, Seq(_TOKEN), True),
+        "sessions_revoked": FieldRule(Owner.ENGINE, _BOOL, True),
+        "raw_grants_revoked": FieldRule(Owner.ENGINE, _COUNT, True),
+    },
+    "org_created": {
+        "org_id": FieldRule(Owner.ENGINE, _ID, True),
+        "name": FieldRule(Owner.CONFIG, _LABEL, True),
+    },
+    "org_renamed": {
+        "org_id": FieldRule(Owner.ENGINE, _ID, True),
+        # The old name exists NOWHERE else once the rename lands.
+        "from": FieldRule(Owner.CONFIG, _LABEL, True),
+        "to": FieldRule(Owner.CONFIG, _LABEL, True),
+    },
+    "workflow_deleted": {
+        "workflow_id": FieldRule(Owner.CONFIG, _TOKEN, True),
+        "deleted_instances": FieldRule(Owner.ENGINE, _COUNT, True),
+        "deleted_steps": FieldRule(Owner.ENGINE, _COUNT, True),
+        "org_bypass": FieldRule(Owner.ENGINE, _BOOL, True),
+    },
+    "instance_deleted": {
+        "workflow_id": FieldRule(Owner.CONFIG, _TOKEN, True),
+        "deleted_steps": FieldRule(Owner.ENGINE, _COUNT, True),
+        "org_bypass": FieldRule(Owner.ENGINE, _BOOL, True),
     },
     "memory_observe_failed": {
         # The observation's INDEX in the spec list, not its text.

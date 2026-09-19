@@ -39,16 +39,37 @@ def test_no_BUSINESS_owned_field_is_disclosed() -> None:
     workflow's input, so it is the class `evidence_ref` belongs to — the
     round-14 P1, where a trigger value reached a grant-less reader because
     it was token-SHAPED. Ownership decides, not shape."""
+    from workflow_platform.trace_projection import _REGISTRY_RELEASED_BUSINESS
+
     leaked = [
         f"{action}.{field}"
         for action, rules in AUDIT_FIELD_RULES.items()
         for field, rule in rules.items()
-        if rule.owner is Owner.BUSINESS and rule.disclose
+        if rule.owner is Owner.BUSINESS
+        and rule.disclose
+        and (action, field) not in _REGISTRY_RELEASED_BUSINESS
     ]
     assert not leaked, (
         f"input-derived fields declared disclosable: {leaked}. Shape bounds damage; "
-        "only provenance justifies release."
+        "only provenance justifies release. An exception goes in "
+        "_REGISTRY_RELEASED_BUSINESS with its argument — never by relabelling the owner."
     )
+
+
+def test_every_released_BUSINESS_field_carries_its_argument() -> None:
+    """The exemption list is only worth having if each row states WHY. A
+    bare entry would be the relabelling move with extra steps."""
+    from workflow_platform.trace_projection import _REGISTRY_RELEASED_BUSINESS
+
+    for (action, field), reason in _REGISTRY_RELEASED_BUSINESS.items():
+        assert action in AUDIT_FIELD_RULES, f"{action} is not in the registry"
+        rule = AUDIT_FIELD_RULES[action].get(field)
+        assert rule is not None, f"{action}.{field} is exempted but has no rule"
+        assert rule.owner is Owner.BUSINESS, (
+            f"{action}.{field} is in the BUSINESS exemption list but is owned by "
+            f"{rule.owner}; remove it from the list rather than keeping a dead entry"
+        )
+        assert len(reason) > 120, f"{action}.{field} has no real argument, just a note"
 
 
 def test_a_field_absent_from_the_registry_is_WITHHELD() -> None:
@@ -404,6 +425,22 @@ _WIDENED_BEYOND_FLAT: dict[str, set[str]] = {
     },
     # v11, already shipped.
     "memory_observed": {"backfill"},
+    # --- v16, the governance surface (G-Trace-Chokepoint-Rest). These are
+    # the largest widening in the registry's life and the reason is
+    # structural rather than generous: every one of these actions is
+    # INSTANCE-LESS, so it has no vault, so "withheld" means DESTROYED. The
+    # alternative to releasing them was routing their writers through the
+    # chokepoint and silently deleting the operator trail — which is not a
+    # safer outcome, only a quieter one. Audience is Administrator-only
+    # (THREAT_MODEL §5).
+    "auth_login": {"email", "source_ip"},
+    "auth_login_failed": {"cause", "email", "source_ip"},
+    "user_created": {"email", "origin", "user_id"},
+    "user_updated": {"changed", "raw_grants_revoked", "sessions_revoked", "user_id"},
+    "org_created": {"name"},
+    "org_renamed": {"from", "to"},
+    "workflow_deleted": {"deleted_instances", "deleted_steps"},
+    "instance_deleted": {"deleted_steps"},
 }
 
 
@@ -465,3 +502,69 @@ def test_the_constructor_emits_exactly_the_classified_fields() -> None:
     assert not unclassified, (
         f"the constructor emits {sorted(unclassified)} with no rule — silently withheld"
     )
+
+
+def test_the_governance_actions_are_projection_LOSSLESS() -> None:
+    """The property that made routing those writers safe, and the one the
+    spec got wrong.
+
+    `G-Trace-Chokepoint-Rest` estimated that only `workflow_deleted` was
+    lossy. Checked against the live table it was SIX: workflow_deleted,
+    org_created, user_created, user_updated, auth_login, auth_login_failed.
+    Every one is instance-less, so routing them through the chokepoint
+    unclassified would not have withheld those fields — there is no vault
+    for an instance-less entry — it would have DELETED them, and
+    `auth_login`/`auth_login_failed` are the authentication audit.
+
+    These are the shapes production stores, so the check is against
+    reality rather than against what the code looks like it emits.
+    """
+    from workflow_platform.trace_projection import project_audit_detail_at_rest
+
+    live_shapes: dict[str, dict[str, Any]] = {
+        "auth_login": {"email": "q@example.com", "source_ip": "127.0.0.1"},
+        "auth_login_failed": {
+            "cause": "bad_password",
+            "email": "q@example.com",
+            "source_ip": "127.0.0.1",
+        },
+        "auth_logout": {},
+        "org_created": {"name": "Test Org Beta", "org_id": "ext-beta"},
+        "org_renamed": {"org_id": "ext-beta", "from": "Old Name", "to": "New Name"},
+        "user_created": {
+            "email": "a@example.com",
+            "origin": "permanent_admin",
+            "user_id": "7326d9ae-5144-4fba-a643-9919adcc95f3",
+        },
+        "user_updated": {
+            "changed": ["org_id"],
+            "user_id": "d44047f2-061a-4ab0-9389-fb3556c1ffe9",
+            "sessions_revoked": True,
+            "raw_grants_revoked": 0,
+        },
+        "workflow_deleted": {
+            "workflow_id": "dmarc-ingest",
+            "deleted_steps": 8,
+            "deleted_instances": 4,
+        },
+    }
+    for action, detail in live_shapes.items():
+        projected = project_audit_detail_at_rest(action, detail)
+        assert projected == detail, (
+            f"{action} loses {sorted(set(detail) - set(projected))} to projection, and it is "
+            "instance-less — there is no vault to recover it from, so this is deletion"
+        )
+
+
+def test_the_LABEL_leaf_refuses_what_it_says_it_refuses() -> None:
+    """`_LABEL` is the first free-text position the projector discloses, so
+    its bounds are the whole argument for allowing it at all."""
+    from workflow_platform.trace_projection import _LABEL
+
+    assert _LABEL.validate("Test Org Beta")
+    assert _LABEL.validate("Ünïcode & Co.")
+    assert not _LABEL.validate("line one\nline two"), "newline accepted"
+    assert not _LABEL.validate("tab\there"), "control character accepted"
+    assert not _LABEL.validate("x" * 121), "overlong label accepted"
+    assert not _LABEL.validate(""), "empty label accepted"
+    assert not _LABEL.validate(42), "non-string accepted"

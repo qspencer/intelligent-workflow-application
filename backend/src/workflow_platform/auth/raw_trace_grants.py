@@ -22,13 +22,14 @@ import os
 import re
 from datetime import UTC, datetime
 
+from workflow_platform.audit_writer import AuditWriter
 from workflow_platform.persistence import RawTraceGrant, Repositories
 from workflow_platform.persistence.models import (
-    AuditEntry,
     RawTraceApprovalMode,
     RawTraceGrantState,
     RawTraceReasonCode,
 )
+from workflow_platform.trace_flip import trace_safe_only_from_env
 
 # An approval reference is an OPAQUE token (a ticket/authorization id), never
 # free-form text — external code review 2026-08-02: an arbitrary string is a
@@ -135,8 +136,8 @@ class RawTraceGrantService:
         }
         if detail_extra:
             detail.update(detail_extra)
-        await self._repos.audit.append(
-            AuditEntry(actor_type="human", actor_id=actor_id, action=action, detail=detail)
+        await AuditWriter(self._repos, trace_safe_only=trace_safe_only_from_env()).append(
+            action, actor_type="human", actor_id=actor_id, detail=detail
         )
 
     async def _clear_stale_active(
