@@ -505,3 +505,38 @@ in our own ledger. The section sets out why we did it, concedes where the
 critique lands, and asks four questions — including whether v9 should stand
 or revert meanwhile. It also records the sequence: the widening was decided
 and built BEFORE the round-13 verdict arrived.
+
+---
+
+## Round 15 — the round-14 fixes, and two answers put back as questions (2026-09-19)
+
+```
+commit   80db6ef
+tree     8fe879eca881e4c8081a3f2426e0bd708d858305
+archive  4d26e76fbcbae6fff6564dab0269830dd2dfbd728ebda29fc26580ece064a2e9
+         trace-f1-review-r15-80db6ef.tar.gz
+```
+
+**Manifest extraction-verified**: recomputing from the unpacked archive
+yields `8581e322…`, byte-identical to `CODE_MANIFEST_R15.txt` (235 files).
+
+Companions:
+
+```
+b0c274dad84f484c377f1dcc46a06d9b745355051d6dfc92eabfbbcb033c61f6  TRACE_F1_REVIEW_ROUND15.md   (sidecar)
+b569e28291a0612cf0a3aa5b4218915e5f37c43f97f840deb403b1e651fbe181  TRACE_AUDIT_VAULT_DESIGN.md  (design record)
+bce5c4532bf506683c6d9394d1239e2cb63237e9bd61cc05b0af1467eb12bff1  CODE_MANIFEST_R15.txt
+25d956a57e99383781db3af9e0dd909eec70536111f64b3844cfe670386a03ee  GATE_OUTPUT_R15.txt
+```
+
+**§1 asks rather than builds.** Two of the reviewer's own round-14 answers —
+the per-(action, field) registry with typed constructors, and an opaque
+subject identity for `user_id` — are deliberately unbuilt, because each has
+a design question inside it that we would rather get wrong on paper than in
+a migration.
+
+Projector **v10**: the widening reclassified by SOURCE after the reviewer
+demonstrated `evidence_ref` carrying input-derived content past a `_TOKEN`
+validator to a grant-less reader. Six controls; the F4 race now has an
+executable proof (three `UniqueViolationError`s against the old code, none
+against the new).
