@@ -1,6 +1,9 @@
 # Ask-the-user: clarification elicitation (G12)
 
-Status: **design v2, 2026-09-19** — revised after external review round 1
+Status: **design v3, 2026-09-19** — revised after external review round 2
+(**RETURNED for a narrower revision**; C1 approved in principle, gated on
+four decisions). v3's changes are listed in §0. Previously revised after
+round 1
 (**RETURNED for design revision**; the feature is worth pursuing and the
 fixed catalog is a sound starting point, but seven decisions were owed).
 Both start triggers are met — the two-axis split landed 2026-07-26,
@@ -14,6 +17,31 @@ outcome emission 2026-07-19. Effort M–L.
 | Is the budget real? | The hard caps can make it real. A model-produced conditional is a relevance heuristic, not proof a question is useful. |
 
 Both are accepted in full. §2 and §3 are rewritten around them.
+
+---
+
+## 0. What round 2 changed (v3)
+
+Round 2 accepted the immutable question record, engine-controlled
+scheduling, the namespace correction and future-messages-only, and
+returned three material issues plus a gap-timing table. All accepted.
+
+| # | round-2 requirement | where |
+|---|---|---|
+| a | three of the five gaps are **before C1**, not C2 | §3a |
+| b | capacity check + reservation must be **atomic** — a `(subject, topic)` reservation does not stop two *different* topics taking the last recipient slot | §3a |
+| c | shadow runs the same code against **separate shadow state** | §3b |
+| d | subject authorization is an **explicit binding to platform identities**, not a reinterpretation of `learned_memory.user_id` | §1b |
+| e | a fixed `profile` query guarantees another retrieval, not a **current confirmed profile** | §1a — rewritten |
+| f | validity must govern **both routes** to classification, and "never re-asked" contradicted `review_after` | §6 |
+| g | ingestion identity must be per **(question, answer revision, operation)** | §4a |
+| h | concrete experimental output vocabulary before C1; measurement identities captured **during** C2/C3 | §5a, §5 |
+
+**The correction that matters most is (e), because v2's §1a was wrong in
+the same shape as v1's §1a** — it answered "how do we retrieve this?" with
+another recall query, when the question was "what makes an answer
+authoritative?". A label saying `profile` does not make what a generic
+recall returned into a confirmed answer.
 
 The idea, from the 2026-07-19 labelling session: the system should be able
 to **ask for the one context fact that would change its answer**, instead
@@ -67,18 +95,87 @@ employment"* — is in the right partition but is **not reliably selected
 by a query that is a correspondent's address**, and its whole value is
 that it should apply to messages from senders it has nothing to do with.
 
-**Decision: elicited owner facts are retrieved by their own read, not by
-the correspondent query.** A second, fixed-query recall (`profile`) whose
-result is injected as a separate, labelled block. It does not compete for
-the correspondent budget, and it is present for every sender by
-construction rather than by luck of subgraph selection.
+**v2 answered this with a second fixed-query recall. That was wrong, and
+round 2 said why:** *"§1a replaces one bounded recall query with another.
+That guarantees another retrieval attempt, not that the desired answer is
+included."* The same partition holds thousands of other observations; a
+query labelled `profile` selects a subgraph, it does not select
+*confirmed owner answers*, and labelling the block "profile" would have
+conferred confirmed-answer status on whatever came back.
+
+**Decision (v3): the structured answer record is the source of truth, and
+the profile block is built from it — not from recall at all.**
+
+- An accepted answer is persisted as a first-class **answer record**
+  (§4), keyed by question, subject and revision. That record — not
+  memory — is what a later classification reads.
+- The profile block is assembled by an explicit query over **current,
+  applicable answer records** for the subject: `status = answered`,
+  not superseded, not withdrawn, valid now (§6), ordered by topic, with
+  a declared overflow rule (topic priority from the catalogue; truncation
+  is recorded in the block, never silent).
+- **Memory ingestion is deferred** to a later stage, for a reason that
+  only surfaced when §6's retirement rule was checked against what
+  veracium actually exposes: there is no primitive for retiring a fact
+  that merely expired. Ingesting an answer we cannot retire on our own
+  terms is how a withdrawn answer keeps influencing decisions. See §6.
+
+So "the answer is absent" (§4) and "what the profile block contains" are
+now the **same query over the same records**, which is what makes them
+consistent. v2 had one reading records and the other reading recall, and
+that divergence is exactly how a recall miss would have been read as
+"never answered".
 
 **Worked example — one answer, two correspondents, a fact about neither.**
-The owner answers `employment_status = seeking`. Subject: the owner.
-Partition: the owner's. Stored once. A later Indeed alert and a later
-LinkedIn alert are classified by different correspondent queries; both
-receive the same profile block. Neither `indeed.com` nor `linkedin.com`
-gains an edge, and nothing about either correspondent was asserted.
+The owner answers `employment_status = seeking`. Subject: the owner
+(§1b). Stored as an answer record; not ingested into memory (§6). A
+later Indeed alert and a later LinkedIn alert are classified
+under different correspondent queries; both get the same profile block,
+assembled from the answer record and not from either recall. Neither
+`indeed.com` nor `linkedin.com` gains an edge.
+
+---
+
+## 1b. Subject authorization: an explicit binding, not a reinterpretation
+
+Round 2, and it settles the blocking gap our round-2 sidecar raised:
+*"use an explicit binding — not a new interpretation of
+`learned_memory.user_id`."*
+
+**The memory namespace contract is unchanged.** `learned_memory.user_id`
+stays what it is: a free string naming whose memory partition this is. We
+do not overload it, and we do not require it to resolve to a user.
+
+**A separate, authoritative binding carries identity.** Declared in
+configuration and validated when questions are enabled for a workflow:
+
+| field | first release |
+|---|---|
+| `subject` | a `platform_user`, identified by `users.id` |
+| `org_id` | recorded explicitly, never inferred from the subject |
+| `recipient` | who is asked — a platform user; may differ from the subject only under a declared delegation |
+
+**A catalogue may reference the binding; referencing is not authority.**
+An unchecked `subject` field on a catalogue entry establishes nothing —
+round 2's point. The binding is validated at enable time, and the
+respondent's permission is checked **again at answer time** against
+current state, because authority can be revoked between asking and
+answering.
+
+**The mailbox pseudonym from `TRACE_SUBJECT_IDENTITY_PLAN` is not used
+here.** It is an audit correlator; it is not an authorization mechanism
+and not a directory key. Round 2 says so explicitly and it is right —
+`subject_from_user_id` is the relevant half of that design, and only for
+`platform_user` subjects.
+
+**Delegation, if an administrator may answer for someone.** Three things
+are preserved separately and none is collapsed into the others: **who
+answered**, **whom the answer concerns**, and **the delegated authority
+under which they answered**. An administrator's response is recorded as
+an administrator's response — it is never described, stored or displayed
+as confirmation by the owner. If the first release does not need
+delegation, the fields still exist and the answer path refuses when
+respondent ≠ subject.
 
 ---
 
@@ -209,11 +306,50 @@ does not pass server-side validation, and no tool call to authorize.
 | questions per period | per recipient | a burst ceiling; "once ever" is a total, not a rate |
 | once ever | per `(subject, topic)` | a total ceiling, and only while the catalog and dedupe scope are fixed — see §4 on retirement |
 
-**Reservations, because runs are concurrent.** Scheduling takes a
-reservation on `(subject, topic)` before the question is created, so two
-concurrent runs for the same subject cannot both ask, and a retried run
-re-uses its reservation instead of asking twice. Dedupe keyed on the
-reservation, not on a scan of existing questions — a scan races.
+### 3a. Scheduling, made atomic — three things round 2 moved before C1
+
+**One transaction, not a reservation protocol.** v2 reserved
+`(subject, topic)` and then created the question, which leaves a window:
+a run that crashes between the two locks the topic forever under "asked
+once ever", and nothing ever asks it. Round 2's preferred disposition,
+adopted: **the capacity check, the reservation and the question record
+are created atomically**. A crash either leaves nothing or leaves a
+complete question. No compensating release to get right, because there is
+no interval to compensate for.
+
+*(An expiring reservation with duplicate-safe recovery is the fallback if
+a future backend cannot do this in one transaction. Postgres can, so the
+fallback is documented and unused.)*
+
+**The capacity check is inside that transaction.** A `(subject, topic)`
+uniqueness constraint stops two runs asking the same question; it does
+**not** stop two runs asking *different* questions that both take the
+last recipient slot. Round 2 caught that, and it is a genuinely different
+race. Capacity is checked and consumed in the same transaction that
+creates the question, against the recipient's counter.
+
+**Pending questions expire, and expiry releases capacity.** An unanswered
+question cannot hold a slot indefinitely, or the budget deadlocks itself
+into never asking again. Two records, deliberately separate:
+
+- **outstanding capacity** — released when a question is answered,
+  declined or expires;
+- **the "once ever" history** — permanent, keyed `(subject, topic)`, and
+  unaffected by expiry. An expired question was still asked.
+
+Collapsing those two is what made v2's cap look self-limiting; keeping
+them apart is what lets capacity recover without re-asking.
+
+### 3b. Shadow state is separate state
+
+Round 2: *"identical rules do not require shared mutable state."*
+Adopted, and it dissolves the dilemma our sidecar raised. C1 runs **the
+same scheduling code** — same validation, same atomic path, same caps,
+same dedupe — against **its own reservations, counters and simulated
+question lifecycle**. Nothing it does consumes a real slot or a real
+"once ever" entry, and nothing about the rules is faked to achieve that.
+The shadow lifecycle simulates answer/decline/expiry so recovery
+behaviour is exercised rather than assumed.
 
 ## 4. The answer lifecycle — before the UI, not after
 
@@ -232,20 +368,58 @@ conflated and here are not:
 | `answered: unknown` | the user answered, and the answer is "I don't know" | yes, if the catalogue offers it — *"the owner's employment status is unknown"* is a real assertion |
 | `expired` | validity elapsed (§7) | no; the prior fact ages out on its own terms |
 
-**Ingestion is a separate, retryable step, and resolution does not imply
-it.** The accepted response is persisted durably FIRST, then memory
-ingestion is attempted. A resolved question carries `ingested: false`
-until the write lands, and a failed write is retryable from the stored
-response. Retry is keyed on the question id so a second attempt cannot
-create a second observation. **A resolved question must never silently
-imply the fact exists** — that was implicit in the v1 staging and it is
-the same "begins ↔ completes" counterpart the ledger keeps finding.
+**The accepted response is persisted durably as the answer record** (§1a)
+— that write, and not a memory write, is what makes an answer real. In
+the first release there is no ingestion step at all (§6), so nothing can
+report an answer as stored when it is not.
+
+**§4a below specifies the ingestion identity anyway**, because round 2
+asked for it to be *defined* before C2 and *implemented* before C3, and
+because C3b re-enables ingestion once veracium can retire an expired
+fact. Defining it now is cheap; discovering it after the answers exist
+is not.
+
+### 4a. Ingestion identity — per (question, answer revision, operation)
+
+v2 keyed retries on the question id, and round 2 caught the conflict:
+the same design allows multiple answer revisions, so a question-id key
+cannot distinguish "retry revision 2" from "ingest revision 3". Three
+rules:
+
+- **The operation key is `(question_id, answer_revision, operation)`.** A
+  retry of a revision reuses its key and cannot duplicate; a correction
+  is a NEW revision and therefore a new operation, not a retry.
+- **A superseded revision's operation can never resurrect it.** A delayed
+  retry checks that its revision is still current before writing; if the
+  answer has been corrected or withdrawn, the operation terminates as
+  `superseded` rather than restoring an old fact. Round 2's scenario,
+  and without this check a slow retry silently undoes a correction.
+- **The write-succeeded-but-marking-failed case is resolved by the key,
+  not by hope.** Ingestion is idempotent on the operation key, so
+  recovery re-runs the operation: veracium sees the same key and does not
+  double-write, and the marking is retried. The failure mode v2 left
+  unaddressed — marked `ingested: false` while the fact exists — becomes
+  a re-run that converges instead of a duplicate.
+
+**Retries are bounded and failure is visible.** N automatic attempts with
+backoff, then the question sits in a `ingestion_failed` status that is
+shown, not buried, with an explicit operator retry. **The accepted answer
+is preserved throughout** — an ingestion failure never discards what the
+user said.
+
+**Where this is enforced:** in the answer-record store and the ingestion
+worker, NOT in `LearnedMemoryService.observe`. Round 2 is right that the
+supplied wrapper establishes none of these guarantees — it takes no
+operation key and has no notion of revision. Either it grows one, or the
+worker owns the idempotence and `observe` stays a dumb write. **v3
+chooses the worker**, so veracium needs no change for the first release.
 
 **Revision, withdrawal, supersession.** A user may correct or withdraw an
 answer. A correction writes a new answer revision and supersedes the
 prior fact rather than editing it; a withdrawal supersedes without a
 replacement. "Asked once ever" binds the QUESTION, not the answer — the
-user is never re-asked, and can always revise.
+system never re-asks, and the user can always revise. See §6 for how that
+reconciles with staleness, which v2 got contradictory.
 
 **Catalog retirement.** Retiring a topic does not retract facts already
 written from it: they were true assertions the user confirmed under a
@@ -286,6 +460,14 @@ same and were one thing in v1:
 classifications were ever judged) and unanswered-question rate. A
 correction rate without its coverage is a number whose denominator is
 hidden.
+
+**The identities are captured when the events happen, not reconstructed
+later.** Round 2: the comparison harness and the analysis can wait for
+C4; the evidence they need cannot be added afterwards. So C2 records the
+question↔answer-revision link as it resolves, and C3 records the
+supplied-context link (which answer revisions were in the profile block
+for this classification) as it classifies. C4 builds the analysis on
+records that already exist.
 
 **To establish benefit, compare matched cases** — the same messages
 classified with and without the elicited context, or a controlled pilot —
@@ -332,24 +514,93 @@ Three candidate outcomes, and the first release must pick one:
 | **rubric** | the catalogue answer changes the category rubric itself | most powerful, least reversible |
 
 **Recommendation: personal priority**, as a separate signal, so the
-attention axis keeps the definition it was given. Worked examples
-distinguishing the three belong in the C1 shadow log before the choice is
-locked.
+attention axis keeps the definition it was given.
+
+**But a recommendation is not a vocabulary, and C1 needs one.** Round 2:
+*"Personal priority remains a recommendation, while the opening example
+still changes `review`. C1 needs a defined meaning and validation rule
+for `then`, even if the production product decision comes later."*
+Correct — and our own round-2 sidecar had flagged the same thing as
+"a recommendation masquerading as a decision" without then fixing it.
+
+**The C1 experimental vocabulary, fixed now and explicitly provisional:**
+
+```
+then: { priority: relevant | not_relevant }
+```
+
+One enum, one field, deliberately NOT `attention` and deliberately not
+the category. Validation rule: `then.priority` must be one of those two
+values, and a candidate naming anything else is rejected by the same
+validator that checks the topic id. The opening example is corrected to
+match — *"seeking employment makes a job alert `priority: relevant`"*,
+not `review`.
+
+This is an **experimental output vocabulary for C1**, not the product
+decision. It exists so the shadow log records something with a defined
+meaning; whether the shipped signal is a third axis, a priority field or
+a rubric change stays open, and C1's data is what informs it. Naming it
+provisionally is what stops C1 quietly deciding it.
 
 ---
 
-## 6. Answer validity, kept separate from inferred volatility
+## 6. Answer validity — governing BOTH routes, and the contradiction fixed
 
-Round 1: template tests *"cannot enforce the lifetime of every future
-distilled fact"*, and longevity is not usefulness.
+Round 1 separated platform validity from veracium's inferred volatility.
+Round 2 found that v2 applied it to only one of the two routes by which
+an answer reaches a classification.
 
-**The accepted answer carries its own validity policy**, on the question
-record, independent of whatever volatility veracium's distiller infers
-from the fact text. `review_after` (when to re-ask or re-confirm) and
-`valid_until` where the catalogue can state one. The distilled volatility
-governs veracium's internal ageing; our policy governs whether we still
-believe the answer. They are allowed to disagree, and when they do, ours
-decides whether the profile block still carries it.
+**The two routes.** (1) The profile block, assembled from answer records
+(§1a). (2) Ordinary correspondent recall, which can surface the ingested
+observation. v2's validity policy governed (1) only — so an answer whose
+distilled volatility outlived our `valid_until` would vanish from the
+profile block and **remain eligible through recall**, which is the
+failure round 2 describes.
+
+**We wrote a rule here that depended on a primitive that does not
+exist.** The v3 draft said the memory edge is "retired at the source at
+expiry/withdrawal/supersession". Executed: veracium exposes
+`Memory.correct(user_id, edge_id, corrected_value, …)` — which supersedes
+an edge *and records a replacement value*, with
+`invalidation_reason="corrected"` — and `revoke_source(...)` for
+source-level revocation. **There is no primitive for "this fact simply
+expired, retire it"**, and `LearnedMemoryService` wraps neither of them.
+So supersession-by-a-new-answer maps onto `correct()`; expiry and
+withdrawal-without-replacement do not map at all.
+
+**Rule (v3), which dissolves the problem instead of working around it:
+elicited answers are NOT ingested into ordinary memory in the first
+release.**
+
+- **One route, not two.** The answer record (§1a) is the source of truth
+  and the profile block is assembled from it. With no ingestion there is
+  no second route, so "validity governs both routes" is satisfied by
+  there being one. Expiry, withdrawal and supersession act on the answer
+  record, where we control the semantics completely.
+- **What is lost:** elicited answers do not enrich the correspondent
+  subgraph, and veracium's history does not carry them. That is a real
+  cost and it is the right one to pay first — the alternative is
+  ingesting facts we have no way to retire on our own terms, which is how
+  a withdrawn answer keeps influencing decisions.
+- **What re-opens it:** an expiry/retire primitive on veracium's side
+  (raised as a coordination item alongside the explicit `volatility` on
+  ingest from §4). With that, ingestion returns as a later stage and the
+  two-route rule above becomes implementable as first drafted.
+- **Historical evidence is still preserved** — in the answer records,
+  which are append-only revisions with supersession, not edits.
+
+**The contradiction, resolved.** §4 said the user is never re-asked; §6
+(v2) defined `review_after` as "re-ask or re-confirm". Both cannot hold.
+Round 2's suggested first-release choice is adopted and it is the right
+one:
+
+> **No automatic repeat questions.** An answer past `review_after` gets a
+> visible **stale** status, and reconfirmation is **user-initiated**. The
+> system never re-asks on its own.
+
+So `review_after` marks staleness, it does not schedule a question. A
+stale answer stays current for decisions until it expires or is revised —
+staleness is a prompt to the human, not a change of fact.
 
 **Longevity is not usefulness — v1 conflated them.** v1 made only
 `durable`-or-longer topics askable, reasoning that a short-lived fact is
@@ -359,10 +610,10 @@ it covers. Usefulness is *reuse count within validity*, not duration.
 
 **First release: owner-level profile questions only.** Employment status,
 role, working pattern — things about the owner that hold across senders,
-which is also what §1a's profile read is shaped for. **Event-scoped
-questions need an explicit event scope** (which event, valid until when,
-how a message is matched to it) and that scope does not exist; they are
-out of the first release rather than approximated.
+which is also what §1a's answer-record read is shaped for.
+**Event-scoped questions need an explicit event scope** (which event,
+valid until when, how a message is matched to it) and that scope does not
+exist; they are out of the first release rather than approximated.
 
 ---
 
@@ -391,28 +642,54 @@ at all.
 
 ## 8. Stages
 
-| | what | notes |
+| | what | gated on |
 |---|---|---|
-| C1 | Catalog + candidate emission + validation + **the real dedupe, reservation and cap rules** | **Shadow only.** Logs what it WOULD ask, having passed every check that would gate a real ask. |
-| C2 | Question record (§2a), escalation surface, authorized respondent, enum answer + assertion confirmation | needs the worked examples below |
-| C3 | Durable response → retryable ingestion → the fact; validity policy (§6) | |
-| C4 | The measurement links and a matched comparison (§5) | |
+| **C1** | catalog + candidate emission + validation + the real scheduling code against **shadow state** | §3a atomic scheduling · §3b shadow state · §4a identity grouping · §5a candidate vocabulary — **the four round-2 decisions, all now taken** |
+| C2 | question record (§2a), subject binding (§1b), escalation surface, authorized respondent, enum answer + assertion confirmation, **question↔answer-revision links recorded as they happen** | authorization (§1b) |
+| C3 | answer records as source of truth, profile assembly (§1a), validity on the single route (§6), **supplied-context links recorded as they happen** | retrieval, validity and revision guarantees |
+| C3b | memory ingestion + the two-route validity rule | **blocked**: needs a veracium expiry/retire primitive (§6) |
+| C4 | matched comparison and the analysis (§5) | C2/C3 evidence existing |
 
-**C1 runs the real rules, not a sketch.** Round 1's instruction, and it
-is the difference between a shadow log that measures the budget and one
-that measures an intention.
+**What C1 can and cannot establish** — round 2 narrowed this and the
+narrower claim is the honest one:
+
+| C1 CAN show | C1 CANNOT show |
+|---|---|
+| candidate frequency | that a question is valuable |
+| suppression reasons and their distribution | that the caps are set correctly |
+| cap enforcement, including the recipient-slot race | user benefit |
+| duplicate prevention under concurrency | |
+| recovery behaviour (crash, expiry) | |
+| whether a proposed catalog produces excessive demand | |
+
+The limits for the experiment are **explicit and configurable**, and the
+report says what they were and what they did. That is engineering
+evidence about the mechanism; it is not a claim that the numbers are
+right. *(Our round-2 sidecar asked whether C1 was worth running given it
+calibrates nothing. Round 2's answer — it was never meant to; exercise
+the rules, do not prove benefit — is the correct reading of its own
+round-1 instruction, and we had over-read it.)*
+
+**Answer-lookup failure is distinguished in C1, not C3.** Round 2 put
+profile-read failure at C3 but noted the same distinction is needed for
+answer lookups in C1: a lookup that FAILS must not be recorded as "no
+current answer", or the shadow log's suppression counts are wrong in the
+one direction that looks like success.
 
 **Required before C2/C3 are enabled** — worked examples, each written
 down and each exercised:
 
-1. successful answer → fact
+1. successful answer → answer record → fact
 2. decline → no fact, preference recorded
-3. expiry → the profile block stops carrying it
+3. expiry → gone from the profile block AND retired from recall (§6)
 4. catalog change → an in-flight question resolves under the wording it
    was asked with
-5. two concurrent runs for one subject → one question
-6. memory-write failure → resolved, `ingested: false`, retry succeeds
-   without duplicating
+5. two concurrent runs, same subject → one question; two concurrent runs,
+   **different topics, last recipient slot** → one question (§3a)
+6. memory-write failure → answer preserved, `ingested: false`, bounded
+   retry succeeds without duplicating
+7. correction after a delayed retry → the old revision does not resurrect
+   (§4a)
 
 ---
 
@@ -428,6 +705,16 @@ down and each exercised:
 - **A second memory namespace.** v1's sidecar implied one was needed; it
   was reasoning from a misreading (§1a). The owner's partition is already
   the right home.
+- **Reinterpreting `learned_memory.user_id` as an identity.** §1b — the
+  memory namespace contract is left alone and authority comes from a
+  separate binding.
+- **Using the mailbox pseudonym for authorization.** It is an audit
+  correlator (`TRACE_SUBJECT_IDENTITY_PLAN`), not an authz mechanism and
+  not a directory key.
+- **Automatic re-asking.** §6 — staleness is visible, reconfirmation is
+  user-initiated.
+- **Treating recall output as confirmed answers.** §1a — the answer
+  record is the source of truth; memory carries history.
 - **Event-scoped questions**, in the first release. §6.
 - **Re-classifying the triggering message.** §5a — the label path is
   add-only and retraction is not designed.
