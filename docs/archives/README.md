@@ -474,3 +474,34 @@ The protocol found three problems before this left: the round-12 AEAD fix
 was **unverified** (removing the binding broke no test), a commit went out
 with mypy red, and two stale `sabotaged exit=0` lines were sitting in the
 evidence. All fixed; the first is now pinned by two tests.
+
+---
+
+## Round 14 — the round-13 fixes, three self-found, and a question (2026-09-19)
+
+```
+commit   da2d179
+tree     a45f22b0f07376ce5ece05ca0d5ab9a2e1e534e6
+archive  a26a4383fce77fc428081e68e5c3e19be362eb129dda5dfebfc0761592e80452
+         trace-f1-review-r14-da2d179.tar.gz
+```
+
+**Manifest extraction-verified**: unpacking and recomputing yields
+`9532e335…`, byte-identical to `CODE_MANIFEST_R14.txt` (234 files).
+
+Companions:
+
+```
+bf46e7918554051e3efd98e27ed11b865d1df8ced9199b7d7daf86c808de445e  TRACE_F1_REVIEW_ROUND14.md   (sidecar)
+bc5822244e861aa4e770da76315ab1f2221a1e5b1a9dfe09db39854e60db20e0  TRACE_AUDIT_VAULT_DESIGN.md  (design record)
+99db0e1d67d1d3154cb0f4b1f811568ce505a7f21a150c703951f550eaed99a7  CODE_MANIFEST_R14.txt
+e0afc76e41019d68b87b13781fe691bd3a02a4fd3ee27945283de99560002458  GATE_OUTPUT_R14.txt
+```
+
+**§1 of the sidecar asks a question rather than reporting work**: the
+at-rest widening (v9) classifies by SHAPE, and round 13 closed by saying
+source must be established and shape is insufficient. That is mechanism M1
+in our own ledger. The section sets out why we did it, concedes where the
+critique lands, and asks four questions — including whether v9 should stand
+or revert meanwhile. It also records the sequence: the widening was decided
+and built BEFORE the round-13 verdict arrived.

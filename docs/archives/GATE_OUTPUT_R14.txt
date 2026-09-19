@@ -1,0 +1,83 @@
+Captured standalone gate results — F1/F5 review round 14
+
+Gates ran at tree: a45f22b0f07376ce5ece05ca0d5ab9a2e1e534e6   (manifest aggregate: 9532e3354a54f81713d65baa271b26505e4b6ca005ad6cbf805006d58a4b55e2)
+Exit codes are real: each command's output goes to a variable and $? is
+read IMMEDIATELY, before any pipe.
+
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · 2026-09-19T00:00:23Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+276 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 234 source files
+exit: 0
+
+=== uv run pytest ===
+SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
+1221 passed, 17 skipped, 13 warnings in 37.84s
+exit: 0
+
+=== uv run pip-audit ===
+No known vulnerabilities found
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== pytest -m integration (real Postgres) ===
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_schema_conformance.py:29: SCHEMA_TESTS not set; skipping schemathesis contract tests
+5 passed, 1 skipped, 1232 deselected, 1 warning in 3.02s
+exit: 0
+
+=== alembic upgrade head / downgrade -1 / upgrade head ===
+INFO  [alembic.runtime.migration] Running upgrade 0012 -> 0013, Audit-entry projection stamp (round-12 finding 1).
+INFO  [alembic.runtime.migration] Running downgrade 0013 -> 0012, Audit-entry projection stamp (round-12 finding 1).
+INFO  [alembic.runtime.migration] Running upgrade 0012 -> 0013, Audit-entry projection stamp (round-12 finding 1).
+exit: 0
+
+=== CONTROLS (step 2b — every cited gate observed FAILING) ===
+Each detector was sabotaged with the defect it claims to catch, the suite
+run, the source restored, and the suite re-run.
+
+--- F1 escalation recovery
+    sabotage: report raw_included unconditionally
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- F1 endpoint-coverage detector
+    sabotage: a handler skips recovery
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- F2 WS records actual outcome
+    sabotage: hardcode released kinds
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- F3 escalation refuses
+    sabotage: allow silent discard again
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- F4 cipher failure normalised
+    sabotage: let TraceCipherError escape
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- F4 access record completes
+    sabotage: leave the access record open
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- F5 version gate
+    sabotage: ignore the recorded version
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+--- F6 idempotent append
+    sabotage: unconditional insert again
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
