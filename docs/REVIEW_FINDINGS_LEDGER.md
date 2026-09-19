@@ -153,6 +153,12 @@ round narrative, because they apply at the moment a detector is written:
 > ownership table, the per-function reference declaration and the field
 > classification are all this shape: no default, unclassified fails the build.
 >
+> **R-f. An analogy to an existing precedent is not evidence of source.**
+> `evidence_ref` shipped because "message ids are routing, and routing is
+> safe here" — true of the id a CONNECTOR supplies, false of one read from
+> a configured trigger path. The call site was available and we reasoned
+> about the field name instead. Check what WRITES the value.
+>
 > **R-d. A detector covering ONE caller of a rule is not a detector for the
 > rule.** Round 11 returned two findings, and both landed on rows in the
 > table below that were already marked ✅. The grammar-agreement detector
@@ -302,7 +308,9 @@ Tracked so "we are learning" stays measurable rather than asserted.
 | — (self-found, r13 pre-package) | 3 | M1, M4, M6 | n/a |
 | 13 | 6 (1×P1) | **M9 ×4**, M3, M5 | n/a |
 | — (self-found, r14 pre-package) | 3 | **M9 ×2**, M6 | n/a |
-| 14 | *out* | — | — |
+| 14 | 4 (1×P1) | **M1**, M9 ×2, M5 | n/a |
+| — (self-found, r15 step 0) | 1 | M8 | n/a |
+| 15 | *out* | — | — |
 
 ### M9 — a path built from ONE END
 
@@ -337,6 +345,39 @@ question round 13's sidecar asked and could not answer itself.
 
 **The detector, therefore, is a question asked before the work, not a test
 written after it.** Added to §4 as step 0.
+
+---
+
+### Round 14: M1 came back, on work we had just argued for
+
+The P1 was `evidence_ref` — a field the v9 widening declared by SHAPE, which
+turns out to be resolved from the workflow CONTEXT, so a trigger value
+reached a grant-less reader through a `_TOKEN` check. **M1 is the first
+mechanism in this ledger** — "shape used where SOURCE was the question" —
+and we walked into it while writing a sidecar that asserted the opposite.
+
+What makes it worth recording rather than just fixing:
+
+- **We flagged the exact field as our point of unease** in the
+  recommendation ("what gives me pause: `evidence_ref` and `derived_from`
+  are Gmail message ids… treating them as routing per existing precedent")
+  and shipped it anyway, because the precedent sounded like an argument. It
+  was an analogy. The precedent covered a message id the CONNECTOR supplies;
+  this one is whatever the trigger happens to carry at a configured path.
+- **The same field name had two producers** — engine-set to `instance_id` in
+  the fork and judge paths, context-resolved in the observe path. A flat
+  per-field table cannot express that, which is precisely why the reviewer's
+  per-(action, field) answer is the right instrument and ours was not.
+
+**Rule added — R-f: an analogy to an existing precedent is not evidence of
+source.** Check what actually writes the value. We had the call site; we
+reasoned about the field name instead.
+
+**Also: step 0 worked on first use.** The round-15 counterpart check found
+`reseal` — the compatibility path that keeps pre-binding vault rows readable
+— had no test in EITHER repository, only a production run of the tool that
+calls it. That is M8, and it is the first class this ledger caught before
+the reviewer rather than after.
 
 ---
 
