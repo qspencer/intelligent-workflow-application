@@ -131,3 +131,20 @@ and author drives it *indirectly*: third-party claims are quarantined by
 relation, third-party inferences are `use_only`. Right conclusion, wrong
 mechanism; corrected in the design with the mechanism named. Logged here
 because the protocol exists to catch exactly this, and it did.
+
+
+---
+
+## 6. A defect in this package's own provenance
+
+The commit that added this sidecar (`bace662`) has a mangled message: it
+was written with `-m` in double quotes and the shell expanded the
+backticks, so the word it was quoting — the name of the property being
+discussed — was executed as a command and dropped from the text. The
+sentence reads *" is a property of the EDGE"*.
+
+Recorded rather than rewritten, because the commit is pushed. Noted here
+because this sidecar cites commits as evidence, and a reader who pulls
+`bace662` to check the claim should not have to wonder whether the gap is
+meaningful. It is not: the missing word is `assertable`, and every other
+commit today used a heredoc, which is the reason this is the only one.
