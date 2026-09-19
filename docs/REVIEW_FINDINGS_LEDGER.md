@@ -226,7 +226,8 @@ Run before any package leaves. Roughly an hour; the returns cost days.
 1. **Gates, all five, standalone.** `ruff`, `format`, `mypy`, `pytest`,
    `pip-audit`. Read each exit code before any pipe. *(A red CI ran unnoticed
    for several pushes because the local set had four of five.)*
-2. **Execute every claim you are about to write.** Open the sidecar and, for
+2. **Execute every claim you are about to write — INCLUDING THE
+   SIDECAR'S OWN.** Open the sidecar and, for
    each factual sentence, run the command that proves it and keep the output.
    Delete any sentence you could not execute. *(M6 — four of the reviewer's
    findings were about our claims, not our code.)*
@@ -235,6 +236,14 @@ Run before any package leaves. Roughly an hour; the returns cost days.
    been observed failing does not belong in a claim. Read your own captured
    evidence as a stranger would: a line that looks like a failure, or reads
    as a pass without demonstrating the case, is an M6 finding waiting.
+2c. **Step 2 applies to the adversarial section too** (added after G12
+   round 1). The G12 package's step-7 pass asserted a defect in our own
+   memory partitioning, from a misreading of our own workflow file, and
+   presented it as the package's strongest finding. The reviewer
+   disproved it by reading the YAML. Step 2 had been run against the
+   DESIGN's claims and not against §4's — and "what would I find if I
+   were paid to fail this" is made of factual sentences like any other
+   section. **A self-found finding is a claim. Execute it.**
 3. **Forgery pass.** For each field the projection generates, supply it as
    input and confirm it cannot smuggle a value.
 4. **Round-trip pass.** Push a real definition and a real step output through

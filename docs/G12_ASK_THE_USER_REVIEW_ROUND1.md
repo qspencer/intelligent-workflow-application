@@ -108,6 +108,31 @@ or an explicit subject on the write). We would rather hand it over honestly
 than repair it in the same hour we found it and present a design nobody
 has slept on.
 
+> ### ⚠️ Finding 4 was WRONG — round 1 corrected it
+>
+> `examples/email_triage_apply/workflow.yaml` sets
+> `learned_memory.user_id: qspencer@gmail.com` — the mailbox **owner** —
+> and `recall.query_from: trigger.from_address.address`, making the
+> correspondent the **query**, not the partition. One partition per
+> owner; verified against the live store (every `memory_observed` /
+> `memory_recalled` row carries `org:default:user:qspencer@gmail.com`).
+> Facts would never have landed in a correspondent's partition, and no
+> second namespace is needed.
+>
+> **We asserted a defect in our own system from a misreading of our own
+> workflow file, in the section headed "what we would find if paid to
+> fail this", and shipped it as the package's strongest finding.** The
+> step-2 discipline — execute every claim — was applied to the design's
+> claims and not to the sidecar's own. That is the gap; the protocol says
+> *"for each factual sentence, run the command that proves it"*, and §4
+> is made of factual sentences.
+>
+> The reviewer also showed the underlying problem is real and broader
+> than the namespace: recall is query-driven, so an owner-level fact is
+> in the right partition and not reliably SELECTED by a correspondent
+> query. Design v2 §1a separates memory ownership, fact subject and
+> recall query, and gives elicited owner facts their own profile read.
+
 ---
 
 ## 5. Claims executed (protocol step 2)
