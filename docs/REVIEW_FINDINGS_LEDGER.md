@@ -153,6 +153,12 @@ round narrative, because they apply at the moment a detector is written:
 > ownership table, the per-function reference declaration and the field
 > classification are all this shape: no default, unclassified fails the build.
 >
+> **R-g. Step 0 is an ENUMERATION, not a recollection.** Round 15 returned
+> two M9 findings in code changed the round before, because
+> "begins ↔ completes" was answered from memory. If the counterpart
+> question can be answered by a command, answer it with the command — the
+> value of the step is the list, not the question.
+>
 > **R-f. An analogy to an existing precedent is not evidence of source.**
 > `evidence_ref` shipped because "message ids are routing, and routing is
 > safe here" — true of the id a CONNECTOR supplies, false of one read from
@@ -310,7 +316,8 @@ Tracked so "we are learning" stays measurable rather than asserted.
 | — (self-found, r14 pre-package) | 3 | **M9 ×2**, M6 | n/a |
 | 14 | 4 (1×P1) | **M1**, M9 ×2, M5 | n/a |
 | — (self-found, r15 step 0) | 1 | M8 | n/a |
-| 15 | *out* | — | — |
+| 15 | 2 | **M9 ×2** | n/a |
+| 16 | *not yet sent* | — | — |
 
 ### M9 — a path built from ONE END
 
@@ -345,6 +352,33 @@ question round 13's sidecar asked and could not answer itself.
 
 **The detector, therefore, is a question asked before the work, not a test
 written after it.** Added to §4 as step 0.
+
+---
+
+### Round 15: step 0 run from memory instead of from the source
+
+Two findings, both M9, and both in code changed the round before — after
+step 0 had been introduced specifically to catch M9.
+
+What went wrong is narrow and worth stating exactly: step 0 asks
+"begins ↔ completes". In round 15 that question was **answered from
+recollection** ("I wrapped the lookups and `_payload_of`") rather than by
+enumerating the call sites. Enumerating takes one command and shows every
+`_payload_of` call beside the method containing it — run properly it puts
+`rehydrate_trigger` and the three `merge_*` helpers on one screen, with the
+wrapped ones and the bare ones visually distinct.
+
+**R-g: step 0 is an enumeration, not a recollection.** If the counterpart
+question can be answered by a command, answer it with the command. The
+value of the step is not the question, which is easy to ask and easy to
+answer wrongly; it is the list.
+
+A second, smaller lesson from the same round: the first control for F1
+**broke the file** — removing an `except` left a dangling `try`, so pytest
+exited 2 on a collection error. Exit non-zero looked like the control
+firing. A control must revert the BEHAVIOUR; a syntax error proves only
+that the file no longer parses. Worth adding to R-b: check the sabotaged
+run failed for the reason you intended.
 
 ---
 
