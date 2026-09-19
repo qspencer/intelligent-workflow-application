@@ -596,6 +596,57 @@ class WorkflowEngine:
                 detail={"error": stored},
             )
             return instance
+        except asyncio.CancelledError:
+            # THE SAME BUG AS THE `except Exception` BELOW, one class up.
+            #
+            # `CancelledError` derives from `BaseException`, not `Exception`,
+            # so the handler below never saw it and the instance was left
+            # RUNNING with no terminal audit entry — while `_dispatch_loop`'s
+            # `except BaseException` had already marked the in-flight steps
+            # CANCELLED. Found 2026-09-19 on the live box: 171 stranded
+            # instances, the oldest from July, and 26,462 `alert_stuck_workflow`
+            # rows raised about them (the largest action in the audit log).
+            #
+            # The amplifier was the dev server's autoreload — 90 reloads in a
+            # day, each cancelling whatever the mail poller was mid-run on —
+            # but the mechanism is not a dev artifact: a systemctl restart, a
+            # SIGTERM in production, or any outer `asyncio.timeout` around a
+            # run produces the same orphan.
+            #
+            # PAUSED, not FAILED. The run did not fail; it was interrupted,
+            # and PAUSED already means "resumable from where it stopped" —
+            # CANCELLED steps are not in `already_done`, so a resume re-runs
+            # the interrupted step in full (EXECUTION_SEMANTICS §7). Nothing
+            # resumes a PAUSED instance automatically, which matters because
+            # the workflow this was stranding is the one that mutates a live
+            # mailbox.
+            #
+            # Best-effort: a marking failure must not mask the cancellation,
+            # and the CancelledError is ALWAYS re-raised so shutdown proceeds
+            # and no caller mistakes an interrupted run for a finished one.
+            try:
+                instance = await self._mark_instance(
+                    instance,
+                    WorkflowInstanceState.PAUSED,
+                    context,
+                    error="interrupted: cancelled (process shutdown or outer timeout)",
+                )
+                # No detail, like `workflow_paused`/`workflow_resumed`: the
+                # action name carries it, so nothing is lost to projection and
+                # nothing needs vaulting. `actor_id` separates this from the
+                # boot sweep that catches what a hard kill leaves behind.
+                await self._audit(
+                    "workflow_interrupted",
+                    actor_type="engine",
+                    actor_id="workflow_engine",
+                    instance_id=instance.id,
+                )
+            except Exception:
+                logger.exception(
+                    "failed to mark instance %s interrupted during cancellation",
+                    instance.id,
+                )
+            raise
         except Exception as exc:
             # Anything unexpected (SDK validation errors, bugs) must still
             # mark the instance FAILED — found live when a Bedrock

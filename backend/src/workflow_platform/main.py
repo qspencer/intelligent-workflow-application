@@ -26,6 +26,7 @@ from workflow_platform.api.raw_trace_grants import build_raw_trace_grants_router
 from workflow_platform.api.users import build_users_router
 from workflow_platform.api.workflows import build_router
 from workflow_platform.api.ws import build_ws_router
+from workflow_platform.audit_writer import AuditWriter
 from workflow_platform.auth import AuthMiddleware, LocalAuthService, auth_mode
 from workflow_platform.auth.bootstrap import ensure_seed_users
 from workflow_platform.auth.provisioning import UserProvisioner
@@ -53,6 +54,7 @@ from workflow_platform.persistence import Repositories, in_memory_repositories
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
 from workflow_platform.persistence.schema_version import check_schema_drift
+from workflow_platform.recovery import sweep_interrupted_instances
 from workflow_platform.secrets import AwsSecretsManagerStore, EnvSecretStore, SecretStore
 from workflow_platform.templates import default_examples_dir
 from workflow_platform.tools import (
@@ -266,6 +268,17 @@ def create_app(
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await ensure_seed_users(repositories)
         if start_triggers:
+            # BEFORE the triggers: an instance this process is about to
+            # start must not be swept as though a previous process had left
+            # it behind. Gated with start_triggers for the same reason the
+            # rest is — unit tests build apps constantly and must not
+            # rewrite each other's fixture rows.
+            await sweep_interrupted_instances(
+                repositories,
+                AuditWriter(
+                    repositories, events=events, trace_safe_only=trace_safe_only_from_env()
+                ),
+            )
             await orchestrator.start()
             await monitoring.start()
         try:

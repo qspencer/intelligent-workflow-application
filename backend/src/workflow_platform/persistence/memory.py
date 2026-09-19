@@ -149,6 +149,12 @@ class InMemoryInstanceRepo(InstanceRepo):
         items.sort(key=lambda i: i.created_at, reverse=True)
         return [i.model_copy(deep=True) for i in items[: max(0, limit)]]
 
+    async def list_by_state(self, states: list[str], limit: int = 1000) -> list[WorkflowInstance]:
+        wanted = set(states)
+        items = [i for i in self._items.values() if i.state.value in wanted]
+        items.sort(key=lambda i: i.created_at)
+        return [i.model_copy(deep=True) for i in items[: max(0, limit)]]
+
     async def count_by_workflow(self, org_id: str | None = None) -> dict[str, int]:
         out: dict[str, int] = {}
         for inst in self._items.values():

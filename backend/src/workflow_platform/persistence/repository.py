@@ -104,6 +104,17 @@ class InstanceRepo(ABC):
         optionally scoped to one org."""
 
     @abstractmethod
+    async def list_by_state(self, states: list[str], limit: int = 1000) -> list[WorkflowInstance]:
+        """Instances in any of the given states, oldest first.
+
+        Distinct from `list_recent`, which is time-windowed: the boot
+        recovery sweep needs every stranded RUNNING row regardless of age,
+        and the oldest of those on this deployment predates the newest by
+        two months. Reaching it through a created_at ordering would mean an
+        unbounded limit over every instance ever run.
+        """
+
+    @abstractmethod
     async def count_by_workflow(self, org_id: str | None = None) -> dict[str, int]:
         """Return a `{workflow_id: instance_count}` map across all instances.
         Used by the workflows list page to show how many runs each

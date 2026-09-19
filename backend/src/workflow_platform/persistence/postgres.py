@@ -218,6 +218,18 @@ class PostgresInstanceRepo(InstanceRepo):
             rows = result.scalars().all()
         return [_from_instance_row(r) for r in rows]
 
+    async def list_by_state(self, states: list[str], limit: int = 1000) -> list[WorkflowInstance]:
+        async with self._sf() as s:
+            stmt = (
+                select(WorkflowInstanceRow)
+                .where(WorkflowInstanceRow.state.in_(states))
+                .order_by(WorkflowInstanceRow.created_at.asc())
+                .limit(max(0, limit))
+            )
+            result = await s.execute(stmt)
+            rows = result.scalars().all()
+        return [_from_instance_row(r) for r in rows]
+
     async def count_by_workflow(self, org_id: str | None = None) -> dict[str, int]:
         async with self._sf() as s:
             stmt = select(
