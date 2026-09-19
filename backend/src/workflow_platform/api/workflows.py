@@ -1108,59 +1108,89 @@ def build_router(
             # Grant-holder: restore raw from the vault (TG3b.3). A no-op under
             # the default dark dual-write; under the flip it re-merges the
             # projected operational rows.
-            instance_dump["trigger_payload"] = await rehydrator.merge_trigger(
-                org_id=instance.org_id,
-                instance_id=instance_id,
-                safe_trigger=instance_dump.get("trigger_payload") or {},
-            )
-            instance_dump["error"] = await rehydrator.merge_error(
-                org_id=instance.org_id,
-                instance_id=instance_id,
-                step_attempt_id=None,
-                safe_error=instance_dump.get("error"),
-            )
-            for sd in step_dumps:
-                if isinstance(sd.get("output"), dict):
-                    sd["output"] = await rehydrator.merge_output(
+            #
+            # R15 finding 1: the merge helpers raise `RawTraceUnavailable` on
+            # a lookup timeout or an undecryptable payload and nothing here
+            # caught it — HTTP 500, with `..._access_attempted` recorded and
+            # no release decision at all. A retrieval failure is an outcome:
+            # complete the decision, serve the projection.
+            try:
+                instance_dump["trigger_payload"] = await rehydrator.merge_trigger(
+                    org_id=instance.org_id,
+                    instance_id=instance_id,
+                    safe_trigger=instance_dump.get("trigger_payload") or {},
+                )
+                instance_dump["error"] = await rehydrator.merge_error(
+                    org_id=instance.org_id,
+                    instance_id=instance_id,
+                    step_attempt_id=None,
+                    safe_error=instance_dump.get("error"),
+                )
+                for sd in step_dumps:
+                    if isinstance(sd.get("output"), dict):
+                        sd["output"] = await rehydrator.merge_output(
+                            org_id=instance.org_id,
+                            instance_id=instance_id,
+                            step_attempt_id=sd["id"],
+                            safe_output=sd["output"],
+                            projector_version=sd.get("projector_version"),
+                        )
+                    sd["error"] = await rehydrator.merge_error(
                         org_id=instance.org_id,
                         instance_id=instance_id,
                         step_attempt_id=sd["id"],
-                        safe_output=sd["output"],
-                        projector_version=sd.get("projector_version"),
+                        safe_error=sd.get("error"),
                     )
-                sd["error"] = await rehydrator.merge_error(
-                    org_id=instance.org_id,
-                    instance_id=instance_id,
-                    step_attempt_id=sd["id"],
-                    safe_error=sd.get("error"),
+                # instance.context echoes the trigger + each step's output (projected
+                # at rest under the flip) — restore those too so the grant-holder
+                # response is genuinely complete (not just the top-level fields).
+                ctx = instance_dump.get("context")
+                if isinstance(ctx, dict):
+                    if isinstance(ctx.get("trigger"), dict):
+                        ctx["trigger"] = await rehydrator.merge_trigger(
+                            org_id=instance.org_id,
+                            instance_id=instance_id,
+                            safe_trigger=ctx["trigger"],
+                        )
+                    ctx_steps = ctx.get("steps")
+                    if isinstance(ctx_steps, dict):
+                        latest_attempt = {s.step_id: s.id for s in steps}
+                        stamp_by_step = {s.step_id: s.projector_version for s in steps}
+                        for sid, out in list(ctx_steps.items()):
+                            if isinstance(out, dict) and sid in latest_attempt:
+                                ctx_steps[sid] = await rehydrator.merge_output(
+                                    org_id=instance.org_id,
+                                    instance_id=instance_id,
+                                    step_attempt_id=latest_attempt[sid],
+                                    safe_output=out,
+                                    projector_version=stamp_by_step.get(sid),
+                                )
+                # Which kinds actually came back: if a marker still remains after
+                # merge, at least one vault object was missing (partial/failed).
+                complete = not has_redaction_marker(instance_dump) and not any(
+                    has_redaction_marker(sd) for sd in step_dumps
                 )
-            # instance.context echoes the trigger + each step's output (projected
-            # at rest under the flip) — restore those too so the grant-holder
-            # response is genuinely complete (not just the top-level fields).
-            ctx = instance_dump.get("context")
-            if isinstance(ctx, dict):
-                if isinstance(ctx.get("trigger"), dict):
-                    ctx["trigger"] = await rehydrator.merge_trigger(
-                        org_id=instance.org_id, instance_id=instance_id, safe_trigger=ctx["trigger"]
-                    )
-                ctx_steps = ctx.get("steps")
-                if isinstance(ctx_steps, dict):
-                    latest_attempt = {s.step_id: s.id for s in steps}
-                    stamp_by_step = {s.step_id: s.projector_version for s in steps}
-                    for sid, out in list(ctx_steps.items()):
-                        if isinstance(out, dict) and sid in latest_attempt:
-                            ctx_steps[sid] = await rehydrator.merge_output(
-                                org_id=instance.org_id,
-                                instance_id=instance_id,
-                                step_attempt_id=latest_attempt[sid],
-                                safe_output=out,
-                                projector_version=stamp_by_step.get(sid),
-                            )
-            # Which kinds actually came back: if a marker still remains after
-            # merge, at least one vault object was missing (partial/failed).
-            complete = not has_redaction_marker(instance_dump) and not any(
-                has_redaction_marker(sd) for sd in step_dumps
-            )
+            except RawTraceUnavailable as exc:
+                # Record what actually happened, then fall through to the
+                # projected response with the reason attached.
+                logger.warning("instance-detail recovery failed: %s", exc)
+                _audit_ok, reason = await commit_raw_release(
+                    repositories,
+                    request_id=request_id,
+                    surface=SURFACE_DETAIL,
+                    actor_id=user.sub,
+                    instance_id=instance_id,
+                    returned_kinds=(),
+                    withheld_kinds=kinds,
+                )
+                return {
+                    "instance": redact_tool_data(instance.model_dump(), False, kind="instance"),
+                    "steps": [
+                        redact_tool_data(s.model_dump(), False, kind="step_row") for s in steps
+                    ],
+                    "raw_included": False,
+                    "redaction_reason": reason or "retrieval_failed",
+                }
             audit_ok, reason = await commit_raw_release(
                 repositories,
                 request_id=request_id,

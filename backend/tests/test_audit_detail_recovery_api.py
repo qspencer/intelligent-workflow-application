@@ -646,3 +646,150 @@ def test_the_authoritative_reference_survives_outside_the_projected_detail() -> 
     assert stored.workflow_instance_id == "inst-abc", (
         "the authoritative correlation must remain available to an ordinary reader"
     )
+
+
+async def _instance_with_vaulted_output(
+    monkeypatch: pytest.MonkeyPatch,
+) -> tuple[TestClient, Any, str]:
+    """A run whose trigger AND step output are vaulted, for the
+    instance-detail recovery path."""
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    repos = in_memory_repositories()
+
+    async def emit(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
+        return {"note": "SYNTHETIC free-form output"}
+
+    registry = FunctionRegistry()
+    registry.register("emit", emit)
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=registry,
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+        trace_safe_only=True,
+    )
+    from workflow_platform.workflow import load_definition
+
+    instance = await engine.run(
+        load_definition(
+            {
+                "id": "wf",
+                "name": "wf",
+                "trigger": {"type": "manual"},
+                "steps": [{"id": "a", "type": "deterministic", "function": "emit"}],
+                "edges": [],
+            }
+        ),
+        trigger_payload={"secret": "SYNTHETIC-TRIGGER"},
+    )
+    await repos.users.save(User(iss="dev", sub="root", org_id="default", roles=["Administrator"]))
+    await _grant_platform_wide(repos, "root")
+    return TestClient(create_app(repositories=repos, engine=engine)), repos, instance.id
+
+
+async def test_instance_detail_lookup_failure_completes_the_release_decision(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R15 finding 1, the reviewer's first reproduction.
+
+    `merge_output` converts a lookup timeout into `RawTraceUnavailable`, but
+    `get_instance` did not catch it: HTTP 500, with
+    `raw_trace_access_attempted` recorded and NO `raw_trace_release_decided`.
+    """
+    client, repos, iid = await _instance_with_vaulted_output(monkeypatch)
+    assert client.get(f"/api/workflow-instances/{iid}", headers=_ADMIN).status_code == 200
+    # That first request SUCCEEDED and recorded a `released` decision, so the
+    # assertions below must look only at what happens after the timeout —
+    # otherwise they read the earlier success as this request's outcome.
+    before = len(
+        [
+            e
+            for e in await repos.audit.list_by_instance(iid)
+            if e.action == "raw_trace_release_decided"
+        ]
+    )
+
+    async def timeout(_key: str) -> Any:
+        raise TimeoutError("vault repository timed out")
+
+    repos.raw_trace_vault.get_by_idempotency_key = timeout
+
+    resp = client.get(f"/api/workflow-instances/{iid}", headers=_ADMIN)
+    assert resp.status_code == 200, f"a lookup timeout produced HTTP {resp.status_code}"
+    assert resp.json()["raw_included"] is False
+    assert "SYNTHETIC" not in resp.text
+
+    decided = [
+        e
+        for e in await repos.audit.list_by_instance(iid)
+        if e.action == "raw_trace_release_decided"
+    ][before:]
+    assert decided, "the failed request completed no release decision at all"
+    assert not any(str(e.detail.get("outcome")) == "released" for e in decided), (
+        f"the failed request claims a release: {[e.detail.get('outcome') for e in decided]}"
+    )
+
+
+async def test_instance_detail_undecryptable_trigger_completes_too(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R15 finding 1, the reviewer's second reproduction — an undecryptable
+    record rather than an absent one."""
+    from workflow_platform.persistence.models import RawTraceKind
+
+    client, repos, iid = await _instance_with_vaulted_output(monkeypatch)
+    store: Any = repos.raw_trace_vault
+    for r in await store.list_by_instance(iid):
+        if r.kind is RawTraceKind.TRIGGER_PAYLOAD:
+            broken = dict(r.payload)
+            broken["ct"] = base64.b64encode(b"not-the-real-ciphertext").decode()
+            store._items[r.id] = r.model_copy(update={"payload": broken})
+
+    resp = client.get(f"/api/workflow-instances/{iid}", headers=_ADMIN)
+    assert resp.status_code == 200, f"an undecryptable trigger produced HTTP {resp.status_code}"
+    decided = [
+        e
+        for e in await repos.audit.list_by_instance(iid)
+        if e.action == "raw_trace_release_decided" and e.detail.get("surface") == "detail"
+    ]
+    assert decided, "the release attempt was never completed with a decision"
+
+
+async def test_trigger_recovery_completes_its_access_record_on_failure(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R15 finding 2: `rehydrate_trigger` used the lookup wrapper but then
+    called `_payload_of` directly, so an undecryptable trigger recorded only
+    `..._access_attempted` with no completion explaining it."""
+    from workflow_platform.persistence.models import RawTraceKind
+    from workflow_platform.trace_rehydrate import RawTraceRehydrator, RawTraceUnavailable
+
+    _client, repos, iid = await _instance_with_vaulted_output(monkeypatch)
+    store: Any = repos.raw_trace_vault
+    safe_trigger: dict[str, Any] = {}
+    for r in await store.list_by_instance(iid):
+        if r.kind is RawTraceKind.TRIGGER_PAYLOAD:
+            broken = dict(r.payload)
+            broken["ct"] = base64.b64encode(b"garbage").decode()
+            store._items[r.id] = r.model_copy(update={"payload": broken})
+            safe_trigger = {"_redacted": "raw trigger payload withheld"}
+
+    with pytest.raises(RawTraceUnavailable):
+        await RawTraceRehydrator(repos).rehydrate_trigger(
+            purpose="detail", org_id="default", instance_id=iid, safe_trigger=safe_trigger
+        )
+
+    entries = await repos.audit.list_by_instance(iid)
+    attempted = [e for e in entries if e.action == "raw_trace_system_access_attempted"]
+    completed = [e for e in entries if e.action == "raw_trace_system_access_completed"]
+    assert attempted, "no access attempt recorded"
+    assert len(completed) >= len(attempted), (
+        f"{len(attempted)} attempts but {len(completed)} completions — the trigger "
+        "opening failure left its access record unfinished"
+    )
+    ids = {str(e.detail.get("request_id")) for e in completed}
+    assert {str(e.detail.get("request_id")) for e in attempted} <= ids, (
+        "the completion does not carry the matching request id"
+    )
+    assert any(str(e.detail.get("outcome")) == "retrieval_failed" for e in completed)

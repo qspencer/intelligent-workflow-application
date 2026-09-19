@@ -499,8 +499,13 @@ class RawTraceRehydrator:
                 request_id=request_id, instance_id=instance_id, outcome="succeeded"
             )
             return safe_trigger
-        opened = self._payload_of(
+        # R15 finding 2: this called `_payload_of` DIRECTLY, bypassing the
+        # completion-aware wrapper the lookup already used. An undecryptable
+        # trigger therefore raised correctly but recorded only
+        # `..._access_attempted` — no completion saying why.
+        opened = await self._opened_or_completed(
             row,
+            request_id=request_id,
             org_id=org_id,
             instance_id=instance_id,
             step_attempt_id=None,
@@ -560,7 +565,15 @@ class RawTraceRehydrator:
         if not (isinstance(safe_error, str) and safe_error.startswith("[redacted")):
             return safe_error
         key = idempotency_key(org_id, instance_id, step_attempt_id, RawTraceKind.ERROR)
-        row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        # Same normalisation as `merge_output` (R15 finding 1): these
+        # helpers own no access record, so a repository failure cannot be
+        # completed here — but it must reach the caller as
+        # RawTraceUnavailable, which the response boundary handles, not as
+        # itself, which becomes a 500.
+        try:
+            row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        except Exception as exc:
+            raise RawTraceUnavailable(f"vault lookup failed: {exc}") from exc
         if row is None:
             return safe_error  # best-effort; caller reports partial (F8)
         return self._payload_of(
@@ -577,7 +590,15 @@ class RawTraceRehydrator:
         """Read-surface trigger overlay (no system-access audit — see
         `merge_output`)."""
         key = idempotency_key(org_id, instance_id, None, RawTraceKind.TRIGGER_PAYLOAD)
-        row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        # Same normalisation as `merge_output` (R15 finding 1): these
+        # helpers own no access record, so a repository failure cannot be
+        # completed here — but it must reach the caller as
+        # RawTraceUnavailable, which the response boundary handles, not as
+        # itself, which becomes a 500.
+        try:
+            row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        except Exception as exc:
+            raise RawTraceUnavailable(f"vault lookup failed: {exc}") from exc
         if row is not None:
             opened = self._payload_of(
                 row,
