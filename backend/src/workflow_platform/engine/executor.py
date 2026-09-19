@@ -30,6 +30,7 @@ import simpleeval
 
 from workflow_platform.agent import Agent, AgentPolicy
 from workflow_platform.agent.registry import ToolRegistry as AgentToolRegistry
+from workflow_platform.audit_writer import AuditWriter
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.connectors.browser import BrowserConnector, PlaywrightConnector
 from workflow_platform.cost import cost_for_usage
@@ -46,14 +47,13 @@ from workflow_platform.memory import (
 )
 from workflow_platform.observability import Metrics, NoopMetrics
 from workflow_platform.persistence import (
-    AuditEntry,
     Repositories,
     StepExecution,
     StepExecutionState,
     WorkflowInstance,
     WorkflowInstanceState,
 )
-from workflow_platform.persistence.models import _new_id, _utcnow
+from workflow_platform.persistence.models import _utcnow
 from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.security.capabilities import ResolvedCapabilities
 from workflow_platform.tools import Tool, ToolContext
@@ -64,12 +64,11 @@ from workflow_platform.trace_projection import (
     REDACTED_ERROR,
     Owner,
     function_may_emit,
-    project_audit_detail_at_rest,
     redact_tool_data,
     safe_trigger_payload,
 )
 from workflow_platform.trace_rehydrate import RawTraceRehydrator
-from workflow_platform.trace_vault import RawTraceVault, audit_detail_has_raw
+from workflow_platform.trace_vault import RawTraceVault
 from workflow_platform.workflow import (
     AgenticStep,
     DeterministicStep,
@@ -84,7 +83,6 @@ logger = logging.getLogger(__name__)
 #: Bound on the instance->org memo used by audit vaulting. Cleared wholesale
 #: when exceeded: this is a lookup cache, not state, so dropping it costs one
 #: query per instance and never changes behaviour.
-_AUDIT_ORG_CACHE_MAX = 4096
 
 
 class _PauseRequested(Exception):
@@ -184,12 +182,19 @@ class WorkflowEngine:
     # default flips at the external-org gate.
     trace_safe_only: bool = False
     _vault: RawTraceVault = field(init=False)
-    _audit_org_cache: dict[str, str] = field(init=False, default_factory=dict)
+    _audit_writer: AuditWriter = field(init=False)
     _rehydrator: RawTraceRehydrator = field(init=False)
 
     def __post_init__(self) -> None:
         self._vault = RawTraceVault(self.repositories)
-        self._audit_org_cache = {}
+        # One vault instance shared with the writer, so a process holds one
+        # cipher rather than one per component.
+        self._audit_writer = AuditWriter(
+            self.repositories,
+            events=self.events,
+            trace_safe_only=self.trace_safe_only,
+            vault=self._vault,
+        )
         self._rehydrator = RawTraceRehydrator(self.repositories)
 
     # --- public API ---
@@ -1695,23 +1700,10 @@ class WorkflowEngine:
     async def _org_for_audit(self, instance_id: str) -> str:
         """Owning org of the instance an audit entry belongs to, for the vault.
 
-        FAILS CLOSED. Guessing `DEFAULT_ORG_ID` here would write another
-        tenant's raw under the default org — an isolation violation, and a
-        silent one. Every engine audit write happens after the instance row
-        exists, so an unresolvable id is a bug; raising makes it the step's
-        failure rather than a quietly misfiled vault row. Only reached when
-        there is something to vault.
+        Delegates: the resolver moved to `AuditWriter` with the chokepoint it
+        serves. Kept as a method because the engine's own callers name it.
         """
-        cached = self._audit_org_cache.get(instance_id)
-        if cached is not None:
-            return cached
-        instance = await self.repositories.instances.get(instance_id)
-        if instance is None:
-            raise ValueError(f"cannot resolve the owning org of instance {instance_id!r}")
-        if len(self._audit_org_cache) >= _AUDIT_ORG_CACHE_MAX:
-            self._audit_org_cache.clear()
-        self._audit_org_cache[instance_id] = instance.org_id
-        return instance.org_id
+        return await self._audit_writer.org_for(instance_id)
 
     async def _audit(
         self,
@@ -1724,76 +1716,27 @@ class WorkflowEngine:
         detail: dict[str, Any] | None = None,
         entry_id: str | None = None,
     ) -> None:
-        """Append one audit entry, vaulting its raw first under the flip.
+        """Append one audit entry through the shared chokepoint.
 
-        `entry_id` makes a RETRY of the same logical write addressable. R12
-        finding 5: without it every call minted a fresh id, so re-driving a
-        write whose append had failed produced a SECOND vault row and one
-        entry — an orphan per attempt. Passing the id the first attempt used
-        re-addresses the same vault object.
-
-        Omitting it means "this is a new logical event", which is the right
-        default: two identical tool calls on one step attempt are two events
-        and must not collapse onto one row (criterion 1).
+        The body of this method IS `AuditWriter.append` — it was moved there
+        so the components that are not the engine (monitoring, above all) run
+        the same projection-and-vault path instead of reaching
+        `repositories.audit.append` directly. `test_no_audit_append_bypasses_
+        the_writer` enumerates the callers.
         """
-        raw_detail = dict(detail or {})
-        stored_detail = raw_detail
-        # R12 finding 1: set when the raw is vaulted, so a reader knows to
-        # fetch it. The stored detail is already projected, so "would
-        # projection remove anything from this?" always answers no — the
-        # signal has to be persisted, not re-derived. Same reasoning as P3a
-        # for step rows, and it must be a COLUMN so deleting a payload marker
-        # cannot make rehydration skip the vault.
-        vaulted_version: str | None = None
-        # The entry id is minted HERE, before any I/O, because the vault row is
-        # addressed BY it. Ordering matters and is the reverse of what this
-        # method used to do (project, then construct): mint id -> vault the raw,
-        # durable-or-fail -> project -> append. Vaulting first is the same rule
-        # the step-output path follows — a lost raw write must FAIL the step,
-        # not silently drop the raw.
-        entry_id = entry_id or _new_id()
-        # F4 (G-Trace-Review-4): under the flip EVERY raw audit write is projected
-        # at rest — retry `str(exc)`, connector/timeout exceptions, memory-recall
-        # errors, pin-override params, tool_call input/result. One shared
-        # action-aware projection, the same the verifier uses, so no raw lands in
-        # `audit_log.detail` and operational metadata is preserved.
-        if self.trace_safe_only:
-            stored_detail = project_audit_detail_at_rest(action, raw_detail)
-            # Vault BEFORE the append, and ONLY when something would be lost.
-            # Scoped by the FINAL policy, NOT by the at-rest diff above: today's
-            # at-rest denylist passes the motivating detail through UNCHANGED,
-            # so gating on it would vault nothing and the raw would be destroyed
-            # the moment at-rest tightens. Round 11 named this trap; gating on
-            # the at-rest diff is precisely how one walks into it.
-            if audit_detail_has_raw(action, raw_detail):
-                if instance_id is None:
-                    # The vault is instance-scoped, so there is nowhere safe to
-                    # put this raw. Fail rather than project it away silently.
-                    raise ValueError(
-                        f"audit action {action!r} carries raw that projection would "
-                        "remove, but the entry has no instance to vault it against"
-                    )
-                await self._vault.record_audit_detail(
-                    org_id=await self._org_for_audit(instance_id),
-                    instance_id=instance_id,
-                    audit_entry_id=entry_id,
-                    action=action,
-                    detail=raw_detail,
-                )
-                vaulted_version = PROJECTOR_VERSION
-        entry = AuditEntry(
-            id=entry_id,
+        # `events` is a public dataclass field callers assign after building
+        # the engine, so the writer is told each time rather than snapshotting
+        # a bus that was None at construction.
+        self._audit_writer.events = self.events
+        await self._audit_writer.append(
+            action,
             actor_type=actor_type,
             actor_id=actor_id,
-            action=action,
-            workflow_instance_id=instance_id,
+            instance_id=instance_id,
             step_id=step_id,
-            detail=stored_detail,
-            projector_version=vaulted_version,
+            detail=detail,
+            entry_id=entry_id,
         )
-        await self.repositories.audit.append(entry)
-        if self.events is not None:
-            await self.events.publish(entry.model_dump(mode="json"))
 
 
 def _ancestors(definition: WorkflowDefinition, target_id: str) -> set[str]:

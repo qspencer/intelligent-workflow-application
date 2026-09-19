@@ -331,7 +331,26 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "12"  # v12: the registry extended from one action to
+PROJECTOR_VERSION = "13"  # v13: two v12 validators corrected against the
+# production data they were written for. Both were caught by running the
+# projector over the live audit table rather than by review, which is the
+# lesson: a rule is a claim about values, and only the values settle it.
+#
+#   - `alert_*.window_seconds` was `_COUNT` (int-only). The thresholds on
+#     `MonitoringConfig` are FLOATS, so every live value was redacted. The
+#     v12 corpus case used an int literal, so the golden guard saw nothing.
+#   - `workflow_completed.steps` was given the context-snapshot node because
+#     `_AUDIT_DETAIL` declares that shape under the same key. Production
+#     stores a step-id LIST there — the same content `step_ids` now holds —
+#     so 6,416 rows read back redacted. A shared NAME is not a shared type.
+#   - `_TS_RE`'s tail bound of 20 rejects a full `isoformat()` with
+#     microseconds and an offset (258 `last_run_at` values). Raised to 26;
+#     the charset and the 40-character total were always the control.
+#
+# Corpus cases now carry the types production stores, not the types that
+# were convenient to type.
+#
+# v12: the registry extended from one action to
 # EIGHTEEN — the engine's own execution trail (step/workflow lifecycle, fork,
 # budget), the five monitoring alerts, and learned-memory recall. Together
 # with `memory_observed` that is 93% of the production audit log by volume,
@@ -463,7 +482,12 @@ PROJECTION_SCHEMA_VERSION = 2  # R6 F3: bumped — the projected STRUCTURE
 _OPAQUE_ID_RE = re.compile(r"^[A-Za-z0-9._:@|/=-]{1,200}$")
 # A SHORT TOKEN: model ids, enum-ish states, hashes. No `@`, no spaces.
 _TOKEN_RE = re.compile(r"^[A-Za-z0-9._:/=-]{1,120}$")
-_TS_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9:.+Z-]{0,20}$")
+# The tail bound was 20, which rejects a full `datetime.isoformat()` with
+# microseconds AND an offset — `2026-09-15T10:49:28.384385+00:00` has a
+# 21-character tail. 258 production `last_run_at` values were redacted by it.
+# The charset (digits and `:.+Z-`) plus the 40-character total is what bounds
+# this; the tail count was never the control.
+_TS_RE = re.compile(r"^[0-9]{4}-[0-9]{2}-[0-9]{2}[T ][0-9:.+Z-]{0,26}$")
 
 _Validator = Callable[[Any], bool]
 
@@ -1385,7 +1409,14 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         # Historical rows only — current code emits `step_ids`. Classified
         # anyway: moving the action onto the registry without this would
         # withdraw it from every entry already stored.
-        "steps": FieldRule(Owner.PROJECTION, _STEPS_SNAPSHOT, True),
+        #
+        # It is a step-id LIST, the same content `step_ids` now holds — NOT
+        # the context snapshot that `_AUDIT_DETAIL.steps` declares. v12 read
+        # the flat schema's node off the shared key name and inherited the
+        # wrong shape, redacting 6,416 stored rows. The lesson is the M1 one
+        # from the other direction: a shared NAME is not a shared type, and
+        # the only way to know was to look at what production stores.
+        "steps": FieldRule(Owner.CONFIG, Seq(_TOKEN), True),
     },
     "workflow_failed": {
         "error": FieldRule(Owner.BUSINESS, _TOKEN, False),
@@ -1434,7 +1465,12 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         "threshold": FieldRule(Owner.CONFIG, _AMOUNT, True),
         "failed": FieldRule(Owner.ENGINE, _COUNT, True),
         "total_terminal": FieldRule(Owner.ENGINE, _COUNT, True),
-        "window_seconds": FieldRule(Owner.CONFIG, _COUNT, True),
+        # `_AMOUNT`, not `_COUNT`: `MonitoringConfig.*_window_seconds` are
+        # FLOATS, so `_COUNT` (int-only, bools excluded) redacted every live
+        # value. v12 shipped with that wrong and the golden did not catch it,
+        # because the corpus case used an int literal. The corpus now uses
+        # the type production actually stores.
+        "window_seconds": FieldRule(Owner.CONFIG, _AMOUNT, True),
     },
     "alert_high_queue_depth": {
         "depth": FieldRule(Owner.ENGINE, _COUNT, True),
@@ -1444,7 +1480,7 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         "tokens": FieldRule(Owner.ENGINE, _COUNT, True),
         "cost_usd": FieldRule(Owner.ENGINE, _AMOUNT, True),
         "threshold_tokens": FieldRule(Owner.CONFIG, _COUNT, True),
-        "window_seconds": FieldRule(Owner.CONFIG, _COUNT, True),
+        "window_seconds": FieldRule(Owner.CONFIG, _AMOUNT, True),
     },
     # --- LEARNED MEMORY, read side. The write side is `memory_observed`.
     "memory_recalled": {

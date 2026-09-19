@@ -25,14 +25,14 @@ from typing import Any
 
 from pydantic import BaseModel
 
+from workflow_platform.audit_writer import AuditWriter, InstanceLessRawAudit
 from workflow_platform.events import EventBus
 from workflow_platform.persistence import (
-    AuditEntry,
     Repositories,
     StepExecutionState,
     WorkflowInstanceState,
 )
-from workflow_platform.persistence.models import _new_id
+from workflow_platform.trace_flip import trace_safe_only_from_env
 
 logger = logging.getLogger(__name__)
 
@@ -65,10 +65,24 @@ class MonitoringService:
         *,
         events: EventBus | None = None,
         config: MonitoringConfig | None = None,
+        audit_writer: AuditWriter | None = None,
     ) -> None:
         self.repositories = repositories
         self.events = events
         self.config = config or MonitoringConfig()
+        # Alerts go through the SHARED chokepoint, not
+        # `repositories.audit.append`. Until 2026-09-19 this service was the
+        # one continuous writer outside it, so its details were stored
+        # unprojected while the read path redacted them — see
+        # `audit_writer` module docstring. Injectable so a caller that
+        # already has a writer (and therefore a vault and a cipher) shares
+        # it; built here otherwise, because the service is constructed in
+        # places that have no engine.
+        self._audit = audit_writer or AuditWriter(
+            repositories,
+            events=events,
+            trace_safe_only=trace_safe_only_from_env(),
+        )
         self._task: asyncio.Task[None] | None = None
         # Created lazily in start(): create_app() is sync and may run under a
         # different (or no) event loop than the app's lifespan — an Event
@@ -173,10 +187,23 @@ class MonitoringService:
             if newest is not None and now - newest < threshold:
                 continue
             self._alerted_stale.add(definition.id)
+            # NO `account`. It is the polled mailbox address, so the v12
+            # ownership registry classifies it withheld — and this alert has
+            # no instance, so there is nowhere to vault what projection would
+            # take. Emitting it wrote a live mailbox address into
+            # `audit_log.detail` in plaintext while the read path correctly
+            # redacted it (1,432 production rows; found 2026-09-19).
+            #
+            # Dropping it costs nothing: `account` is a field of the workflow
+            # DEFINITION that `workflow_id` names, readable under the same
+            # authorization. That is the reviewer's Q1 rule — visibility
+            # elsewhere suffices for the same authoritative value under
+            # equivalent authorization — and here it holds exactly, because
+            # the definition is the authority and this alert was only ever
+            # copying it.
             detail = {
                 "workflow_id": definition.id,
                 "trigger_type": definition.trigger.type,
-                "account": definition.trigger.config.get("account"),
                 "last_run_at": newest.isoformat() if newest else None,
                 "threshold_seconds": self.config.stale_trigger_threshold_seconds,
             }
@@ -285,14 +312,36 @@ class MonitoringService:
     async def _emit_alert(
         self, action: str, detail: dict[str, Any], instance_id: str | None
     ) -> None:
-        entry = AuditEntry(
-            id=_new_id(),
-            actor_type="monitoring",
-            actor_id="monitoring_service",
-            action=action,
-            workflow_instance_id=instance_id,
-            detail=detail,
-        )
-        await self.repositories.audit.append(entry)
-        if self.events is not None:
-            await self.events.publish(entry.model_dump(mode="json"))
+        """Emit one alert through the shared audit chokepoint.
+
+        Four of the five alerts are instance-less, and the vault is
+        instance-scoped, so the writer REFUSES an instance-less detail that
+        projection would strip. That refusal must not stop monitoring —
+        losing the stuck-workflow detector because one alert is
+        misconstructed trades a small problem for a large one — so it is
+        caught and logged. The entry is NOT written: an alert whose raw
+        cannot be vaulted is exactly the one that must not be stored
+        half-projected, with the removed half gone and nothing recording
+        that it existed.
+
+        `exc_info` and the action name make it a fix-the-detail bug report
+        rather than a mystery; `test_an_instance_less_alert_carrying_raw_is_
+        refused_not_projected_away` pins the behaviour.
+        """
+        self._audit.events = self.events
+        try:
+            await self._audit.append(
+                action,
+                actor_type="monitoring",
+                actor_id="monitoring_service",
+                instance_id=instance_id,
+                detail=detail,
+            )
+        except InstanceLessRawAudit:
+            logger.error(
+                "alert %s carries raw with no instance to vault it against; "
+                "the entry was NOT written. Its detail must be made "
+                "projection-lossless (see workflow_platform.audit_writer).",
+                action,
+                exc_info=True,
+            )

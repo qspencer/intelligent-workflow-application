@@ -306,3 +306,146 @@ async def test_stale_email_trigger_alerts_once() -> None:
 
     entries = await repos.audit.list_recent(limit=20)
     assert sum(1 for e in entries if e.action == "alert_stale_trigger") == 2
+
+
+# --- the audit chokepoint (2026-09-19) -------------------------------------
+#
+# The service was the one continuous audit writer outside the engine's
+# projection-and-vault path. The v12 ownership registry made the consequence
+# legible: it classified `alert_stale_trigger.account` withheld, the read
+# path honoured that, and the stored row still held the live mailbox address
+# in plaintext. These pin the fix — and, more usefully, pin the RULE that
+# replaces widening the vault to an org-level space.
+
+
+async def test_an_instance_less_alert_carries_nothing_projection_would_strip() -> None:
+    """THE invariant, stated over the emitters rather than over one field.
+
+    Four of the five alerts have no instance, and the vault is
+    instance-scoped, so there is nowhere to put raw. Instead of growing a
+    second vault space for them, the rule is that their details must be
+    projection-lossless. This asserts it for every alert the service can
+    actually emit, so a future alert that adds a raw field fails here rather
+    than in production.
+    """
+    from workflow_platform.trace_projection import project_audit_detail_at_rest
+
+    repos = in_memory_repositories()
+    now = datetime.now(UTC)
+    # Every check firing at once: stuck + stale + error rate + queue + burn.
+    for _ in range(6):
+        await repos.instances.create(
+            WorkflowInstance(
+                workflow_id="wf",
+                state=WorkflowInstanceState.PENDING,
+                created_at=now,
+            )
+        )
+    await repos.instances.create(
+        WorkflowInstance(
+            workflow_id="wf",
+            state=WorkflowInstanceState.RUNNING,
+            created_at=now - timedelta(minutes=30),
+            started_at=now - timedelta(minutes=30),
+        )
+    )
+    for state in (WorkflowInstanceState.FAILED,) * 3:
+        await repos.instances.create(
+            WorkflowInstance(workflow_id="wf", state=state, created_at=now, completed_at=now)
+        )
+    await repos.definitions.save(_email_definition("stale-mail", "email"))
+
+    service = MonitoringService(repos, config=_config())
+    await service.run_once(now=now)
+
+    entries = await repos.audit.list_recent(limit=50)
+    alerts = [e for e in entries if e.action.startswith("alert_")]
+    assert alerts, "no alerts fired — the fixture no longer exercises the checks"
+    for entry in alerts:
+        if entry.workflow_instance_id is not None:
+            continue
+        projected = project_audit_detail_at_rest(entry.action, entry.detail)
+        assert projected == entry.detail, (
+            f"{entry.action} is instance-less and carries "
+            f"{sorted(set(entry.detail) - set(projected))} that projection removes. "
+            "There is no instance to vault it against, so the detail must not "
+            "carry it — see workflow_platform.audit_writer."
+        )
+
+
+async def test_the_stale_trigger_alert_does_not_carry_the_mailbox_address() -> None:
+    """The specific field this closed. `account` is a property of the
+    workflow DEFINITION that `workflow_id` names, readable under the same
+    authorization, so the alert names the workflow and stops there."""
+    repos = in_memory_repositories()
+    now = datetime.now(UTC)
+    await repos.definitions.save(_email_definition("stale-mail", "email"))
+    service = MonitoringService(repos, config=_config())
+    alerts = await service.run_once(now=now)
+
+    stale = next(a for a in alerts if a["action"] == "alert_stale_trigger")
+    assert "account" not in stale
+    assert stale["workflow_id"] == "stale-mail"
+    entries = await repos.audit.list_recent(limit=20)
+    stored = next(e for e in entries if e.action == "alert_stale_trigger")
+    assert "a@b.c" not in str(stored.detail)
+
+
+async def test_an_instance_less_alert_carrying_raw_is_refused_not_projected_away(
+    monkeypatch: Any,
+) -> None:
+    """The fail-closed half, seen to fail (rule R-b).
+
+    If a future alert does carry raw with no instance, the writer refuses
+    and the entry is not written. The alternative — storing it projected —
+    destroys the raw with nothing recording that it existed, which is the
+    one outcome the whole vault design exists to prevent. Monitoring itself
+    survives: one bad alert may not take the stuck-workflow detector with
+    it.
+    """
+    from workflow_platform.audit_writer import AuditWriter
+
+    repos = in_memory_repositories()
+    service = MonitoringService(
+        repos,
+        config=_config(),
+        audit_writer=AuditWriter(repos, trace_safe_only=True),
+    )
+
+    # `error` is raw by taint under every schema version.
+    await service._emit_alert("alert_stuck_workflow", {"error": "SYNTHETIC exception text"}, None)
+
+    entries = await repos.audit.list_recent(limit=10)
+    assert not entries, "the entry was written despite its raw being unvaultable"
+
+    # And the loop keeps working afterwards.
+    await service._emit_alert("alert_high_queue_depth", {"depth": 7, "threshold": 5}, None)
+    entries = await repos.audit.list_recent(limit=10)
+    assert [e.action for e in entries] == ["alert_high_queue_depth"]
+
+
+async def test_an_alert_WITH_an_instance_vaults_its_raw() -> None:
+    """The other branch: an instance-scoped alert that carries raw is
+    vaulted, not refused. The instance-less rule is a consequence of where
+    the vault is addressed, not a blanket ban on raw in alerts."""
+    from workflow_platform.audit_writer import AuditWriter
+
+    repos = in_memory_repositories()
+    instance = await repos.instances.create(
+        WorkflowInstance(workflow_id="wf", state=WorkflowInstanceState.RUNNING)
+    )
+    service = MonitoringService(
+        repos,
+        config=_config(),
+        audit_writer=AuditWriter(repos, trace_safe_only=True),
+    )
+    await service._emit_alert(
+        "alert_stuck_workflow", {"error": "SYNTHETIC exception text"}, instance.id
+    )
+
+    entries = await repos.audit.list_recent(limit=10)
+    assert len(entries) == 1
+    assert "SYNTHETIC" not in str(entries[0].detail), "raw was stored inline"
+    assert entries[0].projector_version is not None, "no vault pointer on the entry"
+    rows = await repos.raw_trace_vault.list_by_instance(instance.id)
+    assert any("SYNTHETIC" in str(r.payload) for r in rows), "the raw was not vaulted"

@@ -352,8 +352,12 @@ async def test_a_detail_that_loses_NOTHING_is_not_vaulted() -> None:
 #: methods agreeing means nothing when they share a blind spot. Discovery now
 #: keys on the TYPE: a module that constructs an `AuditEntry` is a writer.
 AUDIT_WRITERS: dict[str, str] = {
-    # Chokepoint: vaults raw before appending.
-    "engine/executor.py": "vaulted",
+    # THE chokepoint: projects at rest, vaults what projection would remove,
+    # then appends. The engine and the monitoring service both route here,
+    # so neither constructs an `AuditEntry` any more and neither appears in
+    # this enumeration — `test_C3_the_moved_writers_stay_on_the_chokepoint`
+    # is what keeps that true.
+    "audit_writer.py": "chokepoint",
     # Vaults its own detail (it writes outside the chokepoint). R12 finding 4:
     # it projected `reason`/`context` at rest while vaulting NOTHING, so the
     # model-authored content the escalation exists to convey was destroyed.
@@ -372,11 +376,14 @@ AUDIT_WRITERS: dict[str, str] = {
     "auth/raw_trace_grants.py": "governance-metadata",
     "auth/bootstrap.py": "governance-metadata",
     "trace_rehydrate.py": "governance-metadata",
-    # KNOWN GAP, named rather than hidden: engine-derived alert_* entries
-    # written outside the chokepoint; on production data 100% would lose
-    # something to the final policy.
-    "monitoring/service.py": "UNVAULTED-GAP",
 }
+
+#: Modules moved ONTO the chokepoint, and therefore expected to construct no
+#: `AuditEntry` of their own. Listed explicitly because the discovery scan
+#: can only see writers that exist: a regression here would make a module
+#: silently VANISH from the enumeration, which is the failure mode an
+#: enumeration is least able to notice.
+ON_THE_CHOKEPOINT = ("engine/executor.py", "monitoring/service.py")
 
 
 def _audit_writers(root: pathlib.Path) -> set[str]:
@@ -413,6 +420,37 @@ def test_C3_every_audit_writer_is_classified() -> None:
     )
     stale = set(AUDIT_WRITERS) - actual
     assert not stale, f"AUDIT_WRITERS lists modules that no longer write audit: {sorted(stale)}"
+
+
+def test_C3_the_moved_writers_stay_on_the_chokepoint() -> None:
+    """The counterpart to the enumeration above, and the one it cannot do.
+
+    Discovery lists modules that CONSTRUCT an `AuditEntry`. A module that
+    stops constructing one simply disappears from the list — which is what
+    routing it onto the chokepoint looks like AND what quietly dropping its
+    audit writes looks like. So assert the positive: it holds a writer, and
+    it builds no entry of its own.
+    """
+    root = pathlib.Path("src/workflow_platform")
+    for rel in ON_THE_CHOKEPOINT:
+        src = (root / rel).read_text()
+        tree = ast.parse(src)
+        builds = [
+            n
+            for n in ast.walk(tree)
+            if isinstance(n, ast.Call)
+            and isinstance(n.func, ast.Name)
+            and n.func.id == "AuditEntry"
+        ]
+        assert not builds, (
+            f"{rel} constructs an AuditEntry again at line(s) "
+            f"{[n.lineno for n in builds]} — it must go through AuditWriter, or its "
+            "details are stored unprojected while the read path redacts them."
+        )
+        assert "AuditWriter" in src, (
+            f"{rel} no longer references AuditWriter. If its audit writes moved "
+            "somewhere else, say where; if they were dropped, that is the bug."
+        )
 
 
 def test_C3_discovery_finds_a_REAL_new_call_site(tmp_path: pathlib.Path) -> None:
@@ -471,10 +509,14 @@ def test_C3_the_old_receiver_name_scanner_would_have_MISSED_it(
     )
 
 
-def test_C3_the_known_gap_is_recorded_not_forgotten() -> None:
-    """The monitoring loop is unvaulted. Pinned so closing it is a deliberate
-    edit to this test, and so the gap cannot quietly become untrue."""
-    assert AUDIT_WRITERS["monitoring/service.py"] == "UNVAULTED-GAP"
+def test_C3_the_gap_that_was_recorded_is_CLOSED() -> None:
+    """Was: "the monitoring loop is unvaulted", pinned so closing it had to
+    be a deliberate edit. Closed 2026-09-19 — the service routes through
+    `AuditWriter`. Kept as the inverse assertion so the gap cannot reopen
+    under its old name."""
+    assert "monitoring/service.py" not in AUDIT_WRITERS
+    assert "monitoring/service.py" in ON_THE_CHOKEPOINT
+    assert "UNVAULTED-GAP" not in AUDIT_WRITERS.values()
 
 
 async def _echo_fn(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
@@ -912,3 +954,93 @@ async def test_reseal_replaces_the_payload_in_place() -> None:
     assert not await repos.raw_trace_vault.reseal(
         "no-such-row", payload={}, content_commitment="c"
     ), "reseal of an absent row must report False, not raise"
+
+
+async def test_INVARIANT_a_disclosed_field_survives_the_values_the_engine_really_emits() -> None:
+    """The inverse of the invariant above, and the defect class v12 shipped.
+
+    That one asks "is anything removed without being vaulted?" — destruction.
+    This asks "is anything removed that the registry SAID it would release?"
+    — a rule that does not match its values. Both v13 corrections were of
+    this kind and neither was visible in review:
+
+      - `window_seconds` was `_COUNT`; the config field is a float, so every
+        live value redacted.
+      - `workflow_completed.steps` was given the context-snapshot node
+        because the flat schema declares that shape under the same key;
+        production stores a step-id list.
+
+    A validator is a claim about VALUES, so only values settle it. This
+    drives a real run and checks the claim against what the engine actually
+    produced.
+    """
+    from workflow_platform.trace_projection import (
+        _REDACTED_FIELD,
+        AUDIT_FIELD_RULES,
+        project_audit_detail_at_rest,
+    )
+    from workflow_platform.workflow import load_definition
+
+    seen: list[tuple[str, dict[str, Any]]] = []
+
+    class _CapturingEngine(WorkflowEngine):
+        async def _audit(
+            self, action: str, *, detail: dict[str, Any] | None = None, **kw: Any
+        ) -> None:
+            seen.append((action, dict(detail or {})))
+            await super()._audit(action, detail=detail, **kw)
+
+    registry = FunctionRegistry()
+    registry.register("echo", _echo_fn)
+    engine = _CapturingEngine(
+        repositories=in_memory_repositories(),
+        functions=registry,
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+        trace_safe_only=True,
+    )
+    definition = load_definition(
+        {
+            "id": "wf",
+            "name": "wf",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {"id": "a", "type": "deterministic", "function": "echo", "config": {}},
+                {"id": "b", "type": "deterministic", "function": "echo", "config": {}},
+            ],
+            "edges": [{"from": "a", "to": "b"}],
+        }
+    )
+    await engine.run(definition, trigger_payload={"secret": "SYNTHETIC-RAW"})
+
+    covered = {action for action, _ in seen if action in AUDIT_FIELD_RULES}
+    assert covered >= {
+        "step_started",
+        "step_completed",
+        "workflow_started",
+        "workflow_completed",
+    }, (
+        f"the run no longer reaches the registry's lifecycle actions (saw {sorted(covered)}), "
+        "so this check has stopped testing anything"
+    )
+
+    broken: list[str] = []
+    for action, raw in seen:
+        rules = AUDIT_FIELD_RULES.get(action)
+        if rules is None:
+            continue
+        projected = project_audit_detail_at_rest(action, raw)
+        for field, value in raw.items():
+            rule = rules.get(field)
+            if rule is None or not rule.disclose:
+                continue
+            # Containers are projected child-by-child, so inequality there is
+            # the nested schema working. Only a WHOLE-value redaction means
+            # the validator rejected what the engine produced.
+            if projected.get(field) == _REDACTED_FIELD and value != _REDACTED_FIELD:
+                broken.append(f"{action}.{field} = {value!r} ({type(value).__name__})")
+    assert not broken, (
+        "the registry declares these fields disclosable and its validators reject the "
+        f"values the engine actually emits: {broken}"
+    )

@@ -384,7 +384,10 @@ CORPUS: list[tuple[Any, ...]] = [
     (
         "at_rest.registry_workflow_completed",
         "audit_detail",
-        {"step_ids": ["fetch", "classify"], "steps": {"classify": {"cost_usd": 0.01}}},
+        # `steps` is a step-id LIST in production, not a context snapshot —
+        # the shape v12 got wrong by reading the flat schema's node off the
+        # shared key name.
+        {"step_ids": ["fetch", "classify"], "steps": ["fetch", "classify"]},
         "workflow_completed",
     ),
     (
@@ -417,7 +420,7 @@ CORPUS: list[tuple[Any, ...]] = [
             "instance_id": "inst-1",
             "workflow_id": "email-triage",
             "running_for_seconds": 3600.5,
-            "threshold_seconds": 900,
+            "threshold_seconds": 900.0,
         },
         "alert_stuck_workflow",
     ),
@@ -429,8 +432,11 @@ CORPUS: list[tuple[Any, ...]] = [
             "trigger_type": "email",
             # Operator-authored AND a mailbox identity: withheld.
             "account": "inbox@example.com",
-            "last_run_at": "2026-09-01T00:00:00Z",
-            "threshold_seconds": 86400,
+            # A full `datetime.isoformat()` — microseconds AND offset. The
+            # v12 case used a short `...Z` form, which is why `_TS_RE`'s tail
+            # bound went unnoticed while 258 production values were redacted.
+            "last_run_at": "2026-09-15T10:49:28.384385+00:00",
+            "threshold_seconds": 86400.0,
         },
         "alert_stale_trigger",
     ),
@@ -442,7 +448,9 @@ CORPUS: list[tuple[Any, ...]] = [
             "threshold": 0.2,
             "failed": 21,
             "total_terminal": 50,
-            "window_seconds": 900,
+            # A FLOAT: `MonitoringConfig.error_rate_window_seconds` is one,
+            # and the v12 int literal is what hid `_COUNT` rejecting it.
+            "window_seconds": 900.0,
         },
         "alert_high_error_rate",
     ),
