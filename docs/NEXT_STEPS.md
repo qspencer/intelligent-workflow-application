@@ -59,39 +59,50 @@ Also landed, outside the epic:
 
 **Immediate priorities, in order:**
 
-1. **Round 12 verdict** — package sent 2026-09-18 (`b60e9da`), scope =
-   audit-detail vaulting + the at-rest audit tightening. First round whose
-   subject is not the F1/F5 projection primitive; that line closed after four
-   consecutive zero-defect rounds. **Everything touching the trace surface is
-   held until it returns.**
-2. ~~The widening decision~~ — **DONE 2026-09-18, projector v9.** 19
-   engine-execution fields declared; fully-withheld entries 39% → 1%, vault
-   rate 70.3% → 61%. `user_id`, `trigger`, `output` and `emitter` stay
-   withheld, each for a stated reason. Decided on consistency: a grant-less
-   reader already gets `workflow_id` on the instance surface.
-3. **The backfill** (`G-Trace-Backfill` below) — unblocked now the tightening
-   has landed, still an operator decision because it rewrites production rows
-   one-way. The pile is static, so waiting costs only the release gate
-   staying un-certifiable.
-4. **Catalog snapshot/digest** — `docs/TRACE_AUDIT_VAULT_DESIGN.md` Part 2,
-   genuinely still a design question with Decision 3 unmade. Needs schema;
-   queued behind the backfill because both touch persistence.
-5. **`monitoring/service.py` audit vaulting** — the one audit writer outside
-   the engine chokepoint; on production data it would lose something 100% of
-   the time. Pinned by `test_C3_the_known_gap_is_recorded_not_forgotten` so
-   it cannot go quiet, and disclosed in the round-12 sidecar.
-6. **G18 model sweep** — a pure spend decision (~$0.70/model Haiku-class,
-   ~$2 Sonnet, ~$3.50 Opus over the 139-message corpus); the harness has been
-   ready since 2026-07-31.
+1. **Round 15 verdict** — package sent 2026-09-19 (`80db6ef`). Its §1 puts
+   two of the reviewer's own round-14 answers back as questions rather than
+   guessing: how far the per-`(action, field)` registry and typed
+   constructors should go, and what an opaque subject identity for
+   `user_id` actually implies. **Everything on the trace surface is held
+   until it returns.**
+2. **The backfill** — `verify_zero_raw` reports 10,110 findings in a capped
+   2,000-instance sample. One-way, operator's call, not started. Its stated
+   precondition (the at-rest tightening) has been met since 2026-09-18.
+3. **`monitoring/service.py` vaulting** — the one audit writer outside a
+   vaulting path, pinned by a test. Blocked on a decision, not on work: its
+   `alert_*` entries are frequently instance-less and the vault is
+   instance-scoped, so closing it needs somewhere for instance-less raw to
+   live.
+4. **Catalog snapshot/digest** — `TRACE_AUDIT_VAULT_DESIGN.md` Part 2, still
+   a design question with Decision 3 unmade.
+5. **G18 model sweep** — a spend decision (~$0.70/model Haiku-class, ~$2
+   Sonnet, ~$3.50 Opus over the 139-message corpus).
 
-**Shipped 2026-09-18, after this morning's refresh:** audit-detail vaulting
-(`RawTraceKind.AUDIT_DETAIL`, `audit_entry_id`, Alembic `0012` applied to
-production, the reordered `_audit` chokepoint); the at-rest audit tightening
-(`project_audit_detail_at_rest` is now the read path, `PROJECTOR_VERSION`
-6 → 8); the trace flip read from one place instead of eight; and four new
-detector suites. Five defects of our own were found and fixed along the way —
-two by the tests, three by the pre-package protocol — and all five are
-disclosed in the round-12 sidecar rather than left for the reviewer.
+**Shipped 2026-09-18:** audit-detail vaulting (`RawTraceKind.AUDIT_DETAIL`,
+`audit_entry_id`, Alembic `0012`, the reordered `_audit` chokepoint); the
+at-rest tightening, making at rest equal the read path (v6 → v8); the trace
+flip and vault master key read from ONE place rather than eight; the AEAD
+binding of audit ciphertext to its entry, with `tools/reseal_audit_vault.py`
+migrating the rows sealed before it (Alembic `0013` for the audit projection
+stamp).
+
+**Shipped 2026-09-19:** the at-rest widening corrected by SOURCE after the
+reviewer demonstrated `evidence_ref` carrying input-derived content past a
+`_TOKEN` validator (projector v9 → v10; `evidence_ref` and `event_type`
+withdrawn, classifications became closed enums); audit recovery on every
+read surface that serves audit details (two HTTP endpoints, the global
+list, escalations, the websocket) with the release outcome recorded from
+what was actually retrieved; idempotent audit append in both repositories,
+atomic in Postgres; vault lookup and decryption failures normalised into
+recovery outcomes that complete the access record; `scripts/gate.sh`, the
+five gates under one exit code.
+
+**Process:** mechanism **M9 — a path built from one end** named in the
+findings ledger after eight instances across rounds 12–14, with its
+detector as protocol **step 0** (a question asked before building, because
+every detector we write enumerates over things that EXIST). Rule **R-f**
+added after round 14: an analogy to an existing precedent is not evidence
+of source.
 
 The manual-testing backlog that originally motivated this doc remains
 closed; the local-loop description below still holds.
