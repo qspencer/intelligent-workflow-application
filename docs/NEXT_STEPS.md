@@ -59,24 +59,41 @@ Also landed, outside the epic:
 
 **Immediate priorities, in order:**
 
-1. **Round 15 verdict** — package sent 2026-09-19 (`80db6ef`). Its §1 puts
-   two of the reviewer's own round-14 answers back as questions rather than
-   guessing: how far the per-`(action, field)` registry and typed
-   constructors should go, and what an opaque subject identity for
-   `user_id` actually implies. **Everything on the trace surface is held
-   until it returns.**
-2. **The backfill** — `verify_zero_raw` reports 10,110 findings in a capped
-   2,000-instance sample. One-way, operator's call, not started. Its stated
-   precondition (the at-rest tightening) has been met since 2026-09-18.
-3. **`monitoring/service.py` vaulting** — the one audit writer outside a
-   vaulting path, pinned by a test. Blocked on a decision, not on work: its
-   `alert_*` entries are frequently instance-less and the vault is
-   instance-scoped, so closing it needs somewhere for instance-less raw to
-   live.
-4. **Catalog snapshot/digest** — `TRACE_AUDIT_VAULT_DESIGN.md` Part 2, still
-   a design question with Decision 3 unmade.
-5. **G18 model sweep** — a spend decision (~$0.70/model Haiku-class, ~$2
+1. ~~Round 18 verdict~~ — **ACCEPTED 2026-09-19. The F1/F5 trace review
+   line is CLOSED** after 18 rounds. The trace surface is no longer held;
+   see the ledger for the convergence accounting and what carries forward.
+2. **G-Trace-Ownership-Registry** — the per-`(action, field)` classification
+   the reviewer specified. **M**, genuinely incremental: the first action's
+   registry entry plus its typed constructor is a useful unit on its own.
+   This is the first substantive BUILD since round 11 rather than a repair.
+3. **The backfill** — `verify_zero_raw` reports 10,110 findings in a capped
+   2,000-instance sample. One-way, operator's call. Its precondition (the
+   at-rest tightening) has been met since 2026-09-18, and the pile is
+   static, so waiting costs only the release gate staying un-certifiable.
+4. **G-Trace-Agreement** — the version-aware trigger projection-agreement
+   contract. **S**, and the two existing precedents make it mostly
+   mechanical.
+5. **`monitoring/service.py` vaulting** — the one audit writer outside a
+   vaulting path. Blocked on a DECISION, not on work: its `alert_*` entries
+   are frequently instance-less and the vault is instance-scoped.
+6. **G-Trace-Subject-Identity** — **L**, sequenced after the registry
+   because it needs that classification. Contains an identity-lifecycle
+   decision (rename / deletion / org transfer) and a migration.
+7. **G18 model sweep** — a spend decision (~$0.70/model Haiku-class, ~$2
    Sonnet, ~$3.50 Opus over the 139-message corpus).
+
+Also outstanding: **one orphaned vault row** with a NULL `audit_entry_id`,
+harmless and sweepable with the backfill.
+
+**Shipped 2026-09-19 (rounds 15–18):** audit recovery wired through every
+surface that serves audit details and every value they expose — the two
+audit endpoints, the global list, escalations, the websocket, instance
+detail and explain, covering output, error and trigger; failures at lookup,
+opening and release-recording all normalised into recovery outcomes that
+complete their access records; idempotent audit append in both
+repositories, atomic in Postgres; the widening reclassified by SOURCE
+(projector v10). Plus `scripts/gate.sh`, and a PDF fixture fix that removed
+a test which had failed in the reviewer's environment every round since 12.
 
 **Shipped 2026-09-18:** audit-detail vaulting (`RawTraceKind.AUDIT_DETAIL`,
 `audit_entry_id`, Alembic `0012`, the reordered `_audit` chokepoint); the
