@@ -2071,7 +2071,10 @@ def build_router(
             if a.step_id == step_id
         ]
         raw_ok = await _raw_reader_for_org(user, instance.org_id)
-        exp_kinds = ("tool_calls", "output_text")
+        # R17 finding: `error` was recovered but never declared, so the
+        # release decision could not name it as withheld. A surface must
+        # declare every kind it tries to release.
+        exp_kinds = ("tool_calls", "output_text", "error")
         # F8: attempt-audit before the vault fetch; the release decision lands
         # after and reflects whether the raw actually came back.
         request_id, reason = await begin_raw_release(
@@ -2131,7 +2134,16 @@ def build_router(
                 merged = output
                 complete = False
             else:
-                complete = not has_redaction_marker(merged)
+                # R17 finding: this looked only at `merged`. `merge_error`
+                # returns the stored MARKER when its vault row is absent —
+                # deliberately, so the caller can report `partial` — so a
+                # missing error record left `complete` True and the response
+                # claimed a full release while `error` was still the marker.
+                # A timeout was reported correctly because it raises; an
+                # absent record does not.
+                complete = not has_redaction_marker(merged) and not has_redaction_marker(
+                    merged_error
+                )
             audit_ok, reason = await commit_raw_release(
                 repositories,
                 request_id=request_id,

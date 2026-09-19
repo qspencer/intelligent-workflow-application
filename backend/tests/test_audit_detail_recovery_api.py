@@ -1019,3 +1019,80 @@ async def test_explain_SUCCESS_returns_the_recovered_ERROR(
         f"raw_included is true but error is {body['error']!r} — the stored marker, "
         "not the vaulted raw"
     )
+
+
+async def test_explain_a_MISSING_error_record_is_not_reported_as_released(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R17 finding: the recovered error was wired into the RESPONSE but not
+    into the completeness check.
+
+    `merge_error` returns the stored marker when its vault row is absent —
+    deliberately, so the caller can report `partial`. `explain_step`'s
+    `complete` looked only at `merged` (the step output), so a missing error
+    record produced: `error` = the marker, `raw_included: true`, outcome
+    `released`, and no explanation. A timeout was reported correctly; an
+    absent record was not.
+    """
+    from workflow_platform.persistence.models import RawTraceKind
+    from workflow_platform.workflow import load_definition
+
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    repos = in_memory_repositories()
+
+    async def boom(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
+        raise RuntimeError("SYNTHETIC failure detail from the step")
+
+    registry = FunctionRegistry()
+    registry.register("boom", boom)
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=registry,
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+        trace_safe_only=True,
+    )
+    instance = await engine.run(
+        load_definition(
+            {
+                "id": "wf",
+                "name": "wf",
+                "trigger": {"type": "manual"},
+                "steps": [{"id": "a", "type": "deterministic", "function": "boom"}],
+                "edges": [],
+            }
+        ),
+        trigger_payload={},
+    )
+    await repos.users.save(User(iss="dev", sub="root", org_id="default", roles=["Administrator"]))
+    await _grant_platform_wide(repos, "root")
+
+    # Remove ONLY the error record. The step output stays recoverable, so
+    # the output-based completeness check still says "complete".
+    store: Any = repos.raw_trace_vault
+    for r in await store.list_by_instance(instance.id):
+        if r.kind is RawTraceKind.ERROR:
+            store._items.pop(r.id, None)
+            store._by_key.pop(r.idempotency_key, None)
+
+    client = TestClient(create_app(repositories=repos, engine=engine))
+    body = client.get(
+        f"/api/workflow-instances/{instance.id}/steps/a/explain", headers=_ADMIN
+    ).json()
+
+    assert body["raw_included"] is False, (
+        f"a missing error record was reported as a full release: {body}"
+    )
+    decided = [
+        e
+        for e in await repos.audit.list_by_instance(instance.id)
+        if e.action == "raw_trace_release_decided" and e.detail.get("surface") == "explain"
+    ]
+    assert decided, "no release decision recorded"
+    assert not any(str(e.detail.get("outcome")) == "released" for e in decided), (
+        f"the outcome claims a full release: {[e.detail.get('outcome') for e in decided]}"
+    )
+    assert "error" in str(decided[-1].detail.get("withheld_kinds")), (
+        f"`error` is not declared among this surface's kinds: {decided[-1].detail}"
+    )
