@@ -915,6 +915,54 @@ provenance.** The credible paths are (a) build §1.4a provenance + a positive
 B1 behind the first real external tenant. "Patch the six" is NOT a third option;
 it will fail a seventh review the same way. Recommendation: **(b)**.
 
+### G-Trace-Agreement — trigger projection-agreement contract (reviewer-named, 2026-09-19)
+
+**Named by the external reviewer in the round-15 return, as a separately
+defined follow-up rather than a finding.** Asked whether triggers should
+have agreement checking; the answer was *"yes — trigger recovery should
+have an explicit, version-aware projection-agreement contract. A redaction
+marker helps identify missing data but does not establish agreement."*
+
+Today `rehydrate_trigger` does NO agreement check. Step outputs and audit
+details both re-project the fetched raw under the RECORDED projector
+version and require it to reproduce what is stored (`ok` / `mismatch` /
+`unsupported`); triggers only check whether a `_redacted` marker is
+present, which detects absence but not disagreement — a vault object that
+does not belong to the row would be accepted.
+
+Shape, by analogy with the two that exist: a
+`verify_trigger_projection_agreement(raw, stored_safe, recorded_version)`
+sharing `_version_reproducible`, with the instance row's
+`projector_version` as the recorded version, and the same rule that an
+older version reports `unsupported` rather than reading as corrupt
+(criterion 17). Effort: **S**. The two precedents make this mostly
+mechanical; the open part is which stamp is authoritative for a trigger,
+since it is instance-level rather than per-attempt.
+
+---
+
+### G-Trace-Ownership-Registry — per-(action, field) classification (reviewer-endorsed)
+
+**Reviewer's answer to round-14 Q2, reaffirmed in round 15 as "a useful
+follow-up; its absence is not an additional finding".** v10 did the
+closed-enum half; the registry itself is unbuilt.
+
+Their words: *"couple it with checks at the writers: canonical IDs from
+records, closed enums for classifications, and measurements from the
+components that compute them. A small action-specific schema registry and
+typed constructors should suffice. Ownership labels alone do not establish
+source."*
+
+Three questions were put back to them in the round-15 sidecar §1a and are
+unanswered: whether the registry is projection-side or writer-side; whether
+extending `Owner` to `audit_detail` (the only one of five asset kinds
+without ownership typing) is the shape intended; and what "canonical from a
+record" means in a checkable way. **Do not start before those return** — the
+difference between the projection-side and writer-side readings is roughly
+a day versus every `_audit` call site.
+
+---
+
 ### G-Trace-Backfill — pre-existing raw at rest, and why the pile kept growing (2026-09-18)
 
 **Needs an operator decision; not started.**

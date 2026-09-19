@@ -98,6 +98,10 @@ with no ownership typing, so nothing forced a producer to be stated per
 field.
 
 **The widening landed 2026-09-18 (operator decision), projector v9.**
+*(Superseded by v10 — see the ANSWERED block above: `evidence_ref` and
+`event_type` were withdrawn, leaving 17, and the classifications became
+closed enums. The v9 account is kept because it is what the round-14
+package argued.)*
 19 engine-execution fields declared as `_TOKEN` / `_COUNT` / `_AMOUNT` —
 never `_ID`, per the v8 defect. Fully-withheld entries fall **39% → 1%** on
 the production sample, and the vault rate falls **70.3% → 61%** because

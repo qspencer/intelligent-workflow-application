@@ -793,3 +793,50 @@ async def test_trigger_recovery_completes_its_access_record_on_failure(
         "the completion does not carry the matching request id"
     )
     assert any(str(e.detail.get("outcome")) == "retrieval_failed" for e in completed)
+
+
+async def test_explain_step_lookup_failure_completes_its_decision(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R16 self-audit: the same defect as R15 finding 1, on the explain
+    surface the reviewer did not test.
+
+    `explain_step` calls `merge_output` between `begin_raw_release` and
+    `commit_raw_release` and caught nothing, so a lookup timeout became HTTP
+    500 with the attempt recorded and no decision. Found by enumerating the
+    CALLERS of the recovery helpers rather than the helpers (ledger R-g).
+    """
+    client, repos, iid = await _instance_with_vaulted_output(monkeypatch)
+    steps = await repos.steps.list_by_instance(iid)
+    assert steps, "premise: the run produced a step"
+    sid = steps[0].step_id
+    assert (
+        client.get(f"/api/workflow-instances/{iid}/steps/{sid}/explain", headers=_ADMIN).status_code
+        == 200
+    )
+    before = len(
+        [
+            e
+            for e in await repos.audit.list_by_instance(iid)
+            if e.action == "raw_trace_release_decided"
+        ]
+    )
+
+    async def timeout(_key: str) -> Any:
+        raise TimeoutError("vault repository timed out")
+
+    repos.raw_trace_vault.get_by_idempotency_key = timeout
+
+    resp = client.get(f"/api/workflow-instances/{iid}/steps/{sid}/explain", headers=_ADMIN)
+    assert resp.status_code == 200, f"a lookup timeout produced HTTP {resp.status_code}"
+    assert "SYNTHETIC" not in resp.text
+
+    decided = [
+        e
+        for e in await repos.audit.list_by_instance(iid)
+        if e.action == "raw_trace_release_decided"
+    ][before:]
+    assert decided, "explain recorded an access attempt but no release decision"
+    assert not any(str(e.detail.get("outcome")) == "released" for e in decided), (
+        f"explain claims a release it did not make: {[e.detail.get('outcome') for e in decided]}"
+    )

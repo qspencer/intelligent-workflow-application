@@ -2092,14 +2092,28 @@ def build_router(
         raw_tcs: list[Any] = []
         released = False
         if request_id is not None:
-            merged = await rehydrator.merge_output(
-                org_id=instance.org_id,
-                instance_id=instance_id,
-                step_attempt_id=exe.id,
-                safe_output=output,
-                projector_version=exe.projector_version,
-            )
-            complete = not has_redaction_marker(merged)
+            # R16 self-audit: the SAME defect R15 finding 1 described, on a
+            # surface the reviewer did not test. `merge_output` raises
+            # `RawTraceUnavailable` on a lookup timeout or an undecryptable
+            # payload, and nothing here caught it — HTTP 500 between
+            # `begin_raw_release` and `commit_raw_release`, so the attempt
+            # was recorded and the decision never was. Found by enumerating
+            # the CALLERS of the recovery helpers rather than the helpers
+            # themselves (ledger R-g).
+            try:
+                merged = await rehydrator.merge_output(
+                    org_id=instance.org_id,
+                    instance_id=instance_id,
+                    step_attempt_id=exe.id,
+                    safe_output=output,
+                    projector_version=exe.projector_version,
+                )
+            except RawTraceUnavailable as exc:
+                logger.warning("explain recovery failed: %s", exc)
+                merged = output
+                complete = False
+            else:
+                complete = not has_redaction_marker(merged)
             audit_ok, reason = await commit_raw_release(
                 repositories,
                 request_id=request_id,
