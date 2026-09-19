@@ -238,6 +238,31 @@ CORPUS: list[tuple[Any, ...]] = [
         },
         "memory_observed",
     ),
+    # v10 (R14 F1): source, not shape. The corpus must reach the fields the
+    # widening WITHDREW, or the guard cannot see them being re-declared.
+    (
+        "at_rest.input_derived_reference_withheld",
+        "audit_detail",
+        {
+            "evidence_ref": "SYNTHETIC-from-the-trigger",
+            "event_type": "SYNTHETIC-author-controlled",
+            "text_hash": "sha256:abc123",
+            "facts": 2,
+        },
+        "memory_observed",
+    ),
+    (
+        "at_rest.classifications_are_closed_enums",
+        "audit_detail",
+        {"author": "third_party", "derived_from": "system"},
+        "memory_observed",
+    ),
+    (
+        "at_rest.forged_classification_refused",
+        "audit_detail",
+        {"author": "SYNTHETIC-not-an-author", "derived_from": "also-not-one"},
+        "memory_observed",
+    ),
     (
         "at_rest.user_id_stays_withheld",
         "audit_detail",

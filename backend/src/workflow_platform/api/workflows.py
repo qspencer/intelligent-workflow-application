@@ -1477,8 +1477,16 @@ def build_router(
             if entry.projector_version is None:
                 # Never written as a projection, so the stored detail IS the
                 # complete detail and the reader already has it. That counts
-                # as COMPLETE, not as "no recovery attempted" — reporting it
-                # as withheld would understate what the reader received.
+                # as COMPLETE, not as "no recovery attempted".
+                #
+                # R14 finding 3: it was added to `recovered_ids` but did NOT
+                # increment `recovered`, so a mixed response — one complete
+                # inline entry, one unavailable vaulted entry — returned the
+                # first row's full content with `raw_included: true` while
+                # the request outcome said `retrieval_failed` with
+                # `released_kinds: []`. The row-level and request-level
+                # accounts contradicted each other about the same response.
+                recovered += 1
                 recovered_ids.add(entry.id)
                 restored.append(entry)
                 continue
@@ -1758,7 +1766,15 @@ def build_router(
                 "resolved": e.id in resolved_ids,
                 # PER ROW, from what was actually recovered for THIS entry.
                 "raw_included": e.id in recovered_ids,
-                **({"redaction_reason": reason_code} if reason_code else {}),
+                # R14 finding 3: the request-level `reason_code` was attached
+                # to EVERY row, so a successfully returned escalation carried
+                # a failure explanation. A row that got its raw needs no
+                # explanation; one that did not gets the request's.
+                **(
+                    {"redaction_reason": reason_code}
+                    if reason_code and e.id not in recovered_ids
+                    else {}
+                ),
             }
             for e in rows
         ]

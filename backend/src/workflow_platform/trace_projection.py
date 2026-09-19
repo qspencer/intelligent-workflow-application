@@ -316,7 +316,21 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "9"  # v9: the AT-REST WIDENING (operator decision,
+PROJECTOR_VERSION = "10"  # v10: the widening, CORRECTED by source (R14 F1).
+# v9 declared 19 fields by SHAPE and we argued content could not survive the
+# validators. The reviewer disproved it: `evidence_ref` is resolved from the
+# workflow CONTEXT, so a trigger field became a token-shaped value released
+# to a reader with no grant — while the same value was withheld in the
+# stored trigger. Shape bounds DAMAGE, not PROVENANCE.
+#
+# v10 keeps only fields whose SOURCE is established — canonical ids from
+# records, hashes and counts computed by the emitting component — turns the
+# classifications into CLOSED ENUMS, and withdraws `evidence_ref` (input-
+# derived) and `event_type` (free author-controlled string). A narrower
+# projection is a changed projection, so the version moves rather than v9
+# being edited: historical version meanings stay intact.
+#
+# v9: the AT-REST WIDENING (operator decision,
 # 2026-09-18). v8 made at rest equal the read path and 39% of audit entries
 # then withheld EVERY field, because `_AUDIT_DETAIL` was written for
 # governance entries and never classified the engine-EXECUTION fields.
@@ -741,12 +755,32 @@ _AUDIT_DETAIL = Obj(
         # thing, so it gets its own key rather than a union node.
         "step_ids": Seq(_TOKEN),
         "model": _TOKEN,
-        "event_type": _TOKEN,
-        "author": _TOKEN,
+        # CLOSED ENUMS, not tokens. `author`/`derived_from` are
+        # `Literal["user","third_party","system"]` at the writer, so they can
+        # be validated against the set rather than accepted for being short.
+        # R14 finding 1: "ownership labels alone do not establish source" —
+        # the validator has to encode the closed set.
+        "author": Leaf(_enum("user", "third_party", "system")),
+        "derived_from": Leaf(_enum("user", "third_party", "system")),
+        # ENGINE-COMPUTED: both are `"sha256:" + sha256(...)` inside the
+        # service that emits them. No caller supplies them.
         "text_hash": _TOKEN,
         "context_hash": _TOKEN,
-        "evidence_ref": _TOKEN,
-        "derived_from": _TOKEN,
+        #
+        # WITHDRAWN by R14 finding 1 — declared in v9, removed in v10:
+        #
+        #   `evidence_ref` — resolved from the workflow CONTEXT via
+        #   `ObservationSpec.ref_from`, a YAML-configured dotted path, so
+        #   whatever the TRIGGER carries there becomes its value. It passes
+        #   `_TOKEN`, and the reviewer demonstrated it reaching a reader with
+        #   no grant while the same value was withheld in the stored trigger.
+        #   Input-derived: withheld until there is an explicit disclosure
+        #   policy, and a public reference should be built from an
+        #   authoritative record instead.
+        #
+        #   `event_type` — a free `str` on the spec (default "chat"), so it is
+        #   author-controlled, and in a SCAFFOLDED workflow the author is the
+        #   model. Not a closed set, so not releasable on shape.
         "cost_usd": _AMOUNT,
         "threshold_seconds": _AMOUNT,
         "running_for_seconds": _AMOUNT,

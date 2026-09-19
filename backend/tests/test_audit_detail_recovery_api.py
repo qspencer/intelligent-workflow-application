@@ -498,3 +498,84 @@ async def test_an_undecryptable_record_completes_the_release_audit(
     assert any(str(e.detail.get("outcome")) == "retrieval_failed" for e in completed), (
         f"no completion says retrieval_failed: {[e.detail.get('outcome') for e in completed]}"
     )
+
+
+async def test_a_MIXED_response_reports_partial_and_explains_per_row(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R14 finding 3.
+
+    One complete inline escalation plus one unavailable vaulted escalation
+    gave: the first row's full content with `raw_included: true`, a request
+    outcome of `retrieval_failed` with `released_kinds: []`, and a failure
+    explanation attached even to the row that succeeded. The row-level and
+    request-level accounts contradicted each other about one response.
+    """
+    from workflow_platform.persistence.models import AuditEntry, RawTraceKind
+    from workflow_platform.tools.base import ToolContext
+    from workflow_platform.tools.escalation import RequestHumanReviewTool
+
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    monkeypatch.setenv("WORKFLOW_PLATFORM_TRACE_SAFE_ONLY", "1")
+    repos = in_memory_repositories()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=FunctionRegistry(),
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+        trace_safe_only=True,
+    )
+    instance = await repos.instances.create(
+        WorkflowInstance(workflow_id="wf", org_id="default", state=WorkflowInstanceState.RUNNING)
+    )
+
+    # (a) an INLINE-complete escalation: never projected, so no stamp.
+    await repos.audit.append(
+        AuditEntry(
+            actor_type="engine",
+            actor_id="agent:act",
+            action="escalation_requested",
+            workflow_instance_id=instance.id,
+            detail={"reason": "INLINE-REASON", "context": {"body": "INLINE"}},
+        )
+    )
+    # (b) a VAULTED escalation whose row is then destroyed.
+    tool = RequestHumanReviewTool(repos.audit, repositories=repos)
+    assert (
+        await tool.execute(
+            {"reason": "VAULTED-REASON", "context": {}},
+            ToolContext(world=mock_world(), agent_id="act", workflow_instance_id=instance.id),
+        )
+    ).error is None
+    store: Any = repos.raw_trace_vault
+    for r in await store.list_by_instance(instance.id):
+        if r.kind is RawTraceKind.AUDIT_DETAIL:
+            store._items.pop(r.id, None)
+            store._by_key.pop(r.idempotency_key, None)
+
+    await repos.users.save(User(iss="dev", sub="root", org_id="default", roles=["Administrator"]))
+    await _grant_platform_wide(repos, "root")
+    client = TestClient(create_app(repositories=repos, engine=engine))
+    rows = client.get("/api/escalations", headers=_ADMIN).json()
+    assert len(rows) == 2, f"expected both escalations, got {len(rows)}"
+
+    inline = next(r for r in rows if r["raw_included"])
+    withheld_row = next(r for r in rows if not r["raw_included"])
+    assert inline["reason"] == "INLINE-REASON"
+    assert "redaction_reason" not in inline, "a row that WAS released carries a failure explanation"
+    assert withheld_row["reason"] != "VAULTED-REASON"
+
+    # The escalations surface records its decision with instance_id=None
+    # (the list spans instances), so query the recent log by surface.
+    decided = [
+        e
+        for e in await repos.audit.list_recent(limit=200)
+        if e.action == "raw_trace_release_decided" and e.detail.get("surface") == "escalation"
+    ]
+    assert decided, "no release decision recorded"
+    outcomes = {str(e.detail.get("outcome")) for e in decided}
+    assert outcomes == {"partial"}, (
+        f"a mixed response must report partial, not {outcomes} — one entry was "
+        "returned complete and one could not be retrieved"
+    )

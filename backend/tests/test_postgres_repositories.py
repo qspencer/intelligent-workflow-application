@@ -251,3 +251,41 @@ async def test_audit_append_is_idempotent_against_a_REAL_database(
 
     with pytest.raises(AuditConflict, match="different content"):
         await repos.audit.append(entry.model_copy(update={"detail": {"tool": "other"}}))
+
+
+@skip_if_no_db
+async def test_CONCURRENT_audit_appends_of_one_entry_do_not_race(
+    engine: AsyncEngine,
+) -> None:
+    """R14 finding 4: check-then-insert across two transactions is a race.
+
+    Two overlapping retries of the same logical write could both observe no
+    row, and one then failed on the unique constraint despite carrying
+    identical content. The insert itself must be the atomic step.
+    """
+    import asyncio as _asyncio
+
+    from workflow_platform.persistence.models import AuditEntry
+    from workflow_platform.persistence.repository import AuditConflict
+
+    repos = postgres_repositories(make_session_factory(engine))
+    entry = AuditEntry(
+        id="race-1",
+        actor_type="agent",
+        actor_id="a",
+        action="tool_param_override_blocked",
+        detail={"tool": "t"},
+    )
+    results = await _asyncio.gather(
+        *(repos.audit.append(entry) for _ in range(8)), return_exceptions=True
+    )
+    failures = [r for r in results if isinstance(r, BaseException)]
+    assert not failures, f"overlapping identical retries raised: {failures}"
+    assert {r.id for r in results} == {"race-1"}  # type: ignore[union-attr]
+
+    rows = [e for e in await repos.audit.list_recent(limit=50) if e.id == "race-1"]
+    assert len(rows) == 1, f"concurrent appends produced {len(rows)} rows"
+
+    # A conflicting reuse is still refused, concurrently or not.
+    with pytest.raises(AuditConflict):
+        await repos.audit.append(entry.model_copy(update={"detail": {"tool": "other"}}))

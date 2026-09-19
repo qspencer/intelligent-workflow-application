@@ -305,23 +305,24 @@ class PostgresAuditRepo(AuditRepo):
         self._sf = session_factory
 
     async def append(self, entry: AuditEntry) -> AuditEntry:
-        # Idempotent on entry id (R13 finding 6). This was an unconditional
-        # insert, so a retry after the append had COMMITTED — only the
-        # acknowledgement lost — either duplicated the entry or raised an
-        # integrity error from the driver. Same shape as the vault's `put`:
-        # insert-or-nothing, then compare and refuse a differing reuse.
-        async with self._sf() as s:
-            existing = await s.get(AuditLogRow, entry.id)
-            if existing is not None:
-                found = _from_audit_row(existing)
-                if audit_fingerprint(found) != audit_fingerprint(entry):
-                    raise AuditConflict(
-                        f"audit entry {entry.id} already exists with different content"
-                    )
-                return found
+        """Idempotent on entry id (R13 finding 6), atomically (R14 finding 4).
+
+        The first version checked for an existing row, closed that session,
+        then inserted in another transaction. Two overlapping retries of the
+        same logical write could both see no row; one then failed on the
+        unique constraint despite carrying identical content. Check-then-act
+        across two transactions is not idempotence, it is a race with a
+        smaller window.
+
+        `ON CONFLICT DO NOTHING` makes the insert itself the atomic step.
+        Afterwards we read the row that is actually there and compare — the
+        same shape as the vault's `put` — so an identical retry returns the
+        stored entry and a reused id with different content is refused.
+        """
         async with self._sf() as s, s.begin():
-            s.add(
-                AuditLogRow(
+            await s.execute(
+                pg_insert(AuditLogRow)
+                .values(
                     id=entry.id,
                     timestamp=entry.timestamp,
                     actor_type=entry.actor_type,
@@ -332,8 +333,16 @@ class PostgresAuditRepo(AuditRepo):
                     detail=entry.detail,
                     projector_version=entry.projector_version,
                 )
+                .on_conflict_do_nothing(index_elements=["id"])
             )
-        return entry
+        async with self._sf() as s:
+            stored_row = await s.get(AuditLogRow, entry.id)
+        if stored_row is None:  # pragma: no cover — deleted between the two
+            return entry
+        stored = _from_audit_row(stored_row)
+        if audit_fingerprint(stored) != audit_fingerprint(entry):
+            raise AuditConflict(f"audit entry {entry.id} already exists with different content")
+        return stored
 
     async def list_recent(self, limit: int = 100, org_id: str | None = None) -> list[AuditEntry]:
         async with self._sf() as s:

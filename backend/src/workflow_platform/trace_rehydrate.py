@@ -238,6 +238,29 @@ class RawTraceRehydrator:
             raise RawTraceUnavailable("system-access audit unavailable") from exc
         return request_id
 
+    async def _fetch_or_completed(
+        self, key: str, *, request_id: str, instance_id: str, what: str
+    ) -> RawTrace | None:
+        """Vault lookup whose FAILURE completes the access record.
+
+        R14 finding 2: the decryption repair wrapped `_payload_of`, but the
+        LOOKUP sits outside it. A repository timeout therefore escaped as
+        itself — HTTP 500, both access attempts recorded and neither
+        completion nor release decision. A repository failure is an
+        unavailable retrieval like any other, not a server fault.
+
+        `None` (no such row) is NOT a failure here and is returned to the
+        caller, which distinguishes "never vaulted" from "cannot be read".
+        """
+        try:
+            return await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        except Exception as exc:
+            logger.warning("vault lookup failed for %s", what, exc_info=True)
+            await self._complete(
+                request_id=request_id, instance_id=instance_id, outcome="retrieval_failed"
+            )
+            raise RawTraceUnavailable(f"vault lookup failed for {what}: {exc}") from exc
+
     async def _opened_or_completed(
         self,
         row: RawTrace,
@@ -314,7 +337,12 @@ class RawTraceRehydrator:
             kinds=[RawTraceKind.OUTPUT.value],
         )
         key = idempotency_key(org_id, instance_id, step_attempt_id, RawTraceKind.OUTPUT)
-        row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        row = await self._fetch_or_completed(
+            key,
+            request_id=request_id,
+            instance_id=instance_id,
+            what=f"step attempt {step_attempt_id}",
+        )
         if row is None:
             await self._complete(
                 request_id=request_id, instance_id=instance_id, outcome="retrieval_failed"
@@ -387,7 +415,12 @@ class RawTraceRehydrator:
             kinds=[RawTraceKind.AUDIT_DETAIL.value],
         )
         key = audit_idempotency_key(org_id, instance_id, audit_entry_id)
-        row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        row = await self._fetch_or_completed(
+            key,
+            request_id=request_id,
+            instance_id=instance_id,
+            what=f"audit entry {audit_entry_id}",
+        )
         if row is None:
             await self._complete(
                 request_id=request_id, instance_id=instance_id, outcome="retrieval_failed"
@@ -444,7 +477,12 @@ class RawTraceRehydrator:
             step_attempt_id=None,
             kinds=[RawTraceKind.TRIGGER_PAYLOAD.value],
         )
-        row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        row = await self._fetch_or_completed(
+            key,
+            request_id=request_id,
+            instance_id=instance_id,
+            what=f"trigger of {instance_id}",
+        )
         if row is None:
             # A trigger the projection MARKED as redacted but the vault lacks is
             # a retrieval failure — must NOT resume on projected input while the
@@ -493,7 +531,14 @@ class RawTraceRehydrator:
         if projector_version is None and not _output_projected(safe_output):
             return safe_output
         key = idempotency_key(org_id, instance_id, step_attempt_id, RawTraceKind.OUTPUT)
-        row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        # No access record here (the caller owns begin/commit), so there is
+        # nothing to complete — but a repository failure must still surface
+        # as RawTraceUnavailable, which the response boundary catches,
+        # rather than as itself, which it does not (R14 finding 2).
+        try:
+            row = await self._repos.raw_trace_vault.get_by_idempotency_key(key)
+        except Exception as exc:
+            raise RawTraceUnavailable(f"vault lookup failed: {exc}") from exc
         if row is None:
             return safe_output  # best-effort; the caller reports partial (F8)
         full = self._payload_of(
