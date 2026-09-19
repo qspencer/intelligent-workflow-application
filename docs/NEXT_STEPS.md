@@ -1567,6 +1567,45 @@ pre-image — so the one mutation the audit log has ever taken is itself
 audited. It is the only option that leaves the log trustworthy *after*
 mutating it, and it costs a few hundred lines over A.
 
+**BUILT 2026-09-19 as option C. Not yet run against production** — it is
+report-only without `--apply`, and running it is still the operator's
+call.
+
+    DATABASE_URL=... uv run python tools/trace_migration.py migrate-audit
+    DATABASE_URL=... uv run python tools/trace_migration.py migrate-audit --apply
+
+Report on the live store today: **19,610 rows in ~99 batches**, matching
+the scope exactly.
+
+- `migrate_audit_details` walks AUDIT rows, not instances — `backfill_all`
+  iterates instances and misses these entirely, which is why they survived
+  every previous pass. Separate entry point so nobody reaches the
+  append-only exception by accident.
+- **Vault durably first, project second.** A row projected before its raw
+  is stored is a row whose raw is gone; the order is test-pinned by making
+  the vault write fail and checking the row was left alone.
+- `AuditRepo.replace_detail_for_migration` is the only write path that
+  mutates an existing audit row, named for its one caller and its one
+  reason so a general `update` never appears. Postgres does it as an
+  explicit two-column `UPDATE ... SET`, so a future field cannot ride
+  along.
+- **The ledger is checkable, not decorative.** `pre_image_digest` is one
+  digest over the batch's `(row id, pre-image)` pairs, so a reader who
+  opens the vault objects under a grant can re-derive it and confirm the
+  ledger describes those exact rows with those exact prior contents —
+  test-pinned by re-deriving it. The pre-images themselves are NOT in the
+  ledger; that would put the raw straight back into the table.
+- The ledger action is registered (projector **v18**) and
+  **projection-lossless by necessity**: it is instance-less, so a withheld
+  field there would be a deleted field in the evidence for a deletion.
+- Idempotent by construction: a projected row is a fixed point, so a
+  second pass selects nothing and appends no ledger entry.
+- Instance-less rows are **skipped and counted**, never projected — there
+  is no vault for them.
+
+Ten tests; two sabotage probes seen to fail the right ones (inverting the
+vault/project order; dropping the ledger).
+
 **A sequencing point worth acting on.** If `audit_log` ever becomes
 genuinely tamper-evident (a hash chain is the obvious form), this
 migration gets harder: every rewritten row would have to be re-chained,

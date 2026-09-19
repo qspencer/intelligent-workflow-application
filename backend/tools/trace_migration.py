@@ -7,6 +7,12 @@
     # backfill existing inline raw into the vault + project the rows, then verify
     DATABASE_URL=postgresql+asyncpg://... uv run python tools/trace_migration.py backfill
 
+    # G-Trace-Audit-Rest: the pre-flip audit_log rows. REPORT ONLY by
+    # default — it is the one path that rewrites existing audit rows, so
+    # it takes an explicit --apply.
+    DATABASE_URL=... uv run python tools/trace_migration.py migrate-audit
+    DATABASE_URL=... uv run python tools/trace_migration.py migrate-audit --apply
+
 Uses Postgres repos when `DATABASE_URL` is set, else in-memory (a no-op there).
 """
 
@@ -22,7 +28,11 @@ from workflow_platform.persistence import Repositories, in_memory_repositories
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
 from workflow_platform.persistence.schema_version import assert_schema_current
-from workflow_platform.trace_migration import backfill_all, verify_zero_raw
+from workflow_platform.trace_migration import (
+    backfill_all,
+    migrate_audit_details,
+    verify_zero_raw,
+)
 
 
 def _build_repos() -> tuple[Repositories, Any | None, Any | None]:
@@ -56,13 +66,36 @@ async def _verify(repos: Repositories) -> int:
     return 1
 
 
-async def _main(command: str) -> int:
+async def _migrate_audit(repos: Repositories, *, apply: bool) -> int:
+    report = await migrate_audit_details(repos, dry_run=not apply)
+    head = "WOULD MIGRATE" if report.dry_run else "MIGRATED"
+    print(
+        f"audit-rest: {head} {report.candidates} row(s) in ~{report.batches} batch(es)"
+        + ("" if report.dry_run else f" — vaulted {report.vaulted}, projected {report.projected}")
+    )
+    if report.skipped_no_instance:
+        print(
+            f"audit-rest: SKIPPED {report.skipped_no_instance} instance-less row(s) — the vault "
+            "is instance-scoped, so projecting them would destroy raw with nowhere to put it"
+        )
+    if report.skipped_no_org:
+        print(f"audit-rest: SKIPPED {report.skipped_no_org} row(s) whose instance has no org")
+    if report.dry_run:
+        print("audit-rest: report only. Re-run with --apply to rewrite these rows.")
+    return 0
+
+
+async def _main(command: str, *, apply: bool) -> int:
     repos, db_engine, session_factory = _build_repos()
     await assert_schema_current(session_factory)  # G26.1 pre-flight
     try:
         if command == "backfill":
             written = await backfill_all(repos)
             print(f"backfill: {written} vault object(s) written")
+        if command == "migrate-audit":
+            rc = await _migrate_audit(repos, apply=apply)
+            if rc or not apply:
+                return rc
         return await _verify(repos)
     finally:
         if db_engine is not None:
@@ -71,9 +104,16 @@ async def _main(command: str) -> int:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("command", choices=("verify", "backfill"), default="verify", nargs="?")
+    parser.add_argument(
+        "command", choices=("verify", "backfill", "migrate-audit"), default="verify", nargs="?"
+    )
+    parser.add_argument(
+        "--apply",
+        action="store_true",
+        help="migrate-audit only: actually rewrite the rows. Without it, report only.",
+    )
     args = parser.parse_args()
-    sys.exit(asyncio.run(_main(args.command)))
+    sys.exit(asyncio.run(_main(args.command, apply=args.apply)))
 
 
 if __name__ == "__main__":

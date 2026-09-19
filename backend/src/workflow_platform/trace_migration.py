@@ -15,15 +15,18 @@ idempotent on its key).
 
 from __future__ import annotations
 
+import hashlib
+import json
 from dataclasses import dataclass, field
 from typing import Any
 
-from workflow_platform.persistence import RawTraceKind, Repositories
+from workflow_platform.persistence import AuditEntry, RawTraceKind, Repositories
 from workflow_platform.trace_projection import (
     PROJECTION_SCHEMA_VERSION,
     PROJECTOR_VERSION,
     REDACTED_ERROR,
     is_generated_marker,
+    project_audit_detail_at_rest,
     redact_tool_data,
     safe_trigger_payload,
 )
@@ -235,6 +238,157 @@ async def backfill_instance(
         if changed:
             await repositories.steps.update(step)
     return written
+
+
+#: Rows per ledger entry. Bounded so one entry stays readable and so a
+#: resumed run is visible at batch granularity rather than all-or-nothing.
+AUDIT_MIGRATION_BATCH = 200
+
+
+@dataclass(frozen=True)
+class AuditMigrationReport:
+    """What one `migrate_audit_details` pass did, or would do."""
+
+    dry_run: bool
+    candidates: int
+    vaulted: int
+    projected: int
+    skipped_no_instance: int
+    skipped_no_org: int
+    batches: int
+
+
+def _pre_image_digest(pairs: list[tuple[str, Any]]) -> str:
+    """One digest over the batch's (row id, pre-image) pairs.
+
+    Evidence that a later reader can check WITHOUT the pre-images being
+    stored anywhere readable: if the vault objects are opened under a
+    grant, re-deriving this digest proves the ledger describes those exact
+    rows with those exact prior contents. Storing the pre-images in the
+    ledger instead would put the raw straight back into `audit_log`, which
+    is the thing being removed.
+    """
+    canonical = json.dumps(
+        [[rid, detail] for rid, detail in sorted(pairs)], sort_keys=True, default=str
+    )
+    return "sha256:" + hashlib.sha256(canonical.encode()).hexdigest()
+
+
+async def migrate_audit_details(
+    repositories: Repositories,
+    *,
+    dry_run: bool = True,
+    limit: int = _SCAN_LIMIT,
+    batch_size: int = AUDIT_MIGRATION_BATCH,
+) -> AuditMigrationReport:
+    """Move pre-flip `audit_log.detail` raw into the vault and project the
+    row in place — `G-Trace-Audit-Rest`, option C.
+
+    WHY THIS IS NOT `backfill_all`. That walks INSTANCES and rewrites their
+    step/trigger/error columns; audit rows are deliberately outside it,
+    because the audit log is append-only. This is the deliberate exception,
+    and it is a separate entry point so nobody reaches it by accident.
+
+    WHAT MAKES THE EXCEPTION PAYABLE. Append-only here is a discipline, not
+    a construction — no chain, no signature, no digest on the table
+    (`THREAT_MODEL.md`: *audit not tamper-evident*). So the rewrite breaks
+    no verifiable property, and the cost is the invariant itself. The
+    ledger is what buys it back: every batch appends an
+    `audit_detail_migrated` entry naming the rows it rewrote, the projector
+    version applied, and a digest of their pre-images. The one mutation the
+    audit log has ever taken is therefore itself audited.
+
+    ORDER, and it is the same rule the engine's `_audit` follows: vault the
+    raw DURABLY first, project second. A row projected before its raw is
+    safely stored is a row whose raw is gone.
+
+    IDEMPOTENT by construction rather than by bookkeeping: a projected row
+    is a fixed point of the projection, so a second pass does not select
+    it. `dry_run=True` is the default — this rewrites production.
+    """
+    vault = RawTraceVault(repositories)
+    candidates: list[tuple[AuditEntry, str]] = []  # (entry, org_id)
+    no_instance = 0
+    no_org = 0
+
+    for inst in await repositories.instances.list_recent(limit=limit):
+        for entry in await repositories.audit.list_by_instance(inst.id):
+            if not entry.detail or not _audit_has_raw(entry.detail, entry.action):
+                continue
+            if entry.workflow_instance_id is None:
+                # Cannot be vaulted: the vault is instance-scoped. Counted
+                # and left alone rather than projected, because projecting
+                # would destroy the raw with nowhere to have put it.
+                no_instance += 1
+                continue
+            if not inst.org_id:
+                no_org += 1
+                continue
+            candidates.append((entry, inst.org_id))
+
+    if dry_run:
+        return AuditMigrationReport(
+            dry_run=True,
+            candidates=len(candidates),
+            vaulted=0,
+            projected=0,
+            skipped_no_instance=no_instance,
+            skipped_no_org=no_org,
+            batches=(len(candidates) + batch_size - 1) // max(batch_size, 1),
+        )
+
+    vaulted = projected = batches = 0
+    for start in range(0, len(candidates), max(batch_size, 1)):
+        batch = candidates[start : start + batch_size]
+        pairs: list[tuple[str, Any]] = []
+        done: list[str] = []
+        for entry, org_id in batch:
+            assert entry.workflow_instance_id is not None  # filtered above
+            # DURABLE: a lost vault write must fail the migration, not
+            # silently precede a projection that destroys the raw.
+            await vault.record_audit_detail(
+                org_id=org_id,
+                instance_id=entry.workflow_instance_id,
+                audit_entry_id=entry.id,
+                action=entry.action,
+                detail=entry.detail,
+                durable=True,
+            )
+            vaulted += 1
+            pairs.append((entry.id, entry.detail))
+            safe = project_audit_detail_at_rest(entry.action, entry.detail)
+            if await repositories.audit.replace_detail_for_migration(
+                entry.id, safe, PROJECTOR_VERSION
+            ):
+                projected += 1
+                done.append(entry.id)
+        batches += 1
+        # THE LEDGER. Appended AFTER the batch, so an interrupted run
+        # leaves vaulted-and-projected rows with no entry rather than an
+        # entry claiming rows it never touched.
+        await repositories.audit.append(
+            AuditEntry(
+                actor_type="system",
+                actor_id="audit_rest_migration",
+                action="audit_detail_migrated",
+                detail={
+                    "rows": done,
+                    "row_count": len(done),
+                    "batch": batches,
+                    "projector_version": PROJECTOR_VERSION,
+                    "pre_image_digest": _pre_image_digest(pairs),
+                },
+            )
+        )
+    return AuditMigrationReport(
+        dry_run=False,
+        candidates=len(candidates),
+        vaulted=vaulted,
+        projected=projected,
+        skipped_no_instance=no_instance,
+        skipped_no_org=no_org,
+        batches=batches,
+    )
 
 
 async def backfill_all(repositories: Repositories, *, limit: int = 100_000) -> int:

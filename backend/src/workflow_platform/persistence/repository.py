@@ -349,6 +349,30 @@ class AuditRepo(ABC):
     @abstractmethod
     async def list_by_instance(self, instance_id: str) -> list[AuditEntry]: ...
 
+    @abstractmethod
+    async def replace_detail_for_migration(
+        self, entry_id: str, detail: dict[str, Any], projector_version: str
+    ) -> bool:
+        """THE ONLY WRITE PATH THAT MUTATES AN EXISTING AUDIT ROW.
+
+        Named for its one caller and its one reason, because the audit log
+        is otherwise append-only and a general `update` would erase that
+        distinction at every future call site. It exists for
+        `G-Trace-Audit-Rest`: moving pre-flip raw out of `detail` and into
+        the vault, which cannot be done by appending.
+
+        Append-only here is a DISCIPLINE, not a construction — the table
+        carries no chain, signature or digest, and `THREAT_MODEL.md` lists
+        "audit not tamper-evident" as a known gap. So this breaks no
+        verifiable property; it spends a stated invariant. That is why the
+        migration writes a ledger entry recording every row it touched
+        (`audit_detail_migrated`): the one mutation the audit log has ever
+        taken is itself audited.
+
+        Returns False when no such row exists. Never touches any column
+        but `detail` and `projector_version`.
+        """
+
 
 @dataclass
 class Repositories:

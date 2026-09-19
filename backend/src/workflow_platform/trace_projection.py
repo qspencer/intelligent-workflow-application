@@ -331,7 +331,15 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "17"  # v17: the typed SUBJECT reference
+PROJECTOR_VERSION = "18"  # v18: `audit_detail_migrated`, the ledger for
+# G-Trace-Audit-Rest. Instance-less by nature (a batch spans instances), so
+# it has to be projection-lossless: a withheld field here would be a
+# deleted field in the evidence for a deletion. Carries row ids, counts,
+# the projector version applied, and a DIGEST of the pre-images — never the
+# pre-images, which would put the raw back into the table the migration
+# exists to remove it from.
+#
+# v17: the typed SUBJECT reference
 # (G-Trace-Subject-Identity stage 2). Four actions that carry a subject —
 # memory_observed, memory_recalled, user_created, user_updated — gain a
 # `subject` object beside the field naming the subject directly.
@@ -1677,6 +1685,21 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         "changed": FieldRule(Owner.ENGINE, Seq(_TOKEN), True),
         "sessions_revoked": FieldRule(Owner.ENGINE, _BOOL, True),
         "raw_grants_revoked": FieldRule(Owner.ENGINE, _COUNT, True),
+    },
+    "audit_detail_migrated": {
+        # The ledger for G-Trace-Audit-Rest: the one mutation the audit log
+        # has ever taken, recorded. Instance-less (a batch spans
+        # instances), so it MUST be projection-lossless — there is no vault
+        # for an instance-less entry, and a withheld field here would be a
+        # deleted field in the evidence for a deletion.
+        "rows": FieldRule(Owner.ENGINE, Seq(_TOKEN), True),
+        "row_count": FieldRule(Owner.ENGINE, _COUNT, True),
+        "batch": FieldRule(Owner.ENGINE, _COUNT, True),
+        "projector_version": FieldRule(Owner.ENGINE, _TOKEN, True),
+        # A digest over the (row id, pre-image) pairs — never the
+        # pre-images, which would put the raw straight back into the table
+        # the migration is removing it from.
+        "pre_image_digest": FieldRule(Owner.ENGINE, _TOKEN, True),
     },
     "directory_resolved": {
         # Counts and outcomes only. The names the request returned are in

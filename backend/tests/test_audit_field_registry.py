@@ -453,6 +453,14 @@ _WIDENED_BEYOND_FLAT: dict[str, set[str]] = {
     },
     # v17 stage 3: counts and outcomes, never the names resolved.
     "directory_resolved": {"requested", "resolved", "not_found", "not_resolvable"},
+    # v18: the migration ledger. Lossless by necessity — see the registry.
+    "audit_detail_migrated": {
+        "rows",
+        "row_count",
+        "batch",
+        "pre_image_digest",
+        "projector_version",
+    },
 }
 
 

@@ -380,6 +380,22 @@ class PostgresAuditRepo(AuditRepo):
             rows = result.scalars().all()
         return [_from_audit_row(r) for r in rows]
 
+    async def replace_detail_for_migration(
+        self, entry_id: str, detail: dict[str, Any], projector_version: str
+    ) -> bool:
+        """See `AuditRepo.replace_detail_for_migration` for why this is the
+        only mutating write on this table. Scoped to two columns by an
+        explicit UPDATE ... SET rather than a row load-and-save, so a
+        future field cannot be carried along by accident."""
+        async with self._sf() as s:
+            result = await s.execute(
+                sa_update(AuditLogRow)
+                .where(AuditLogRow.id == entry_id)
+                .values(detail=detail, projector_version=projector_version)
+            )
+            await s.commit()
+        return bool(getattr(result, "rowcount", 0))
+
 
 class PostgresTriggerCursorRepo(TriggerCursorRepo):
     def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:

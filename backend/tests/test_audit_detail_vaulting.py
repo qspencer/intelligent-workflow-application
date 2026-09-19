@@ -362,6 +362,12 @@ AUDIT_WRITERS: dict[str, str] = {
     # it projected `reason`/`context` at rest while vaulting NOTHING, so the
     # model-authored content the escalation exists to convey was destroyed.
     "tools/escalation.py": "vaulted",
+    # The G-Trace-Audit-Rest ledger. It APPENDS (the one row it writes is
+    # the evidence for the rows it rewrote), and its detail is
+    # projection-lossless by registry rule — it is instance-less, so a
+    # withheld field there would be a deleted field in the evidence for a
+    # deletion.
+    "trace_migration.py": "ledger-append",
     # Not a writer — it maps the type to and from rows. (`models.py` only
     # DEFINES the class, so it never constructs one and never appears.)
     "persistence/postgres.py": "persists-the-type",

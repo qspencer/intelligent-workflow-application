@@ -264,6 +264,16 @@ class InMemoryAuditRepo(AuditRepo):
     async def list_by_instance(self, instance_id: str) -> list[AuditEntry]:
         return [deepcopy(e) for e in self._entries if e.workflow_instance_id == instance_id]
 
+    async def replace_detail_for_migration(
+        self, entry_id: str, detail: dict[str, Any], projector_version: str
+    ) -> bool:
+        for entry in self._entries:
+            if entry.id == entry_id:
+                entry.detail = dict(detail)
+                entry.projector_version = projector_version
+                return True
+        return False
+
 
 class InMemoryTriggerCursorRepo(TriggerCursorRepo):
     def __init__(self) -> None:

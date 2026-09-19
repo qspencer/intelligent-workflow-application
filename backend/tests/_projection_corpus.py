@@ -509,6 +509,18 @@ CORPUS: list[tuple[Any, ...]] = [
         "memory_observed",
     ),
     (
+        "at_rest.registry_audit_detail_migrated",
+        "audit_detail",
+        {
+            "rows": ["a1b2c3", "d4e5f6"],
+            "row_count": 2,
+            "batch": 1,
+            "projector_version": "18",
+            "pre_image_digest": "sha256:0123456789abcdef",
+        },
+        "audit_detail_migrated",
+    ),
+    (
         "at_rest.registry_directory_resolved",
         "audit_detail",
         {"requested": 12, "resolved": 9, "not_found": 1, "not_resolvable": 2},
