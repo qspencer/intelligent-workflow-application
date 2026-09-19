@@ -1489,8 +1489,9 @@ for two better reasons than the original one.**
 
 1. **It cannot certify the gate**, so the one thing urgency rested on is
    gone (table above). The majority of the pile needs the `audit_log`
-   encrypt-or-migrate work, which does not exist yet — *that* is the
-   blocking piece, not this.
+   encrypt-or-migrate work — *that* is the blocking piece, not this. Now
+   scoped: **G-Trace-Audit-Rest** below (19,610 rows, ~10 MB, all
+   instance-bound, S–M).
 2. **The projector is five versions old today** (v13→v17 in one day), and
    two of those versions were DEFECT CORRECTIONS found only by running
    against production data — v13's `_COUNT`-vs-float and
@@ -1510,6 +1511,85 @@ Also outstanding, trivially: **one orphaned `audit_detail` vault row** with a
 NULL `audit_entry_id`, written during the ~30-second window when the column
 was unmapped. It is unaddressable and unreferenced. Harmless (org-scoped,
 grant-gated); sweep it with the backfill rather than as a one-off delete.
+
+---
+
+### G-Trace-Audit-Rest — the 19,610 pre-flip audit rows (scoped 2026-09-19)
+
+The majority of the backfill pile, and the piece the release gate actually
+waits on. Scoped, not started.
+
+**What it is, measured.**
+
+| | |
+|---|---|
+| rows | **19,610** (`audit_log.detail`) |
+| distinct instances | 3,218 |
+| total raw | **~10 MB** |
+| stamped | 19,604 unstamped (pre-vaulting) + 6 at projector v9 |
+| **instance-less** | **0** |
+| instances already holding ≥1 vault row | **19,610 (100%)** |
+
+By action: `step_completed` 9,291 · `memory_observed` 4,434 ·
+`workflow_started` 2,244 · `memory_recalled` 1,923 · `tool_call` 1,704 ·
+14 others.
+
+**Two measurements make this smaller than it looked.** Every row has an
+instance, so `audit_idempotency_key(org, instance, entry_id)` addresses
+all of them — the instance-less problem that blocked
+`monitoring/service.py` does not arise here at all. And every one belongs
+to an instance the vault already knows, so org/instance identity is
+established rather than inferred.
+
+**The constraint, and its real status.** `audit_log` is append-only **by
+discipline, not by construction**: the table is `id, timestamp,
+actor_type, actor_id, action, workflow_instance_id, step_id, detail,
+projector_version` — no chain, no signature, no digest.
+`THREAT_MODEL.md` already lists *audit not tamper-evident* as a known gap.
+So rewriting `detail` breaks **no verifiable property**; it breaks a
+stated invariant and the trust resting on it. That matters because it
+changes which options are honest: the choice is not "preserve
+cryptographic integrity or not", it is "keep a discipline we have never
+mechanised, or spend the rewrite and evidence it".
+
+**Options.**
+
+| | approach | rewrites | gate clears | verdict |
+|---|---|---|---|---|
+| A | Vault + project in place (the step-output treatment) | 19,610 | yes | works, but mutates silently |
+| B | Encrypt `detail` in place | 19,610 | yes | strictly worse than A — loses the projected operational metadata that keeps the log readable, and needs a second read path |
+| C | **A, with the rewrite itself recorded** | 19,610 | yes | **recommended** |
+| D | Scope the gate: pre-flip rows out of criterion 14, dated cutoff | 0 | by definition | honest if stated, dishonest if quiet |
+
+**Recommended: C.** A migration ledger — one audit entry per batch naming
+the row ids, the projector version applied, and a digest of the
+pre-image — so the one mutation the audit log has ever taken is itself
+audited. It is the only option that leaves the log trustworthy *after*
+mutating it, and it costs a few hundred lines over A.
+
+**A sequencing point worth acting on.** If `audit_log` ever becomes
+genuinely tamper-evident (a hash chain is the obvious form), this
+migration gets harder: every rewritten row would have to be re-chained,
+and the chain would have to record that it was. **Doing this migration
+BEFORE tamper-evidence is materially cheaper than after** — which is an
+argument for not deferring it indefinitely, and against building
+tamper-evidence first.
+
+**Effort: S–M, about a day.** Most of it exists: `record_audit_detail`
+writes the vault object, `audit_idempotency_key` addresses it,
+`verify_zero_raw` is the gate. New work is (1) a migration that walks
+AUDIT rows rather than instances — `backfill_all` iterates instances and
+would miss these; (2) the batch ledger; (3) a report-only mode, run first.
+
+**Open questions for whoever builds it.**
+- The 6 rows stamped v9: re-project under the current version, or leave
+  them and let the version-aware agreement check report `unsupported`?
+- Batch size and restartability. 3,218 instances is small enough to do in
+  one transaction per instance; the ledger should make a resumed run
+  obvious rather than idempotent-by-luck.
+- The same projector-maturity caution as the main backfill: v17 is a day
+  old and two of the five versions shipped today were defect corrections
+  found only against production data.
 
 ---
 
