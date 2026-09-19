@@ -127,18 +127,54 @@ against all of today's changes: 10/10.
   `memory_recalled` now carries `recall_seconds` + `outcomes_seconds`
   (projector v15) so the number is recorded rather than rediscovered.
 
-  **Not fixed, and it needs a decision.** `record_outcomes` also holds
-  `LearnedMemoryService._lock`, so recalls serialise across concurrent
-  runs: the mailbox's throughput ceiling is roughly **23 emails/hour**
-  regardless of parallelism. Three options, none of them free:
-  (a) move outcome recording off the critical path (fire-and-forget after
-  the step) — loses the write on a crash, and an interrupted run would no
-  longer record uses it genuinely made; (b) cap the edges recorded per run
-  — changes what veracium's confidence machinery sees; (c) make the write
-  cheaper inside veracium — the right fix, and out of scope here (the
-  library is the user's, and this repo does not push to it). Measurement
-  and instrumentation are done; the change is a memory-semantics decision,
-  not a performance tweak.
+  **MECHANISM CONFIRMED 2026-09-19.** Not a fixed cost and not a
+  semantics trade-off — a scaling defect, quadratic in cumulative volume.
+
+  *Measured*, same entity and the same 40 edges, only the episode count
+  varying (copies of the store; production never opened):
+
+  | episodes | store MB | `record_outcomes` | s/edge |
+  |---|---|---|---|
+  | 1,000 | 32.1 | 5.8s | 0.15 |
+  | 5,000 | 36.4 | 11.2s | 0.28 |
+  | 20,000 | 52.1 | 32.0s | 0.80 |
+  | 45,000 | 76.7 | 72.7s | 1.82 |
+  | 84,904 | 113.2 | 140.3s | 3.51 |
+
+  Clean linear fit above the knee: **~1.6 ms per 1,000 episodes**, for a
+  fixed 40-edge write set. Recall scales the same way but ~70× cheaper
+  (0.46s → 2.04s).
+
+  *Cause, read from the installed veracium* (read only — this repo does
+  not push there). `record_outcome` calls `_outcome_head` and
+  `_edge_outcome_aggregates`, each of which does
+  `for ep in self.store.episodes(user_id)`, and `SqliteStore.episodes` is
+  `SELECT json FROM episodes WHERE user_id=?` over **every** row followed
+  by `Episode.model_validate_json` per row. So one email is
+  40 edges × 2 scans × 84,904 rows ≈ **6.8M Pydantic parses**. The
+  arithmetic closes: 140.3s / 6.8M ≈ 20.6 µs per parse.
+
+  *Why it compounds*: **80,604 of the 84,904 episodes (95%) are `outcome`
+  episodes** — the records this very loop writes, 40 per email. Only 3,636
+  are `interaction` episodes, the actual substance. Every email makes
+  every future email slower, which is the curve seen month over month
+  (avg `triage` 15.9s July → 101.6s August → 155.4s September).
+
+  **The levers, now that the cause is known:**
+  1. *Ours, highest leverage*: stop writing 40 act-time `unreviewed`
+     outcome episodes per email. That removes ~95% of future store growth
+     AND today's 140s in one move. It is still a memory-semantics
+     decision — those records feed confidence and retirement — but it is
+     now clearly the decision to take, not a workaround.
+  2. *Ours, cheap and partial*: fewer recalled edges (`token_budget`) is a
+     constant factor; the per-write cost keeps climbing underneath it.
+  3. *veracium's, and the real repair*: those two scans are a SQL query,
+     not a full-table parse. An `edge_id`/`kind` index (generated column
+     or a separate outcome table) makes both O(matching rows). Also worth
+     asking there whether 80k outcome episodes should compact.
+
+  Throughput today is ~23 emails/hour, and it falls as the store grows;
+  the busiest hour on record is 71.
 
 **Immediate priorities, in order:**
 
