@@ -953,13 +953,59 @@ components that compute them. A small action-specific schema registry and
 typed constructors should suffice. Ownership labels alone do not establish
 source."*
 
-Three questions were put back to them in the round-15 sidecar §1a and are
-unanswered: whether the registry is projection-side or writer-side; whether
-extending `Owner` to `audit_detail` (the only one of five asset kinds
-without ownership typing) is the shape intended; and what "canonical from a
-record" means in a checkable way. **Do not start before those return** — the
-difference between the projection-side and writer-side readings is roughly
-a day versus every `_audit` call site.
+**ANSWERED in the round-16 return. Unblocked; shape is now specified:**
+
+- **Both, incrementally.** The action-specific projection registry controls
+  DISCLOSURE; focused constructors establish where retained values
+  ORIGINATE. Start with the actions whose metadata we want to expose. Raw
+  business fields may still be emitted and vaulted — classification exists
+  to prevent their accidental public release, not to stop them being
+  recorded.
+- **Extend `Owner` per (action, field), with coverage checks** — and
+  specify the validator AND the disclosure rule alongside it. *"An
+  ownership label documents an assertion; writer-side construction and
+  tests must support it."*
+- **Canonical = a constructor that takes the already-loaded record** and
+  derives the identifier internally. Do NOT add a second database lookup
+  just to re-check. Validate caller-supplied identifiers when resolving the
+  record, including its org and authorization context.
+
+Effort: **M**, and genuinely incremental — the first action's registry entry
+plus its constructor is a useful unit on its own.
+
+---
+
+### G-Trace-Subject-Identity — an opaque subject identity for `user_id` (reviewer-specified, 2026-09-19)
+
+`user_id` is withheld (it is an email in 416/416 production cases). The
+reviewer's round-14 direction was to withhold the raw email but give a
+useful subject identity; round 16 specified it, and **two of the answers
+are constraints we would not have guessed**:
+
+- **Use `users.id`** for an actual platform-user subject, with the event's
+  org recorded explicitly. **But it persists across an org transfer, so it
+  is not inherently a tenant-scoped identity** — the org must be recorded
+  on the event, not inferred from the id.
+- **Not every `user_id` is a platform user.** Memory-namespace keys can
+  identify a mailbox or another entity. *"Give those subjects their own
+  typed identity instead of assuming every `user_id` joins to `users`."*
+  Our namespace is `org:<org>:user:<key>` where `<key>` is a mailbox
+  address — so this is live today, not hypothetical.
+- **Display resolution is server-side, under explicit DIRECTORY
+  permissions, independent of raw-trace grants.** Request-level access
+  records, batch-friendly — not one event per rendered label. Record
+  identifiers and outcomes, never copy display identities into the records.
+- **Actors and subjects share the classification and authorization
+  framework**, with different visibility only where operational need
+  justifies it. **Review `actor_id` too** — it holds an operator email on
+  every audit row, which makes it the larger exposure.
+- **Define rename, deletion and org-transfer behaviour BEFORE changing any
+  stored identity format**, and preserve historical attribution.
+
+That last point makes this bigger than a rendering change: it is an
+identity-lifecycle decision with a migration behind it. Effort: **L**.
+Sequence it after the registry, which gives the per-(action, field)
+classification this needs anyway.
 
 ---
 
