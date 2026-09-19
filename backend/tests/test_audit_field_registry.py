@@ -130,6 +130,100 @@ def test_the_registry_is_the_ONLY_audit_dispatch() -> None:
     )
 
 
+#: The flat schema's fields, GROUPED by the surface that emits them, with the
+#: reason a registry action may omit the group. Groups, not 45 individual
+#: names per action: repeating the same list nineteen times is not nineteen
+#: arguments, and the copies would drift. Totality against `_AUDIT_DETAIL` is
+#: checked below, so a field added to the flat schema and to no group fails
+#: the build rather than becoming a silent exclusion.
+_FLAT_GROUPS: dict[str, tuple[str, ...]] = {
+    "grant": (
+        "request_id",
+        "surface",
+        "outcome",
+        "purpose",
+        "reason_code",
+        "scope",
+        "workload_identity",
+        "kinds",
+        "intended_kinds",
+        "released_kinds",
+        "withheld_kinds",
+        "principal_id",
+        "grant_id",
+        "approved_by",
+        "requested_by",
+        "revoked_by",
+        "approval_mode",
+        "raw_included",
+        "redaction_reason",
+    ),
+    "org": ("org_bypass", "org_scoped", "org_id", "namespace"),
+    "lifecycle": ("state",),
+    "step": ("attempt", "type", "output"),
+    "run": ("workflow_id", "instance_id", "steps", "step_ids", "trigger", "trigger_payload"),
+    "fork": ("source_instance_id", "from_step_id", "preserved_step_ids"),
+    "escalation": ("original_id",),
+    "connector": ("connector",),
+    "budget": ("budget_action", "cost_usd"),
+    "codify": ("era", "unrecognized_ids"),
+    "alert": ("threshold_seconds", "running_for_seconds"),
+    "memory_write": (
+        "author",
+        "derived_from",
+        "text_hash",
+        "facts",
+        "quarantined",
+        "observation",
+        "input_tokens",
+        "output_tokens",
+        "model",
+    ),
+    "memory_read": ("content_hash", "context_hash", "edges", "mode"),
+    "tool_call": ("tool_calls",),
+    "marker": ("_redacted",),
+}
+
+#: Which groups each registry action is allowed to leave unclassified. An
+#: action classifies whatever it actually emits; everything else is a group
+#: it has nothing to do with.
+_ALLOWED_OMISSIONS: dict[str, tuple[str, ...]] = {
+    "memory_observed": (
+        "grant",
+        "org",
+        "lifecycle",
+        "step",
+        "run",
+        "fork",
+        "escalation",
+        "connector",
+        "budget",
+        "codify",
+        "alert",
+        "memory_read",
+        "tool_call",
+        "marker",
+    ),
+}
+#: Every other registry action omits every group it does not classify from.
+#: Spelled once, because "this action emits an engine execution record, not a
+#: grant decision" is one argument, not nineteen.
+_ENGINE_ACTIONS = tuple(a for a in AUDIT_FIELD_RULES if a not in _ALLOWED_OMISSIONS)
+
+
+def test_the_flat_schema_is_fully_grouped() -> None:
+    """Totality of the grouping itself. Without this, adding a field to
+    `_AUDIT_DETAIL` and to no group would make every action's exclusion
+    check pass by default — the grouping would weaken the guard it exists
+    to make maintainable."""
+    from workflow_platform.trace_projection import _AUDIT_DETAIL
+
+    grouped = {f for fields in _FLAT_GROUPS.values() for f in fields}
+    flat = set(_AUDIT_DETAIL.children)
+    assert not flat - grouped, f"flat fields in no group: {sorted(flat - grouped)}"
+    assert not grouped - flat, f"grouped fields not in the flat schema: {sorted(grouped - flat)}"
+
+
 def test_a_registry_action_does_not_silently_withdraw_a_flat_field() -> None:
     """Counterpart check the first registry entry needed and step 0 missed.
 
@@ -139,73 +233,193 @@ def test_a_registry_action_does_not_silently_withdraw_a_flat_field() -> None:
     declared. `workflow_id` and `instance_id` were withdrawn exactly that
     way on the first attempt, caught by an unrelated provenance test.
 
-    A deliberate withdrawal is fine; it just has to be written down here.
+    A deliberate withdrawal is fine; it just has to be written down — as a
+    GROUP the action has no business with.
     """
     from workflow_platform.trace_projection import _AUDIT_DETAIL
 
-    #: Fields the flat schema declares that a registry action may omit, with
-    #: the reason. Empty entries mean "this action must cover everything".
-    DELIBERATE: dict[str, dict[str, str]] = {
-        "memory_observed": {
-            # Governance/grant vocabulary that never appears on this action.
-            "request_id": "grant surface only",
-            "surface": "grant surface only",
-            "outcome": "grant surface only",
-            "purpose": "grant surface only",
-            "reason_code": "grant surface only",
-            "scope": "grant surface only",
-            "workload_identity": "grant surface only",
-            "kinds": "grant surface only",
-            "intended_kinds": "grant surface only",
-            "released_kinds": "grant surface only",
-            "withheld_kinds": "grant surface only",
-            "principal_id": "grant surface only",
-            "grant_id": "grant surface only",
-            "approved_by": "grant surface only",
-            "requested_by": "grant surface only",
-            "revoked_by": "grant surface only",
-            "approval_mode": "grant surface only",
-            "raw_included": "grant surface only",
-            "redaction_reason": "grant surface only",
-            "org_bypass": "grant surface only",
-            "org_scoped": "grant surface only",
-            "state": "lifecycle actions only",
-            "era": "codify actions only",
-            "attempt": "step actions only",
-            "type": "step actions only",
-            "content_hash": "recall actions only",
-            "context_hash": "recall actions only",
-            "namespace": "org actions only",
-            "mode": "memory-read actions only",
-            "budget_action": "budget actions only",
-            "unrecognized_ids": "codify actions only",
-            "org_id": "not emitted on this action",
-            "original_id": "escalation actions only",
-            "source_instance_id": "fork actions only",
-            "from_step_id": "fork actions only",
-            "preserved_step_ids": "fork actions only",
-            "connector": "connector actions only",
-            "trigger": "not emitted on this action",
-            "trigger_payload": "not emitted on this action",
-            "tool_calls": "tool_call action only",
-            "output": "step actions only",
-            "steps": "not emitted on this action",
-            "step_ids": "workflow_completed only",
-            "_redacted": "a marker, never an input field",
-            "emitter": "not emitted on this action",
-            "edges": "memory_recalled only",
-            "threshold_seconds": "alert actions only",
-            "running_for_seconds": "alert actions only",
-        }
-    }
     flat_released = set(_AUDIT_DETAIL.children)
     for action, rules in AUDIT_FIELD_RULES.items():
-        unexplained = flat_released - set(rules) - set(DELIBERATE.get(action, {}))
+        omitted = _ALLOWED_OMISSIONS.get(action)
+        if omitted is None:
+            excused = flat_released - set(rules)
+        else:
+            excused = {f for g in omitted for f in _FLAT_GROUPS[g]}
+        unexplained = flat_released - set(rules) - excused
         assert not unexplained, (
             f"{action}: the flat schema releases {sorted(unexplained)} but the registry "
             "neither classifies nor deliberately excludes them — moving this action onto "
             "the registry silently withdrew them."
         )
+
+
+def test_a_registry_action_classifies_every_field_it_can_actually_emit() -> None:
+    """The other direction, and the one the enumeration was for: a field the
+    WRITER emits and the registry has no rule for is withheld silently.
+
+    The expected sets below were read off the production audit table
+    (`jsonb_object_keys` per action), not off the source, so historical
+    shapes count too — an entry written last month is still read today."""
+    emitted: dict[str, set[str]] = {
+        "step_started": {"type", "attempt"},
+        "step_completed": {"attempt", "output"},
+        "step_failed": {"attempt", "error", "unexpected"},
+        "step_retry": {"attempt", "error"},
+        "step_postcondition_failed": {
+            "require_tool_call",
+            "min_success",
+            "actual_success",
+            "stop_reason",
+        },
+        "workflow_started": {"workflow_id", "trigger"},
+        "workflow_completed": {"step_ids", "steps"},
+        "workflow_failed": {"error", "exception", "unexpected"},
+        "workflow_forked": {"source_instance_id", "from_step_id", "preserved_step_ids"},
+        "budget_exceeded": {"tokens_used", "tokens_limit", "cost_usd", "action"},
+        "budget_escalated": {"tokens_used", "tokens_limit", "cost_usd", "action"},
+        "alert_stuck_workflow": {
+            "instance_id",
+            "workflow_id",
+            "running_for_seconds",
+            "threshold_seconds",
+        },
+        "alert_stale_trigger": {
+            "workflow_id",
+            "trigger_type",
+            "account",
+            "last_run_at",
+            "threshold_seconds",
+        },
+        "alert_high_error_rate": {
+            "rate",
+            "threshold",
+            "failed",
+            "total_terminal",
+            "window_seconds",
+        },
+        "alert_high_queue_depth": {"depth", "threshold"},
+        "alert_high_token_burn": {"tokens", "cost_usd", "threshold_tokens", "window_seconds"},
+        "memory_recalled": {
+            "user_id",
+            "query",
+            "context_hash",
+            "edges",
+            "episodes",
+            "token_budget",
+            "injected",
+            "uses_recorded",
+        },
+        "memory_observe_failed": {"observation", "error"},
+    }
+    for action, fields in emitted.items():
+        missing = fields - set(AUDIT_FIELD_RULES[action])
+        assert not missing, (
+            f"{action} emits {sorted(missing)} with no rule — withheld silently. "
+            "Classify it (disclose or not), do not let omission decide."
+        )
+
+
+def test_the_stop_reason_enum_is_the_agents_enum() -> None:
+    """`_STOP_REASON` spells out `agent.StopReason` so the projector stays a
+    domain leaf. A spelled-out copy that drifts is worse than an import, so
+    the equality is a test, not a comment."""
+    from workflow_platform.agent.agent import StopReason
+    from workflow_platform.trace_projection import _STOP_REASON
+
+    for member in StopReason:
+        assert _STOP_REASON.validate(member.value), f"{member.value} rejected by _STOP_REASON"
+    assert not _STOP_REASON.validate("SYNTHETIC-not-a-stop-reason")
+
+
+def test_a_PROJECTION_owned_rule_delegates_to_a_schema() -> None:
+    """`Owner.PROJECTION` says "a reader sees this only as the projector's
+    own rendering". That is checkable, so check it: the rule must point at a
+    node that either carries per-child ownership or projects structurally.
+    A `Leaf` claiming PROJECTION would be the loophole — a raw string
+    released under a label that promised a schema walked it."""
+    from workflow_platform.trace_projection import (
+        Obj,
+        ToolCalls,
+        TriggerPayload,
+    )
+
+    for action, rules in AUDIT_FIELD_RULES.items():
+        for field, rule in rules.items():
+            if rule.owner is not Owner.PROJECTION or not rule.disclose:
+                continue
+            node = rule.node
+            ok = isinstance(node, (ToolCalls, TriggerPayload)) or (
+                isinstance(node, Obj) and (node.owners or node.wildcard is not None)
+            )
+            assert ok, (
+                f"{action}.{field} claims Owner.PROJECTION but its node is {node!r}: "
+                "nothing delegates, so the label asserts a walk that never happens."
+            )
+
+
+#: The fields the registry releases that the flat `_AUDIT_DETAIL` schema did
+#: not. FROZEN, because "the registry can only release more" is true and is
+#: exactly why it needs a ceiling: each addition is a deliberate widening,
+#: and a set that grows without anyone noticing is the M9 shape.
+_WIDENED_BEYOND_FLAT: dict[str, set[str]] = {
+    # Monitoring arithmetic and the thresholds it is compared against. The
+    # flat schema never classified an alert, so an operator got the alert
+    # with every number stripped.
+    "alert_high_error_rate": {"rate", "threshold", "failed", "total_terminal", "window_seconds"},
+    "alert_high_queue_depth": {"depth", "threshold"},
+    "alert_high_token_burn": {"tokens", "threshold_tokens", "window_seconds"},
+    "alert_stale_trigger": {"trigger_type", "last_run_at"},
+    # What the budget check actually compared.
+    "budget_exceeded": {"tokens_used", "tokens_limit", "action"},
+    "budget_escalated": {"tokens_used", "tokens_limit", "action"},
+    # Engine-set flag distinguishing a handled failure from a crash.
+    "step_failed": {"unexpected"},
+    "workflow_failed": {"unexpected"},
+    # Why the postcondition failed, not merely that it did.
+    "step_postcondition_failed": {
+        "require_tool_call",
+        "min_success",
+        "actual_success",
+        "stop_reason",
+    },
+    # Recall volume + outcome counters. The QUERY stays withheld.
+    "memory_recalled": {"episodes", "token_budget", "injected", "uses_recorded"},
+    # v11, already shipped.
+    "memory_observed": {"backfill"},
+}
+
+
+def test_the_registry_releases_exactly_these_fields_beyond_the_flat_schema() -> None:
+    """The ceiling on widening. The registry replaces the flat schema for an
+    action, so it can release fields the flat schema never declared — which
+    is the point, and is also how a widening ships without being noticed.
+    Every such field is listed above with a reason; an unlisted one fails."""
+    from workflow_platform.trace_projection import _AUDIT_DETAIL
+
+    flat = set(_AUDIT_DETAIL.children)
+    for action, rules in AUDIT_FIELD_RULES.items():
+        released = {f for f, rule in rules.items() if rule.disclose}
+        beyond = released - flat
+        declared = _WIDENED_BEYOND_FLAT.get(action, set())
+        assert beyond == declared, (
+            f"{action} releases {sorted(beyond)} beyond the flat schema, declared "
+            f"{sorted(declared)}. A widening is fine; an undeclared one is not."
+        )
+
+
+def test_no_engine_action_discloses_error_text() -> None:
+    """The field the vault exists for. Exception text is engine-RAISED and
+    input-DERIVED, and every round of this review that found a leak found it
+    in something shaped harmlessly. Whatever else changes, no action may
+    disclose one of these."""
+    raw = {"error", "exception", "query", "observation_text", "entity", "params", "recall"}
+    leaked = [
+        f"{action}.{field}"
+        for action, rules in AUDIT_FIELD_RULES.items()
+        for field, rule in rules.items()
+        if field in raw and rule.disclose
+    ]
+    assert not leaked, f"raw-by-taint fields disclosed: {leaked}"
 
 
 def test_the_constructor_emits_exactly_the_classified_fields() -> None:

@@ -317,4 +317,154 @@ CORPUS: list[tuple[Any, ...]] = [
             "error": "SYNTHETIC trace",
         },
     ),
+    # v12: the registry extended to the engine's own execution trail and the
+    # monitoring alerts — 93% of the audit log by volume. One case per new
+    # action, each carrying the fields production actually stores plus a
+    # hostile value at the position the rules withhold, so the golden guard
+    # sees a rule change rather than only a schema change.
+    (
+        "at_rest.registry_step_started",
+        "audit_detail",
+        {"type": "agentic", "attempt": 1},
+        "step_started",
+    ),
+    (
+        "at_rest.registry_step_started_forged_type",
+        "audit_detail",
+        {"type": "SYNTHETIC-not-a-step-type", "attempt": 1},
+        "step_started",
+    ),
+    (
+        "at_rest.registry_step_completed",
+        "audit_detail",
+        {
+            "attempt": 2,
+            "output": {
+                "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+                "usage": {"input_tokens": 10, "output_tokens": 3},
+                "cost_usd": 0.0001,
+                # BUSINESS child of the nested schema — withheld by
+                # `_STEP_OUTPUT.owners`, not by the registry rule.
+                "faithfulness_score": 4,
+                "output_text": "SYNTHETIC model prose",
+            },
+        },
+        "step_completed",
+    ),
+    (
+        "at_rest.registry_step_failed",
+        "audit_detail",
+        {"attempt": 3, "error": "SYNTHETIC exception text", "unexpected": True},
+        "step_failed",
+    ),
+    (
+        "at_rest.registry_step_postcondition_failed",
+        "audit_detail",
+        {
+            "require_tool_call": "email_label_apply",
+            "min_success": 1,
+            "actual_success": 0,
+            "stop_reason": "max_iterations",
+        },
+        "step_postcondition_failed",
+    ),
+    (
+        "at_rest.registry_workflow_started",
+        "audit_detail",
+        {
+            "workflow_id": "email-triage",
+            "trigger": {
+                "message_id": "msg-1",
+                "subject": "SYNTHETIC subject",
+                "from": "alice@example.com",
+            },
+        },
+        "workflow_started",
+    ),
+    (
+        "at_rest.registry_workflow_completed",
+        "audit_detail",
+        {"step_ids": ["fetch", "classify"], "steps": {"classify": {"cost_usd": 0.01}}},
+        "workflow_completed",
+    ),
+    (
+        "at_rest.registry_workflow_failed",
+        "audit_detail",
+        {"error": "SYNTHETIC failure", "exception": "SYNTHETIC exc", "unexpected": True},
+        "workflow_failed",
+    ),
+    (
+        "at_rest.registry_workflow_forked",
+        "audit_detail",
+        {
+            "source_instance_id": "inst-1",
+            # The v8 defect, at the position it was found.
+            "from_step_id": "victim@example.com",
+            "preserved_step_ids": ["fetch", "classify"],
+        },
+        "workflow_forked",
+    ),
+    (
+        "at_rest.registry_budget_exceeded",
+        "audit_detail",
+        {"tokens_used": 5000, "tokens_limit": 4000, "cost_usd": 0.12, "action": "pause"},
+        "budget_exceeded",
+    ),
+    (
+        "at_rest.registry_alert_stuck_workflow",
+        "audit_detail",
+        {
+            "instance_id": "inst-1",
+            "workflow_id": "email-triage",
+            "running_for_seconds": 3600.5,
+            "threshold_seconds": 900,
+        },
+        "alert_stuck_workflow",
+    ),
+    (
+        "at_rest.registry_alert_stale_trigger",
+        "audit_detail",
+        {
+            "workflow_id": "email-triage",
+            "trigger_type": "email",
+            # Operator-authored AND a mailbox identity: withheld.
+            "account": "inbox@example.com",
+            "last_run_at": "2026-09-01T00:00:00Z",
+            "threshold_seconds": 86400,
+        },
+        "alert_stale_trigger",
+    ),
+    (
+        "at_rest.registry_alert_high_error_rate",
+        "audit_detail",
+        {
+            "rate": 0.42,
+            "threshold": 0.2,
+            "failed": 21,
+            "total_terminal": 50,
+            "window_seconds": 900,
+        },
+        "alert_high_error_rate",
+    ),
+    (
+        "at_rest.registry_memory_recalled",
+        "audit_detail",
+        {
+            "user_id": "alice@example.com",
+            "query": "SYNTHETIC correspondent question",
+            "context_hash": "sha256:def456",
+            "edges": 4,
+            "episodes": 2,
+            "token_budget": 800,
+            "injected": True,
+            "uses_recorded": {"recorded": 3, "upgraded": 1, "failed": 0},
+        },
+        "memory_recalled",
+    ),
+    (
+        "at_rest.registry_memory_observe_failed",
+        "audit_detail",
+        {"observation": 0, "error": "SYNTHETIC veracium failure"},
+        "memory_observe_failed",
+    ),
 ]

@@ -79,6 +79,21 @@ class Owner(StrEnum):
     #: until a field has a stated release rule.
     BUSINESS = "business"
     #: Metadata the projection itself generates (its markers and stamps).
+    #:
+    #: In the per-(action, field) registry it also covers a NESTED container
+    #: that reaches a reader only as this projector's own rendering of it.
+    #: `step_completed.output` and `workflow_started.trigger` are not
+    #: released: `_project` walks their declared schema, drops every
+    #: undeclared key, and withholds every BUSINESS child via that schema's
+    #: own `owners` table. What a grant-less reader sees is therefore the
+    #: projection's construction, not the stored value — which is a different
+    #: claim from "the engine produced this", and the only one that is true
+    #: of a deterministic step's output.
+    #:
+    #: It is not an escape hatch: a rule may claim this owner ONLY by
+    #: pointing at a node that carries per-child ownership or projects
+    #: structurally, pinned by
+    #: `test_a_PROJECTION_owned_rule_delegates_to_a_schema`.
     PROJECTION = "projection"
 
 
@@ -316,7 +331,42 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "11"  # v11: the per-(action, field) REGISTRY, first
+PROJECTOR_VERSION = "12"  # v12: the registry extended from one action to
+# EIGHTEEN — the engine's own execution trail (step/workflow lifecycle, fork,
+# budget), the five monitoring alerts, and learned-memory recall. Together
+# with `memory_observed` that is 93% of the production audit log by volume,
+# so the registry is now the projection most audit reads actually take.
+#
+# Fields were enumerated from the production table per action, not from the
+# source, so shapes only historical rows carry (`workflow_completed.steps`)
+# are classified too.
+#
+# THIS IS A WIDENING, and the largest one since v9. 28 fields across 11
+# actions are released that the flat schema withheld — the whole of the
+# monitoring alerts' arithmetic (`rate`, `failed`, `depth`, `tokens`,
+# `window_seconds`, the thresholds beside them), the budget numbers, the
+# postcondition's `min_success`/`actual_success`/`stop_reason`, recall's
+# `edges`/`episodes`/`token_budget`/`uses_recorded`, and two `unexpected`
+# booleans. The flat schema withheld them by OMISSION: it was written for
+# grant-decision entries and never classified a monitoring alert, so an
+# operator reading "error rate alert" got an entry with every number
+# stripped. Each released field is a scalar the PLATFORM computed or a
+# threshold the OPERATOR configured; none is content, and none is derived
+# from a trigger, a message or model output.
+# `test_the_registry_releases_exactly_these_fields_beyond_the_flat_schema`
+# freezes that set, so the next action added cannot widen quietly.
+#
+# Two things narrow or stay narrow:
+#
+#   - `alert_stale_trigger.account` is WITHHELD by rule rather than by
+#     omission — an operator-authored value that is nonetheless a mailbox
+#     identity, the `memory_observed.user_id` class.
+#   - `step_completed.output` and `workflow_started.trigger` keep their
+#     nested schemas under `Owner.PROJECTION`, whose meaning is widened (and
+#     test-constrained) to cover a value a reader sees only as this
+#     projector's rendering of it.
+#
+# v11: the per-(action, field) REGISTRY, first
 # action (`memory_observed`). Classification by SOURCE, stated per action
 # rather than per field, because the same NAME has different producers under
 # different actions — `evidence_ref` is engine-set in the fork and judge
@@ -667,6 +717,12 @@ _STEP_OUTPUT = Obj(
     owners=_OWNERSHIP["step_output"],
 )
 
+#: A context snapshot's per-step outputs. Named because three schemas reach
+#: it (`_AUDIT_DETAIL.steps`, `_CONTEXT.steps`, and the registry's
+#: `workflow_completed.steps`); two equal literals are two things to keep
+#: equal, which is the M3 class.
+_STEPS_SNAPSHOT = Obj(wildcard=_STEP_OUTPUT, wildcard_keys="platform")
+
 # Engine/governance metadata on an audit `detail`. Content-free by design.
 _AUDIT_DETAIL = Obj(
     children={
@@ -811,7 +867,7 @@ _AUDIT_DETAIL = Obj(
         # inherited — that nesting is exactly what the path-scoped model exists
         # to express, and the flat name registry could never have named it.
         "output": _STEP_OUTPUT,
-        "steps": Obj(wildcard=_STEP_OUTPUT, wildcard_keys="platform"),
+        "steps": _STEPS_SNAPSHOT,
         "_redacted": _MARKER,
     }
 )
@@ -832,7 +888,7 @@ _CONTEXT = Obj(
         "workflow_id": _ID,
         "org_id": _ID,
         "trigger": TriggerPayload(),
-        "steps": Obj(wildcard=_STEP_OUTPUT, wildcard_keys="platform"),
+        "steps": _STEPS_SNAPSHOT,
         "capabilities": _CAPABILITIES,
         "total_tokens": _COUNT,
         "total_cost_usd": _AMOUNT,
@@ -1159,6 +1215,40 @@ _RAW_AUDIT_FIELDS = (
 )
 
 
+#: Closed sets the registry validates against, rather than accepting a value
+#: for being short. Each is closed AT THE WRITE SITE, and the comment says
+#: where — an enum whose set is only a convention is a token in disguise.
+#: `step.type` is a Pydantic `Literal` on both step models.
+_STEP_TYPE = Leaf(_enum("deterministic", "agentic"))
+#: `_check_stale_email_triggers` emits this alert only for these two trigger
+#: types; anything else `continue`s before the detail is built.
+_EMAIL_TRIGGER_TYPE = Leaf(_enum("email", "gmail_poll"))
+#: `WorkflowPolicy.budget_action`, a Pydantic `Literal`.
+_BUDGET_ACTION = Leaf(_enum("notify", "pause", "escalate"))
+#: `agent.StopReason`, spelled out rather than imported — the projector is a
+#: domain leaf and importing the agent package to read an enum would invert
+#: that. `test_the_stop_reason_enum_is_the_agents_enum` pins the two equal,
+#: so the copy cannot drift silently.
+_STOP_REASON = Leaf(
+    _enum(
+        "end_turn",
+        "tool_use",
+        "max_iterations",
+        "budget_exhausted",
+        "max_tokens",
+        "stop_sequence",
+        "content_filtered",
+        "guardrail_intervened",
+        "error",
+    )
+)
+#: `LearnedMemoryService.record_outcomes` returns exactly these counters
+#: (`stats["failed"]`, `stats["upgraded" if ... else "recorded"]`). Declared
+#: as a closed child set, NOT a wildcard: the keys are ours, and saying so is
+#: cheaper than shape-testing keys we already know.
+_USES_RECORDED = Obj(children={"failed": _COUNT, "recorded": _COUNT, "upgraded": _COUNT})
+
+
 @dataclass(frozen=True)
 class FieldRule:
     """What one field of one ACTION's audit detail is.
@@ -1234,7 +1324,155 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         # platform user id. Withheld; see G-Trace-Subject-Identity.
         "user_id": FieldRule(Owner.BUSINESS, _ID, False),
     },
+    # --- The ENGINE's own execution trail. These five actions are 93% of the
+    # audit log by volume, and every field below was enumerated from the
+    # production table (`select distinct jsonb_object_keys ... group by
+    # action`) rather than from recollection, so a field that historical rows
+    # carry and current code no longer writes is still classified.
+    "step_started": {
+        "type": FieldRule(Owner.CONFIG, _STEP_TYPE, True),
+        "attempt": FieldRule(Owner.ENGINE, _COUNT, True),
+    },
+    "step_completed": {
+        "attempt": FieldRule(Owner.ENGINE, _COUNT, True),
+        # `execution.output`. NOT owned by the engine: a deterministic step's
+        # output is whatever its registered function returned, which for
+        # `noop`-shaped functions is its config and for a parser is model
+        # output. What a grant-less reader gets is `_project(_STEP_OUTPUT,
+        # ...)` — declared children only, BUSINESS children (the scores)
+        # withheld by `_STEP_OUTPUT.owners`. See `Owner.PROJECTION`.
+        "output": FieldRule(Owner.PROJECTION, _STEP_OUTPUT, True),
+    },
+    "step_failed": {
+        "attempt": FieldRule(Owner.ENGINE, _COUNT, True),
+        # Exception text. The ENGINE raised it, but the MESSAGE routinely
+        # embeds the input that caused it (a path, a parse fragment, an API
+        # body), so provenance follows the content, not the raiser. This is
+        # the one field the whole vault exists for: withheld here, recoverable
+        # with a grant.
+        "error": FieldRule(Owner.BUSINESS, _TOKEN, False),
+        "unexpected": FieldRule(Owner.ENGINE, _BOOL, True),
+    },
+    "step_retry": {
+        "attempt": FieldRule(Owner.ENGINE, _COUNT, True),
+        "error": FieldRule(Owner.BUSINESS, _TOKEN, False),
+    },
+    "step_postcondition_failed": {
+        # `req.name` — a tool name from the step's YAML postcondition.
+        "require_tool_call": FieldRule(Owner.CONFIG, _TOKEN, True),
+        "min_success": FieldRule(Owner.CONFIG, _COUNT, True),
+        "actual_success": FieldRule(Owner.ENGINE, _COUNT, True),
+        # `AgentResult.stop_reason.value` — our own enum, and a WIDENING:
+        # the flat schema never declared `stop_reason` on an audit detail, so
+        # this action discloses one field more than before. Deliberate. It is
+        # the only thing in the entry that says WHY the postcondition failed
+        # (turn ended vs. iteration cap vs. guardrail), it is a closed set we
+        # produce, and the alternative is an operator reading a failure with
+        # no cause.
+        "stop_reason": FieldRule(Owner.ENGINE, _STOP_REASON, True),
+    },
+    "workflow_started": {
+        # `definition.id` — operator-authored, and the reader already has it
+        # on the instance surface (the at-rest widening's argument).
+        "workflow_id": FieldRule(Owner.CONFIG, _TOKEN, True),
+        # The stored trigger, rendered by `safe_trigger_payload`: routing ids
+        # only, sender and content stripped. PROJECTION for the same reason
+        # `step_completed.output` is.
+        "trigger": FieldRule(Owner.PROJECTION, TriggerPayload(), True),
+    },
+    "workflow_completed": {
+        "step_ids": FieldRule(Owner.CONFIG, Seq(_TOKEN), True),
+        # Historical rows only — current code emits `step_ids`. Classified
+        # anyway: moving the action onto the registry without this would
+        # withdraw it from every entry already stored.
+        "steps": FieldRule(Owner.PROJECTION, _STEPS_SNAPSHOT, True),
+    },
+    "workflow_failed": {
+        "error": FieldRule(Owner.BUSINESS, _TOKEN, False),
+        # `str(exc)` on the timeout path, beside `error`.
+        "exception": FieldRule(Owner.BUSINESS, _TOKEN, False),
+        "unexpected": FieldRule(Owner.ENGINE, _BOOL, True),
+    },
+    "workflow_forked": {
+        "source_instance_id": FieldRule(Owner.ENGINE, _TOKEN, True),
+        # A step id from the definition. `_TOKEN`, never `_ID`: the v8 defect
+        # was `from_step_id: "victim@example.com"` surviving because `_ID`
+        # admits `@` for operator-identity paths.
+        "from_step_id": FieldRule(Owner.CONFIG, _TOKEN, True),
+        "preserved_step_ids": FieldRule(Owner.CONFIG, Seq(_TOKEN), True),
+    },
+    # --- BUDGET. `budget_escalated` shares the dict verbatim, so it shares
+    # the rules; two names for one shape is not two classifications.
+    "budget_exceeded": {
+        "tokens_used": FieldRule(Owner.ENGINE, _COUNT, True),
+        "tokens_limit": FieldRule(Owner.CONFIG, _COUNT, True),
+        "cost_usd": FieldRule(Owner.ENGINE, _AMOUNT, True),
+        "action": FieldRule(Owner.CONFIG, _BUDGET_ACTION, True),
+    },
+    # --- MONITORING. Emitted by `MonitoringService`, never by a request, so
+    # every threshold is config read off `MonitoringConfig` and every measure
+    # is arithmetic the service did.
+    "alert_stuck_workflow": {
+        "instance_id": FieldRule(Owner.ENGINE, _TOKEN, True),
+        "workflow_id": FieldRule(Owner.CONFIG, _TOKEN, True),
+        "running_for_seconds": FieldRule(Owner.ENGINE, _AMOUNT, True),
+        "threshold_seconds": FieldRule(Owner.CONFIG, _AMOUNT, True),
+    },
+    "alert_stale_trigger": {
+        "workflow_id": FieldRule(Owner.CONFIG, _TOKEN, True),
+        "trigger_type": FieldRule(Owner.CONFIG, _EMAIL_TRIGGER_TYPE, True),
+        # `trigger.config["account"]` — operator-authored, and a MAILBOX
+        # ADDRESS. Authorship is not the question here: releasing it names
+        # the correspondent the platform reads for. Withheld under the same
+        # rule as `memory_observed.user_id`; see G-Trace-Subject-Identity.
+        "account": FieldRule(Owner.CONFIG, _ID, False),
+        "last_run_at": FieldRule(Owner.ENGINE, _TS_, True),
+        "threshold_seconds": FieldRule(Owner.CONFIG, _AMOUNT, True),
+    },
+    "alert_high_error_rate": {
+        "rate": FieldRule(Owner.ENGINE, _AMOUNT, True),
+        "threshold": FieldRule(Owner.CONFIG, _AMOUNT, True),
+        "failed": FieldRule(Owner.ENGINE, _COUNT, True),
+        "total_terminal": FieldRule(Owner.ENGINE, _COUNT, True),
+        "window_seconds": FieldRule(Owner.CONFIG, _COUNT, True),
+    },
+    "alert_high_queue_depth": {
+        "depth": FieldRule(Owner.ENGINE, _COUNT, True),
+        "threshold": FieldRule(Owner.CONFIG, _COUNT, True),
+    },
+    "alert_high_token_burn": {
+        "tokens": FieldRule(Owner.ENGINE, _COUNT, True),
+        "cost_usd": FieldRule(Owner.ENGINE, _AMOUNT, True),
+        "threshold_tokens": FieldRule(Owner.CONFIG, _COUNT, True),
+        "window_seconds": FieldRule(Owner.CONFIG, _COUNT, True),
+    },
+    # --- LEARNED MEMORY, read side. The write side is `memory_observed`.
+    "memory_recalled": {
+        # The namespace key: a mailbox address in production. Same rule, same
+        # follow-up, as on the write side.
+        "user_id": FieldRule(Owner.BUSINESS, _ID, False),
+        # `recalled.query` — built from the correspondent's own message.
+        "query": FieldRule(Owner.BUSINESS, _TOKEN, False),
+        "context_hash": FieldRule(Owner.ENGINE, _TOKEN, True),
+        "edges": FieldRule(Owner.ENGINE, _COUNT, True),
+        "episodes": FieldRule(Owner.ENGINE, _COUNT, True),
+        "token_budget": FieldRule(Owner.CONFIG, _COUNT, True),
+        "injected": FieldRule(Owner.ENGINE, _BOOL, True),
+        "uses_recorded": FieldRule(Owner.ENGINE, _USES_RECORDED, True),
+    },
+    "memory_observe_failed": {
+        # The observation's INDEX in the spec list, not its text.
+        "observation": FieldRule(Owner.ENGINE, _COUNT, True),
+        "error": FieldRule(Owner.BUSINESS, _TOKEN, False),
+    },
 }
+
+#: Actions whose detail is built at ONE site and shared by a second action
+#: name. The alias reuses the rules rather than copying them (M3: two tables
+#: that must agree are one table waiting to disagree).
+_RULE_ALIASES = {"budget_escalated": "budget_exceeded"}
+for _alias, _source in _RULE_ALIASES.items():
+    AUDIT_FIELD_RULES[_alias] = AUDIT_FIELD_RULES[_source]
 
 
 def _project_by_rules(detail: dict[str, Any], rules: dict[str, FieldRule]) -> dict[str, Any]:
