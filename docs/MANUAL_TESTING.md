@@ -584,6 +584,42 @@ server errors).
 
 ---
 
+## 5c. Reality check — the normative docs against the live tables
+
+**What:** `EXECUTION_SEMANTICS.md` and `THREAT_MODEL.md` are normative —
+they state what the running system guarantees. This asks the database
+whether that is true. One falsifying query per claim; a claim holds only
+when its query returns nothing.
+
+**Why it exists:** on 2026-09-19 two real defects were found by querying
+production — monitoring writing unprojected mailbox addresses at rest, and
+171 instances stranded RUNNING for two months. Neither was found by the
+18-round external review of the trace primitive, by the test suite, or by
+reading the code. §7 of `EXECUTION_SEMANTICS.md` had claimed automatic boot
+re-drive that no code implemented, and the table had disagreed with the
+document for months. A claim nobody queries is a belief.
+
+```bash
+cd backend
+DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
+  uv run python tools/reality_check.py
+
+# the full sweep, including pre-fix history
+DATABASE_URL=... uv run python tools/reality_check.py --since 1970-01-01
+```
+
+**Expect:** `19/19 claims hold.` Read-only — every statement is a SELECT,
+and it changes nothing. Exits 1 on any falsified claim, so it can gate a
+release.
+
+**When a claim is falsified** it is either a defect or a document that has
+drifted. Both need an edit; the point of the tool is that it forces you to
+say which. The default `--since` asks about behaviour under the current
+regime; `--since 1970-01-01` includes history the backfill owns (currently
+two known exceptions, both listed in `docs/NEXT_STEPS.md`).
+
+---
+
 ## 6. Postgres integration tests
 
 **What:** the workflow engine actually persists state through Postgres

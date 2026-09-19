@@ -57,6 +57,14 @@ Also landed, outside the epic:
 **Current counts:** 1,170 backend tests collected, 200 frontend tests,
 110 backend source modules.
 
+**Standing check:** `backend/tools/reality_check.py` falsifies each
+normative claim in `EXECUTION_SEMANTICS.md` / `THREAT_MODEL.md` against the
+live tables — one query per claim, read-only, exit 1 if any is falsified.
+Added 2026-09-19 after both of that day's real defects were found by
+querying production rather than by review, tests, or reading code. Current:
+**19/19 hold** for behaviour since the at-rest tightening; **17/19** over
+all history, the two exceptions being pre-fix history owned by item 3 below.
+
 **Immediate priorities, in order:**
 
 0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while
@@ -123,6 +131,16 @@ Also landed, outside the epic:
    2,000-instance sample. One-way, operator's call. Its precondition (the
    at-rest tightening) has been met since 2026-09-18, and the pile is
    static, so waiting costs only the release gate staying un-certifiable.
+
+   **Two falsified claims are waiting on this** (`reality_check.py
+   --since 1970-01-01`), both pre-fix history, neither a live defect:
+
+   - one KILLED instance from 2026-07-23 with no `workflow_killed` audit
+     entry — evidence of the endpoint gap fixed 2026-09-19. Not
+     repairable: retro-writing an audit entry for an act nobody recorded
+     would be inventing the record the entry exists to be.
+   - the one orphaned vault row with a NULL `audit_entry_id`, already
+     named below. Sweepable.
 
    **New input (2026-09-19).** A sweep of the live table under v13 shows
    what is still lossy at rest, and all of it is HISTORY — no live writer
