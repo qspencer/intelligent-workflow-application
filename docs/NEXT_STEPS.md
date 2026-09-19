@@ -1438,10 +1438,26 @@ G-Trace-Backfill decision below.
 
 **Needs an operator decision; not started.**
 
-Running `verify_zero_raw` read-only against production: **10,110 findings in
-a 2,000-instance sample** (scan capped, so this is a floor, not a total) —
-5,790 `step_executions.output`, 1,854 `workflow_instances.context`, 1,337
-`audit_log.detail`, 1,122 `trigger_payload`, 7 `error`.
+~~Running `verify_zero_raw` read-only against production: **10,110 findings
+in a 2,000-instance sample** (scan capped, so this is a floor, not a
+total).~~ **Re-measured UNCAPPED 2026-09-19 — 34,318 findings**, and the
+shape of the pile changes the decision:
+
+| table.column | findings | does the backfill clear it? |
+|---|---|---|
+| `audit_log.detail` | **19,610 (57%)** | **NO — append-only by design** |
+| `step_executions.output` | 9,293 | yes |
+| `workflow_instances.context` | 3,151 | yes |
+| `workflow_instances.trigger_payload` | 2,086 | yes |
+| `workflow_instances.error` | 178 | yes |
+
+**The stated payoff does not exist.** The argument for running it was that
+*"Contract B1's release gate (criterion 14) cannot certify while any
+finding remains"* — but the backfill does not rewrite `audit_log`, which
+is 57% of the findings, and the verifier says so itself: *"19610 of the
+findings are append-only pre-flip audit_log raw — backfill does not
+rewrite it; encrypt/migrate before certifying."* Running it leaves 19,610
+findings and a still-failing gate.
 
 Most of this is the KNOWN pre-flip backlog that `trace_migration`'s backfill
 exists to clear. What is new is **why it did not stop growing when the flip
@@ -1467,6 +1483,28 @@ and the backfill is unblocked. It remains an operator decision because it
 rewrites production rows one-way. Note the pile is now static: new writes are
 projected at rest and their raw is vaulted, so waiting no longer costs
 anything except the release gate staying un-certifiable.
+
+**Recommendation revised 2026-09-19 (uncapped re-measure): still wait, and
+for two better reasons than the original one.**
+
+1. **It cannot certify the gate**, so the one thing urgency rested on is
+   gone (table above). The majority of the pile needs the `audit_log`
+   encrypt-or-migrate work, which does not exist yet — *that* is the
+   blocking piece, not this.
+2. **The projector is five versions old today** (v13→v17 in one day), and
+   two of those versions were DEFECT CORRECTIONS found only by running
+   against production data — v13's `_COUNT`-vs-float and
+   context-snapshot-vs-list, v16's six lossy governance actions. A
+   one-way rewrite of 14,708 rows under a projector that young is the
+   wrong order of operations. The raw is vaulted first so a later
+   narrowing is recoverable, but "recoverable through a grant-gated
+   rehydration" is not the same as "unchanged".
+
+Waiting is free: nothing accumulates. Sequence: decide the `audit_log`
+question → let the projector go a stretch with no corrections
+(`reality_check` is the cheap signal) → then backfill ONCE, folding in
+G-Trace-Subject-Identity stage 4 rather than making a second pass over the
+same rows.
 
 Also outstanding, trivially: **one orphaned `audit_detail` vault row** with a
 NULL `audit_entry_id`, written during the ~30-second window when the column
