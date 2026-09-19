@@ -94,6 +94,17 @@ Two of the three dry-run failures seen during the exercise were malformed
 test payloads, not platform defects. Noted because the exercise is only
 worth repeating if its findings are reported honestly.
 
+**The frontend caught up (same day).** The backend refusal created a UI
+dead-end — `InstanceDetail` and `InstancesList` both offered
+Resume/Retry/Fork on a dry-run instance and would have met the new 400.
+That is the fix-one-end pattern the backend change was itself correcting,
+committed an hour after naming it. Both components now read the flag; the
+list gets it from a new `dry_run` BOOLEAN on the instance summary (not the
+whole `context`, which the summary omits on purpose). The UI says why the
+actions are absent and badges the run "test run" rather than silently
+hiding controls, and Delete stays available. Playwright/axe suite re-run
+against all of today's changes: 10/10.
+
 **Still open from the exercise, not fixed:** an unresolvable `pin_params`
 path fails the step and then RETRIES it twice, burning agentic attempts on
 a configuration error that cannot become transient — the §4 effect-gating

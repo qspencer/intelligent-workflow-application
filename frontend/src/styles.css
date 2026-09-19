@@ -309,6 +309,20 @@ main {
 .page-instance-detail .error {
   color: var(--err);
 }
+/* A sandboxed (Test / dry-run) instance. Distinct from the state badge
+   beside it: the state says how the run ENDED, this says it was never
+   real — which is why resume / retry / fork are absent. */
+.badge.dry-run {
+  background: var(--surface-2, #eef1f5);
+  color: var(--fg-muted, #555);
+  border: 1px dashed var(--border, #bbb);
+}
+
+.page-instance-detail .dry-run-note {
+  font-size: 0.9em;
+  max-width: 48ch;
+}
+
 .page-instance-detail .muted {
   color: var(--muted);
 }

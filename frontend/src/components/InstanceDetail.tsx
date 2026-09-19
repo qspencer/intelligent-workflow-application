@@ -33,6 +33,20 @@ function memoryHash(s: StepExecution): string | null {
   return typeof value === 'string' ? value : null;
 }
 
+/**
+ * Was this run a sandboxed test (Test / dry-run) rather than a real one?
+ *
+ * The engine stamps `dry_run` onto the run context at start, so it is on the
+ * record from birth and survives the projection to this surface. It matters
+ * here because re-driving a dry run would execute it FOR REAL — the sandbox
+ * lived in the request that made it, not in the record — so the backend now
+ * refuses resume / retry / fork on one (400). Without this the UI offers all
+ * three anyway and the user meets an error instead of an explanation.
+ */
+function isDryRun(instance: WorkflowInstance): boolean {
+  return instance.context?.['dry_run'] === true;
+}
+
 export function InstanceDetail() {
   const { id = '' } = useParams<{ id: string }>();
   const navigate = useNavigate();
@@ -138,6 +152,7 @@ export function InstanceDetail() {
 
   const evaluations = extractEvaluations(steps);
   const memory = summarizeMemory(auditEntries);
+  const dryRun = instance !== null && isDryRun(instance);
 
   return (
     <div className="page-instance-detail">
@@ -154,6 +169,14 @@ export function InstanceDetail() {
           <h2>
             Instance <code>{short(instance.id)}</code>
             <span className={`badge ${instance.state}`}>{instance.state}</span>
+            {dryRun && (
+              <span
+                className="badge dry-run"
+                title="Sandboxed: MockWorld, external tools stubbed, live Bedrock. Nothing outside the platform was touched."
+              >
+                test run
+              </span>
+            )}
           </h2>
 
           <div className="meta">
@@ -192,7 +215,7 @@ export function InstanceDetail() {
                 </button>
               </>
             )}
-            {instance.state === 'paused' && (
+            {instance.state === 'paused' && !dryRun && (
               <>
                 <button onClick={() => void action('resume')}>Resume</button>
                 <button className="danger" onClick={() => void action('kill')}>
@@ -200,8 +223,14 @@ export function InstanceDetail() {
                 </button>
               </>
             )}
-            {instance.state === 'failed' && (
+            {instance.state === 'failed' && !dryRun && (
               <button onClick={() => void action('retry')}>Retry</button>
+            )}
+            {dryRun && (instance.state === 'paused' || instance.state === 'failed') && (
+              <span className="muted dry-run-note">
+                A test run can&rsquo;t be resumed or retried — doing so would execute it
+                for real. Run the workflow instead.
+              </span>
             )}
             {siblings.length > 0 && (
               <label className="compare-picker">
@@ -388,10 +417,12 @@ export function InstanceDetail() {
                     <td>
                       <button
                         className="link"
-                        disabled={forking}
+                        disabled={forking || dryRun}
                         title={
-                          `Fork from this step — preserves outputs of every step before ${s.step_id}` +
-                          `, re-runs ${s.step_id} and everything downstream with current memory.`
+                          dryRun
+                            ? 'A test run can\u2019t be forked — the fork would execute for real.'
+                            : `Fork from this step — preserves outputs of every step before ${s.step_id}` +
+                              `, re-runs ${s.step_id} and everything downstream with current memory.`
                         }
                         onClick={() => void forkFrom(s.step_id)}
                       >

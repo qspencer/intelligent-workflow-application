@@ -1074,6 +1074,11 @@ def build_router(
         ctx = i.context or {}
         return {
             "id": i.id,
+            # A BOOLEAN lifted out of the context, not the context itself —
+            # the summary deliberately omits `context` (step outputs, raw
+            # trigger). The list page needs this one bit to stop offering
+            # Resume / Retry on a run the backend will refuse to re-drive.
+            "dry_run": bool(ctx.get("dry_run")),
             "workflow_id": i.workflow_id,
             "org_id": i.org_id,
             "state": i.state.value,

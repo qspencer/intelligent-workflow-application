@@ -273,6 +273,14 @@ export interface WorkflowInstance {
   trigger_payload: Record<string, unknown>;
   /** Accumulated run context; `steps` holds each step's output object. */
   context?: Record<string, unknown>;
+  /**
+   * This run was a sandboxed test (Test / dry-run). Present on LIST rows,
+   * which deliberately omit `context` — the detail view reads
+   * `context.dry_run` instead. Either way it means the same thing: the
+   * backend refuses to resume / retry / fork this instance, because doing
+   * so would execute it for real.
+   */
+  dry_run?: boolean;
   error: string | null;
   created_at: string;
   started_at: string | null;

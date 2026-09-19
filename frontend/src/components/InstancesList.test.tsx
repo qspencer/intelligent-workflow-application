@@ -86,3 +86,55 @@ describe('InstancesList bulk clear (delete-safety)', () => {
     expect(screen.getByText('Order Confirmation #123')).toBeInTheDocument();
   });
 });
+
+describe('InstancesList — a dry run is not re-drivable', () => {
+  beforeEach(() => {
+    localStorage.clear();
+    localStorage.setItem('wp.groups', 'admins');
+  });
+  afterEach(() => {
+    cleanup();
+    vi.restoreAllMocks();
+  });
+
+  async function rows(over: Partial<WorkflowInstance>) {
+    vi.spyOn(api, 'listInstances').mockResolvedValue([inst(over)]);
+    render(
+      <MemoryRouter initialEntries={['/instances']}>
+        <InstancesList />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(api.listInstances).toHaveBeenCalled());
+  }
+
+  it('offers Retry on a real failed run', async () => {
+    await rows({ state: 'failed' });
+    expect(await screen.findByRole('button', { name: /retry/i })).toBeTruthy();
+  });
+
+  it('does NOT offer Retry on a failed dry run', async () => {
+    await rows({ state: 'failed', dry_run: true });
+    await screen.findByText('test run');
+    expect(screen.queryByRole('button', { name: /retry/i })).toBeNull();
+  });
+
+  it('does NOT offer Resume on a paused dry run', async () => {
+    await rows({ state: 'paused', dry_run: true });
+    await screen.findByText('test run');
+    expect(screen.queryByRole('button', { name: /resume/i })).toBeNull();
+  });
+
+  it('offers Resume on a real paused run', async () => {
+    await rows({ state: 'paused' });
+    expect(await screen.findByRole('button', { name: /resume/i })).toBeTruthy();
+  });
+
+  it('still lets you delete a dry run', async () => {
+    await rows({ state: 'failed', dry_run: true });
+    // The page also carries a bulk-clear control, so scope to the row's own
+    // Delete by its title rather than by the shared accessible name.
+    expect(
+      await screen.findByTitle(/delete this test run/i),
+    ).toBeTruthy();
+  });
+});

@@ -223,7 +223,32 @@ interface RowActionsProps {
 
 function RowActions({ inst, busy, onAction, onDelete }: RowActionsProps) {
   const { id, state } = inst;
-  switch (state) {
+  // A dry run is a probe: re-driving one would execute it FOR REAL, so the
+  // backend refuses resume / retry / fork with a 400. Offering the button
+  // and letting the user meet that error is the same fix-one-end pattern
+  // the backend change was itself correcting — and this list is the second
+  // caller, which the first pass missed. Delete stays available: removing a
+  // test run is exactly what you want to do with one.
+  const paused = inst.dry_run ? 'dry-run-paused' : 'paused';
+  const failed = inst.dry_run ? 'dry-run-failed' : 'failed';
+  switch (state === 'paused' ? paused : state === 'failed' ? failed : state) {
+    case 'dry-run-paused':
+      return (
+        <span className="muted small" title="A test run can't be resumed — it would execute for real.">
+          test run
+        </span>
+      );
+    case 'dry-run-failed':
+      return (
+        <>
+          <span className="muted small" title="A test run can't be retried — it would execute for real.">
+            test run
+          </span>
+          <button className="danger small" disabled={busy} onClick={() => onDelete(id)} title="Delete this test run">
+            Delete
+          </button>
+        </>
+      );
     case 'running':
       return (
         <>
