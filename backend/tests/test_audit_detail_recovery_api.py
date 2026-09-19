@@ -579,3 +579,70 @@ async def test_a_MIXED_response_reports_partial_and_explains_per_row(
         f"a mixed response must report partial, not {outcomes} — one entry was "
         "returned complete and one could not be retrieved"
     )
+
+
+async def test_a_repository_LOOKUP_failure_is_a_retrieval_outcome(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R14 finding 2, tested SEPARATELY from missing rows and decryption
+    failures, as the return asked.
+
+    The decryption repair wrapped `_payload_of`; the vault LOOKUP sat
+    outside it. A repository timeout therefore escaped as itself — HTTP 500,
+    both access attempts recorded and neither the completion nor the release
+    decision. Three distinct failure modes, three distinct tests:
+    missing row (`…records_what_was_ACTUALLY_retrieved`), undecryptable
+    payload (`…completes_the_release_audit`), and this one.
+    """
+    client, repos, iid, _ = await _setup(monkeypatch)
+    await _grant_platform_wide(repos, "root")
+
+    async def timeout(_key: str) -> Any:
+        raise TimeoutError("vault repository timed out")
+
+    repos.raw_trace_vault.get_by_idempotency_key = timeout  # type: ignore[method-assign]
+
+    resp = client.get(f"/api/workflow-instances/{iid}/audit", headers=_ADMIN)
+    assert resp.status_code == 200, f"a repository timeout produced HTTP {resp.status_code}"
+    assert "exfiltrate_sk_live_abc" not in resp.text
+
+    entries = await repos.audit.list_by_instance(iid)
+    attempted = [e for e in entries if e.action == "raw_trace_system_access_attempted"]
+    completed = [e for e in entries if e.action == "raw_trace_system_access_completed"]
+    decided = [e for e in entries if e.action == "raw_trace_release_decided"]
+    assert attempted, "no access attempt recorded"
+    assert len(completed) >= len(attempted), (
+        f"{len(attempted)} attempts, {len(completed)} completions — the lookup "
+        "failure left the system-access record open"
+    )
+    assert any(str(e.detail.get("outcome")) == "retrieval_failed" for e in completed)
+    assert decided, "the endpoint recorded no release decision"
+    assert not any(str(e.detail.get("outcome")) == "released" for e in decided), (
+        f"the endpoint claims a release it did not make: "
+        f"{[e.detail.get('outcome') for e in decided]}"
+    )
+
+
+def test_the_authoritative_reference_survives_outside_the_projected_detail() -> None:
+    """R14 finding 1 asked us to 'construct public references from
+    authoritative records where possible'. One already exists and needed no
+    new field: `workflow_instance_id` is a COLUMN on the audit entry, minted
+    by the engine, so it is not subject to detail projection and gives a
+    grant-less reader canonical correlation without the input-derived
+    `evidence_ref`. Pinned so a future change cannot quietly move it into
+    the detail and withhold it."""
+    from workflow_platform.persistence.models import AuditEntry
+    from workflow_platform.trace_projection import project_audit_detail_at_rest as at_rest
+
+    entry = AuditEntry(
+        actor_type="engine",
+        actor_id="learned_memory",
+        action="memory_observed",
+        workflow_instance_id="inst-abc",
+        detail={"evidence_ref": "SYNTHETIC-from-the-trigger", "facts": 2},
+    )
+    stored = entry.model_copy(update={"detail": at_rest(entry.action, entry.detail)})
+    assert "SYNTHETIC-from-the-trigger" not in str(stored.detail)
+    assert stored.workflow_instance_id == "inst-abc", (
+        "the authoritative correlation must remain available to an ordinary reader"
+    )
