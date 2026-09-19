@@ -2091,6 +2091,7 @@ def build_router(
         # i-th tool_call audit entry.
         raw_tcs: list[Any] = []
         released = False
+        merged_error = exe.error
         # What the response is BUILT from. Replaced by the recovered output
         # only after a successful release; a failed retrieval or a failed
         # release-decision audit keeps the projection.
@@ -2111,6 +2112,19 @@ def build_router(
                     step_attempt_id=exe.id,
                     safe_output=output,
                     projector_version=exe.projector_version,
+                )
+                # R17 self-audit: `error` was rendered from `exe.error`, the
+                # STORED value — the redaction marker under the flip, with
+                # the raw vaulted under `RawTraceKind.ERROR`. `merge_error`
+                # exists for exactly this and instance-detail calls it;
+                # explain never did, so a grant holder got the marker beside
+                # `raw_included: true`. Same class as the round-16 finding,
+                # on a third field.
+                merged_error = await rehydrator.merge_error(
+                    org_id=instance.org_id,
+                    instance_id=instance_id,
+                    step_attempt_id=exe.id,
+                    safe_error=exe.error,
                 )
             except RawTraceUnavailable as exc:
                 logger.warning("explain recovery failed: %s", exc)
@@ -2171,7 +2185,7 @@ def build_router(
             "kind": kind,
             "started_at": _iso(exe.started_at),
             "completed_at": _iso(exe.completed_at),
-            "error": redact_error(exe.error, admin=released),
+            "error": redact_error(merged_error if released else exe.error, admin=released),
             "raw_included": released,
             **({"redaction_reason": reason} if reason is not None else {}),
         }

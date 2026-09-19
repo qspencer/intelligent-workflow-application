@@ -961,3 +961,61 @@ async def test_explain_SUCCESS_returns_the_recovered_agentic_output_text(
     assert body["output_text"] and "SYNTHETIC agent answer" in body["output_text"], (
         f"raw_included is true but output_text is {body['output_text']!r}"
     )
+
+
+async def test_explain_SUCCESS_returns_the_recovered_ERROR(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R17 self-audit: the round-16 defect on a third field.
+
+    `explain_step` rendered `error` from `exe.error` — the STORED value,
+    which under the flip is the redaction marker, with the raw vaulted under
+    `RawTraceKind.ERROR`. `merge_error` exists for exactly this and
+    instance-detail calls it; explain never did. So a grant holder received
+    the marker beside `raw_included: true`.
+
+    Found by enumerating every stored-value reference in the handler rather
+    than only the two fields the round-16 return named (ledger R-g).
+    """
+    from workflow_platform.workflow import load_definition
+
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    repos = in_memory_repositories()
+
+    async def boom(config: Any, ctx: Any, world: Any) -> dict[str, Any]:
+        raise RuntimeError("SYNTHETIC failure detail from the step")
+
+    registry = FunctionRegistry()
+    registry.register("boom", boom)
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=registry,
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+        trace_safe_only=True,
+    )
+    instance = await engine.run(
+        load_definition(
+            {
+                "id": "wf",
+                "name": "wf",
+                "trigger": {"type": "manual"},
+                "steps": [{"id": "a", "type": "deterministic", "function": "boom"}],
+                "edges": [],
+            }
+        ),
+        trigger_payload={},
+    )
+    await repos.users.save(User(iss="dev", sub="root", org_id="default", roles=["Administrator"]))
+    await _grant_platform_wide(repos, "root")
+    client = TestClient(create_app(repositories=repos, engine=engine))
+
+    body = client.get(
+        f"/api/workflow-instances/{instance.id}/steps/a/explain", headers=_ADMIN
+    ).json()
+    assert body["raw_included"] is True, f"expected a release, got {body}"
+    assert body["error"] and "SYNTHETIC failure detail" in body["error"], (
+        f"raw_included is true but error is {body['error']!r} — the stored marker, "
+        "not the vaulted raw"
+    )
