@@ -184,6 +184,27 @@ round narrative, because they apply at the moment a detector is written:
 
 Run before any package leaves. Roughly an hour; the returns cost days.
 
+0. **Name the counterparts, BEFORE building (M9).** For the capability in
+   hand, write down each pair and which side exists. An unbuilt counterpart
+   appears in no enumeration, so no detector of the "every X must do Y"
+   shape can find it — this has to be a question, asked early, in writing:
+
+   - writes ↔ **reads** (who retrieves what this stores, and through which
+     surface?)
+   - begins ↔ **completes** (including on every failure path)
+   - one surface ↔ **all surfaces** serving the same data (HTTP list, HTTP
+     detail, WS, and any endpoint returning a different SHAPE built from it
+     — a dict is still that data)
+   - succeeds ↔ **fails** (and fails BEFORE vs AFTER the commit point)
+   - optional dependency ↔ **required** one, when the thing it preserves is
+     otherwise destroyed
+   - in-memory double ↔ **real backend** (M8: what can the double not
+     exhibit?)
+
+   Eight findings across rounds 12–14 were a missing counterpart. Five of
+   round 13's six would have been caught by running this list over the
+   vaulting feature after round 12.
+
 1. **Gates, all five, standalone.** `ruff`, `format`, `mypy`, `pytest`,
    `pip-audit`. Read each exit code before any pipe. *(A red CI ran unnoticed
    for several pushes because the local set had four of five.)*
@@ -278,6 +299,72 @@ Tracked so "we are learning" stays measurable rather than asserted.
 | — (self-found, at-rest tightening) | 2 | M6 ×2 | n/a |
 | — (self-found, round-12 pre-package) | 3 | M1, M4, M6 | n/a |
 | 12 | 5 (3×P1) | M1, M3, M6 ×2, M7 | n/a (new subject) |
+| — (self-found, r13 pre-package) | 3 | M1, M4, M6 | n/a |
+| 13 | 6 (1×P1) | **M9 ×4**, M3, M5 | n/a |
+| — (self-found, r14 pre-package) | 3 | **M9 ×2**, M6 | n/a |
+| 14 | *out* | — | — |
+
+### M9 — a path built from ONE END
+
+The dominant mechanism of rounds 12–14, and the reason this epic ran long.
+Named on 2026-09-19, after it had produced **eight** findings across three
+rounds without being called anything.
+
+A capability has counterparts. Build one and not the other and the thing
+looks finished, tests green, while the half that proves it works was never
+written:
+
+| Built | Counterpart missed | Round |
+|---|---|---|
+| vaulting (write) | recovery (read) | 12 F1 |
+| the flip in six tools | key init in the same six | 12 F2 |
+| audit recovery on 2 endpoints | the 3rd, and the WS surface | 13 F1, r13 self-audit |
+| release ATTEMPT recorded | the COMPLETION, on failure | 13 F2, 13 F4 |
+| projection (removal) | vaulting (preservation), optional | 13 F3 |
+| retry before append | retry after append committed | 13 F6 |
+| two-phase release in explain | the tool NAME it still read from the projection | r14 self-audit |
+
+**Why M3 does not cover it.** M3 is one rule enforced at some call sites and
+not others — the sites are known and the rule is uniform. M9 is a MISSING
+COUNTERPART: nothing at the built end refers to the unbuilt end, so there is
+no list to be incomplete against. A write path does not mention the reader.
+
+**Why our detectors kept missing it.** Every detector we write is an
+enumeration — "every X must do Y" — over things that EXIST. An unbuilt
+counterpart is not in any enumeration, so the shape of tool we reach for
+first is structurally blind to this class. That is the answer to the
+question round 13's sidecar asked and could not answer itself.
+
+**The detector, therefore, is a question asked before the work, not a test
+written after it.** Added to §4 as step 0.
+
+---
+
+### Why fourteen rounds, honestly
+
+The target was 4–5. Two readings, and both are true:
+
+**The defensible half.** Rounds 1–11 reviewed ONE artifact, the projector,
+and it reached zero defects at round 8 and stayed there. Rounds 12, 13 and
+14 each reviewed a NEW artifact — audit vaulting, then the at-rest
+tightening, then the widening — because scope kept being added. Round count
+measures artifacts reviewed, not iterations on one thing.
+
+**The indefensible half.** M9 recurred in all three extensions. Round 12
+returned five findings on it; we fixed those five and shipped round 13,
+which returned six more of the same class. The class was visible after round
+12 and we did not name it, so we could not look for it systematically — we
+looked for instances. That is precisely the failure the "a class seen twice
+gets a detector" rule exists to prevent, and it took eight instances to
+trigger, because each instance looked like a different bug.
+
+**What would actually have changed it:** naming M9 after round 12 and
+running its step-0 question over the whole vaulting feature would have found
+the escalation endpoint, the WS surface, the global branch, the append
+timing and the missing completion **before** round 13 was sent. Five of that
+round's six findings.
+
+---
 
 **Round 12 broke the streak, and deserved to.** Five findings, three P1, on
 the first round of a NEW subject. The pattern across them is one thing:
