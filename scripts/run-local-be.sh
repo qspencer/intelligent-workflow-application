@@ -11,6 +11,8 @@
 #     fork/retry across restarts). Brought up via docker compose + migrated.
 #   - Live Bedrock (agentic steps actually run; needs AWS creds).
 #   - All triggers auto-started (filesystem / webhook / schedule / gmail_poll).
+#   - NO autoreload (see --reload). A process that owns live mail polling
+#     must not be restarted by a file watcher.
 #   - Gmail seeded from .secrets/ if present (enables the email-triage trigger).
 #   - Dev auth (X-Dev-User / X-Dev-Groups headers; the dashboard role switcher).
 #   - Human-readable (text) logs.
@@ -33,6 +35,13 @@
 #                                        #   loginctl enable-linger $USER. Any other
 #                                        #   flag combined with --as-service is baked
 #                                        #   into the unit's ExecStart.
+#   scripts/run-local-be.sh --reload       # uvicorn autoreload. OFF by default, and
+#                                        #   implied by --no-triggers. Reload CANCELS
+#                                        #   in-flight workflow runs: it destroyed
+#                                        #   ~1 run in 11 of email-triage-apply for two
+#                                        #   months (171 instances) before the engine
+#                                        #   learned to mark them PAUSED. Safe only when
+#                                        #   nothing is polling.
 #   scripts/run-local-be.sh --cheatsheet   # print operational commands (service ctl,
 #                                        #   logs, health) and exit
 #
@@ -58,6 +67,10 @@ USE_POSTGRES=1
 START_TRIGGERS=1
 AS_SERVICE=0
 AUTH_MODE_CHOICE=dev
+# OFF by default (2026-09-19). Autoreload restarts the app on any source
+# change, which cancels whatever the mail poller is mid-run on. See --reload.
+RELOAD=0
+RELOAD_EXPLICIT=0
 PASSTHROUGH_ARGS=()
 PORT="${PORT:-8001}"
 BEDROCK_MODE="${BEDROCK_MODE:-live}"
@@ -88,6 +101,7 @@ for arg in "$@"; do
     --as-service)  AS_SERVICE=1 ;;
     --in-memory)   USE_POSTGRES=0;   PASSTHROUGH_ARGS+=("$arg") ;;
     --no-triggers) START_TRIGGERS=0; PASSTHROUGH_ARGS+=("$arg") ;;
+    --reload)      RELOAD=1; RELOAD_EXPLICIT=1; PASSTHROUGH_ARGS+=("$arg") ;;
     --replay)      BEDROCK_MODE=replay; PASSTHROUGH_ARGS+=("$arg") ;;
     --local-auth)  AUTH_MODE_CHOICE=local; PASSTHROUGH_ARGS+=("$arg") ;;
     --cheatsheet)  cheatsheet; exit 0 ;;
@@ -95,6 +109,10 @@ for arg in "$@"; do
     *) echo "unknown argument: $arg (try --help)" >&2; exit 2 ;;
   esac
 done
+
+if [ "$START_TRIGGERS" = "0" ] && [ "$RELOAD_EXPLICIT" = "0" ]; then
+  RELOAD=1  # pure dev loop: no triggers running, so nothing to interrupt
+fi
 
 # --- systemd --user service path ---------------------------------------------
 # When --as-service is given, we write/refresh the unit, restart the service,
@@ -265,6 +283,12 @@ else
 fi
 echo "   bedrock      : $BEDROCK_MODE"
 echo "   triggers     : $([ "$START_TRIGGERS" = 1 ] && echo "on (fs / webhook / schedule / gmail)" || echo "off")"
+if [ "$RELOAD" = 1 ]; then
+  echo "   autoreload   : ON — a source edit RESTARTS this process"
+  [ "$START_TRIGGERS" = 1 ] && echo "                  ⚠ triggers are on: a reload CANCELS the in-flight run"
+else
+  echo "   autoreload   : off — restart explicitly after code or YAML changes"
+fi
 if [ "$GMAIL_OK" = 1 ]; then
   echo "   gmail        : $GMAIL_ACCOUNT (seeded from .secrets/)"
 else
@@ -289,11 +313,25 @@ echo "────────────────────────�
 # --- launch -------------------------------------------------------------------
 step "Launch uvicorn (Ctrl-C to stop) — startup logs + per-trigger status follow"
 cd "$BACKEND"
-# --reload watches the tree for code changes — but the platform WRITES
-# inside it at runtime (.memory/learned.db + -wal/-shm on every processed
-# email, codified rule overlays), which made the reloader restart the app
-# continuously ("3 changes detected" flapping, discovered 2026-07-30: six
-# restarts in minutes, re-firing once-per-process alerts each time).
-# Reload stays for the dev loop but only watches actual source.
-exec uv run uvicorn workflow_platform.main:app --port "$PORT" \
-  --reload --reload-dir src --reload-dir ../examples
+# AUTORELOAD IS OFF BY DEFAULT (2026-09-19).
+#
+# A reload cancels in-flight asyncio tasks, which for this process means
+# whatever workflow the mail poller is mid-run on. Measured cost: 90 reloads
+# in one day, ~1 run in 11 of email-triage-apply destroyed over two months
+# (171 instances), all of them invisible until the engine learned to mark an
+# interrupted run PAUSED. Editing source on this box also MUTATED production
+# state, because a lifespan change deployed itself mid-edit.
+#
+# The 2026-07-30 narrowing (--reload-dir src, because the platform writes
+# .memory/learned.db inside the tree and the watcher flapped) treated a
+# symptom of the same thing: a process that owns live triggers must not be
+# restarted by a file watcher. Restart explicitly instead —
+# `systemctl --user restart workflow-be` — which YAML changes already need.
+#
+# --reload is still available for the dev loop, and --no-triggers implies it:
+# with nothing polling, a restart has nothing to destroy.
+RELOAD_ARGS=()
+if [ "$RELOAD" = "1" ]; then
+  RELOAD_ARGS=(--reload --reload-dir src --reload-dir ../examples)
+fi
+exec uv run uvicorn workflow_platform.main:app --port "$PORT" "${RELOAD_ARGS[@]}"

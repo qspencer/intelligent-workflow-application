@@ -61,8 +61,15 @@ JSON log records actually look like — useful for tuning your tail.
 cd backend
 DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
 AUTH_MODE=dev \
-uv run uvicorn workflow_platform.main:app --reload --port 8001
+uv run uvicorn workflow_platform.main:app --port 8001
 ```
+
+**No `--reload`.** Triggers start by default
+(`WORKFLOW_PLATFORM_START_TRIGGERS` defaults to on), and a reload cancels
+whatever run the mail poller is mid-way through — it destroyed ~1 run in 11
+of `email-triage-apply` over two months before the engine learned to mark an
+interrupted run PAUSED (2026-09-19). Add `WORKFLOW_PLATFORM_START_TRIGGERS=0`
+if you want `--reload` for API iteration.
 
 You should see one or two JSON log lines on startup, ending with
 `Uvicorn running on http://0.0.0.0:8001`. Each line is one JSON object —
@@ -770,7 +777,8 @@ to the backend on **:8001**. The C6/C7 cases that call the model (dry-run,
 cd backend
 DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow \
 AUTH_MODE=dev BEDROCK_MODE=live \
-  uv run uvicorn workflow_platform.main:app --reload --port 8001
+  uv run uvicorn workflow_platform.main:app --port 8001
+# (no --reload: triggers are on by default and a reload cancels in-flight runs)
 
 # Terminal 2 — frontend
 cd frontend
