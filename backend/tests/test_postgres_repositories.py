@@ -289,3 +289,45 @@ async def test_CONCURRENT_audit_appends_of_one_entry_do_not_race(
     # A conflicting reuse is still refused, concurrently or not.
     with pytest.raises(AuditConflict):
         await repos.audit.append(entry.model_copy(update={"detail": {"tool": "other"}}))
+
+
+@skip_if_no_db
+async def test_reseal_and_lookup_against_a_REAL_database(engine: AsyncEngine) -> None:
+    """The same two methods against Postgres (M8).
+
+    `reseal` writes through the ORM in its own transaction and
+    `get_by_idempotency_key` reads by a unique index — neither shape is
+    exercised by the in-memory double, which mutates a dict. Found by the
+    round-15 step-0 counterpart check.
+    """
+    from workflow_platform.persistence.models import (
+        RawTrace,
+        RawTraceKind,
+        WorkflowInstance,
+    )
+
+    repos = postgres_repositories(make_session_factory(engine))
+    inst = await repos.instances.create(
+        WorkflowInstance(id="i-reseal", workflow_id="wf", org_id="acme")
+    )
+    row = RawTrace(
+        org_id="acme",
+        instance_id=inst.id,
+        audit_entry_id="e-1",
+        kind=RawTraceKind.AUDIT_DETAIL,
+        idempotency_key="k-reseal",
+        payload={"sealed": "old"},
+        content_commitment="commit-1",
+    )
+    await repos.raw_trace_vault.put(row)
+
+    assert await repos.raw_trace_vault.reseal(
+        row.id, payload={"sealed": "new"}, content_commitment="commit-1"
+    )
+    stored = await repos.raw_trace_vault.get_by_idempotency_key("k-reseal")
+    assert stored is not None
+    assert stored.payload == {"sealed": "new"}, "reseal did not persist through Postgres"
+    assert stored.audit_entry_id == "e-1", "the entry binding was lost by reseal"
+    assert not await repos.raw_trace_vault.reseal(
+        "no-such-row", payload={}, content_commitment="c"
+    )

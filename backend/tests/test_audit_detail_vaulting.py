@@ -872,3 +872,43 @@ async def test_an_undecryptable_payload_is_a_retrieval_outcome_not_a_crash() -> 
             kind=RawTraceKind.AUDIT_DETAIL.value,
             audit_entry_id="e1",
         )
+
+
+async def test_reseal_replaces_the_payload_in_place() -> None:
+    """`reseal` is the compatibility path for the AEAD entry binding — rows
+    sealed before it cannot open, so they are migrated rather than lost. It
+    had NO test: found by the round-15 step-0 counterpart check (M9), which
+    asks what a repo method's real backend can do that the double cannot.
+
+    It must REPLACE, where `put` deliberately does not: put is idempotent on
+    the natural key and silently keeps the existing payload, which is how
+    the first version of the re-seal tool reported success while changing
+    nothing.
+    """
+    from workflow_platform.persistence.models import RawTrace
+
+    repos = in_memory_repositories()
+    row = RawTrace(
+        org_id="acme",
+        instance_id="i-1",
+        audit_entry_id="e-1",
+        kind=RawTraceKind.AUDIT_DETAIL,
+        idempotency_key="k-1",
+        payload={"sealed": "old"},
+        content_commitment="commit-1",
+    )
+    await repos.raw_trace_vault.put(row)
+
+    assert await repos.raw_trace_vault.reseal(
+        row.id, payload={"sealed": "new"}, content_commitment="commit-1"
+    )
+    stored = await repos.raw_trace_vault.get_by_idempotency_key("k-1")
+    assert stored is not None and stored.payload == {"sealed": "new"}, (
+        "reseal did not replace the payload — the re-seal migration would be a no-op"
+    )
+    # Identity is untouched: it is a key rotation, not a content change.
+    assert stored.audit_entry_id == "e-1" and stored.idempotency_key == "k-1"
+
+    assert not await repos.raw_trace_vault.reseal(
+        "no-such-row", payload={}, content_commitment="c"
+    ), "reseal of an absent row must report False, not raise"
