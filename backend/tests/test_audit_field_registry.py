@@ -314,6 +314,8 @@ def test_a_registry_action_classifies_every_field_it_can_actually_emit() -> None
             "token_budget",
             "injected",
             "uses_recorded",
+            "recall_seconds",
+            "outcomes_seconds",
         },
         "memory_observe_failed": {"observation", "error"},
     }
@@ -392,7 +394,14 @@ _WIDENED_BEYOND_FLAT: dict[str, set[str]] = {
         "stop_reason",
     },
     # Recall volume + outcome counters. The QUERY stays withheld.
-    "memory_recalled": {"episodes", "token_budget", "injected", "uses_recorded"},
+    "memory_recalled": {
+        "episodes",
+        "token_budget",
+        "injected",
+        "uses_recorded",
+        "recall_seconds",
+        "outcomes_seconds",
+    },
     # v11, already shipped.
     "memory_observed": {"backfill"},
 }

@@ -22,6 +22,26 @@ class StepFailure(Exception):
     """Raised by a deterministic step function to mark unrecoverable failure."""
 
 
+class NonRetryableStepFailure(StepFailure):
+    """A failure that repeating cannot fix.
+
+    `runtime.retries` fires on ANY `StepFailure`, which is right for a
+    timeout or a transient API error and wrong for a configuration fault:
+    an unresolvable pinned parameter resolves to the same nothing every
+    time. Observed 2026-09-19 — a dry run with an unresolvable pin burned
+    three agentic attempts, each a real Bedrock dispatch, to reach the same
+    conclusion three times.
+
+    A subclass of `StepFailure`, so every existing handler (the engine's
+    failure path, the workflow-level `except StepFailure`) keeps working
+    unchanged; only the retry loop looks for the narrower type.
+
+    This is the cheap, static half of EXECUTION_SEMANTICS §4's
+    effect-gating item: it does not classify errors at runtime, it lets the
+    RAISER say "not worth repeating" where the raiser already knows.
+    """
+
+
 class FunctionRegistry:
     def __init__(self, functions: dict[str, StepFunction] | None = None) -> None:
         self._fns: dict[str, StepFunction] = dict(functions or {})

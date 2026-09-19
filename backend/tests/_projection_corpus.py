@@ -477,6 +477,8 @@ CORPUS: list[tuple[Any, ...]] = [
             "token_budget": 800,
             "injected": True,
             "uses_recorded": {"recorded": 3, "upgraded": 1, "failed": 0},
+            "recall_seconds": 1.94,
+            "outcomes_seconds": 142.93,
         },
         "memory_recalled",
     ),

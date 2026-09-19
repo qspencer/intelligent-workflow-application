@@ -13,10 +13,16 @@ from workflow_platform.engine.functions import (
     route_by_classification,
     route_by_value,
 )
-from workflow_platform.engine.registry import FunctionRegistry, StepFailure, StepFunction
+from workflow_platform.engine.registry import (
+    FunctionRegistry,
+    NonRetryableStepFailure,
+    StepFailure,
+    StepFunction,
+)
 
 __all__ = [
     "FunctionRegistry",
+    "NonRetryableStepFailure",
     "StepFailure",
     "StepFunction",
     "ToolCatalog",

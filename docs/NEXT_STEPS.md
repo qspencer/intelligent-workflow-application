@@ -105,11 +105,40 @@ actions are absent and badges the run "test run" rather than silently
 hiding controls, and Delete stays available. Playwright/axe suite re-run
 against all of today's changes: 10/10.
 
-**Still open from the exercise, not fixed:** an unresolvable `pin_params`
-path fails the step and then RETRIES it twice, burning agentic attempts on
-a configuration error that cannot become transient — the §4 effect-gating
-item in miniature. And `triage` takes ~3 minutes per run, dominated by
-learned-memory recall over the 44k-episode store; nobody has measured it.
+**Both closed 2026-09-19.**
+
+- **Unresolvable pins no longer retry.** `NonRetryableStepFailure`
+  (a `StepFailure` subclass, so every existing handler is unchanged) lets
+  the RAISER say "repeating cannot fix this"; the retry loop re-raises it
+  untouched. The cheap static half of §4's effect-gating item — no runtime
+  error classification, just the one case where the raiser already knows.
+  The first attempt at this did nothing, because `_run_step_once` re-raised
+  a flattened `StepFailure` and lost the subclass; the test caught it.
+
+- **The latency was measured, and it was not what anyone assumed.** Over
+  196 production runs `triage` averages **155.8s** — but the Bedrock call
+  is **0.8s** and recall is **1.9s**. The remaining **142.9s** is
+  act-time outcome recording: 40 sequential veracium writes at ~3.6s each,
+  one per recalled edge, on the critical path of every email. `triage` is
+  84% of a 184s run, and this is 92% of `triage`.
+
+  `recall_context`'s docstring called recall "cost-free at read time",
+  which was true of tokens and badly false of wall clock. Corrected, and
+  `memory_recalled` now carries `recall_seconds` + `outcomes_seconds`
+  (projector v15) so the number is recorded rather than rediscovered.
+
+  **Not fixed, and it needs a decision.** `record_outcomes` also holds
+  `LearnedMemoryService._lock`, so recalls serialise across concurrent
+  runs: the mailbox's throughput ceiling is roughly **23 emails/hour**
+  regardless of parallelism. Three options, none of them free:
+  (a) move outcome recording off the critical path (fire-and-forget after
+  the step) — loses the write on a crash, and an interrupted run would no
+  longer record uses it genuinely made; (b) cap the edges recorded per run
+  — changes what veracium's confidence machinery sees; (c) make the write
+  cheaper inside veracium — the right fix, and out of scope here (the
+  library is the user's, and this repo does not push to it). Measurement
+  and instrumentation are done; the change is a memory-semantics decision,
+  not a performance tweak.
 
 **Immediate priorities, in order:**
 

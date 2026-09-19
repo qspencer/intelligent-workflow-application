@@ -332,7 +332,11 @@ class LearnedMemoryService:
         """Assemble the learned-memory context for a query (G10 read side).
 
         With the wiki disabled this renders the entity-matched subgraph
-        directly — zero LLM calls, so recall is cost-free at read time. The
+        directly — zero LLM calls, so recall costs no TOKENS at read time.
+        It is not free: measured at ~1.9s against the production store
+        (44k episodes) on 2026-09-19. Cheap next to the caller's
+        `record_outcomes` sweep, which cost 142.9s for the 40 edges one
+        recall returned — see `_recall_learned_memory` in the executor. The
         returned `context` is veracium's pre-rendered block, unverified fence
         included; callers must inject it VERBATIM (G10 security requirement
         #1: no flattening, no LLM re-summarization — that would be

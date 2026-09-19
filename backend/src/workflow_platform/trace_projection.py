@@ -331,7 +331,14 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "14"  # v14: `alert_abandoned_pause` classified — the
+PROJECTOR_VERSION = "15"  # v15: `memory_recalled` gains the two timings
+# that explain where a run's wall clock goes — `recall_seconds` and
+# `outcomes_seconds`, both engine-measured floats. Added after measuring
+# that `triage` averaged 155.8s of which the model call was 0.8s: the cost
+# was 40 sequential learned-memory outcome writes, and no field recorded
+# it. A number nobody records is a number nobody checks.
+#
+# v14: `alert_abandoned_pause` classified — the
 # monitoring check added when fixing the stranded-RUNNING orphans created a
 # second blindness (a correct PAUSED state that nothing watched). Four
 # fields, all platform arithmetic or operator-configured thresholds; the
@@ -1515,6 +1522,13 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         "token_budget": FieldRule(Owner.CONFIG, _COUNT, True),
         "injected": FieldRule(Owner.ENGINE, _BOOL, True),
         "uses_recorded": FieldRule(Owner.ENGINE, _USES_RECORDED, True),
+        # Engine-measured wall clock. Disclosed because an operator cannot
+        # reason about a 3-minute run without them, and because a number
+        # nobody records is a number nobody checks: `triage` spent 92% of
+        # its time in outcome recording for two months with no field saying
+        # so (measured 2026-09-19).
+        "recall_seconds": FieldRule(Owner.ENGINE, _AMOUNT, True),
+        "outcomes_seconds": FieldRule(Owner.ENGINE, _AMOUNT, True),
     },
     "memory_observe_failed": {
         # The observation's INDEX in the spec list, not its text.

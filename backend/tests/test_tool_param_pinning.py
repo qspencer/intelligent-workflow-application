@@ -10,7 +10,12 @@ import pytest
 
 from tests._bedrock_fakes import FakeBedrock, text_response, tool_use_response
 from workflow_platform.agent import Agent, AgentPolicy
+from workflow_platform.engine.executor import ToolCatalog, WorkflowEngine
+from workflow_platform.engine.registry import FunctionRegistry
+from workflow_platform.persistence import WorkflowInstanceState, in_memory_repositories
 from workflow_platform.tools import Tool, ToolContext, ToolResult
+from workflow_platform.workflow import load_definition
+from workflow_platform.world import mock_world
 
 pytestmark = pytest.mark.asyncio
 
@@ -141,3 +146,52 @@ async def test_unresolved_pin_fails_step_closed() -> None:
     entries = await repos.audit.list_by_instance(instance.id)
     unresolved = [e for e in entries if e.action == "tool_pin_unresolved"]
     assert unresolved and unresolved[0].detail["param"] == "message_id"
+
+
+async def test_an_unresolvable_pin_is_not_retried() -> None:
+    """`runtime.retries` fires on any `StepFailure`, which is right for a
+    timeout and wrong for a configuration fault: an unresolved pin resolves
+    to the same nothing every time.
+
+    Observed 2026-09-19 — a dry run with an unresolvable pin burned three
+    agentic attempts, each a real Bedrock dispatch, to reach the same
+    conclusion three times. The step still FAILS (pins fail closed); it
+    simply fails once.
+    """
+    repos = in_memory_repositories()
+    definition = load_definition(
+        {
+            "id": "wf",
+            "name": "wf",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {
+                    "id": "act",
+                    "type": "agentic",
+                    "model": "m",
+                    "goal": "g",
+                    "tools": [],
+                    "pin_params": {"message_id": "trigger.message_id"},
+                    "runtime": {"retries": 2},
+                }
+            ],
+            "edges": [],
+        }
+    )
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=FunctionRegistry(),
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=mock_world(),
+    )
+    # No `message_id` in the trigger, so the pin cannot resolve.
+    instance = await engine.run(definition, trigger_payload={})
+    assert instance.state is WorkflowInstanceState.FAILED
+
+    attempts = await repos.steps.list_by_instance(instance.id)
+    assert len(attempts) == 1, (
+        f"the unresolvable pin was retried: {[(a.attempt, a.state.value) for a in attempts]}"
+    )
+    actions = [e.action for e in await repos.audit.list_recent(limit=30)]
+    assert "step_retry" not in actions

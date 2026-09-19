@@ -19,6 +19,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from collections import defaultdict
 from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field
@@ -35,7 +36,11 @@ from workflow_platform.bedrock import BedrockClient
 from workflow_platform.connectors.browser import BrowserConnector, PlaywrightConnector
 from workflow_platform.cost import cost_for_usage
 from workflow_platform.engine.context import WorkflowContext
-from workflow_platform.engine.registry import FunctionRegistry, StepFailure
+from workflow_platform.engine.registry import (
+    FunctionRegistry,
+    NonRetryableStepFailure,
+    StepFailure,
+)
 from workflow_platform.events import EventBus
 from workflow_platform.memory import (
     LearnedMemoryService,
@@ -1076,6 +1081,12 @@ class WorkflowEngine:
             try:
                 await self._run_step_once(step, context, instance_id, capabilities, attempt)
                 return
+            except NonRetryableStepFailure:
+                # Repeating cannot change the answer — an unresolved pin
+                # resolves to the same nothing next time. Each retry of an
+                # agentic step is a real Bedrock dispatch, so this is spend
+                # as well as noise.
+                raise
             except StepFailure as exc:
                 last_error = exc
                 if offset < attempts:
@@ -1210,7 +1221,18 @@ class WorkflowEngine:
                 step_id=step.id,
                 detail={"error": stored, "attempt": attempt},
             )
-            raise StepFailure(error_msg) from exc
+            # PRESERVE the narrower type. This re-raised a plain
+            # `StepFailure` and flattened `NonRetryableStepFailure` back to
+            # a retryable one, so the retry loop never saw the distinction —
+            # the first version of the no-retry fix did nothing at all, and
+            # the test caught it. A TimeoutError still converts to
+            # `StepFailure`, which is the deliberate existing behaviour.
+            failure = (
+                NonRetryableStepFailure(error_msg)
+                if isinstance(exc, NonRetryableStepFailure)
+                else StepFailure(error_msg)
+            )
+            raise failure from exc
         except Exception as exc:
             # An UNEXPECTED exception (SDK error, bug) must still persist the
             # originating step as FAILED — otherwise it's stranded RUNNING
@@ -1451,7 +1473,7 @@ class WorkflowEngine:
                         step_id=step.id,
                         detail={"param": param, "path": path},
                     )
-                    raise StepFailure(
+                    raise NonRetryableStepFailure(
                         f"Step {step.id!r} pinned tool param {param!r} did not "
                         f"resolve ({path!r} is missing/None). Pins fail closed — "
                         f"the step is not dispatched rather than let the model "
@@ -1608,6 +1630,7 @@ class WorkflowEngine:
         entity = normalize_entity(str(raw))
         instance = await self.repositories.instances.get(instance_id)
         namespace = memory_namespace(instance.org_id if instance else "default", spec.user_id)
+        recall_started = time.perf_counter()
         try:
             recalled = await self.learned_memory.recall_context(
                 namespace, entity, token_budget=spec.recall.token_budget
@@ -1623,7 +1646,17 @@ class WorkflowEngine:
                 detail={"entity": entity, "error": str(exc)},
             )
             return None
+        recall_seconds = round(time.perf_counter() - recall_started, 3)
         uses: dict[str, int] | None = None
+        # TIMED, because the assumption about where this step's time goes was
+        # wrong. Measured 2026-09-19 over 196 production runs: `triage`
+        # averaged 155.8s, of which the Bedrock call was 0.8s. The suspicion
+        # was recall; recall is 1.9s. It is THIS — 40 sequential veracium
+        # outcome writes at ~3.6s each, 142.9s, on the critical path of every
+        # email. `recall_context`'s docstring called recall "cost-free",
+        # which was true of money and badly false of time, and nothing
+        # recorded the number anywhere.
+        outcomes_started = time.perf_counter()
         if recalled.edge_ids:
             try:
                 uses = await self.learned_memory.record_outcomes(
@@ -1651,6 +1684,8 @@ class WorkflowEngine:
                 "token_budget": recalled.token_budget,
                 "injected": bool(recalled.edges or recalled.episodes),
                 "uses_recorded": uses,
+                "recall_seconds": recall_seconds,
+                "outcomes_seconds": round(time.perf_counter() - outcomes_started, 3),
             },
         )
         return recalled
