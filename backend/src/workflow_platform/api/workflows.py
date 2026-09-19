@@ -2091,6 +2091,10 @@ def build_router(
         # i-th tool_call audit entry.
         raw_tcs: list[Any] = []
         released = False
+        # What the response is BUILT from. Replaced by the recovered output
+        # only after a successful release; a failed retrieval or a failed
+        # release-decision audit keeps the projection.
+        presented: dict[str, Any] = output
         if request_id is not None:
             # R16 self-audit: the SAME defect R15 finding 1 described, on a
             # surface the reviewer did not test. `merge_output` raises
@@ -2126,6 +2130,15 @@ def build_router(
             released = audit_ok and complete
             if released:
                 raw_tcs = merged.get("tool_calls") or []
+                # R16 finding: recovery SUCCEEDED and the result was then
+                # discarded for everything except `tool_calls`. The main
+                # fields were built from `output`, the stored projection, so
+                # a grant holder saw `output: {"_withheld_keys": true}` and
+                # `output_text: null` alongside `raw_included: true` and a
+                # recorded `released` outcome. Retrieving raw and not using
+                # it is the same defect as not retrieving it, with a worse
+                # audit trail — the log says released and nothing was.
+                presented = merged
         tool_calls = []
         for i, a in enumerate(audit_tcs):
             fallback = raw_tcs[i] if i < len(raw_tcs) and isinstance(raw_tcs[i], dict) else {}
@@ -2163,22 +2176,22 @@ def build_router(
             **({"redaction_reason": reason} if reason is not None else {}),
         }
         if kind == "agentic":
-            usage = output.get("usage") or {}
+            usage = presented.get("usage") or {}
             return {
                 **common,
-                "model": output.get("model"),
-                "memory_hash": output.get("memory_hash"),
-                "stop_reason": output.get("stop_reason"),
+                "model": presented.get("model"),
+                "memory_hash": presented.get("memory_hash"),
+                "stop_reason": presented.get("stop_reason"),
                 "iterations": usage.get("iterations"),
                 "usage": usage,
-                "cost_usd": output.get("cost_usd"),
+                "cost_usd": presented.get("cost_usd"),
                 "goal": _excerpt(getattr(step_def, "goal", None)),
                 "system_prompt": _excerpt(getattr(step_def, "system_prompt", None)),
                 # P2/§1.1: free-form model output is raw BY TAINT — whether or
                 # not the step called a tool. The old `or not step_used_tool`
                 # released it to any below-grant reader (re-review finding 2).
                 "output_text": (
-                    _excerpt(output.get("output_text")) if released else _REDACTED_GRANT_ONLY
+                    _excerpt(presented.get("output_text")) if released else _REDACTED_GRANT_ONLY
                 ),
                 "tool_calls": tool_calls,
             }
@@ -2188,7 +2201,7 @@ def build_router(
             "config": _excerpt(getattr(step_def, "config", None)),
             # P2: a deterministic step's output is NOT automatically safe — it
             # carries whatever the function returned. Project it below grant.
-            "output": _excerpt(redact_tool_data(output, released, kind="step_output")),
+            "output": _excerpt(redact_tool_data(presented, released, kind="step_output")),
         }
 
     return router

@@ -19,7 +19,7 @@ from typing import Any
 import pytest
 from fastapi.testclient import TestClient
 
-from tests._bedrock_fakes import FakeBedrock
+from tests._bedrock_fakes import FakeBedrock, text_response
 from workflow_platform.auth.raw_trace_grants import RawTraceGrantService
 from workflow_platform.engine.executor import ToolCatalog, WorkflowEngine
 from workflow_platform.engine.registry import FunctionRegistry
@@ -887,3 +887,77 @@ async def test_every_merge_helper_normalises_a_repository_failure(
     }
     with pytest.raises(RawTraceUnavailable, match="vault lookup failed"):
         await getattr(rehydrator, helper)(**kwargs[helper])
+
+
+async def test_explain_SUCCESS_returns_the_recovered_deterministic_output(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R16 finding: recovery succeeded and the result was discarded.
+
+    `explain_step` built its main fields from the STORED projection while
+    only `tool_calls` used the recovered output, so a grant holder saw
+    `output: {"_withheld_keys": true}` beside `raw_included: true`.
+
+    Note what this asserts: the CONTENT arrived. The previous explain test
+    checked HTTP 200 and the absence of a secret on the failure path, which
+    says nothing about the success path — the reviewer's point that 200
+    alone does not establish recovery.
+    """
+    client, repos, iid = await _instance_with_vaulted_output(monkeypatch)
+    steps = await repos.steps.list_by_instance(iid)
+    sid = steps[0].step_id
+
+    body = client.get(f"/api/workflow-instances/{iid}/steps/{sid}/explain", headers=_ADMIN).json()
+    assert body["raw_included"] is True, f"expected a release, got {body}"
+    assert "SYNTHETIC free-form output" in str(body["output"]), (
+        f"raw_included is true but the response carries the projection: {body['output']}"
+    )
+
+
+async def test_explain_SUCCESS_returns_the_recovered_agentic_output_text(
+    monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """The agentic branch of the same defect: `output_text: null` beside
+    `raw_included: true` and a recorded `released` outcome."""
+    from workflow_platform.workflow import load_definition
+
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    repos = in_memory_repositories()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=FunctionRegistry(),
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([text_response("SYNTHETIC agent answer")]),
+        world=mock_world(),
+        trace_safe_only=True,
+    )
+    instance = await engine.run(
+        load_definition(
+            {
+                "id": "wf",
+                "name": "wf",
+                "trigger": {"type": "manual"},
+                "steps": [
+                    {
+                        "id": "a",
+                        "type": "agentic",
+                        "goal": "answer",
+                        "model": "claude-haiku-4-5",
+                    }
+                ],
+                "edges": [],
+            }
+        ),
+        trigger_payload={},
+    )
+    await repos.users.save(User(iss="dev", sub="root", org_id="default", roles=["Administrator"]))
+    await _grant_platform_wide(repos, "root")
+    client = TestClient(create_app(repositories=repos, engine=engine))
+
+    body = client.get(
+        f"/api/workflow-instances/{instance.id}/steps/a/explain", headers=_ADMIN
+    ).json()
+    assert body["raw_included"] is True, f"expected a release, got {body}"
+    assert body["output_text"] and "SYNTHETIC agent answer" in body["output_text"], (
+        f"raw_included is true but output_text is {body['output_text']!r}"
+    )
