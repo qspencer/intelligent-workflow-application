@@ -81,10 +81,24 @@ Also landed, outside the epic:
    since. `EXECUTION_SEMANTICS` §7 corrected: it claimed automatic
    re-drive on boot, which no code did.
 
-   **Left for you:** 172 PAUSED `email-triage-apply` instances now carry a
-   Resume button. They are old mail, so the likely answer is to leave or
-   bulk-kill them rather than resume — resuming re-runs `triage` and
-   applies Gmail labels on a live mailbox.
+   **Closed out the same day:** the 171 recovered instances were
+   bulk-killed (operator decision — old mail, and resuming re-runs
+   `triage`, which applies labels to a live mailbox). Done with a new
+   `backend/tools/kill_instances.py` rather than a loop over the API,
+   because `POST /workflow-instances/{id}/kill` writes the state change
+   and **no audit entry** — 171 rows flipped to terminal with nothing in
+   the log recording who or why is indistinguishable from tampering
+   later. The tool writes the engine's own `workflow_killed` entry through
+   `AuditWriter`, with the reason in `actor_id`. Final state: 0 running,
+   172 killed, 1 paused (`email-triage-live` from 2026-07-13, unrelated
+   and deliberately untouched).
+
+   **Follow-up worth naming:** the kill ENDPOINT still audits nothing.
+   The tool works around that rather than fixing it; the endpoint should
+   write `workflow_killed` itself, and the same question applies to the
+   other lifecycle endpoints. Small, and it belongs with
+   `G-Trace-Chokepoint-Rest` — both are "an API surface mutating state
+   outside the path that records it".
 
 1. ~~Round 18 verdict~~ — **ACCEPTED 2026-09-19. The F1/F5 trace review
    line is CLOSED** after 18 rounds. The trace surface is no longer held;
