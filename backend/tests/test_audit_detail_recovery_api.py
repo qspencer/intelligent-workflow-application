@@ -840,3 +840,50 @@ async def test_explain_step_lookup_failure_completes_its_decision(
     assert not any(str(e.detail.get("outcome")) == "released" for e in decided), (
         f"explain claims a release it did not make: {[e.detail.get('outcome') for e in decided]}"
     )
+
+
+@pytest.mark.parametrize("helper", ["merge_output", "merge_error", "merge_trigger"])
+async def test_every_merge_helper_normalises_a_repository_failure(
+    helper: str, monkeypatch: pytest.MonkeyPatch, encrypted: None
+) -> None:
+    """R15 finding 1 asked for failures normalised consistently across the
+    output, TRIGGER and ERROR helpers.
+
+    Tested per helper because the endpoint path cannot reach them all: with
+    the repository failing globally, `merge_trigger` raises first and the
+    caller catches, so `merge_error`'s own normalisation is never exercised.
+    A round-16 control showed exactly that — sabotaging it changed nothing.
+    """
+    from workflow_platform.trace_rehydrate import RawTraceRehydrator, RawTraceUnavailable
+
+    repos = in_memory_repositories()
+
+    from workflow_platform.persistence.models import RawTrace
+
+    async def timeout(key: str) -> RawTrace | None:
+        raise TimeoutError("vault repository timed out")
+
+    repos.raw_trace_vault.get_by_idempotency_key = timeout  # type: ignore[method-assign]
+    rehydrator = RawTraceRehydrator(repos)
+    kwargs: dict[str, dict[str, Any]] = {
+        "merge_output": {
+            "org_id": "acme",
+            "instance_id": "i-1",
+            "step_attempt_id": "a-1",
+            "safe_output": {"_redacted": "x"},
+            "projector_version": "10",
+        },
+        "merge_error": {
+            "org_id": "acme",
+            "instance_id": "i-1",
+            "step_attempt_id": "a-1",
+            "safe_error": "[redacted — raw-trace grant required]",
+        },
+        "merge_trigger": {
+            "org_id": "acme",
+            "instance_id": "i-1",
+            "safe_trigger": {"_redacted": "x"},
+        },
+    }
+    with pytest.raises(RawTraceUnavailable, match="vault lookup failed"):
+        await getattr(rehydrator, helper)(**kwargs[helper])
