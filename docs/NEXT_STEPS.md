@@ -1420,10 +1420,17 @@ an AST detector over every audit writer in the tree, and a
 `reality_check` claim over the live table. Both seen to fail against a
 planted violation.
 
-**Stages 1–3 (typed subject, emission, directory resolution) are
-unblocked and not built.** **Stage 4 — backfilling `subject` onto 6,351
-historical rows — rewrites production and needs your word**, which is the
-same shape as the G-Trace-Backfill decision below.
+**Stages 1–3 BUILT 2026-09-19** — `subject_identity.py` (typed ref,
+pseudonym keyed over `(address, org)`), `subject` emitted on
+`memory_observed` / `memory_recalled` / `user_created` / `user_updated`
+and classified in the registry (projector **v17**), and
+`POST /api/directory/resolve` behind `DIRECTORY_ROLES` with a
+request-level `directory_resolved` audit carrying counts and outcomes
+only. The property the design turns on is one assertion: after projection
+a grant-less reader can tell two entries share a subject and cannot tell
+who. **Stage 4 — backfilling `subject` onto 6,351 historical rows —
+rewrites production and needs your word**, the same shape as the
+G-Trace-Backfill decision below.
 
 ---
 

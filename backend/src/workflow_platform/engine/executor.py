@@ -61,6 +61,7 @@ from workflow_platform.persistence import (
 from workflow_platform.persistence.models import _utcnow
 from workflow_platform.security import CapabilityPolicy, resolve_capabilities
 from workflow_platform.security.capabilities import ResolvedCapabilities
+from workflow_platform.subject_identity import subject_from_namespace
 from workflow_platform.tools import Tool, ToolContext
 from workflow_platform.trace_projection import (
     _OWNERSHIP,
@@ -1687,6 +1688,9 @@ class WorkflowEngine:
             step_id=step_id,
             detail={
                 "user_id": namespace,
+                # The typed subject beside the withheld raw key: a
+                # grant-less reader correlates without learning who.
+                "subject": subject_from_namespace(namespace).as_detail(),
                 "query": recalled.query,
                 "context_hash": recalled.context_hash,
                 "edges": recalled.edges,

@@ -331,7 +331,19 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "16"  # v16: the GOVERNANCE surface joins the registry
+PROJECTOR_VERSION = "17"  # v17: the typed SUBJECT reference
+# (G-Trace-Subject-Identity stage 2). Four actions that carry a subject —
+# memory_observed, memory_recalled, user_created, user_updated — gain a
+# `subject` object beside the field naming the subject directly.
+#
+# It is DISCLOSED where `memory_*`'s raw `user_id` stays withheld, and that
+# is the point rather than an inconsistency: a reader without a raw-trace
+# grant can now tell that two entries concern the same subject without
+# learning who. `ref` is `users.id` for a platform user and an HMAC keyed
+# over `(address, org)` for a mailbox, so it correlates within a tenant and
+# not across one.
+#
+# v16: the GOVERNANCE surface joins the registry
 # (G-Trace-Chokepoint-Rest). Eight actions written by the API and auth
 # routers — auth_login(_failed), user_created/updated, org_created/renamed,
 # workflow_deleted, instance_deleted — classified so those writers can move
@@ -1372,6 +1384,23 @@ class FieldRule:
     disclose: bool
 
 
+#: The typed subject reference (G-Trace-Subject-Identity stage 2). It is
+#: DISCLOSED where the raw `user_id` beside it is withheld — that is the
+#: whole point: a reader without a raw-trace grant can tell that two
+#: entries are about the same subject, and still cannot tell who.
+#:
+#: `ref` is `users.id` for a platform user and an HMAC pseudonym keyed over
+#: `(address, org)` for a mailbox, so it is a within-tenant correlator by
+#: construction. `org_id` is carried on the reference and never inferred
+#: from it.
+_SUBJECT = Obj(
+    children={
+        "kind": Leaf(_enum("platform_user", "mailbox", "unknown")),
+        "ref": _TOKEN,
+        "org_id": _ID,
+    }
+)
+
 #: BUSINESS-owned fields the registry deliberately DISCLOSES, by
 #: `(action, field)`. The general rule is that input-derived values are
 #: withheld — `test_no_BUSINESS_owned_field_is_disclosed` enforces it — and
@@ -1443,6 +1472,7 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         # The memory namespace key — a mailbox address in production, not a
         # platform user id. Withheld; see G-Trace-Subject-Identity.
         "user_id": FieldRule(Owner.BUSINESS, _ID, False),
+        "subject": FieldRule(Owner.ENGINE, _SUBJECT, True),
     },
     # --- The ENGINE's own execution trail. These five actions are 93% of the
     # audit log by volume, and every field below was enumerated from the
@@ -1589,6 +1619,7 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         # The namespace key: a mailbox address in production. Same rule, same
         # follow-up, as on the write side.
         "user_id": FieldRule(Owner.BUSINESS, _ID, False),
+        "subject": FieldRule(Owner.ENGINE, _SUBJECT, True),
         # `recalled.query` — built from the correspondent's own message.
         "query": FieldRule(Owner.BUSINESS, _TOKEN, False),
         "context_hash": FieldRule(Owner.ENGINE, _TOKEN, True),
@@ -1635,15 +1666,27 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
     },
     "user_created": {
         "user_id": FieldRule(Owner.ENGINE, _ID, True),
+        "subject": FieldRule(Owner.ENGINE, _SUBJECT, True),
         "email": FieldRule(Owner.CONFIG, _ID, True),
         "origin": FieldRule(Owner.ENGINE, _USER_ORIGIN, True),
     },
     "user_updated": {
         "user_id": FieldRule(Owner.ENGINE, _ID, True),
+        "subject": FieldRule(Owner.ENGINE, _SUBJECT, True),
         # Field NAMES that changed, never their values.
         "changed": FieldRule(Owner.ENGINE, Seq(_TOKEN), True),
         "sessions_revoked": FieldRule(Owner.ENGINE, _BOOL, True),
         "raw_grants_revoked": FieldRule(Owner.ENGINE, _COUNT, True),
+    },
+    "directory_resolved": {
+        # Counts and outcomes only. The names the request returned are in
+        # the RESPONSE and nowhere else — writing them here would put the
+        # identities back into the store the subject reference exists to
+        # keep them out of.
+        "requested": FieldRule(Owner.ENGINE, _COUNT, True),
+        "resolved": FieldRule(Owner.ENGINE, _COUNT, True),
+        "not_found": FieldRule(Owner.ENGINE, _COUNT, True),
+        "not_resolvable": FieldRule(Owner.ENGINE, _COUNT, True),
     },
     "org_created": {
         "org_id": FieldRule(Owner.ENGINE, _ID, True),

@@ -484,6 +484,44 @@ CORPUS: list[tuple[Any, ...]] = [
     ),
     # v16: the governance surface. One case per newly-registered action,
     # each carrying the shape production actually stores.
+    # v17: the typed subject. Disclosed where the raw key beside it is not.
+    (
+        "at_rest.registry_subject_mailbox",
+        "audit_detail",
+        {
+            "user_id": "org:default:user:alice@example.com",
+            "subject": {
+                "kind": "mailbox",
+                "ref": "subj:284a09228dcf85d5d14ba7ad",
+                "org_id": "default",
+            },
+            "facts": 2,
+        },
+        "memory_observed",
+    ),
+    (
+        "at_rest.registry_subject_forged_kind",
+        "audit_detail",
+        {
+            "subject": {"kind": "SYNTHETIC-kind", "ref": "subj:abc", "org_id": "default"},
+            "facts": 1,
+        },
+        "memory_observed",
+    ),
+    (
+        "at_rest.registry_directory_resolved",
+        "audit_detail",
+        {"requested": 12, "resolved": 9, "not_found": 1, "not_resolvable": 2},
+        "directory_resolved",
+    ),
+    (
+        "at_rest.registry_directory_resolved_with_a_name",
+        "audit_detail",
+        # A display name must never survive into the record, even if a
+        # future caller tries to attach one.
+        {"requested": 1, "resolved": 1, "display_name": "SYNTHETIC Person"},
+        "directory_resolved",
+    ),
     (
         "at_rest.registry_auth_login",
         "audit_detail",

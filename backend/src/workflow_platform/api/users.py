@@ -30,6 +30,7 @@ from workflow_platform.auth.passwords import hash_password
 from workflow_platform.auth.provisioning import current_issuer
 from workflow_platform.auth.raw_trace_grants import RawTraceGrantService
 from workflow_platform.persistence import LOCAL_ISSUER, Repositories, User
+from workflow_platform.subject_identity import subject_from_user_id
 from workflow_platform.trace_flip import trace_safe_only_from_env
 
 VALID_ROLES = {r.value for r in Role}
@@ -173,7 +174,16 @@ def build_users_router(repositories: Repositories) -> APIRouter:
         user.sub = user.id  # stable sub = row id (AUTH_PLAN §4)
         user.password_hash = await asyncio.to_thread(hash_password, body.password)
         await repositories.users.save(user)
-        await _audit(scope, "user_created", {"user_id": user.id, "email": email, "org_id": org_id})
+        await _audit(
+            scope,
+            "user_created",
+            {
+                "user_id": user.id,
+                "subject": subject_from_user_id(user.id, org_id=org_id).as_detail(),
+                "email": email,
+                "org_id": org_id,
+            },
+        )
         return _public(user)
 
     @router.patch("/users/{user_id}")
@@ -281,6 +291,7 @@ def build_users_router(repositories: Repositories) -> APIRouter:
                 "user_updated",
                 {
                     "user_id": user.id,
+                    "subject": subject_from_user_id(user.id, org_id=user.org_id).as_detail(),
                     "changed": changed,
                     "sessions_revoked": revoke,
                     "raw_grants_revoked": grants_revoked,

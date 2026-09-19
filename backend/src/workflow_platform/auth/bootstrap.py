@@ -30,6 +30,7 @@ from workflow_platform.auth.local import canonical_email
 from workflow_platform.auth.passwords import hash_password
 from workflow_platform.auth.rbac import Role
 from workflow_platform.persistence import LOCAL_ISSUER, Repositories, User
+from workflow_platform.subject_identity import subject_from_user_id
 from workflow_platform.trace_flip import trace_safe_only_from_env
 
 logger = logging.getLogger(__name__)
@@ -58,7 +59,12 @@ async def _ensure_user(
         "user_created",
         actor_type="system",
         actor_id="user_bootstrap",
-        detail={"user_id": user.id, "email": email, "origin": origin},
+        detail={
+            "user_id": user.id,
+            "subject": subject_from_user_id(user.id, org_id=user.org_id).as_detail(),
+            "email": email,
+            "origin": origin,
+        },
     )
     return True
 

@@ -150,11 +150,36 @@ question reopens as a real one with evidence behind it.
 
 | stage | what | needs |
 |---|---|---|
-| **0** | `actor_id` shape guard (§5) | nothing — **done** |
-| 1 | `SubjectRef` type + `subject_of(namespace, org)` classifier | nothing |
-| 2 | Emit `subject` beside the withheld `user_id` on `memory_observed` / `memory_recalled`; registry rules; projector bump | stage 1 |
-| 3 | Directory resolution endpoint: batch refs → display values, a **`DIRECTORY` permission independent of raw-trace grants**, one request-level `directory_resolved` audit recording counts and outcomes, **never display values** | stages 1–2 |
+| **0** | `actor_id` shape guard (§5) | **done** |
+| **1** | `subject_identity.py`: `SubjectKind`, `SubjectRef`, two constructors | **done** |
+| **2** | `subject` emitted on the four actions that carry one; registry rules; projector **v17** | **done** |
+| **3** | `POST /api/directory/resolve` | **done** |
 | 4 | Backfill `subject` onto historical rows | **operator decision** — rewrites 6,351 production rows |
+
+**Stages 1–3 built 2026-09-19.** Notes where the build settled something
+the design left implicit:
+
+- **Two constructors named by SOURCE** (`subject_from_namespace`,
+  `subject_from_user_id`), not one that sniffs the value. A `users.id` and
+  an opaque namespace key are both just tokens; shape bounds damage, it
+  does not establish provenance. The caller knows what it holds.
+- **Four actions carry a subject, not two.** `user_created` and
+  `user_updated` carry platform-user subjects, which is what gives stage 3
+  anything to resolve — a directory endpoint whose only subjects were
+  mailbox pseudonyms would resolve nothing on this deployment.
+- **No key configured ⇒ no ref**, rather than an unkeyed hash. An unkeyed
+  digest over a small address space is reversible by anyone who can guess
+  an address, which is the disclosure the pseudonym exists to prevent. An
+  absent ref is omitted from the detail rather than emitted as null.
+- **A mailbox ref resolves to `not_resolvable_by_directory`.** Not a gap:
+  the pseudonym is not reversible and §4 refused the mapping table that
+  would reverse it. The address lives in the vault — grant-gated, not
+  directory-gated — so this is the boundary between the two permissions
+  doing its job, and it is the concrete meaning of "independent".
+- **`DIRECTORY_ROLES` is its own constant**, and a test asserts the module
+  imports no grant machinery at all. Checking by IMPORT rather than by
+  substring, because a source scan trips on the comments explaining the
+  separation — proxy-instead-of-property in miniature.
 
 Stages 1–3 add a field and a surface; they change no stored identity and
 need no migration, so §4's answers are sufficient to start them. Stage 4 is

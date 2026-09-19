@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.cost.pricing import cost_for_usage
+from workflow_platform.subject_identity import subject_from_namespace
 
 logger = logging.getLogger(__name__)
 
@@ -121,6 +122,10 @@ def memory_observed_detail(
     """
     return {
         "user_id": namespace,
+        # The typed subject (G-Trace-Subject-Identity stage 2). Derived from
+        # the namespace the caller already holds — no second lookup, per the
+        # same round-16 answer this constructor exists for.
+        "subject": subject_from_namespace(namespace).as_detail(),
         "observation": index,
         "text_hash": observation.text_hash,
         "author": observation.author,

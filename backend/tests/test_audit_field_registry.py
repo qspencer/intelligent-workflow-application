@@ -415,16 +415,7 @@ _WIDENED_BEYOND_FLAT: dict[str, set[str]] = {
         "stop_reason",
     },
     # Recall volume + outcome counters. The QUERY stays withheld.
-    "memory_recalled": {
-        "episodes",
-        "token_budget",
-        "injected",
-        "uses_recorded",
-        "recall_seconds",
-        "outcomes_seconds",
-    },
     # v11, already shipped.
-    "memory_observed": {"backfill"},
     # --- v16, the governance surface (G-Trace-Chokepoint-Rest). These are
     # the largest widening in the registry's life and the reason is
     # structural rather than generous: every one of these actions is
@@ -435,12 +426,33 @@ _WIDENED_BEYOND_FLAT: dict[str, set[str]] = {
     # (THREAT_MODEL §5).
     "auth_login": {"email", "source_ip"},
     "auth_login_failed": {"cause", "email", "source_ip"},
-    "user_created": {"email", "origin", "user_id"},
-    "user_updated": {"changed", "raw_grants_revoked", "sessions_revoked", "user_id"},
     "org_created": {"name"},
     "org_renamed": {"from", "to"},
     "workflow_deleted": {"deleted_instances", "deleted_steps"},
     "instance_deleted": {"deleted_steps"},
+    # --- v17, the typed subject (G-Trace-Subject-Identity stage 2). A
+    # correlator that is disclosed EXACTLY WHERE the raw key beside it is
+    # withheld: same-subject is answerable, who-is-it is not.
+    "memory_observed": {"backfill", "subject"},
+    "memory_recalled": {
+        "episodes",
+        "token_budget",
+        "injected",
+        "uses_recorded",
+        "recall_seconds",
+        "outcomes_seconds",
+        "subject",
+    },
+    "user_created": {"email", "origin", "user_id", "subject"},
+    "user_updated": {
+        "changed",
+        "raw_grants_revoked",
+        "sessions_revoked",
+        "user_id",
+        "subject",
+    },
+    # v17 stage 3: counts and outcomes, never the names resolved.
+    "directory_resolved": {"requested", "resolved", "not_found", "not_resolvable"},
 }
 
 
