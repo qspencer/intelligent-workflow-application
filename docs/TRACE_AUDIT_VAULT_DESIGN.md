@@ -83,9 +83,13 @@ Their answers, and what we did:
 | 3. Keep v9? | **No.** Retain established-source fields, withdraw the rest incl. unrestricted `evidence_ref`; if binary, restore v8 behaviour **under a new version** | v10: narrowed rather than reverted, new version so historical meanings hold |
 | 4. `user_id`? | Withhold the raw email by default, but give a **useful subject identity** — an opaque internal subject id for correlation, directory-resolved display for authorized operators. "Person acted upon" is not by itself the rule; audience and permitted use matter for actor and subject alike | Still withheld. The opaque-subject-id design is **not built** — see `docs/NEXT_STEPS.md` |
 
-Still outstanding from their answers: the **per-(action, field) registry with
-typed constructors** (Q2's full form — we did the closed-enum half), and the
-**opaque subject identity** for `user_id` (Q4).
+Q2's full form — the **per-(action, field) registry with typed
+constructors** — was BUILT 2026-09-19 (v11 `memory_observed`, v12 the
+engine trail + monitoring alerts + recall: eighteen actions, 93% of the
+audit log by volume; see `docs/NEXT_STEPS.md` §G-Trace-Ownership-Registry,
+including the 28-field widening it carried and what is deliberately left
+unregistered). Still outstanding: the **opaque subject identity** for
+`user_id` (Q4).
 
 **Open with the reviewer:** round 13 closed with *"establish its source
 before allowing it through; identifier shape or numeric type alone is

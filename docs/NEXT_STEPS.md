@@ -62,10 +62,14 @@ Also landed, outside the epic:
 1. ~~Round 18 verdict~~ — **ACCEPTED 2026-09-19. The F1/F5 trace review
    line is CLOSED** after 18 rounds. The trace surface is no longer held;
    see the ledger for the convergence accounting and what carries forward.
-2. **G-Trace-Ownership-Registry** — the per-`(action, field)` classification
-   the reviewer specified. **M**, genuinely incremental: the first action's
-   registry entry plus its typed constructor is a useful unit on its own.
-   This is the first substantive BUILD since round 11 rather than a repair.
+2. ~~**G-Trace-Ownership-Registry**~~ — **DONE 2026-09-19.** Eighteen
+   actions classified (`memory_observed` at v11; the engine's execution
+   trail, fork, budget, the five monitoring alerts and learned-memory
+   recall at v12) — 93% of the production audit log by volume. Adding the
+   next action is a table entry plus, where a record exists to derive
+   from, a typed constructor; an unlisted action still falls back to the
+   flat default-deny schema. §8 below records what is deliberately left
+   unregistered.
 3. **The backfill** — `verify_zero_raw` reports 10,110 findings in a capped
    2,000-instance sample. One-way, operator's call. Its precondition (the
    at-rest tightening) has been met since 2026-09-18, and the pile is
@@ -989,6 +993,45 @@ source."*
 
 Effort: **M**, and genuinely incremental — the first action's registry entry
 plus its constructor is a useful unit on its own.
+
+**BUILT 2026-09-19, across two versions.**
+
+- **v11** — `memory_observed`, with `memory_observed_detail(observation, …)`
+  as its typed constructor and a test tying the constructor's emitted keys
+  to the rules, so a new field cannot be withheld by silence.
+- **v12** — extended to seventeen more: `step_started` / `step_completed` /
+  `step_failed` / `step_retry` / `step_postcondition_failed`,
+  `workflow_started` / `workflow_completed` / `workflow_failed` /
+  `workflow_forked`, `budget_exceeded` (+ its `budget_escalated` alias),
+  the five `alert_*` actions, `memory_recalled`, `memory_observe_failed`.
+  Fields were enumerated **from the production audit table per action**,
+  not from the source, so shapes only historical rows carry are classified
+  too.
+
+**It was a widening**: 28 fields across 11 actions that the flat schema
+withheld by OMISSION rather than by judgement — the monitoring alerts'
+entire arithmetic, the budget numbers, the postcondition's cause, recall's
+volume counters. The flat schema was written for grant-decision entries and
+had never classified an alert, so an operator reading an error-rate alert
+got one with every number stripped. Each released field is a platform
+computation or an operator-configured threshold; none is content. The set
+is frozen in
+`test_the_registry_releases_exactly_these_fields_beyond_the_flat_schema`,
+so the next action cannot widen quietly.
+
+**Deliberately left unregistered** (they keep the flat default-deny
+schema): the auth actions (`auth_login*`, `auth_logout`), the grant
+lifecycle (`raw_grant_*`, `raw_trace_*`), and the admin surface
+(`user_*`, `org_*`, `workflow_deleted`, `escalation_*`,
+`memory_introspected`). Two reasons: the flat `_AUDIT_DETAIL` schema was
+written FOR that surface and already classifies its vocabulary, and their
+combined volume is under 0.2% of the log. Register one when its own trail
+proves inadequate, not on principle.
+
+**Carried forward:** the four actions with an empty detail
+(`step_skipped`, `workflow_paused`, `workflow_resumed`, `auth_logout`)
+have nothing to classify, and a registry entry for them would be an empty
+rule set — which the totality check rejects. Left alone deliberately.
 
 ---
 
