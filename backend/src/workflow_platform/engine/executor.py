@@ -1430,11 +1430,7 @@ class WorkflowEngine:
             memory_hash = "sha256:" + hashlib.sha256(memory_text.encode()).hexdigest()[:16]
 
         recalled = (
-            None
-            if minimized
-            else await self._recall_learned_memory(
-                context, instance_id, step.id, context_ref=memory_hash
-            )
+            None if minimized else await self._recall_learned_memory(context, instance_id, step.id)
         )
 
         system_prompt = step.system_prompt or step.goal
@@ -1603,8 +1599,6 @@ class WorkflowEngine:
         context: WorkflowContext,
         instance_id: str,
         step_id: str,
-        *,
-        context_ref: str | None = None,
     ) -> RecalledMemory | None:
         """G10 read side: per-entity history for this run's correspondent.
 
@@ -1614,13 +1608,12 @@ class WorkflowEngine:
         recall failure audits and degrades to no-memory — it never fails the
         step.
 
-        When facts are recalled, each consulted edge gets an `unreviewed`
-        outcome event (veracium V4 act-time semantics: `times_used` counts
-        recall-and-USE, and this run acts on what it recalled). Keyed by
-        evidence_ref = instance id so later judgments — review labels, judge
-        verdicts, fork corrections — upgrade these exact uses in place.
-        `context_ref` carries the rubric's memory_hash for per-rubric
-        aggregation."""
+        READ ONLY since 2026-09-19. Each recalled edge used to get an
+        `unreviewed` outcome episode here (veracium V4 act-time semantics);
+        that wrote 40 rows per email and cost 142.9s of a 155.8s step, for
+        a `times_used` counter nothing decides from. See the comment at the
+        removal below. Judgments — review labels, judge verdicts, fork
+        corrections — are still recorded on their own paths."""
         spec = context.learned_memory_spec
         if spec is None or spec.recall is None or self.learned_memory is None:
             return None
@@ -1648,27 +1641,41 @@ class WorkflowEngine:
             return None
         recall_seconds = round(time.perf_counter() - recall_started, 3)
         uses: dict[str, int] | None = None
-        # TIMED, because the assumption about where this step's time goes was
-        # wrong. Measured 2026-09-19 over 196 production runs: `triage`
-        # averaged 155.8s, of which the Bedrock call was 0.8s. The suspicion
-        # was recall; recall is 1.9s. It is THIS — 40 sequential veracium
-        # outcome writes at ~3.6s each, 142.9s, on the critical path of every
-        # email. `recall_context`'s docstring called recall "cost-free",
-        # which was true of money and badly false of time, and nothing
-        # recorded the number anywhere.
+        # ACT-TIME USE RECORDING IS GONE (2026-09-19). It wrote one
+        # `unreviewed` outcome episode per recalled edge — 40 per email —
+        # and cost 142.9s of a 155.8s step. That was not a slow call; it
+        # was a quadratic one, and the loop fed itself:
+        #
+        #   - `record_outcome` runs `_outcome_head` and
+        #     `_edge_outcome_aggregates`, each of which iterates
+        #     `store.episodes(user_id)` — every row for the entity,
+        #     Pydantic-parsed. One email was 40 edges x 2 scans x 84,904
+        #     rows ~= 6.8M parses (20.6 us each; the arithmetic closes).
+        #   - 80,604 of those 84,904 episodes WERE these use records. Only
+        #     3,636 were interaction episodes, the actual substance. So
+        #     every email made every future email slower: avg `triage` went
+        #     15.9s in July -> 101.6s in August -> 155.4s in September on
+        #     unchanged code and a capped 40 edges.
+        #
+        # What it bought: `times_used` and `outcome_counts`, which nothing
+        # in this codebase reads and which veracium consumes only in `why`,
+        # `introspect` and the contribution ledger — display, not
+        # machinery. No ranking, retirement, confidence or policy decision
+        # depends on them (checked in the installed veracium).
+        #
+        # What it costs to drop: a later judgment on the same run (the
+        # fork-as-correction path, which shares `evidence_ref`) now appends
+        # its `corrected` outcome instead of UPGRADING an `unreviewed` head
+        # in place, so `upgraded` counts stay 0 — the judgment itself is
+        # recorded either way. And the Memory page's `in_use` stops rising.
+        # Judgments are still recorded: this removes recording a USE, not
+        # recording an OUTCOME.
+        #
+        # The permanent repair is veracium's — those two scans want an
+        # index, not a full-table parse. Dropping the write here also stops
+        # the store growing by 40 rows per email, which is what made the
+        # scan cost climb in the first place.
         outcomes_started = time.perf_counter()
-        if recalled.edge_ids:
-            try:
-                uses = await self.learned_memory.record_outcomes(
-                    namespace,
-                    recalled.edge_ids,
-                    outcome="unreviewed",
-                    evidence_ref=instance_id,
-                    actor="system",
-                    context_ref=context_ref,
-                )
-            except Exception:
-                logger.exception("act-time outcome recording failed")
         await self._audit(
             "memory_recalled",
             actor_type="engine",

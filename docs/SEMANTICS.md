@@ -216,10 +216,25 @@ pull):** sent-mail observation (would make awaiting-reply decidable), the
 Postgres-backed store (decided contribute-later, triggers recorded in
 NEXT_STEPS), and the MCP surface. **Outcome-event
 emission went live 2026-07-19** on the `veracium==0.3.0b1` beta channel:
-act-time `unreviewed` uses per recalled edge, fork-as-correction in the
-engine, and the review-label + judge offline emitters
+act-time `unreviewed` uses per recalled edge (**withdrawn 2026-09-19** —
+see below), fork-as-correction in the engine, and the review-label + judge
+offline emitters
 (`tools/seed_outcomes.py`) — the 154-label corpus seeded as the first
-outcome events (153 confirmed / 1 corrected). Note the standing caveat from
+outcome events (153 confirmed / 1 corrected). **Act-time use recording withdrawn, 2026-09-19.** Each recalled edge got
+an `unreviewed` outcome episode. Measured: that was 40 rows per email and
+142.9s of a 155.8s step, because `record_outcome` scans and parses EVERY
+episode for the entity twice per edge — and 80,604 of the 84,904 episodes
+in production WERE those use records. The loop fed its own cost, quadratic
+in cumulative email volume (avg `triage` 15.9s July → 155.4s September on
+unchanged code). What it bought — `times_used`, `outcome_counts` — nothing
+in this codebase reads, and veracium uses only for display, never for
+ranking, retirement, confidence or policy. JUDGMENTS are still recorded
+(fork-as-correction, review labels, judge verdicts); only the USE record
+is gone. Consequence accepted: a later judgment appends rather than
+upgrading an `unreviewed` head in place, and the Memory page's `in_use`
+stops rising. The permanent repair — indexing those scans — is veracium's.
+
+Note the standing caveat from
 the knowledge-graph section: adopting an embedded typed graph *partially*
 reopens that deferral — if cross-workflow traversal queries materialize,
 re-read it.

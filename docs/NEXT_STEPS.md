@@ -161,11 +161,14 @@ against all of today's changes: 10/10.
   (avg `triage` 15.9s July → 101.6s August → 155.4s September).
 
   **The levers, now that the cause is known:**
-  1. *Ours, highest leverage*: stop writing 40 act-time `unreviewed`
-     outcome episodes per email. That removes ~95% of future store growth
-     AND today's 140s in one move. It is still a memory-semantics
-     decision — those records feed confidence and retirement — but it is
-     now clearly the decision to take, not a workaround.
+  1. ~~*Ours, highest leverage*: stop writing 40 act-time `unreviewed`
+     outcome episodes per email.~~ **DONE 2026-09-19.** Removes ~95% of
+     future store growth AND the 140s in one move. Judgments are still
+     recorded (fork-as-correction, review labels, judge verdicts) — this
+     removed recording a USE, not an OUTCOME. Accepted consequences: a
+     later judgment appends rather than upgrading an `unreviewed` head in
+     place (`upgraded` stays 0), and the Memory page's `in_use` stops
+     rising. Decision note in `docs/SEMANTICS.md`.
   2. *Ours, cheap and partial*: fewer recalled edges (`token_budget`) is a
      constant factor; the per-write cost keeps climbing underneath it.
   3. *veracium's, and the real repair*: those two scans are a SQL query,

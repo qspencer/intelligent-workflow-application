@@ -650,9 +650,22 @@ def test_dry_run_snapshot_reads_real_store_without_writing_it(
 # --- V4 outcome integration (veracium >=0.3.0b1) ---
 
 
-def test_recall_records_act_time_uses(tmp_path: Path) -> None:
-    """Every recalled-and-injected edge gets an `unreviewed` outcome event
-    keyed by evidence_ref = instance id (act-time semantics)."""
+def test_recall_does_NOT_record_act_time_uses(tmp_path: Path) -> None:
+    """Inverted 2026-09-19. This asserted that every recalled edge got an
+    `unreviewed` outcome episode (veracium V4 act-time semantics).
+
+    That write was quadratic and self-feeding: `record_outcome` scans and
+    Pydantic-parses EVERY episode for the entity, twice per edge, and the
+    episodes it scans are overwhelmingly the use records it wrote — 80,604
+    of 84,904 in production. 40 edges per email meant ~6.8M parses and
+    142.9s of a 155.8s step, and every email made every future email
+    slower (avg `triage` 15.9s July -> 155.4s September, unchanged code).
+
+    It bought `times_used` / `outcome_counts`, which nothing in this
+    codebase reads and which veracium uses only for display. Judgments are
+    still recorded — this removed recording a USE, not an OUTCOME, and
+    `test_fork_records_correction_when_verdict_changes` covers that path.
+    """
     repos = in_memory_repositories()
     service, bedrock = _seeded_service(
         tmp_path,
@@ -676,13 +689,19 @@ def test_recall_records_act_time_uses(tmp_path: Path) -> None:
         if getattr(ep, "kind", "") == "outcome"
     ]
     service.close()
-    assert outcome_eps, "expected act-time outcome episodes"
-    assert all(ep.provenance.evidence_ref == instance.id for ep in outcome_eps)
-    assert all(ep.outcome.value == "unreviewed" for ep in outcome_eps)
+    assert not outcome_eps, (
+        f"recall wrote {len(outcome_eps)} outcome episode(s); act-time use "
+        "recording is removed because it was quadratic in the episodes it "
+        "had itself written"
+    )
 
     entries = asyncio.run(repos.audit.list_by_instance(instance.id))
     recalled = next(e for e in entries if e.action == "memory_recalled")
-    assert recalled.detail["uses_recorded"]["recorded"] >= 1
+    assert recalled.detail["uses_recorded"] is None
+    # The measurement that proved the cost stays in the record, and now
+    # reads ~0 — the audit trail shows the fix, not just the code.
+    assert recalled.detail["outcomes_seconds"] < 0.5
+    assert recalled.detail["edges"] >= 1, "recall itself must still work"
 
 
 def test_record_outcomes_batch_idempotent(tmp_path: Path) -> None:
