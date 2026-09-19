@@ -272,6 +272,19 @@ export BEDROCK_MODE
 export WORKFLOW_DEFINITIONS_DIR="$REPO_ROOT/examples"
 export LOG_FORMAT="${LOG_FORMAT:-text}"
 export WORKFLOW_PLATFORM_START_TRIGGERS="$START_TRIGGERS"
+# Subject-identity pseudonym key (G-Trace-Subject-Identity). READ, never
+# generated: rotating it invalidates every existing subject ref, so minting
+# one is a deliberate operator act, not a side effect of starting the
+# backend. Absent is safe and fail-closed — subjects are still classified,
+# they just carry no correlatable ref.
+#   printf %s "$(openssl rand -hex 32)" > .secrets/subject_key && chmod 600 .secrets/subject_key
+SUBJECT_KEY_FILE="$REPO_ROOT/.secrets/subject_key"
+if [ -r "$SUBJECT_KEY_FILE" ]; then
+  export WORKFLOW_PLATFORM_SUBJECT_KEY="$(cat "$SUBJECT_KEY_FILE")"
+  SUBJECT_KEY_STATUS="from .secrets/subject_key"
+else
+  SUBJECT_KEY_STATUS="not set — subjects classified, no correlatable ref"
+fi
 [ "$GMAIL_OK" = 1 ] && export WORKFLOW_PLATFORM_GMAIL_ACCOUNT="$GMAIL_ACCOUNT"
 ok "env set"
 
@@ -295,6 +308,7 @@ else
   echo "   gmail        : not configured — email-triage trigger self-disables"
 fi
 echo "   definitions  : $WORKFLOW_DEFINITIONS_DIR"
+echo "   subject key  : $SUBJECT_KEY_STATUS"
 if [ "$AUTH_MODE" = "local" ]; then
   echo "   auth         : local (email+password login; manage users via"
   echo "                  backend/tools/create_user.py or the Users admin page)"
