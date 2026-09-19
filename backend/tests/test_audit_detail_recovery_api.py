@@ -600,7 +600,7 @@ async def test_a_repository_LOOKUP_failure_is_a_retrieval_outcome(
     async def timeout(_key: str) -> Any:
         raise TimeoutError("vault repository timed out")
 
-    repos.raw_trace_vault.get_by_idempotency_key = timeout  # type: ignore[method-assign]
+    repos.raw_trace_vault.get_by_idempotency_key = timeout
 
     resp = client.get(f"/api/workflow-instances/{iid}/audit", headers=_ADMIN)
     assert resp.status_code == 200, f"a repository timeout produced HTTP {resp.status_code}"
