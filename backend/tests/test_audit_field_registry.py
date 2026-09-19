@@ -568,3 +568,41 @@ def test_the_LABEL_leaf_refuses_what_it_says_it_refuses() -> None:
     assert not _LABEL.validate("x" * 121), "overlong label accepted"
     assert not _LABEL.validate(""), "empty label accepted"
     assert not _LABEL.validate(42), "non-string accepted"
+
+
+def test_no_audit_writer_puts_an_EMAIL_in_actor_id() -> None:
+    """G-Trace-Subject-Identity §5 — the assumption, made checkable.
+
+    The backlog entry claimed `actor_id` *"holds an operator email on every
+    audit row, which makes it the larger exposure"*. Counted over the live
+    table it holds an email on ZERO of 91,808 rows: the human values are
+    local-mode UUIDs (`sub` = `users.id`) and dev-mode handles.
+
+    The claim is provider-dependent rather than wrong — an OIDC issuer may
+    put an email in `sub`, and D4 makes the IdP the sole authority over it.
+    So the property is not migrated, it is GUARDED: this pins that no
+    writer in the tree hardcodes an email-shaped actor, and the
+    `reality_check` claim beside it watches the live table for an IdP that
+    supplies one.
+    """
+    import ast
+    import pathlib
+    import re
+
+    email_like = re.compile(r"^[^@\s]+@[^@\s]+\.[A-Za-z]{2,}$")
+    offenders: list[str] = []
+    for path in pathlib.Path("src/workflow_platform").rglob("*.py"):
+        tree = ast.parse(path.read_text())
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Call):
+                continue
+            for kw in node.keywords:
+                if kw.arg != "actor_id" or not isinstance(kw.value, ast.Constant):
+                    continue
+                if isinstance(kw.value.value, str) and email_like.match(kw.value.value):
+                    offenders.append(f"{path}:{node.lineno} -> {kw.value.value}")
+    assert not offenders, (
+        f"audit writers naming an email as actor_id: {offenders}. Operator identity "
+        "belongs in the subject-identity design (docs/TRACE_SUBJECT_IDENTITY_PLAN.md), "
+        "not inlined into the actor column."
+    )

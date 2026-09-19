@@ -128,6 +128,13 @@ CHECKS: list[tuple[str, str, str]] = [
            limit 20""",
     ),
     (
+        "SUBJ §5",
+        "no audit row carries an email in `actor_id`",
+        """select distinct actor_id from audit_log
+           where actor_id ~ '^[^@[:space:]]+@[^@[:space:]]+\\.[A-Za-z]{2,}$'
+           limit 20""",
+    ),
+    (
         "TM §5",
         "every definition carries an org",
         "select id from workflow_definitions where org_id is null or org_id='' limit 20",

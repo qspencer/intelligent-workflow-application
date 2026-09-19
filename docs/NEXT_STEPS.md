@@ -1373,8 +1373,13 @@ are constraints we would not have guessed**:
   identifiers and outcomes, never copy display identities into the records.
 - **Actors and subjects share the classification and authorization
   framework**, with different visibility only where operational need
-  justifies it. **Review `actor_id` too** — it holds an operator email on
-  every audit row, which makes it the larger exposure.
+  justifies it. **Review `actor_id` too** — ~~it holds an operator email on
+  every audit row, which makes it the larger exposure~~. **Counted
+  2026-09-19: zero of 91,808 rows.** The human values are local-mode UUIDs
+  (`sub` = `users.id`) and dev-mode handles. The claim is
+  provider-dependent (an OIDC issuer may put an email in `sub`), so it is
+  a risk for a deployment we do not have — it needs a GUARD, not a
+  migration, and has one.
 - **Define rename, deletion and org-transfer behaviour BEFORE changing any
   stored identity format**, and preserve historical attribution.
 
@@ -1382,6 +1387,43 @@ That last point makes this bigger than a rendering change: it is an
 identity-lifecycle decision with a migration behind it. Effort: **L**.
 Sequence it after the registry, which gives the per-(action, field)
 classification this needs anyway.
+
+**DESIGNED 2026-09-19 — `docs/TRACE_SUBJECT_IDENTITY_PLAN.md`.** The
+reviewer's gating constraint is *"define rename, deletion and org-transfer
+behaviour BEFORE changing any stored identity format"*, and the format
+change is the build — so the lifecycle answers come first and they are now
+made, not deferred. Summary of what the plan settles:
+
+- **Measured exposure, and the spec was wrong about where it is.**
+  `user_id` is 6,351 of 6,354 rows and **6,351 do not join to `users`** —
+  they are `org:<org>:user:<mailbox>` keys, so the reviewer's "not every
+  `user_id` is a platform user" is literally 99.95% of them.
+  `actor_id` is zero (above).
+- **Pseudonyms are keyed over `(address, org)`, not the address.** Keyed
+  over the address alone the ref becomes a cross-tenant join key.
+- **Rename:** a mailbox rename splits the history, accepted — the
+  pseudonym inherits the memory namespace's identity semantics rather
+  than inventing a stronger one a mapping table would have to maintain.
+- **Deletion:** refs are never deleted with the subject; they become
+  unresolvable. Rewriting history to erase a subject would destroy the
+  attribution the item exists to preserve. Erasure acts on the vault and
+  the memory store, which is where the address actually lives.
+- **Org transfer:** org is recorded per event, never inferred from the
+  ref; a mailbox that moves org gets a different ref, by construction.
+- **Key rotation** (a question the spec did not ask): refs are
+  within-era correlators, rotation is an announced operational event, and
+  there is deliberately no era field — a stored era would let a reader
+  correlate across rotations.
+
+**Stage 0 BUILT:** the `actor_id` property is now checked in two places —
+an AST detector over every audit writer in the tree, and a
+`reality_check` claim over the live table. Both seen to fail against a
+planted violation.
+
+**Stages 1–3 (typed subject, emission, directory resolution) are
+unblocked and not built.** **Stage 4 — backfilling `subject` onto 6,351
+historical rows — rewrites production and needs your word**, which is the
+same shape as the G-Trace-Backfill decision below.
 
 ---
 
