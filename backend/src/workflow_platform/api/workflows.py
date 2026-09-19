@@ -1217,7 +1217,7 @@ def build_router(
     @router.post("/workflow-instances/{instance_id}/pause")
     async def pause_instance(
         instance_id: str,
-        _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
         scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         instance = await _visible_instance(instance_id, scope)
@@ -1229,6 +1229,10 @@ def build_router(
             )
         instance.state = WorkflowInstanceState.PAUSED
         await repositories.instances.update(instance)
+        # Same hole as kill, found in the same pass. The engine audits
+        # `workflow_paused` for a pause IT decides (budget); an operator
+        # pause is written here and the engine never sees it.
+        await _audit_admin_action(user, "workflow_paused", instance_id=instance_id)
         return {"status": "pause_requested", "instance_id": instance_id}
 
     @router.post("/workflow-instances/{instance_id}/resume")
@@ -1263,7 +1267,7 @@ def build_router(
     @router.post("/workflow-instances/{instance_id}/retry")
     async def retry_instance(
         instance_id: str,
-        _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
         scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         if engine is None:
@@ -1287,6 +1291,11 @@ def build_router(
         # only COMPLETED + SKIPPED).
         instance.state = WorkflowInstanceState.PAUSED
         await repositories.instances.update(instance)
+        # Its OWN action, not `workflow_paused`: this FAILED -> PAUSED hop is
+        # a retry decision, and the engine's subsequent `workflow_resumed`
+        # would otherwise be the only trace — a trail reading "resumed" with
+        # no record that a human retried a failed run.
+        await _audit_admin_action(user, "workflow_retried", instance_id=instance_id)
         task = asyncio.create_task(engine.resume(definition, instance_id))
         background_tasks.add(task)
         task.add_done_callback(background_tasks.discard)
@@ -1343,7 +1352,7 @@ def build_router(
     @router.post("/workflow-instances/{instance_id}/kill")
     async def kill_instance(
         instance_id: str,
-        _: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
+        user: UserIdentity = Depends(require_roles(*ORG_WRITE_ROLES)),
         scope: OrgScope = Depends(_org_scope),
     ) -> dict[str, Any]:
         instance = await _visible_instance(instance_id, scope)
@@ -1359,6 +1368,15 @@ def build_router(
             )
         instance.state = WorkflowInstanceState.KILLED
         await repositories.instances.update(instance)
+        # The ENGINE audits `workflow_killed` when it observes a kill mid-run
+        # (`_KillRequested`). This path never reaches the engine — it writes
+        # the terminal state itself — so without this the transition left no
+        # record at all. Found 2026-09-19 while bulk-killing 171 recovered
+        # orphans: 171 rows to a terminal state with nothing saying who or
+        # why is indistinguishable from tampering when someone reads it back.
+        # Same action name as the engine's, so a consumer does not need to
+        # know which path ran; `actor_type` tells them.
+        await _audit_admin_action(user, "workflow_killed", instance_id=instance_id)
         return {"status": "kill_requested", "instance_id": instance_id}
 
     @router.delete("/workflow-instances/{instance_id}", status_code=204)

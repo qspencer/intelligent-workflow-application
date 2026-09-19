@@ -93,12 +93,20 @@ Also landed, outside the epic:
    172 killed, 1 paused (`email-triage-live` from 2026-07-13, unrelated
    and deliberately untouched).
 
-   **Follow-up worth naming:** the kill ENDPOINT still audits nothing.
-   The tool works around that rather than fixing it; the endpoint should
-   write `workflow_killed` itself, and the same question applies to the
-   other lifecycle endpoints. Small, and it belongs with
-   `G-Trace-Chokepoint-Rest` — both are "an API surface mutating state
-   outside the path that records it".
+   ~~**Follow-up: the kill ENDPOINT audits nothing.**~~ **DONE
+   2026-09-19.** Checking the others found the same hole in two more:
+   `kill`, `pause` and `retry` all write instance state in the API and
+   never reach the engine, so none of them audited. `resume` and `fork`
+   were fine — they delegate to the engine, which audits. `_note_bypass`'s
+   docstring had reasoned from exactly that ("lifecycle ops: the engine
+   audits the effect"), which is true of the two that delegate and false
+   of the three that do not. Retry got its own `workflow_retried` rather
+   than reusing `workflow_paused`, so the trail cannot read "resumed" with
+   no record that a human retried a failed run.
+   `test_every_instance_lifecycle_ENDPOINT_is_classified_for_audit`
+   enumerates the endpoints from the OpenAPI schema, so a new one fails
+   the build until someone says where its audit entry comes from — the
+   question nobody asked when kill was written.
 
 1. ~~Round 18 verdict~~ — **ACCEPTED 2026-09-19. The F1/F5 trace review
    line is CLOSED** after 18 rounds. The trace surface is no longer held;

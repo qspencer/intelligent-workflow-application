@@ -514,3 +514,119 @@ def test_audit_endpoint_filters_by_instance_id(
 
     unscoped = client.get("/api/audit", headers=_admin()).json()
     assert len(unscoped) >= 2
+
+
+# --- audit coverage (2026-09-19) -------------------------------------------
+#
+# `POST .../kill` wrote the terminal state and NO audit entry. The engine
+# audits `workflow_killed` when IT observes a kill mid-run, and
+# `_note_bypass`'s docstring reasoned from that — "lifecycle ops: the engine
+# audits the effect". True of resume and fork, which delegate to the engine;
+# false of kill, pause and retry, which write the state themselves and never
+# reach it. Found while bulk-killing 171 recovered orphans: 171 rows to a
+# terminal state with nothing recording who or why.
+
+
+def _audit_actions(repos: Any, instance_id: str) -> list[str]:
+    entries = asyncio.run(repos.audit.list_recent(limit=50))
+    return [e.action for e in entries if e.workflow_instance_id == instance_id]
+
+
+def test_kill_is_audited(dev_app: tuple[TestClient, Any, WorkflowEngine]) -> None:
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    running_id = next(i.id for i in instances if i.state == WorkflowInstanceState.RUNNING)
+    assert (
+        client.post(f"/api/workflow-instances/{running_id}/kill", headers=_admin()).status_code
+        == 200
+    )
+    assert "workflow_killed" in _audit_actions(repos, running_id)
+
+
+def test_pause_is_audited(dev_app: tuple[TestClient, Any, WorkflowEngine]) -> None:
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    running_id = next(i.id for i in instances if i.state == WorkflowInstanceState.RUNNING)
+    assert (
+        client.post(f"/api/workflow-instances/{running_id}/pause", headers=_admin()).status_code
+        == 200
+    )
+    assert "workflow_paused" in _audit_actions(repos, running_id)
+
+
+def test_retry_is_audited(dev_app: tuple[TestClient, Any, WorkflowEngine]) -> None:
+    """`workflow_retried`, distinct from the engine's `workflow_resumed`:
+    otherwise the trail reads "resumed" with no record that a human retried
+    a failed run."""
+    client, repos, _ = dev_app
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    failed_id = next(i.id for i in instances if i.state == WorkflowInstanceState.FAILED)
+    assert (
+        client.post(f"/api/workflow-instances/{failed_id}/retry", headers=_admin()).status_code
+        == 200
+    )
+    assert "workflow_retried" in _audit_actions(repos, failed_id)
+
+
+def test_the_audited_actor_is_the_CALLER_not_the_engine() -> None:
+    """An entry saying only "this was killed" is half a record. The point of
+    auditing the API path is WHO reached for the button."""
+    import os
+
+    os.environ["AUTH_MODE"] = "dev"
+    repos = in_memory_repositories()
+    _seed(repos)
+    app = create_app(repositories=repos, start_triggers=False)
+    client = TestClient(app)
+    instances = asyncio.run(repos.instances.list_by_workflow("wf-1"))
+    running_id = next(i.id for i in instances if i.state == WorkflowInstanceState.RUNNING)
+
+    client.post(
+        f"/api/workflow-instances/{running_id}/kill",
+        headers={"X-Dev-User": "operator-7", "X-Dev-Groups": "admins"},
+    )
+    entry = next(
+        e
+        for e in asyncio.run(repos.audit.list_recent(limit=50))
+        if e.action == "workflow_killed" and e.workflow_instance_id == running_id
+    )
+    assert entry.actor_type == "human"
+    assert entry.actor_id == "operator-7"
+
+
+def test_every_instance_lifecycle_ENDPOINT_is_classified_for_audit() -> None:
+    """R-d: the fix is a RULE, not three lines. Enumerated from the route
+    table so a new lifecycle endpoint fails the build until someone says
+    where its audit entry comes from — which is exactly the question nobody
+    asked when kill was written.
+    """
+    from workflow_platform.main import create_app as _create_app
+
+    #: endpoint suffix -> where its audit entry comes from.
+    CLASSIFIED = {
+        "kill": "api",  # writes the state itself; engine never sees it
+        "pause": "api",  # ditto (the engine audits only ITS OWN budget pause)
+        "retry": "api",  # the FAILED -> PAUSED hop; engine then audits resume
+        "resume": "engine",  # delegates to engine.resume -> workflow_resumed
+        "fork": "engine",  # delegates to engine.fork -> workflow_forked
+    }
+    app = _create_app(repositories=in_memory_repositories(), start_triggers=False)
+    # From the OpenAPI schema, not `app.routes`: included routers nest, so
+    # walking the top level silently finds NOTHING and the enumeration
+    # passes by being empty — the failure mode an enumeration is least able
+    # to notice. The `found` assertion below is the guard for that.
+    prefix = "/api/workflow-instances/{instance_id}/"
+    found = {
+        path[len(prefix) :]
+        for path, ops in app.openapi()["paths"].items()
+        if path.startswith(prefix) and "post" in ops
+    }
+    assert found, "the route enumeration found no lifecycle endpoints — it has stopped working"
+    unclassified = found - set(CLASSIFIED)
+    assert not unclassified, (
+        f"new instance lifecycle endpoint(s) {sorted(unclassified)}: say where the audit "
+        "entry comes from. An endpoint that mutates instance state and audits nothing is "
+        "the defect this enumeration exists for."
+    )
+    stale = set(CLASSIFIED) - found
+    assert not stale, f"classified endpoints that no longer exist: {sorted(stale)}"
