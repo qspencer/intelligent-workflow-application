@@ -328,6 +328,4 @@ async def test_reseal_and_lookup_against_a_REAL_database(engine: AsyncEngine) ->
     assert stored is not None
     assert stored.payload == {"sealed": "new"}, "reseal did not persist through Postgres"
     assert stored.audit_entry_id == "e-1", "the entry binding was lost by reseal"
-    assert not await repos.raw_trace_vault.reseal(
-        "no-such-row", payload={}, content_commitment="c"
-    )
+    assert not await repos.raw_trace_vault.reseal("no-such-row", payload={}, content_commitment="c")
