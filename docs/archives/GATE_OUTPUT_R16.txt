@@ -1,0 +1,72 @@
+Captured standalone gate results — F1/F5 review round 16
+
+Gates ran at tree: 3ff50eff60606b72424d2fd69e1039ca87ba6097   (manifest aggregate: 9ad74f1723604bda88d0aa3144ce4ad96d45fec5df6f4df238df64d11a68616b)
+Exit codes captured immediately, before any pipe. All five also run
+under scripts/gate.sh as ONE exit code, chained to the commit with &&.
+
+Host: Linux 7.0.0-1012-aws x86_64 · Python Python 3.12.3 · 2026-09-19T01:50:20Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+277 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 235 source files
+exit: 0
+
+=== uv run pytest ===
+SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
+1238 passed, 19 skipped, 13 warnings in 43.42s
+exit: 0
+
+=== uv run pip-audit ===
+No known vulnerabilities found
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== pytest -m integration (real Postgres) ===
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_schema_conformance.py:29: SCHEMA_TESTS not set; skipping schemathesis contract tests
+7 passed, 1 skipped, 1249 deselected, 1 warning in 4.25s
+exit: 0
+
+=== alembic up/down/up ===
+INFO  [alembic.runtime.migration] Running upgrade 0012 -> 0013, Audit-entry projection stamp (round-12 finding 1).
+INFO  [alembic.runtime.migration] Running downgrade 0013 -> 0012, Audit-entry projection stamp (round-12 finding 1).
+INFO  [alembic.runtime.migration] Running upgrade 0012 -> 0013, Audit-entry projection stamp (round-12 finding 1).
+exit: 0
+
+=== CONTROLS (step 2b) ===
+Each detector sabotaged with the defect it claims to catch. The harness
+now ast.parses the sabotaged file first, so a syntax break cannot be
+mistaken for the control firing.
+
+--- F1 instance-detail completes
+    sabotage: let the merge failure escape get_instance
+    sabotaged exit=1  (want non-zero, and NOT 2 = collection error)
+    restored  exit=0  (want 0)
+--- F2 trigger opening completes
+    sabotage: bypass the completion wrapper
+    sabotaged exit=1  (want non-zero, and NOT 2 = collection error)
+    restored  exit=0  (want 0)
+--- R16 explain_step completes
+    sabotage: let the merge failure escape explain_step
+    sabotaged exit=1  (want non-zero, and NOT 2 = collection error)
+    restored  exit=0  (want 0)
+--- merge_error lookup normalised (per-helper)
+    sabotage: let a repository error escape merge_error
+    sabotaged exit=1  (want non-zero)
+    restored  exit=0  (want 0)
+    note: the first attempt at this control did NOT fire, because in the
+    endpoint path merge_trigger raises first and the caller catches. The
+    helpers are now tested individually, which is what made the control
+    meaningful.

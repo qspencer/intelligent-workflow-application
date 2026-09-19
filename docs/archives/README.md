@@ -540,3 +540,33 @@ demonstrated `evidence_ref` carrying input-derived content past a `_TOKEN`
 validator to a grant-less reader. Six controls; the F4 race now has an
 executable proof (three `UniqueViolationError`s against the old code, none
 against the new).
+
+---
+
+## Round 16 — the round-15 fixes, and a third instance we found ourselves (2026-09-19)
+
+```
+commit   0f89fe0
+tree     3ff50eff60606b72424d2fd69e1039ca87ba6097
+archive  be8b13658c69b7ca81e161bbf15262b5b5a20cfbd73aaaae1f2a6e182919eb25
+         trace-f1-review-r16-0f89fe0.tar.gz
+```
+
+**Manifest extraction-verified**: `9ad74f17…`, byte-identical to
+`CODE_MANIFEST_R16.txt` (235 files).
+
+Companions:
+
+```
+84e0f2a8ab6e3c3e13b21fb590b297cb57ef91cea1fce96e080d6061959d53df  TRACE_F1_REVIEW_ROUND16.md   (sidecar)
+3b960f1144260cd6d86f815567501116a2ad132abdfe1f41dd2cfc7352906ccf  TRACE_AUDIT_VAULT_DESIGN.md  (design record)
+48c6a8dbfef5c027abb725e4d451f7437eb0fe48afa1c95368c8f2f7e35415af  CODE_MANIFEST_R16.txt
+55317f33fdffa3f6643db19acf72e9e927c90960c38c5f4f5f8d77578b69c5e7  GATE_OUTPUT_R16.txt
+```
+
+The pre-package pass is the substance of this round: it found the SAME
+defect on `explain_step`, a surface the reviewer had not tested, by
+enumerating the CALLERS of the recovery helpers instead of answering the
+counterpart question from memory. It also found a control that did not
+fire, two follow-ups missing from the backlog, and a stale field count in
+the design doc.
