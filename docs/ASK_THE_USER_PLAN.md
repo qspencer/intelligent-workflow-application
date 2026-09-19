@@ -1,6 +1,9 @@
 # Ask-the-user: clarification elicitation (G12)
 
-Status: **design v3, 2026-09-19** — revised after external review round 2
+Status: **design v4, 2026-09-19** — round 3 **ACCEPTED for C1 shadow
+development**; C2/C3 remain gated. v4 carries round 3's consistency
+edits, the indirect-route closure (§6a), retention (§6b), and an honest
+restatement of the C3b prerequisite. Previously v3 — revised after external review round 2
 (**RETURNED for a narrower revision**; C1 approved in principle, gated on
 four decisions). v3's changes are listed in §0. Previously revised after
 round 1
@@ -17,6 +20,29 @@ outcome emission 2026-07-19. Effort M–L.
 | Is the budget real? | The hard caps can make it real. A model-produced conditional is a relevance heuristic, not proof a question is useful. |
 
 Both are accepted in full. §2 and §3 are rewritten around them.
+
+---
+
+## 0a. What round 3 changed (v4) — and C1 is accepted
+
+Round 3 **ACCEPTED C1 shadow development**. C2 and C3 stay gated; this is
+not approval to enable live questions or profile context.
+
+| # | round-3 item | where |
+|---|---|---|
+| i | deferring ingestion is right, **but v3's "single route" claim was false** — `steps.record.summary` carries a profile answer into memory indirectly | **§6a**, closed before C3, with an acceptance case |
+| ii | retention, decided before C2 persists a real answer | **§6b** |
+| iii | §4a **overstated** the worker: a crash after the downstream write, before completion is recorded, is not resolved | **§4a** — restated as an open C3b prerequisite |
+| iv | "inside one transaction" needs an enforcing mechanism | **§3a** — conditional counter update, with the test establishing it |
+| v | four consistency edits (`review` in §1, memory in §1/§9, ingestion items in the C2/C3 list, eligible lookup vs truncated rendering) | §1, §1a, §8, §9 |
+| vi | read authority for answers, separate from escalation-resolve; finite `valid_until` for changeable topics | §6b |
+
+**The finding that matters is (i), and it is the same mistake in a new
+place.** v3 answered "is there a second route?" by looking at the route
+it had designed. The route already in the workflow — the classification
+summary, interpolated into an observation — was not examined. Round 1's
+finding was a misread of that same file; round 3's is a part of it we
+never read.
 
 ---
 
@@ -55,11 +81,16 @@ differently if the system knows you plan to attend.
 
 The classifier already produces a verdict. It may additionally declare a
 **conditional**: *"notification — but if `employment_status = seeking`
-then attention gains `review`"*. A conditional naming a topic the operator
+then `priority: relevant`"*. A conditional naming a topic the operator
 has catalogued, whose answer the system does not have, becomes a
 **question**. The question text is the operator's, the answer is chosen
-from the operator's enum, and the fact written to memory is composed by
-the engine from those two. Nothing the email contains reaches any of it.
+from the operator's enum, and the **answer record** is composed by the
+engine from those two. Nothing the email contains reaches any of it.
+
+*(Two things this sentence used to say and no longer does: the outcome is
+`priority`, not `attention`/`review` — §5a, so C1 cannot quietly redefine
+the two-axis rubric; and the answer is written to an **answer record**,
+not to memory — §6, ingestion is deferred.)*
 
 ---
 
@@ -109,11 +140,16 @@ the profile block is built from it — not from recall at all.**
 - An accepted answer is persisted as a first-class **answer record**
   (§4), keyed by question, subject and revision. That record — not
   memory — is what a later classification reads.
-- The profile block is assembled by an explicit query over **current,
-  applicable answer records** for the subject: `status = answered`,
-  not superseded, not withdrawn, valid now (§6), ordered by topic, with
-  a declared overflow rule (topic priority from the catalogue; truncation
-  is recorded in the block, never silent).
+- **Two distinct operations, and round 3 is right that conflating them
+  would be a bug.** The **eligible-answer lookup** returns every current,
+  applicable answer record for the subject (`status = answered`, not
+  superseded, not withdrawn, valid now per §6) — it is the authority for
+  "does an answer exist?", and it never truncates. The **profile
+  rendering** is what fits in the prompt: the same set, ordered by
+  catalogue topic priority, truncated with the truncation recorded in the
+  block rather than silent. **An answer omitted for space is still an
+  existing answer** — the scheduler asks the lookup, never the rendering,
+  so a long profile can never cause a question to be re-asked.
 - **Memory ingestion is deferred** to a later stage, for a reason that
   only surfaced when §6's retirement rule was checked against what
   veracium actually exposes: there is no primitive for retiring a fact
@@ -321,12 +357,18 @@ no interval to compensate for.
 a future backend cannot do this in one transaction. Postgres can, so the
 fallback is documented and unused.)*
 
-**The capacity check is inside that transaction.** A `(subject, topic)`
-uniqueness constraint stops two runs asking the same question; it does
-**not** stop two runs asking *different* questions that both take the
-last recipient slot. Round 2 caught that, and it is a genuinely different
-race. Capacity is checked and consumed in the same transaction that
-creates the question, against the recipient's counter.
+**The capacity check is inside that transaction, and "inside a
+transaction" is not by itself an enforcing mechanism** (round 3). A
+`(subject, topic)` uniqueness constraint stops two runs asking the same
+question; it does **not** stop two runs asking *different* questions that
+both take the last recipient slot. The enforcement is a **conditional
+counter update** — `UPDATE … SET outstanding = outstanding + 1 WHERE
+subject = ? AND outstanding < :cap`, and the question is created only if
+that statement affected a row. Two concurrent transactions cannot both
+see the last slot, because the second one's predicate is evaluated
+against the first one's committed write. A row lock on the recipient's
+counter is the equivalent if the counter moves. **The concurrency test
+establishes the behaviour, not the wording.**
 
 **Pending questions expire, and expiry releases capacity.** An unanswered
 question cannot hold a slot indefinitely, or the budget deadlocks itself
@@ -394,12 +436,22 @@ rules:
   answer has been corrected or withdrawn, the operation terminates as
   `superseded` rather than restoring an old fact. Round 2's scenario,
   and without this check a slow retry silently undoes a correction.
-- **The write-succeeded-but-marking-failed case is resolved by the key,
-  not by hope.** Ingestion is idempotent on the operation key, so
-  recovery re-runs the operation: veracium sees the same key and does not
-  double-write, and the marking is retried. The failure mode v2 left
-  unaddressed — marked `ingested: false` while the fact exists — becomes
-  a re-run that converges instead of a duplicate.
+- **The write-succeeded-but-marking-failed case is NOT resolved by the
+  worker, and v3 said it was.** Round 3: *"§4a still overstates what the
+  worker guarantees. It says Veracium will recognize the same operation
+  key while also saying `observe()` remains a write without that key."*
+  Both cannot be true, and the second is the one that is true —
+  `observe()` carries no operation key, so a crash after the downstream
+  write succeeds and before completion is recorded leaves a fact with no
+  record that it exists, and a re-run duplicates it.
+
+  **Stated as an open prerequisite for C3b, not as solved.** Closing it
+  needs either a supported idempotent write on veracium's side (keyed by
+  our operation id) or an equivalent recovery protocol — plus ordering
+  that prevents an older operation from restoring a superseded answer.
+  Both go in the same coordination ask as the expiry primitive (§6).
+  Until then C3b does not start, which costs nothing because ingestion
+  is deferred anyway.
 
 **Retries are bounded and failure is visible.** N automatic attempts with
 backoff, then the question sits in a `ingestion_failed` status that is
@@ -617,6 +669,73 @@ exist; they are out of the first release rather than approximated.
 
 ---
 
+## 6a. The INDIRECT route — found by round 3, and v3's "one route" was wrong
+
+v3 claimed that deferring ingestion leaves a single route to
+classification. **It does not.** Round 3 read the workflow and found the
+second one, and it is already live:
+
+```yaml
+- text: >
+    The triage agent classified the email ... Reason: {steps.record.summary}
+  author: system
+  derived_from: third_party
+```
+
+`steps.record.summary` is the classifier's own free-text reason. Once a
+profile answer reaches the classifier, that reason can repeat it —
+*"relevant because the owner is seeking employment"* — and the sentence
+is written into learned memory as an ordinary observation. **It then
+outlives the answer record**, and ordinary correspondent recall can
+return it after the answer expires or is withdrawn.
+
+`derived_from: third_party` constrains how that observation is *treated*;
+round 3 is right that it does not establish the observation can never
+influence a later classification. Our "one route" claim was about the
+route we built and blind to the route already there.
+
+**Decision, before C3 — the simple one.** A workflow with questions
+enabled **omits profile-dependent classification observations** from
+learned memory. The independent received-email observation is kept; the
+triage-summary observation is dropped for that workflow. Blunt, and it
+cannot leak what it does not write.
+
+*(The capable alternative — track which answer revisions a classification
+consumed and enforce their validity at retrieval — is what C3b's
+dependency tracking would give us. It is not first-release work.)*
+
+**Acceptance case, required before C3:** answer supplied → the
+classification explanation repeats it → answer withdrawn → a later
+classification receives no usable copy through **either** the profile
+block **or** learned-memory recall.
+
+---
+
+## 6b. Retention — decided before C2 persists a real answer
+
+Round 3's framing is adopted: **decision eligibility and physical
+retention are separate questions**, and "append-only revisions" means
+revisions are not silently rewritten, not that answer content lives
+forever.
+
+| record | first release |
+|---|---|
+| current answer | retained while applicable and the feature is enabled for that subject |
+| expired / superseded | **excluded from current context immediately**; payload kept for a bounded review window — **30 days**, a pilot starting point and not a load-bearing number |
+| withdrawn | excluded immediately; payload deleted on a documented schedule |
+| "already asked" history | subject · topic · status · timestamps, **no answer content**, for as long as the feature is associated with that subject — this is what makes "once ever" survive payload deletion |
+| audit / trace / export / backup | **stated explicitly rather than assumed**: deleting the answer row does not remove these. Audit entries carry the question and outcome, never the answer payload; the vault is not used for answers; exports exclude payloads; backup expiry is the operator's retention policy and is named in the runbook, not implied. |
+
+**Read authority is its own permission.** Who may read current answers,
+and who may read historical payloads, are decided separately from who may
+resolve an escalation — round 3's point, and the same mistake §2a already
+corrected for answering.
+
+**Changeable topics carry a finite `valid_until`.** A stale badge nobody
+notices must not license indefinite use, so for topics like employment
+status the catalogue sets an expiry as well as `review_after`. Expiry
+excludes the answer from context; it does not re-ask (§6).
+
 ## 7. The asking channel
 
 The escalations plumbing is the right channel and is nearly right:
@@ -681,15 +800,25 @@ down and each exercised:
 
 1. successful answer → answer record → fact
 2. decline → no fact, preference recorded
-3. expiry → gone from the profile block AND retired from recall (§6)
+3. expiry → gone from the eligible-answer lookup and the profile block
+   *(retirement from recall belongs to C3b — there is nothing in recall
+   to retire while ingestion is deferred)*
 4. catalog change → an in-flight question resolves under the wording it
    was asked with
 5. two concurrent runs, same subject → one question; two concurrent runs,
    **different topics, last recipient slot** → one question (§3a)
-6. memory-write failure → answer preserved, `ingested: false`, bounded
-   retry succeeds without duplicating
-7. correction after a delayed retry → the old revision does not resurrect
-   (§4a)
+6. withdrawal → no usable copy through the profile block **or**
+   learned-memory recall (§6a's acceptance case)
+
+**C3b only** — deferred with ingestion, and listed so they are not lost:
+
+7. memory-write failure → answer preserved, bounded retry succeeds
+   without duplicating
+8. crash after the downstream write, before completion is recorded →
+   converges without duplicating *(open: needs the idempotent-write
+   prerequisite, §4a)*
+9. correction after a delayed retry → the old revision does not
+   resurrect
 
 ---
 
@@ -714,7 +843,12 @@ down and each exercised:
 - **Automatic re-asking.** §6 — staleness is visible, reconfirmation is
   user-initiated.
 - **Treating recall output as confirmed answers.** §1a — the answer
-  record is the source of truth; memory carries history.
+  record is the source of truth, and in the first release it is the ONLY
+  place answers live: memory carries no answer history, because
+  ingestion is deferred (§6).
+- **Writing profile-dependent classification summaries to memory.** §6a
+  — the indirect route round 3 found, closed by omitting that
+  observation for question-enabled workflows.
 - **Event-scoped questions**, in the first release. §6.
 - **Re-classifying the triggering message.** §5a — the label path is
   add-only and retraction is not designed.
