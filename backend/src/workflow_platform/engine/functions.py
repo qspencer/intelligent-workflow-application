@@ -399,6 +399,27 @@ ATTENTION_LEVELS = ["urgent", "awaiting-reply", "review"]
 _OVERLAY_LOCK = asyncio.Lock()
 
 
+def _sender_address(trigger: dict[str, Any]) -> str:
+    """The sender's address, or "" for anything that is not the shape we
+    expect.
+
+    `from_address` is an `EmailAddress` mapping when the Gmail connector
+    built the trigger, and ANYTHING when a caller did — dry-run, the webhook
+    endpoint and `/run` all take arbitrary JSON. `(x or {}).get("address")`
+    on a plain string raised AttributeError straight out of a deterministic
+    step, surfacing as `unexpected: true` with no useful error (found
+    2026-09-19 by posting a string here). A non-mapping is not a crash; it
+    is simply a trigger with no usable sender, which every caller of this
+    already fails open on.
+    """
+    raw = trigger.get("from_address")
+    if isinstance(raw, dict):
+        return str(raw.get("address") or "").strip().lower()
+    if isinstance(raw, str):
+        return raw.strip().lower()
+    return ""
+
+
 def _label_attention(attention: list[str]) -> list[str]:
     """Display-label dominance (NOT a record mutation — finding 8): urgent
     subsumes the review label (urgency implies the user will look), but the
@@ -592,7 +613,7 @@ async def _disable_codified_sender(
     if not rules_path:
         return
     path = f"{_memory_dir()}/codified/{rules_path}.disabled"
-    sender = str(((context.trigger.get("from_address") or {}).get("address")) or "").strip().lower()
+    sender = _sender_address(context.trigger)
     if not sender:
         return
     try:
@@ -1278,7 +1299,7 @@ async def codified_sender_check(
     sample_one_in = int(config.get("sample_one_in", 5))
     inactivity_days = float(config.get("inactivity_days", 14.0))
 
-    sender = str(((context.trigger.get("from_address") or {}).get("address")) or "").strip().lower()
+    sender = _sender_address(context.trigger)
     message_id = str(context.trigger.get("message_id") or "")
     authenticated = context.trigger.get("auth_pass") is True
 

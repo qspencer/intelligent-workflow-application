@@ -85,6 +85,12 @@ logger = logging.getLogger(__name__)
 #: query per instance and never changes behaviour.
 
 
+class DryRunNotResumable(ValueError):
+    """A dry-run instance may not be re-driven. `ValueError` so existing
+    callers that already map engine ValueErrors to 400 keep working, and its
+    own type so the API can say something better than "invalid"."""
+
+
 class _PauseRequested(Exception):
     """Internal signal: the instance was paused externally; bail out cleanly."""
 
@@ -181,6 +187,11 @@ class WorkflowEngine:
     # flips it to persist only the safe projection (TG3b). Default OFF — the
     # default flips at the external-org gate.
     trace_safe_only: bool = False
+    #: Built by the dry-run endpoint via `dataclasses.replace`, alongside the
+    #: MockWorld + stubbed tool catalog. Stamped onto every run's context so
+    #: the sandbox is a property of the RECORD, not of the request that made
+    #: it — see `WorkflowContext.dry_run`.
+    dry_run: bool = False
     _vault: RawTraceVault = field(init=False)
     _audit_writer: AuditWriter = field(init=False)
     _rehydrator: RawTraceRehydrator = field(init=False)
@@ -247,10 +258,30 @@ class WorkflowEngine:
             workflow_id=definition.id,
             org_id=instance.org_id,
             trigger=raw_trigger,  # in-memory context keeps FULL fidelity for the run
+            dry_run=self.dry_run,
         )
         result = await self._drive(definition, instance, context, already_done=set())
         self._record_workflow_finished(definition.id, result, started)
         return result
+
+    @staticmethod
+    def _refuse_if_dry_run(instance: WorkflowInstance, verb: str) -> None:
+        """A dry run is a PROBE, not work in progress.
+
+        Re-driving one executes against the real world: the sandbox lives in
+        the engine that ran it, not in the record. Persisting a flag and
+        honouring it here was the alternative, and it is the wrong one —
+        "resume this sandboxed run, for real, from the middle" has no
+        meaning a user would want. Refuse, and let them run it properly.
+
+        Enforced in the ENGINE, not only in the API, because `tools/fire.py`
+        and the orchestrator reach these methods directly.
+        """
+        if (instance.context or {}).get("dry_run"):
+            raise DryRunNotResumable(
+                f"Instance {instance.id} was a dry run; {verb} would execute it against "
+                "the real world. Run the workflow for real instead."
+            )
 
     async def resume(self, definition: WorkflowDefinition, instance_id: str) -> WorkflowInstance:
         """Resume a paused instance. Replays no completed work; picks up where
@@ -258,6 +289,7 @@ class WorkflowEngine:
         instance = await self.repositories.instances.get(instance_id)
         if instance is None:
             raise ValueError(f"Instance {instance_id} not found")
+        self._refuse_if_dry_run(instance, "resume")
         if instance.state != WorkflowInstanceState.PAUSED:
             raise ValueError(f"Instance {instance_id} is {instance.state.value}, cannot resume")
 
@@ -278,6 +310,7 @@ class WorkflowEngine:
             org_id=instance.org_id,
             trigger=dict(instance.trigger_payload),
             steps=dict(instance.context.get("steps", {}) or {}),
+            dry_run=self.dry_run,
         )
 
         prior = await self.repositories.steps.list_by_instance(instance.id)
@@ -310,6 +343,7 @@ class WorkflowEngine:
         source = await self.repositories.instances.get(source_instance_id)
         if source is None:
             raise ValueError(f"Instance {source_instance_id} not found")
+        self._refuse_if_dry_run(source, "fork")
         step_ids = {s.id for s in definition.steps}
         if from_step_id not in step_ids:
             raise ValueError(f"Step {from_step_id!r} not in workflow {definition.id!r}")
@@ -414,6 +448,7 @@ class WorkflowEngine:
             org_id=new_instance.org_id,
             trigger=raw_trigger,  # in-memory context keeps FULL fidelity
             steps={sid: dict(out) for sid, out in usable_outputs.items()},
+            dry_run=self.dry_run,
         )
 
         result = await self._drive(definition, new_instance, context, already_done=preserved)

@@ -207,6 +207,20 @@ def build_router(
             raise HTTPException(status_code=404, detail=f"Instance {instance_id} not found")
         return instance
 
+    def _reject_dry_run(instance: WorkflowInstance, verb: str) -> None:
+        """A dry run is a probe. Re-driving one would execute it against the
+        real world — the sandbox lives in the engine that ran it, not in the
+        record. The engine refuses too (`_refuse_if_dry_run`); this is here
+        so the operator gets a 400 with a reason instead of a 500."""
+        if (instance.context or {}).get("dry_run"):
+            raise HTTPException(
+                status_code=400,
+                detail=(
+                    f"Cannot {verb}: this instance was a dry run, and {verb} would "
+                    "execute it for real. Run the workflow instead."
+                ),
+            )
+
     def _bypass(scope: OrgScope, resource_org: str) -> dict[str, Any]:
         """ROLES_PLAN §2.4: an Administrator acting outside their own org is
         an explicit, audited bypass — never a missing filter."""
@@ -1021,17 +1035,25 @@ def build_router(
                 world=mock_world(),
                 tools=ToolCatalog(sandbox_tools),
                 learned_memory=scratch_memory,
+                dry_run=True,
             )
             try:
                 instance = await dry_engine.run(definition, trigger_payload=payload)
             finally:
                 if scratch_memory is not None:
                     scratch_memory.close()
-        # Tag in history so a dry run is distinguishable from a real one.
-        instance.context = {**(instance.context or {}), "dry_run": True}
-        await repositories.instances.update(instance)
+        # The engine stamps `dry_run` onto the context at run start
+        # (`WorkflowContext.dry_run`), so it is already persisted and
+        # survives a later context rewrite. Kept as a belt-and-braces write
+        # for instances whose context somehow lacks it.
+        if not (instance.context or {}).get("dry_run"):
+            instance.context = {**(instance.context or {}), "dry_run": True}
+            await repositories.instances.update(instance)
         return {
-            "status": "completed",
+            # The RUN's outcome, not the request's. It said "completed"
+            # unconditionally, so a dry run that failed reported success at a
+            # glance and contradicted the `state` beside it.
+            "status": instance.state.value,
             "instance_id": instance.id,
             "state": instance.state.value,
             "dry_run": True,
@@ -1252,6 +1274,7 @@ def build_router(
                 status_code=400,
                 detail=f"Cannot resume: instance is {instance.state.value}",
             )
+        _reject_dry_run(instance, "resume")
         definition = await repositories.definitions.get(instance.workflow_id)
         if definition is None:
             raise HTTPException(
@@ -1281,6 +1304,7 @@ def build_router(
                 status_code=400,
                 detail=f"Cannot retry: instance is {instance.state.value}",
             )
+        _reject_dry_run(instance, "retry")
         definition = await repositories.definitions.get(instance.workflow_id)
         if definition is None:
             raise HTTPException(
@@ -1322,6 +1346,7 @@ def build_router(
             )
         source = await _visible_instance(instance_id, scope)
         await _note_bypass(scope, source.org_id, "instance_fork_requested", instance_id)
+        _reject_dry_run(source, "fork")
         definition = await repositories.definitions.get(source.workflow_id)
         if definition is None:
             raise HTTPException(
@@ -2067,7 +2092,14 @@ def build_router(
             raise HTTPException(
                 status_code=404, detail=f"Step {step_id!r} not found in instance {instance_id!r}"
             )
-        exe = execs[-1]  # latest attempt (retries append)
+        # EXECUTION_SEMANTICS §3a: "current logical-step state = the latest
+        # attempt row (max `attempt`)". This read `execs[-1]` — last by
+        # `started_at`, a PROXY that agrees only while attempt numbers rise
+        # with time. They did not, between 2026-08-01 and 2026-09-19, when
+        # the resume path reused attempt 1. The engine's own
+        # `_rehydrate_context` already used max(attempt); two readers with
+        # two rules is the M3 class, so this one now states the rule.
+        exe = max(execs, key=lambda e: e.attempt)
         output = exe.output or {}
 
         # Static context from the definition (best-effort — may be gone).

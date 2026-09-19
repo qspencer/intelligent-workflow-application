@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -630,3 +631,75 @@ def test_every_instance_lifecycle_ENDPOINT_is_classified_for_audit() -> None:
     )
     stale = set(CLASSIFIED) - found
     assert not stale, f"classified endpoints that no longer exist: {sorted(stale)}"
+
+
+# --- dry-run instances are not re-drivable (2026-09-19) --------------------
+
+
+@pytest.mark.parametrize(
+    ("verb", "state"),
+    [
+        ("resume", WorkflowInstanceState.PAUSED),
+        ("retry", WorkflowInstanceState.FAILED),
+        ("fork", WorkflowInstanceState.FAILED),
+    ],
+)
+def test_the_api_refuses_to_re_drive_a_dry_run(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+    verb: str,
+    state: WorkflowInstanceState,
+) -> None:
+    """400 with a reason, not a 500 from the engine's refusal. The engine
+    guard is the real fence; this is the one an operator reads."""
+    client, repos, _ = dev_app
+    instance = asyncio.run(
+        repos.instances.create(
+            WorkflowInstance(workflow_id="wf-1", state=state, context={"dry_run": True})
+        )
+    )
+    body = {"from_step_id": "a"} if verb == "fork" else None
+    r = client.post(f"/api/workflow-instances/{instance.id}/{verb}", headers=_admin(), json=body)
+    assert r.status_code == 400
+    assert "dry run" in r.json()["detail"].lower()
+
+
+def test_explain_reads_the_highest_ATTEMPT_not_the_last_started(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    """EXECUTION_SEMANTICS §3a: current state = the row with max `attempt`.
+    `explain` used `execs[-1]` — last by `started_at`, which agrees only
+    while attempt numbers rise with time. They did not while the resume
+    path reused attempt 1."""
+    client, repos, _ = dev_app
+    instance = asyncio.run(
+        repos.instances.create(
+            WorkflowInstance(workflow_id="wf-1", state=WorkflowInstanceState.COMPLETED)
+        )
+    )
+    now = datetime.now(UTC)
+    # Attempt 2 STARTED FIRST — so insertion order and attempt order disagree.
+    asyncio.run(
+        repos.steps.create(
+            StepExecution(
+                instance_id=instance.id,
+                step_id="a",
+                attempt=2,
+                state=StepExecutionState.COMPLETED,
+                started_at=now - timedelta(minutes=5),
+            )
+        )
+    )
+    asyncio.run(
+        repos.steps.create(
+            StepExecution(
+                instance_id=instance.id,
+                step_id="a",
+                attempt=1,
+                state=StepExecutionState.FAILED,
+                started_at=now,
+            )
+        )
+    )
+    r = client.get(f"/api/workflow-instances/{instance.id}/steps/a/explain", headers=_admin())
+    assert r.status_code == 200
+    assert r.json()["attempt"] == 2, "explain picked by start order, not by attempt"

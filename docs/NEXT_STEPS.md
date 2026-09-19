@@ -65,6 +65,41 @@ querying production rather than by review, tests, or reading code. Current:
 **19/19 hold** for behaviour since the at-rest tightening; **17/19** over
 all history, the two exceptions being pre-fix history owned by item 3 below.
 
+**Lifecycle paths exercised against the live mailbox (2026-09-19).** Five
+paths driven for real — `explain`, dry-run, `retry` (first ever run),
+`fork`-from-a-cancelled-step, `resume`. All five work; four defects found
+and fixed in the same pass:
+
+- **dry-run was not sticky.** `dry_run` was tagged onto `instance.context`
+  by the API *after* the run and the engine never read it, so
+  resume/retry/fork re-drove a dry-run instance against the REAL world —
+  and the resume path erased the tag on its way through. Now stamped on
+  `WorkflowContext` at run start and refused by the engine
+  (`DryRunNotResumable`) as well as by the three endpoints (400 with a
+  reason). Refused rather than made resumable: "resume this sandboxed run,
+  for real, from the middle" has no meaning a user would want.
+- **`explain` read the wrong row.** `execs[-1]` is last-by-`started_at`, a
+  proxy for §3a's "max `attempt`" that agrees only while attempt numbers
+  rise with time — which they did not, while the resume path reused
+  attempt 1. The engine's `_rehydrate_context` already used max(attempt):
+  two readers, two rules, M3.
+- **A malformed trigger crashed a deterministic step.**
+  `codified_sender_check` did `(x or {}).get("address")` on a caller-
+  supplied `from_address`; a plain string raised AttributeError as
+  `unexpected: true`. Dry-run, webhook and `/run` all take arbitrary JSON.
+- **The dry-run response said `status: "completed"` on a failed run**,
+  contradicting the `state` beside it.
+
+Two of the three dry-run failures seen during the exercise were malformed
+test payloads, not platform defects. Noted because the exercise is only
+worth repeating if its findings are reported honestly.
+
+**Still open from the exercise, not fixed:** an unresolvable `pin_params`
+path fails the step and then RETRIES it twice, burning agentic attempts on
+a configuration error that cannot become transient — the §4 effect-gating
+item in miniature. And `triage` takes ~3 minutes per run, dominated by
+learned-memory recall over the 44k-episode store; nobody has measured it.
+
 **Immediate priorities, in order:**
 
 0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while

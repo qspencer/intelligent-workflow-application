@@ -33,6 +33,16 @@ class WorkflowContext(BaseModel):
     capabilities: ResolvedCapabilities | None = None
     total_tokens: int = 0
     total_cost_usd: float = 0.0
+    #: This run executed in the dry-run sandbox (MockWorld + stubbed external
+    #: tools). Set from the engine at run start, so it is persisted by the
+    #: FIRST `_mark_instance` and survives whatever happens next.
+    #:
+    #: It used to be tagged onto `instance.context` by the API *after* the
+    #: run. That made it invisible to the engine, and the resume path — which
+    #: rebuilds the context from scratch — erased it. So a dry run could be
+    #: retried, would execute against the REAL world, and would lose the only
+    #: evidence it had ever been a dry run (found 2026-09-19 by retrying one).
+    dry_run: bool = False
     # Per-run connectors that need lifecycle tied to the workflow run (e.g.
     # `PlaywrightConnector`). Engine lazy-builds these in `_drive`'s
     # try/finally; tools look up via `ToolContext.connectors`. Excluded
