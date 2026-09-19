@@ -20,7 +20,7 @@ import logging
 import os
 import shutil
 import tempfile
-from datetime import datetime
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from uuid import uuid4
@@ -2099,7 +2099,18 @@ def build_router(
         # the resume path reused attempt 1. The engine's own
         # `_rehydrate_context` already used max(attempt); two readers with
         # two rules is the M3 class, so this one now states the rule.
-        exe = max(execs, key=lambda e: e.attempt)
+        # Tie-break on start time, because the attempt number alone is not
+        # a total order over the rows that ALREADY exist: two `triage` rows
+        # share attempt 1 on the instances the old resume path produced.
+        # Verified live — with a bare `max(... .attempt)` those instances
+        # reported the CANCELLED attempt for a step that had completed,
+        # since max() keeps the first maximum it meets. Neither answer is
+        # right on ambiguous data; the later one is the useful one, and it
+        # is what the previous proxy returned, so correcting the rule does
+        # not silently change the answer on historical rows.
+        exe = max(
+            execs, key=lambda e: (e.attempt, e.started_at or datetime.min.replace(tzinfo=UTC))
+        )
         output = exe.output or {}
 
         # Static context from the definition (best-effort — may be gone).

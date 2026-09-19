@@ -703,3 +703,37 @@ def test_explain_reads_the_highest_ATTEMPT_not_the_last_started(
     r = client.get(f"/api/workflow-instances/{instance.id}/steps/a/explain", headers=_admin())
     assert r.status_code == 200
     assert r.json()["attempt"] == 2, "explain picked by start order, not by attempt"
+
+
+def test_explain_tie_breaks_equal_attempts_on_start_time(
+    dev_app: tuple[TestClient, Any, WorkflowEngine],
+) -> None:
+    """The attempt number is not a total order over rows that ALREADY
+    exist: two `triage` rows share attempt 1 on the instances the old
+    resume path produced. A bare `max(...attempt)` keeps the FIRST maximum,
+    so those instances reported a CANCELLED attempt for a step that had
+    completed — caught on the live box, not here."""
+    client, repos, _ = dev_app
+    instance = asyncio.run(
+        repos.instances.create(
+            WorkflowInstance(workflow_id="wf-1", state=WorkflowInstanceState.COMPLETED)
+        )
+    )
+    now = datetime.now(UTC)
+    for state, started in (
+        (StepExecutionState.CANCELLED, now - timedelta(minutes=10)),
+        (StepExecutionState.COMPLETED, now),
+    ):
+        asyncio.run(
+            repos.steps.create(
+                StepExecution(
+                    instance_id=instance.id,
+                    step_id="a",
+                    attempt=1,
+                    state=state,
+                    started_at=started,
+                )
+            )
+        )
+    r = client.get(f"/api/workflow-instances/{instance.id}/steps/a/explain", headers=_admin())
+    assert r.json()["state"] == "completed", "reported the interrupted attempt"
