@@ -59,6 +59,33 @@ Also landed, outside the epic:
 
 **Immediate priorities, in order:**
 
+0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while
+   verifying the monitoring fix on the live box: 171 instances stuck in
+   RUNNING, oldest 2026-07-26, and 26,462 `alert_stuck_workflow` rows
+   about them (the largest action in the audit log — one symptom counted
+   over and over, because the monitoring de-dupe is per-process and the
+   dev server reloaded 90 times a day).
+
+   Cause: `asyncio.CancelledError` is a `BaseException`, not an
+   `Exception`. `_dispatch_loop` caught `BaseException`, marked the
+   in-flight steps CANCELLED and re-raised; `_drive_inner`'s chain ended
+   at `except Exception`, so nothing marked the instance and nothing
+   audited a terminal event. Autoreload was the amplifier, not the
+   mechanism — a SIGTERM or an outer `asyncio.timeout` does the same.
+
+   Fixed both halves: `_drive_inner` now marks an interrupted run PAUSED
+   (resumable; CANCELLED steps re-run) and audits `workflow_interrupted`,
+   and `recovery.sweep_interrupted_instances` does the same at boot for
+   what a hard kill leaves behind. Swept on the live box at 13:51 — 171
+   recovered, `running` count now 0, and zero `alert_stuck_workflow` rows
+   since. `EXECUTION_SEMANTICS` §7 corrected: it claimed automatic
+   re-drive on boot, which no code did.
+
+   **Left for you:** 172 PAUSED `email-triage-apply` instances now carry a
+   Resume button. They are old mail, so the likely answer is to leave or
+   bulk-kill them rather than resume — resuming re-runs `triage` and
+   applies Gmail labels on a live mailbox.
+
 1. ~~Round 18 verdict~~ — **ACCEPTED 2026-09-19. The F1/F5 trace review
    line is CLOSED** after 18 rounds. The trace surface is no longer held;
    see the ledger for the convergence accounting and what carries forward.

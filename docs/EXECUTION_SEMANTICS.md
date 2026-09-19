@@ -257,18 +257,38 @@ first-class, referenceable identity. **Built 2026-08-01.**
 
 ## 7. Crash recovery and resume
 
-- Per-step persistence is the recovery unit: after a process crash, the
-  instance is re-driven with `already_done` seeded from persisted
-  COMPLETED/SKIPPED steps — completed work is not repeated, but a step
-  that was RUNNING at crash time re-runs in full (at-least-once again).
+- Per-step persistence is the recovery unit. On resume, `already_done` is
+  seeded from persisted COMPLETED/SKIPPED steps — completed work is not
+  repeated, but a step that was RUNNING or CANCELLED at interruption
+  re-runs in full (at-least-once again).
+- **Recovery is not automatic re-drive.** This said "the instance is
+  re-driven" until 2026-09-19; no code did that, and the table disagreed
+  with the document — 171 instances sat in RUNNING, the oldest from July.
+  What happens now:
+  - An **orderly** cancellation (SIGTERM, `systemctl restart`, the dev
+    server's autoreload, an outer `asyncio.timeout`) is caught in
+    `_drive_inner`, which marks the instance **PAUSED** with an
+    `interrupted: …` error and audits `workflow_interrupted`. Before that
+    handler existed the instance was stranded RUNNING, because
+    `CancelledError` is a `BaseException` and the chain ended at
+    `except Exception`.
+  - A **hard kill** leaves no chance to run that handler, so
+    `recovery.sweep_interrupted_instances` runs in the app lifespan,
+    before the triggers start, and does the same thing to every row still
+    marked RUNNING.
+  - Either way the instance lands PAUSED and **resuming is operator-driven**
+    (`POST /api/workflow-instances/{id}/resume`). Deliberately: an
+    interrupted run of a mutating workflow must not re-drive itself on
+    boot.
 - **Honest limitation (external review §6): recovery is
-  restart-triggered, not lease-arbitrated.** The single-process
-  deployment recovers its own instances on boot; there are no worker
-  leases, heartbeats, stale-running timeouts, or atomic ownership. A
-  RUNNING step is re-driven **only** because the one process restarted —
-  in a multi-process deployment this would need leases to avoid two
-  workers driving one instance during a partition. Named prerequisite
-  for horizontal scale (G21).
+  restart-triggered, not lease-arbitrated.** There are no worker leases,
+  heartbeats, stale-running timeouts, or atomic ownership. The boot sweep
+  reasons "nothing is executing at boot, so a RUNNING row is not running"
+  — true of a single-process deployment and false of a multi-process one,
+  where those rows may belong to a peer that is mid-run. Leases are the
+  named prerequisite for horizontal scale (G21), and the sweep is part of
+  what G21 has to replace; `WORKFLOW_PLATFORM_DISABLE_BOOT_RECOVERY=1`
+  turns it off for an operator who gets there first.
 - Trigger-side: the email cursor persists (G9), so mail arriving during
   downtime is delivered late, not lost.
 
