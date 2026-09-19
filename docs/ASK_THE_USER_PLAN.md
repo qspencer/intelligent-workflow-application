@@ -361,14 +361,31 @@ fallback is documented and unused.)*
 transaction" is not by itself an enforcing mechanism** (round 3). A
 `(subject, topic)` uniqueness constraint stops two runs asking the same
 question; it does **not** stop two runs asking *different* questions that
-both take the last recipient slot. The enforcement is a **conditional
-counter update** — `UPDATE … SET outstanding = outstanding + 1 WHERE
-subject = ? AND outstanding < :cap`, and the question is created only if
-that statement affected a row. Two concurrent transactions cannot both
-see the last slot, because the second one's predicate is evaluated
-against the first one's committed write. A row lock on the recipient's
-counter is the equivalent if the counter moves. **The concurrency test
-establishes the behaviour, not the wording.**
+both take the last recipient slot.
+
+**The enforcement is a conditional UPDATE of one counter row** —
+`UPDATE shadow_capacity SET outstanding = outstanding + 1 WHERE
+recipient = ? AND outstanding < :cap RETURNING outstanding` — and the
+question is created only if that statement affected a row. The second
+concurrent transaction **blocks on that row's lock** and then
+re-evaluates its predicate against the committed value.
+
+**We first implemented this as a conditional INSERT whose predicate
+counted pending rows, and the concurrency test proved it wrong:** under
+READ COMMITTED each transaction's subselect reads a snapshot without the
+other's uncommitted row, so both saw the last slot and both took it —
+2 questions, cap 1, measured. Counting rows cannot serialize; locking one
+row can. Round 3 named "a conditional counter update **or** appropriate
+locking" and we had implemented neither.
+
+**The test that establishes this is deterministic, not a race.** An
+`asyncio.gather` of two schedulers caught the original defect once and
+then passed when the defect was deliberately restored — two coroutines do
+not reliably interleave inside their transactions, and a race test that
+passes is not evidence the race cannot happen. So the invariant is proved
+by holding transaction A open past its capacity update and showing B's
+identical statement **blocks**; the opportunistic race test is kept
+beside it as a smoke check, labelled as such.
 
 **Pending questions expire, and expiry releases capacity.** An unanswered
 question cannot hold a slot indefinitely, or the budget deadlocks itself
