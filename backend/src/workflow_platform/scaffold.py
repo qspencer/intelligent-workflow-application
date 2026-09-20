@@ -557,7 +557,24 @@ def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
                 new_lm[k] = data(v)
         out["learned_memory"] = new_lm
 
+    # G12 C1: `questions.candidate_from` is a context PATH into a step's
+    # output, exactly like `recall.query_from`, so minting must rewrite
+    # it or the reference dangles when step ids change. Caught by
+    # `test_minting_every_real_shipped_definition_leaves_no_dangling_
+    # reference` the moment the block was added to a shipped workflow —
+    # which is the counterpart this detector exists for.
+    qs = raw.get("questions")
+    if isinstance(qs, dict):
+        out["questions"] = {
+            k: (path(v) if k == "candidate_from" else data(v)) for k, v in qs.items()
+        }
+
     for k, v in raw.items():
-        if k not in ("steps", "edges", "learned_memory"):
+        # The blocks handled above own their own rewriting; anything else
+        # is opaque data. `questions` joined this list when it gained a
+        # context path (G12 C1) — omitting it here re-copied the raw
+        # block over the rewritten one, which is the same shape of bug
+        # the dangling-reference detector had just caught.
+        if k not in ("steps", "edges", "learned_memory", "questions"):
             out[k] = data(v)
     return out

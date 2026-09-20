@@ -102,6 +102,19 @@ steps:
         {"category": "<one of five>", "attention": [<zero or more of
          "urgent"|"awaiting-reply"|"review">], "category_confidence":
          <0..1>, "summary": "<one short sentence — why>"}
+
+      OPTIONALLY, and only when it genuinely applies, add one more key:
+        "question_candidate": {"topic": "employment_status",
+         "if_answer": "seeking", "then": {"priority": "relevant"}}
+      Include it ONLY when a fact you do not have would change how
+      relevant this message is to the owner, and ONLY using the exact
+      topic ids and answers listed below. Omit it entirely otherwise —
+      most messages do not need one. It never changes your `category` or
+      `attention`; those stay exactly what you decided above.
+
+      Topics you may name:
+        employment_status — answers: seeking | employed | unknown
+      `then.priority` must be "relevant" or "not_relevant".
     policy:
       max_iterations: 2
       max_total_tokens: 8000
@@ -215,6 +228,39 @@ policies:
   # common case; this bounds the tail.
   max_total_tokens: 24000
   budget_action: pause
+
+# G12 C1 — SHADOW ONLY (docs/ASK_THE_USER_PLAN.md). Nobody is asked
+# anything: the engine runs the real scheduling rules (validation,
+# duplicate suppression, the recipient cap, atomic creation) against
+# shadow tables and audits what it WOULD have asked. Enabling real
+# questions is C2 and needs the subject binding (§1b), which does not
+# exist yet — `subject`/`recipient` are literals here for that reason.
+questions:
+  candidate_from: steps.record.question_candidate
+  subject: qspencer@gmail.com
+  recipient: qspencer@gmail.com
+  catalog:
+    # Explicit, configurable experiment limits, reported with every
+    # result in the audit entry (§8). They are the experiment's
+    # parameters, not validated product choices.
+    max_outstanding_per_recipient: 2
+    pending_expiry_hours: 72
+    topics:
+      - id: employment_status
+        revision: 1
+        # The wording the owner would see. No {trigger.*}/{steps.*}
+        # placeholder is permitted here — refused at load (§2a).
+        prompt: "Are you currently looking for work?"
+        answers: [seeking, employed, unknown]
+        # The assertion the owner would confirm — not the bare token.
+        fact:
+          seeking: "The owner is currently looking for work."
+          employed: "The owner is not currently looking for work."
+          unknown: "The owner's employment status is unknown."
+        # §6b: a changeable topic expires, so an unnoticed stale badge
+        # cannot license indefinite use.
+        valid_for_days: 90
+        review_after_days: 60
 
 learned_memory:
   user_id: qspencer@gmail.com

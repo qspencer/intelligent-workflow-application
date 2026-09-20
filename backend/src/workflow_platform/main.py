@@ -34,6 +34,7 @@ from workflow_platform.auth.provisioning import UserProvisioner
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.connectors.email import maybe_build_gmail_connector
 from workflow_platform.connectors.email.bootstrap import credentialed_accounts
+from workflow_platform.elicitation import InMemoryShadowStore, PostgresShadowStore
 from workflow_platform.engine import (
     ToolCatalog,
     WorkflowEngine,
@@ -132,6 +133,15 @@ def _default_engine(
         # resume/fork). Default OFF (dark dual-write); flip at the external-org
         # gate. See docs/TRACE_GOVERNANCE_PLAN.md §4.
         trace_safe_only=trace_safe_only_from_env(),
+        # G12 C1 shadow state. Postgres when there is a database, so the
+        # capacity rule is the real conditional counter update; the
+        # in-memory double cannot exhibit the concurrency invariant and
+        # is not pretended to (ASK_THE_USER_PLAN §3b).
+        question_store=(
+            PostgresShadowStore(_session_factory)
+            if _session_factory is not None
+            else InMemoryShadowStore()
+        ),
     )
 
 

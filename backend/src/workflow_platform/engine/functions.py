@@ -370,6 +370,18 @@ def _extract_email_triage(raw: str) -> dict[str, Any] | None:
     if isinstance(labels, list):
         out["labels_applied"] = [str(x) for x in labels]
         out["label_count"] = len(out["labels_applied"])
+    # G12 C1: an OPTIONAL clarification candidate. Passed through
+    # shape-checked only — the catalogue validates the topic, the branch
+    # and the outcome vocabulary, and rejects everything else
+    # (`ASK_THE_USER_PLAN` §3). Nothing here reaches a question's wording
+    # or a stored assertion; it is a topic id and two enum values.
+    candidate = parsed.get("question_candidate")
+    if isinstance(candidate, dict) and isinstance(candidate.get("topic"), str):
+        out["question_candidate"] = {
+            "topic": candidate["topic"],
+            "if_answer": str(candidate.get("if_answer", "")),
+            "then": candidate.get("then") if isinstance(candidate.get("then"), dict) else {},
+        }
     return out or None
 
 

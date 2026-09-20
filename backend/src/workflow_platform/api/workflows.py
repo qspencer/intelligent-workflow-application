@@ -50,6 +50,7 @@ from workflow_platform.auth.rbac import ANY_ROLE, ORG_ADMIN_ROLES, ORG_WRITE_ROL
 from workflow_platform.auth.scope import OrgScope, resolve_org_scope
 from workflow_platform.catalog import build_catalog
 from workflow_platform.cost import CostReportService, price_for_model
+from workflow_platform.elicitation import InMemoryShadowStore
 from workflow_platform.engine import ToolCatalog, WorkflowEngine, default_function_registry
 from workflow_platform.memory import LearnedMemoryService
 from workflow_platform.persistence import (
@@ -1036,6 +1037,13 @@ def build_router(
                 tools=ToolCatalog(sandbox_tools),
                 learned_memory=scratch_memory,
                 dry_run=True,
+                # A dry run must not consume SHADOW state either. Found
+                # by running one: the probe took a real capacity slot
+                # and a permanent `(subject, topic)` entry, so a topic
+                # could be burned by a test. The learned-memory store is
+                # already swapped for a scratch copy two lines up; this
+                # is the same rule applied to the experiment's state.
+                question_store=InMemoryShadowStore(),
             )
             try:
                 instance = await dry_engine.run(definition, trigger_payload=payload)

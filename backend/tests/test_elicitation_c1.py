@@ -497,3 +497,39 @@ async def test_no_candidate_in_the_output_means_no_entry() -> None:
     audit entry either, or the log stops being a record of demand."""
     audited, _ = await _run(True, None)
     assert audited == []
+
+
+async def test_a_DRY_RUN_does_not_consume_shadow_state(monkeypatch: Any) -> None:
+    """Shadow state must not be consumed by a probe, which is the same
+    rule as "shadow must not consume live state" one layer out.
+
+    Found by running a dry run against the real box: it took a capacity
+    slot and a permanent `(subject, topic)` entry, so a topic could be
+    burned for a real subject by a test. Dry-run already swaps the
+    learned-memory store for a scratch copy; the question store now gets
+    the same treatment, and this pins it.
+    """
+    import ast
+    import inspect
+    import pathlib as _pathlib
+
+    from workflow_platform.api import workflows as workflows_api
+
+    src = _pathlib.Path(inspect.getsourcefile(workflows_api) or "").read_text()
+    tree = ast.parse(src)
+    replace_calls = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Call)
+        and isinstance(n.func, ast.Attribute)
+        and n.func.attr == "replace"
+        and any(k.arg == "dry_run" for k in n.keywords)
+    ]
+    assert replace_calls, "the dry-run engine is no longer built with dataclasses.replace"
+    for call in replace_calls:
+        overridden = {k.arg for k in call.keywords}
+        assert "question_store" in overridden, (
+            "the dry-run engine inherits the live question store; a probe would consume "
+            "real shadow capacity and burn a (subject, topic) entry"
+        )
+        assert "learned_memory" in overridden and "world" in overridden
