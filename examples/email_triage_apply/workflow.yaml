@@ -103,14 +103,15 @@ steps:
          "urgent"|"awaiting-reply"|"review">], "category_confidence":
          <0..1>, "summary": "<one short sentence — why>"}
 
-      OPTIONALLY, and only when it genuinely applies, add one more key:
+      OPTIONALLY, add one more key:
         "question_candidate": {"topic": "employment_status",
          "if_answer": "seeking", "then": {"priority": "relevant"}}
-      Include it ONLY when a fact you do not have would change how
-      relevant this message is to the owner, and ONLY using the exact
-      topic ids and answers listed below. Omit it entirely otherwise —
-      most messages do not need one. It never changes your `category` or
-      `attention`; those stay exactly what you decided above.
+      Decide it last, once `category` and `attention` are fixed; it
+      never changes either. Emit it when the owner would want this
+      message under one answer below and not under the other — mail
+      naming roles they could take is the canonical case, bulk digests
+      and no-reply senders included. Omit it when the message is worth
+      the same either way, and use only the ids and answers listed.
 
       Topics you may name:
         employment_status — answers: seeking | employed | unknown
