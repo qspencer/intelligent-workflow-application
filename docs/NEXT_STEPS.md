@@ -226,11 +226,35 @@ So the mechanism is sound end to end and the classifier's threshold is
 wrong: it emits when a human asks the question outright and stays silent
 on bulk job-alert mail, which is exactly the case where the answer is
 worth the most (relevance flips entirely on *seeking* vs *employed*).
-The fix is prompt wording — a worked positive example of a bulk alert
-whose relevance turns on the answer — not catalogue scope and not the
-extraction path. **Not applied:** the live classifier prompt does not
-change again without your say-so, and the dry-run pair above is the
-cheap A/B harness for whatever wording we pick.
+The fix was prompt wording — not catalogue scope and not the extraction
+path. **Applied and deployed 2026-09-20** (`04ef344`), with a detour
+worth recording: the first two drafts spelled out worked emit/omit
+examples, and *both moved `category` on 2 of 9 cases at temperature 0*.
+The example prose carried category vocabulary ("promotional",
+"notification") into the last position before the answer and primed the
+axis the key is explicitly not allowed to touch — a reminder that adding
+an instruction about axis B is not free for axis A. The shipped wording
+keeps the original's length, names the canonical case (mail naming roles
+the owner could take, bulk digests and no-reply senders included)
+without naming a bucket, and states that it is decided last and changes
+neither axis.
+
+Two harnesses now exist for this, both cheap and both reusable:
+
+- a **direct-Bedrock A/B** at temperature 0 over 9 synthetic cases (the
+  4 diagnostic payloads + the 5 committed `examples/email_triage/`
+  fixtures), old goal vs new goal against the same rubric. It reads the
+  verdict in-process, so it is the only way to see `category` while B1
+  withholds it at rest — and it is what caught the drift. Scratch, not
+  committed; ~$0.10 a pass.
+- the **dry-run pair** through the real engine, run against a scratch
+  copy of the definition (`…-promptdiag`, manual trigger, memory dir
+  copied so the rubric matches) so production's classifier is untouched
+  until the wording is settled.
+
+Post-deploy verification on the live definition: indeed ✅ shadows,
+recruiter ✅ shadows, retail ✅ silent, friend ✅ silent; `shadow_questions`
+still 0 rows afterwards, confirming dry runs take no real capacity.
 
 **Immediate priorities, in order:**
 
