@@ -197,6 +197,41 @@ Row 3 is the one with a real chance of changing plans. Rows 1, 2, 4 and
 v11→v19, the engine's cancellation path, the audit chokepoint, seven
 rerouted writers) did not move something that only shows up over time.
 
+**Preliminary pass, 2026-09-20 16:40 (same day, ~16h in).** 1 ✅ timer
+fired 04:31:59, `Result=success`. 2 ✅ 19/21, only the two known
+duplicate-attempt rows. 4 ✅ 3,359 completed / 173 killed / 9 failed —
+zero running, paused or pending. 5 ✅ zero. 6 ✅ triage averages **3.8 s**
+over 43 runs (was 155.8 s). **3 ⚠️ — and row 3 was right to be the one
+to watch.**
+
+43 `email-triage-apply` runs since the C1 deploy produced **zero**
+`question_candidate_shadowed` entries, and one of those 43 was the
+motivating example itself: a real job-match mail from
+`donotreply@match.indeed.com`, subject *"Backend Engineering Specialist
+— Freelance AI Trainer"*. Diagnosed to the emission step, not the
+plumbing:
+
+- the live persisted definition **does** carry both the optional-key
+  instruction and the `questions:` catalogue (checked in Postgres, not
+  in the YAML — the deploy is real);
+- `record_email_triage` **does** pass a `question_candidate` through, and
+  `candidate_from: steps.record.question_candidate` resolves to it;
+- a dry run of the *actual* Indeed shape reproduces it: 45 output tokens,
+  minimal JSON, no candidate, no suppression entry;
+- a dry-run control — a recruiter writing directly, *"are you open to a
+  new role?"* — emits a candidate and shadows it cleanly
+  (`asked: true`, `suppressed_because: null`).
+
+So the mechanism is sound end to end and the classifier's threshold is
+wrong: it emits when a human asks the question outright and stays silent
+on bulk job-alert mail, which is exactly the case where the answer is
+worth the most (relevance flips entirely on *seeking* vs *employed*).
+The fix is prompt wording — a worked positive example of a bulk alert
+whose relevance turns on the answer — not catalogue scope and not the
+extraction path. **Not applied:** the live classifier prompt does not
+change again without your say-so, and the dry-run pair above is the
+cheap A/B harness for whatever wording we pick.
+
 **Immediate priorities, in order:**
 
 0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while
