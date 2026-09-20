@@ -178,6 +178,43 @@ CHECKS: list[tuple[str, str, str]] = [
 ]
 
 
+#: Rows a claim is known to be falsified by, with the reason each one
+#: cannot be repaired. Subtracted from findings so a scheduled run is
+#: green when nothing NEW is wrong — a daily check that is permanently
+#: red is a check nobody reads.
+#:
+#: It is a NAMED list, not a date cutoff, because the two rows here are
+#: from the day the fix landed rather than from old history: bounding by
+#: time would not have excluded them and would have hidden anything else
+#: recent. The summary always states how many were excluded, so the
+#: baseline cannot grow quietly, and `--strict` ignores it entirely.
+KNOWN_EXCEPTIONS: dict[str, dict[str, str]] = {
+    "(instance_id, step_id, attempt) is unique": {
+        "32ad7e35-7932-4e4c-a90a-893987193f72": (
+            "pre-fix resume: a second `triage` row at attempt 1. Not repairable — "
+            "renumbering rewrites a terminal step row, which EXECUTION_SEMANTICS "
+            "§3a forbids outright."
+        ),
+        "f873a271-8f90-4ed3-9fa0-404d86c0d338": "as above",
+    },
+    "attempts per (instance, step) are contiguous from 1": {
+        "32ad7e35-7932-4e4c-a90a-893987193f72": "same two rows",
+        "f873a271-8f90-4ed3-9fa0-404d86c0d338": "same two rows",
+    },
+}
+
+
+def _filter_known(claim: str, rows: list[Any]) -> tuple[list[Any], int]:
+    """Drop rows this claim is known to be falsified by. Matching is on
+    the row's FIRST column, which every affected query returns as the
+    identifier."""
+    known = KNOWN_EXCEPTIONS.get(claim)
+    if not known:
+        return rows, 0
+    kept = [r for r in rows if str(r[0]) not in known]
+    return kept, len(rows) - len(kept)
+
+
 async def _projection_checks(conn: Any, since: datetime) -> list[tuple[str, str, str]]:
     """The two claims SQL cannot express, because they need the projector.
 
@@ -242,6 +279,7 @@ async def run(args: argparse.Namespace) -> int:
     since = datetime.fromisoformat(args.since).replace(tzinfo=UTC)
     engine = make_engine(url)
     failed = 0
+    excluded = 0
     try:
         async with engine.connect() as conn:
             results: list[tuple[str, str, str]] = []
@@ -252,6 +290,11 @@ async def run(args: argparse.Namespace) -> int:
                 except Exception as exc:  # a broken query is a finding too
                     results.append((source, claim, f"QUERY ERROR: {exc}"[:160]))
                     continue
+                if not args.strict:
+                    rows, excused = _filter_known(claim, list(rows))
+                else:
+                    excused = 0
+                excluded += excused
                 results.append(
                     (source, claim, "; ".join(str(tuple(r)) for r in rows[:5]) if rows else "")
                 )
@@ -269,6 +312,13 @@ async def run(args: argparse.Namespace) -> int:
             else:
                 print(f"[   ok    ] {source:<8} {claim}")
         print(f"\n{len(results) - failed}/{len(results)} claims hold.")
+        if excluded:
+            # Always stated. A baseline that is not reported is a baseline
+            # that grows, which is how a check stops being one.
+            print(
+                f"{excluded} known exception(s) excluded — see KNOWN_EXCEPTIONS in this "
+                "tool for each row and why it cannot be repaired. `--strict` ignores them."
+            )
         if failed:
             print(
                 "A falsified claim is either a defect or a document that has drifted. "
@@ -281,6 +331,11 @@ async def run(args: argparse.Namespace) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--strict",
+        action="store_true",
+        help="report known exceptions as failures too (the full, unforgiving view)",
+    )
     parser.add_argument(
         "--since",
         default="2026-09-18 23:00:00",

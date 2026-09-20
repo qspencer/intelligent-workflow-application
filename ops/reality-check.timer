@@ -1,0 +1,13 @@
+[Unit]
+Description=Daily reality check of the normative docs against production
+
+[Timer]
+# Daily, off-peak. The point is a RECORD over time: "a week of clean
+# readings" is evidence, "a week passed" is not — which is the whole
+# reason this is scheduled rather than remembered.
+OnCalendar=*-*-* 04:30:00
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target

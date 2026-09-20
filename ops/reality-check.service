@@ -1,0 +1,12 @@
+[Unit]
+Description=Workflow platform — falsify the normative docs against the live tables
+Documentation=file:///home/ubuntu/Dev/intelligent-workflow-application/docs/MANUAL_TESTING.md
+
+[Service]
+Type=oneshot
+WorkingDirectory=/home/ubuntu/Dev/intelligent-workflow-application/backend
+Environment=DATABASE_URL=postgresql+asyncpg://workflow:workflow@localhost:5432/workflow
+# Read-only: every statement in the tool is a SELECT. Exit 1 on any
+# falsified claim, so `systemctl --user status reality-check` and the
+# journal both carry the verdict without anyone opening a terminal to ask.
+ExecStart=/home/ubuntu/.local/bin/uv run python tools/reality_check.py

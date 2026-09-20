@@ -612,6 +612,27 @@ DATABASE_URL=... uv run python tools/reality_check.py --since 1970-01-01
 and it changes nothing. Exits 1 on any falsified claim, so it can gate a
 release.
 
+**Scheduled daily**, because "a week of clean readings" is evidence and "a
+week passed" is not — and this check is only worth having if it is a
+record rather than something someone remembers. A `systemd --user` timer
+runs it at 04:30; the units are committed at `ops/reality-check.{service,
+timer}` so the schedule is in the repo and not only on one machine.
+
+```bash
+systemctl --user list-timers reality-check.timer   # when it next runs
+systemctl --user status reality-check.service      # the last verdict
+journalctl --user -u reality-check.service -n 30   # the readings
+```
+
+**Known exceptions are excluded by default and always counted.** Two
+`triage` rows share `attempt = 1` from the pre-fix resume path and cannot
+be repaired — renumbering rewrites a terminal step row, which
+`EXECUTION_SEMANTICS` §3a forbids. They are named in `KNOWN_EXCEPTIONS`
+with that reason, the summary always says how many were excluded so the
+baseline cannot grow quietly, and **`--strict` ignores the baseline** and
+reports them as failures. A daily check that is permanently red is a
+check nobody reads; one that hides what it excused is worse.
+
 **When a claim is falsified** it is either a defect or a document that has
 drifted. Both need an edit; the point of the tool is that it forces you to
 say which. The default `--since` asks about behaviour under the current
