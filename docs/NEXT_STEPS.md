@@ -179,6 +179,24 @@ against all of today's changes: 10/10.
   Throughput today is ~23 emails/hour, and it falls as the store grows;
   the busiest hour on record is 71.
 
+**24-hour follow-up (set 2026-09-20, after a day of heavy change).**
+Written down because a session does not remember itself: whoever picks
+this up — me tomorrow or you — should run these six and nothing else.
+
+| # | check | command / query | what a bad answer looks like |
+|---|---|---|---|
+| 1 | the 04:30 reality check fired | `systemctl --user status reality-check.service` | inactive, or a non-zero exit |
+| 2 | nothing NEW is falsified | `… reality_check.py --strict` | anything other than 19/21, the known two |
+| 3 | **does the classifier emit candidates at all?** | `select suppressed_because, count(*) from audit_log where action='question_candidate_shadowed' group by 1` | **zero rows** — C1's catalogue would need work before C2 is worth gating on, and that is the cheapest finding available |
+| 4 | no new stranded runs | `select state, count(*) from workflow_instances group by 1` | any `running` older than a couple of hours |
+| 5 | the alert flood stayed closed | `select count(*) from audit_log where action='alert_stuck_workflow' and timestamp > now() - interval '1 day'` | anything but 0 |
+| 6 | triage latency held | `avg(completed_at - started_at)` for `step_id='triage'` since yesterday | back above ~60s — the act-time-use removal regressed |
+
+Row 3 is the one with a real chance of changing plans. Rows 1, 2, 4 and
+5 are confirming that a day of heavy change (79 commits, projector
+v11→v19, the engine's cancellation path, the audit chokepoint, seven
+rerouted writers) did not move something that only shows up over time.
+
 **Immediate priorities, in order:**
 
 0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while
