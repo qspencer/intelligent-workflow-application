@@ -270,7 +270,8 @@ async def test_start_is_idempotent() -> None:
 async def test_callback_exception_does_not_kill_loop(caplog: pytest.LogCaptureFixture) -> None:
     """A misbehaving callback for one message must not stop the trigger."""
     svc = FakeGmailService()
-    svc.list_response = {"messages": [{"id": "m-1"}, {"id": "m-2"}]}
+    # Gmail's real order: newest first. The trigger dispatches oldest first.
+    svc.list_response = {"messages": [{"id": "m-2"}, {"id": "m-1"}]}
     svc.get_responses["m-1"] = stage_gmail_message("m-1", internal_ms=1_000)
     svc.get_responses["m-2"] = stage_gmail_message("m-2", internal_ms=2_000)
 
@@ -739,3 +740,88 @@ async def test_a_failing_hook_does_not_stop_the_poller() -> None:
     finally:
         await trig.stop()
     assert trig._auth_revoked_since is None  # recovered and kept polling
+
+
+# ---------- backlog order (2026-09-28 catch-up finding) ----------
+
+
+class _MailboxList:
+    """`messages.list` with Gmail's real semantics — honours `after:` and
+    pages NEWEST-FIRST — which the shared fake does not model. The bug this
+    pins only exists where both hold."""
+
+    def __init__(self, svc: FakeGmailService, internal_ms: dict[str, int]) -> None:
+        self.svc = svc
+        self.internal_ms = internal_ms
+
+    def __call__(self, **kwargs: Any) -> Any:
+        import re
+
+        self.svc.calls.append(("messages.list", kwargs))
+        m = re.search(r"after:(\d+)", kwargs.get("q", ""))
+        after = int(m.group(1)) if m else 0
+        # Inclusive, second-granular — the boundary the seen-id ring absorbs.
+        ids = sorted(
+            (i for i, ms in self.internal_ms.items() if ms // 1000 >= after),
+            key=lambda i: -self.internal_ms[i],
+        )
+        start = int(kwargs.get("pageToken") or 0)
+        page = ids[start : start + kwargs["maxResults"]]
+        resp: dict[str, Any] = {"messages": [{"id": i} for i in page]}
+        if start + len(page) < len(ids):
+            resp["nextPageToken"] = str(start + len(page))
+
+        class _R:
+            def execute(self) -> Any:
+                return resp
+
+        return _R()
+
+
+def _backlog(n: int) -> tuple[FakeGmailService, dict[str, int]]:
+    svc = FakeGmailService()
+    base = 1_790_000_000_000  # well after the test cursor
+    stamps = {f"m-{i:03d}": base + i * 60_000 for i in range(n)}  # one a minute
+    for mid, ms in stamps.items():
+        svc.get_responses[mid] = stage_gmail_message(mid, subject=mid, internal_ms=ms)
+    return svc, stamps
+
+
+async def test_oldest_first_returns_the_OLDEST_page_ascending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc, stamps = _backlog(120)
+    conn = GmailConnector(account="a@example.com", auth_provider=FakeAuthProvider(), service=svc)
+    lister = _MailboxList(svc, stamps)
+    monkeypatch.setattr(type(svc.users().messages()), "list", lambda self, **kw: lister(**kw))
+    oldest = await conn.poll_inbox(max_messages=50, oldest_first=True)
+    newest = await conn.poll_inbox(max_messages=50)
+    assert [m.message_id for m in oldest] == [f"m-{i:03d}" for i in range(50)]
+    # The default is unchanged — "latest N" callers (fetch tools, smoke) keep it.
+    assert [m.message_id for m in newest] == [f"m-{i:03d}" for i in range(119, 69, -1)]
+
+
+async def test_a_backlog_larger_than_one_poll_is_drained_in_order_with_nothing_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-28 finding. After a three-day outage the trigger took the
+    NEWEST 50 of ~300 pending messages, advanced its cursor past them, and
+    the ~250 older ones were never read. Every message must fire, once, in
+    arrival order."""
+    svc, stamps = _backlog(130)
+    trig, _ = _make_trigger(svc)
+    trig.max_messages = 50
+    lister = _MailboxList(svc, stamps)
+    monkeypatch.setattr(type(svc.users().messages()), "list", lambda self, **kw: lister(**kw))
+    fired: list[str] = []
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        fired.append(payload["message_id"])
+
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: len(fired) >= 130, timeout=5.0)
+        await asyncio.sleep(0.2)  # a further poll must not re-fire anything
+    finally:
+        await trig.stop()
+    assert fired == [f"m-{i:03d}" for i in range(130)]

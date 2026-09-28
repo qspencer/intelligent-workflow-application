@@ -237,6 +237,9 @@ class GmailPollTrigger(Trigger):
                     label=self.label,
                     max_messages=self.max_messages,
                     query=self.query,
+                    # The cursor below advances to the newest returned, so
+                    # the batch must be the OLDEST pending, not the newest.
+                    oldest_first=True,
                 )
             except GmailAuthRevoked:
                 logger.error(

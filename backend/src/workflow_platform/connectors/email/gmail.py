@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import asyncio
 import base64
+import logging
 from datetime import UTC, datetime
 from email.message import EmailMessage as RawMimeMessage
 from email.utils import getaddresses, parseaddr
@@ -26,6 +27,8 @@ from workflow_platform.connectors.email.models import (
     EmailMessage,
     EmailSendRequest,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class GmailAuthProvider(Protocol):
@@ -46,6 +49,9 @@ class GmailConnector(EmailConnector):
     type: ClassVar[str] = "gmail"
     USER_ID: ClassVar[str] = "me"  # OAuth scopes always operate as the authenticated user
     LIST_PAGE_SIZE: ClassVar[int] = 100  # Gmail's per-page max for messages.list
+    # Ids enumerated for one oldest-first poll: at most 100 metadata-only list
+    # calls, and only while a backlog that large is being drained.
+    OLDEST_FIRST_LIST_CEILING: ClassVar[int] = 10_000
 
     def __init__(
         self,
@@ -129,10 +135,17 @@ class GmailConnector(EmailConnector):
         label: str | None = None,
         max_messages: int = 50,
         query: str | None = None,
+        oldest_first: bool = False,
     ) -> list[EmailMessage]:
         """List + fetch messages. `query` is an extra raw Gmail search clause
         (e.g. `has:attachment filename:zip`) ANDed with the since/label parts —
-        server-side filtering so triggers don't fire on irrelevant mail."""
+        server-side filtering so triggers don't fire on irrelevant mail.
+
+        Gmail lists newest-first. With `oldest_first` the whole id listing is
+        paged (ids are cheap — metadata only, `LIST_PAGE_SIZE` per call) and
+        the OLDEST `max_messages` are fetched, ascending, so a cursor that
+        advances to the newest one returned never steps over a message it
+        has not seen. See `EmailConnector.poll_inbox`."""
         svc = await self._get_service()
         query_parts: list[str] = []
         if since is not None:
@@ -144,12 +157,14 @@ class GmailConnector(EmailConnector):
             query_parts.append(query)
         q = " ".join(query_parts)
 
+        # Without oldest_first, stop at max_messages; with it, list them all.
+        list_limit = self.OLDEST_FIRST_LIST_CEILING if oldest_first else max_messages
         ids: list[str] = []
         page_token: str | None = None
-        while len(ids) < max_messages:
+        while len(ids) < list_limit:
             kwargs: dict[str, Any] = {
                 "userId": self.USER_ID,
-                "maxResults": min(self.LIST_PAGE_SIZE, max_messages - len(ids)),
+                "maxResults": min(self.LIST_PAGE_SIZE, list_limit - len(ids)),
             }
             if q:
                 kwargs["q"] = q
@@ -158,11 +173,23 @@ class GmailConnector(EmailConnector):
             resp = await self._execute(svc.users().messages().list(**kwargs))
             for entry in resp.get("messages", []) or []:
                 ids.append(entry["id"])
-                if len(ids) >= max_messages:
+                if len(ids) >= list_limit:
                     break
             page_token = resp.get("nextPageToken")
             if not page_token:
                 break
+        if oldest_first:
+            if len(ids) >= list_limit:
+                # Past the ceiling the oldest listed is not the oldest there
+                # is. Say so rather than skip silently; a backlog this size
+                # wants the batch backfill tool, not the poller.
+                logger.warning(
+                    "Gmail backlog for %r exceeds %d messages; oldest-first order "
+                    "is only guaranteed within the listed window.",
+                    self.account,
+                    list_limit,
+                )
+            ids = list(reversed(ids))[:max_messages]
 
         messages: list[EmailMessage] = []
         for mid in ids:
