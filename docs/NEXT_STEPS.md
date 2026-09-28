@@ -292,7 +292,25 @@ completed runs). Evidence only — nothing below is built yet.
   `tools/codify_senders.py` exists but nothing schedules it. *Options:*
   schedule re-codification (like `reality-check.timer`), and add a
   reality-check falsifier "codified route taken ≥1× in 7 days while
-  rules exist".
+  rules exist". **Checked 2026-09-28 — scheduling would not help; this
+  is a design conflict, awaiting a decision.** `codify_senders.py`
+  (dry run) finds **0 senders with evidence**: it reads the sender from
+  `trigger_payload` (redacted at rest on every instance row, all
+  history) and the category/`category_valid` from the record output
+  (withheld since the B1 flip, week of 09-14). G13's evidence source is
+  exactly what trace governance withholds. And the route was not saving
+  money: over 07-30→08-12, `classify_attention` averaged 8,466 input
+  tokens / $0.00865 per message against the full classifier's 6,303 /
+  $0.00656 — the codified path cost ~32% MORE, at equal latency.
+  *Options:* (a) **retire the route** (recommended): remove the
+  `precheck`/`classify_attention` branch and the stale artifact; it has
+  been inert six weeks with no visible loss, and its only remaining
+  claim is category consistency. (b) Rebuild the evidence at write time,
+  keyed by the G-Trace-Subject-Identity pseudonym instead of the
+  address (the rules file would stop holding cleartext addresses too) —
+  but `category` is BUSINESS-owned in the registry, so this needs the
+  external reviewer, and it buys back a path that cost more. (c) Read
+  raw through the vault under an audited grant per codifier run.
 - **R3 — shadow expiry is unwired (M9).** `expire_pending()` is defined
   on all three stores and called nowhere; the one shadow question has
   sat `pending` 5 days past its 72 h expiry, holding a capacity slot.
@@ -311,13 +329,44 @@ completed runs). Evidence only — nothing below is built yet.
   split promotion vs notification. Low cost per message, but unanimity
   is G13's codification gate, so boundary-wobble senders can never
   codify. A fresh ground-truth pass needs Gmail back (R1), and should
-  deliberately sample personal + spam.
+  deliberately sample personal + spam. **Tool built 2026-09-28,
+  awaiting the operator's labels:** `review_triage.py --source gmail`
+  reads the verdict from the applied `wf/*` label (the Postgres source is
+  blind under B1, like the codifier) and stratifies — every personal and
+  spam label, 15 per bulk class. First signal before any labeling: in
+  the 10 days since 09-18 exactly **1** message was labeled `personal`,
+  so either the mailbox gets almost none, or personal mail is being
+  called bulk — the expensive error, which only the bulk samples can
+  show.
+- **R5 — outage catch-up silently skipped all but the newest 50
+  (found and FIXED 2026-09-28, `fb29d85`).** Gmail lists newest-first;
+  the trigger took one page of 50 and moved its cursor to the newest,
+  so every older pending message fell behind the cursor for good. The
+  09-28 recovery processed 50 of 338; it has very likely done the same
+  on every earlier resume (the 32-day gap's mail included — not
+  backfilled; the operator chose to leave historic mail on 09-20).
+  Fixed with `poll_inbox(oldest_first=True)` on both cursor-advancing
+  callers. Repaired live: cursor rolled back to its pre-outage value,
+  the 49 already-labeled messages marked seen (verdicts read from their
+  `wf/*` labels, since message ids are redacted at rest), two
+  interrupted runs killed through the audited tool; the drain was
+  verified oldest-first on production. Cost of the repair: ~20
+  duplicate runs from two restarts mid-batch (add-only labels, so
+  harmless; duplicate learned-memory episodes for ~20 messages).
 - **Fine:** triage p50 3.85 s / p95 4.94 s; $0.017 per message all-in
   ($10.36 / 610 runs; learned-memory writes are 43% of it); 2 apply-step
   postcondition misses (0.3%), both recovered by retry (add-only label —
   retry-safe). **G12 C1 since the 09-20 prompt fix:** 34 candidates in
   ~570 runs (~6%); 1 shadow-asked, 33 correctly suppressed
   `already_asked`. With a one-topic catalogue, C1 saturated on day one.
+
+**Python 3.14 before the next veracium upgrade (from the Coordination
+seat, 2026-09-28).** veracium's next release requires Python ≥3.14 (dev
+`87526b0`, first line of its unreleased CHANGELOG). The platform is on
+3.12.3 (`requires-python = ">=3.12"`) and pins `veracium==0.26.1`
+exactly, so nothing breaks today — but the next upgrade needs the
+platform on 3.14 first (3.14.7 is already on the box via uv). Do it as
+its own step, with the full suite, before bumping the pin.
 
 **Immediate priorities, in order:**
 
