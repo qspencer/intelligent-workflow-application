@@ -297,7 +297,10 @@ completed runs). Evidence only — nothing below is built yet.
   on all three stores and called nowhere; the one shadow question has
   sat `pending` 5 days past its 72 h expiry, holding a capacity slot.
   Masked today by `already_asked` (one topic), but it falsifies the
-  capacity/expiry evidence C1 exists to produce for C2 gating.
+  capacity/expiry evidence C1 exists to produce for C2 gating. **FIXED
+  2026-09-28:** `schedule()` expires before the atomic create — the only
+  place capacity is consumed — and a test pins the call, not just the
+  method (seen to fail without it).
 - **R4 — accuracy: no current measurement.** Last human-labeled baseline
   is 99.3% (138/139) — but one day (07-17), an older rubric, 1 personal
   and 0 true-spam messages, so it says nothing about the classes where a
