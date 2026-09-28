@@ -256,6 +256,57 @@ Post-deploy verification on the live definition: indeed ✅ shadows,
 recruiter ✅ shadows, retail ✅ silent, friend ✅ silent; `shadow_questions`
 still 0 rows afterwards, confirming dry runs take no real capacity.
 
+**Email-classifier performance review (2026-09-28).** Window: every
+`email-triage-apply` run since 2026-07-23, detail on 09-20 → 09-25 (610
+completed runs). Evidence only — nothing below is built yet.
+
+- **R1 — availability is the headline, not accuracy.** The classifier
+  has been **offline since 2026-09-25 15:01** (Gmail auth revoked for
+  `qspencer@gmail.com`; 913 back-off log lines since). Of the 65 days
+  since 07-26 it ran on ~25: gaps 08-04→08-08, **08-17→09-17 (32 days)**,
+  09-26→now. Each stop lands ~7 days after a resume (09-18 15:03 →
+  09-25 15:01; 08-09 21:26 → 08-16 16:23): the External+Testing OAuth
+  refresh-token clock that `EMAIL_CONNECTOR_PLAN` Gate 2 accepted as
+  "re-running `gmail_auth.py` weekly is cheap". It is cheap; nothing
+  prompts it. Detection: `alert_stale_trigger` fired **72 h** after the
+  last run (09-28 14:59), as an audit row nobody sees — while the
+  connector itself logged the exact diagnosis every 5 minutes from the
+  first minute. *Options:* raise an alert on the first auth-revoked (not
+  on staleness); warn ~24 h before the known 7-day expiry; deliver alerts
+  through the project's Workspace account (Internal consent, no 7-day
+  clock, so it can't share the failure mode).
+- **R2 — the G13 codified route has been inert since 2026-08-13.**
+  `classify_attention` ran 0 of 610 times (8–12/day through 08-12). The
+  rules file was generated once (07-30) and never refreshed:
+  `last_evidence_at + inactivity_days: 14` retired all 7 rules on 08-13,
+  `expires_at` again on 08-29. Fails open by design, so it was invisible;
+  `tools/codify_senders.py` exists but nothing schedules it. *Options:*
+  schedule re-codification (like `reality-check.timer`), and add a
+  reality-check falsifier "codified route taken ≥1× in 7 days while
+  rules exist".
+- **R3 — shadow expiry is unwired (M9).** `expire_pending()` is defined
+  on all three stores and called nowhere; the one shadow question has
+  sat `pending` 5 days past its 72 h expiry, holding a capacity slot.
+  Masked today by `already_asked` (one topic), but it falsifies the
+  capacity/expiry evidence C1 exists to produce for C2 gating.
+- **R4 — accuracy: no current measurement.** Last human-labeled baseline
+  is 99.3% (138/139) — but one day (07-17), an older rubric, 1 personal
+  and 0 true-spam messages, so it says nothing about the classes where a
+  mistake costs. Proxy over 09-20→09-25 (per-sender consistency from
+  learned-store episodes): 7 of 51 multi-message senders got split
+  verdicts, **all within newsletter/promotion/notification** — none into
+  personal or spam. Sharpest: near-identical Indeed job-match mails
+  split promotion vs notification. Low cost per message, but unanimity
+  is G13's codification gate, so boundary-wobble senders can never
+  codify. A fresh ground-truth pass needs Gmail back (R1), and should
+  deliberately sample personal + spam.
+- **Fine:** triage p50 3.85 s / p95 4.94 s; $0.017 per message all-in
+  ($10.36 / 610 runs; learned-memory writes are 43% of it); 2 apply-step
+  postcondition misses (0.3%), both recovered by retry (add-only label —
+  retry-safe). **G12 C1 since the 09-20 prompt fix:** 34 candidates in
+  ~570 runs (~6%); 1 shadow-asked, 33 correctly suppressed
+  `already_asked`. With a one-topic catalogue, C1 saturated on day one.
+
 **Immediate priorities, in order:**
 
 0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while
