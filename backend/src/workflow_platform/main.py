@@ -33,7 +33,10 @@ from workflow_platform.auth.bootstrap import ensure_seed_users
 from workflow_platform.auth.provisioning import UserProvisioner
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.connectors.email import maybe_build_gmail_connector
-from workflow_platform.connectors.email.bootstrap import credentialed_accounts
+from workflow_platform.connectors.email.bootstrap import (
+    consent_expires_at,
+    credentialed_accounts,
+)
 from workflow_platform.elicitation import InMemoryShadowStore, PostgresShadowStore
 from workflow_platform.engine import (
     ToolCatalog,
@@ -43,7 +46,7 @@ from workflow_platform.engine import (
 from workflow_platform.engine.functions import ATTENTION_LEVELS, TRIAGE_CATEGORIES
 from workflow_platform.events import EventBus
 from workflow_platform.memory import LearnedMemoryService, MemoryManager
-from workflow_platform.monitoring import MonitoringService
+from workflow_platform.monitoring import AlertEmailNotifier, MonitoringService
 from workflow_platform.observability import (
     CONTENT_TYPE,
     ErrorBuffer,
@@ -175,6 +178,28 @@ def _build_default_tools(secret_store: SecretStore) -> list[Tool]:
     return tools
 
 
+def _build_alert_notifier(
+    events: EventBus, secret_store: SecretStore, audit_writer: AuditWriter
+) -> AlertEmailNotifier | None:
+    """Email alerts to `WORKFLOW_PLATFORM_ALERT_EMAIL_TO`, sent from the tools
+    account. Off unless both are configured — and a separate connector from
+    the tools' one, so the notifier shares no client with agent sends."""
+    to = os.environ.get("WORKFLOW_PLATFORM_ALERT_EMAIL_TO")
+    if not to:
+        return None
+    connector = maybe_build_gmail_connector(
+        account=os.environ.get("WORKFLOW_PLATFORM_GMAIL_ACCOUNT"), secret_store=secret_store
+    )
+    if connector is None:
+        logger.warning(
+            "WORKFLOW_PLATFORM_ALERT_EMAIL_TO is set but no sending account is "
+            "credentialed (WORKFLOW_PLATFORM_GMAIL_ACCOUNT); alerts stay audit-only."
+        )
+        return None
+    logger.info("Alert emails enabled, sent from %s.", connector.account)
+    return AlertEmailNotifier(events=events, connector=connector, to=to, audit_writer=audit_writer)
+
+
 def _default_secret_store() -> SecretStore:
     """Pick a SecretStore by env: `aws` for the deployed stack,
     `env` (default) for solo-dev."""
@@ -261,19 +286,36 @@ def create_app(
         env_dir = os.environ.get("WORKFLOW_DEFINITIONS_DIR")
         definitions_dir = Path(env_dir) if env_dir else default_examples_dir()
 
+    # One writer for the system-level emitters below (trigger health,
+    # monitoring, alert delivery): one chokepoint, one bus.
+    system_audit = AuditWriter(
+        repositories, events=events, trace_safe_only=trace_safe_only_from_env()
+    )
     orchestrator = TriggerOrchestrator(
         definitions_dir=definitions_dir,
         repositories=repositories,
         engine=engine,
         webhook_registry=webhook_registry,
         secret_store=secret_store,
+        audit_writer=system_audit,
     )
 
     # Week 9's passive orchestrator, previously built-but-dormant: wired into
     # the app lifespan 2026-07-30 (the dmarc silent-blindness incident — its
     # new alert_stale_trigger check is only useful if the loop actually runs).
     # Gated with start_triggers so unit tests stay quiet.
-    monitoring = MonitoringService(repositories, events=events)
+    monitoring = MonitoringService(
+        repositories,
+        events=events,
+        audit_writer=system_audit,
+        # The consent clock is read off `.secrets/` — the dev store's layout.
+        # Other stores have no local copy to date, so they get no warning
+        # (the auth-revoked alert still fires).
+        consent_expires_at=(
+            consent_expires_at if isinstance(secret_store, EnvSecretStore) else None
+        ),
+    )
+    notifier = _build_alert_notifier(events, secret_store, system_audit)
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -291,12 +333,18 @@ def create_app(
                 ),
             )
             await orchestrator.start()
+            if notifier is not None:
+                # Before monitoring, so a boot-time alert is not published
+                # to a bus nobody is subscribed to yet.
+                await notifier.start()
             await monitoring.start()
         try:
             yield
         finally:
             if start_triggers:
                 await monitoring.stop()
+                if notifier is not None:
+                    await notifier.stop()
             await orchestrator.stop()
             if db_engine is not None and hasattr(db_engine, "dispose"):
                 await db_engine.dispose()

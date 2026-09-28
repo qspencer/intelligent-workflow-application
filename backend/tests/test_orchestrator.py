@@ -775,3 +775,65 @@ edges: []
         assert registry2.is_registered("unsigned-hook")
     finally:
         await orch2.stop()
+
+
+# --- trigger-health hooks (review R1, 2026-09-28) ---
+
+
+async def test_gmail_trigger_health_transitions_are_audited_by_workflow(tmp_path: Path) -> None:
+    """The revoke edge and its recovery become audit entries — keyed by the
+    workflow, never by the mailbox, and written through the chokepoint with
+    the flip ON: an instance-less detail projection would strip is refused,
+    so this also proves the detail is projection-lossless."""
+    from workflow_platform.audit_writer import AuditWriter
+
+    engine = _make_engine()
+    orch = TriggerOrchestrator(
+        definitions_dir=tmp_path,
+        repositories=engine.repositories,
+        engine=engine,
+        webhook_registry=WebhookRegistry(),
+        secret_store=EnvSecretStore(),
+        audit_writer=AuditWriter(engine.repositories, trace_safe_only=True),
+    )
+    trigger = orch._make_trigger(_gmail_poll_definition())
+    assert isinstance(trigger, GmailPollTrigger)
+    assert trigger.on_auth_revoked is not None and trigger.on_auth_restored is not None
+    await trigger.on_auth_revoked()
+    await trigger.on_auth_restored(3600.5)
+
+    entries = {e.action: e.detail for e in await engine.repositories.audit.list_recent(limit=10)}
+    assert entries["alert_trigger_auth_revoked"] == {
+        "workflow_id": "gmail-wf",
+        "trigger_type": "gmail_poll",
+    }
+    assert entries["trigger_auth_restored"] == {
+        "workflow_id": "gmail-wf",
+        "trigger_type": "gmail_poll",
+        "revoked_for_seconds": 3600.5,
+    }
+
+
+async def test_credential_reload_is_wired_only_for_the_env_store(tmp_path: Path) -> None:
+    """Only the dev store holds a process-local copy of the disk that can go
+    stale; any other store is re-read on every token refresh."""
+    from workflow_platform.secrets import SecretStore
+
+    class _OtherStore(SecretStore):
+        async def get(self, key: str) -> str:
+            raise KeyError(key)
+
+        async def put(self, key: str, value: str) -> None:
+            raise NotImplementedError
+
+        async def delete(self, key: str) -> None:
+            raise NotImplementedError
+
+    env = _orchestrator(tmp_path, engine=_make_engine(), secret_store=EnvSecretStore())
+    other = _orchestrator(tmp_path, engine=_make_engine(), secret_store=_OtherStore())
+    env_trigger = env._make_trigger(_gmail_poll_definition())
+    other_trigger = other._make_trigger(_gmail_poll_definition())
+    assert isinstance(env_trigger, GmailPollTrigger)
+    assert isinstance(other_trigger, GmailPollTrigger)
+    assert env_trigger.reload_credentials is not None
+    assert other_trigger.reload_credentials is None

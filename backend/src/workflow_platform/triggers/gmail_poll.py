@@ -18,9 +18,13 @@ as before.
 Failure modes:
 - `GmailAuthRevoked` (refresh token dead): logged at ERROR; the loop
   backs off by `auth_revoked_backoff_seconds` instead of the normal
-  interval so the failure doesn't tight-loop. Operator must run the
-  consent CLI to recover. Wiring this to `escalation_requested` audit
-  entries lives one layer up in the orchestrator.
+  interval so the failure doesn't tight-loop. The TRANSITIONS are hooks —
+  `on_auth_revoked` fires once when polling first fails this way,
+  `on_auth_restored` once when a poll next succeeds — so the orchestrator
+  can alert on the edge rather than on every back-off. Before each retry
+  `reload_credentials` runs, so re-running the consent CLI is enough to
+  recover: until 2026-09-28 the fresh token sat on disk unread and the
+  only cure was a restart the log line didn't mention.
 - `GmailAuthMisconfigured` (credentials absent/invalid in the
   SecretStore): a *permanent* configuration error — retrying can't fix
   it. Logged once at WARNING (no traceback) and the loop stops, instead
@@ -36,8 +40,10 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
+import functools
 import logging
 from collections import deque
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, ClassVar
@@ -117,6 +123,9 @@ class GmailPollTrigger(Trigger):
         body_max_chars: int | None = None,
         cursor_store: TriggerCursorRepo | None = None,
         cursor_key: str | None = None,
+        on_auth_revoked: Callable[[], Awaitable[None]] | None = None,
+        on_auth_restored: Callable[[float], Awaitable[None]] | None = None,
+        reload_credentials: Callable[[], bool] | None = None,
     ) -> None:
         if poll_interval_seconds <= 0:
             raise ValueError("poll_interval_seconds must be positive")
@@ -161,6 +170,12 @@ class GmailPollTrigger(Trigger):
         # a stale cursor.
         self.cursor_store = cursor_store
         self.cursor_key = cursor_key
+        self.on_auth_revoked = on_auth_revoked
+        self.on_auth_restored = on_auth_restored
+        self.reload_credentials = reload_credentials
+        # Set on the first revoked poll, cleared by the next success: the edge
+        # the hooks fire on. Per trigger, per process.
+        self._auth_revoked_since: datetime | None = None
         self._task: asyncio.Task[None] | None = None
         self._stop = asyncio.Event()
         self._cursor: datetime | None = None
@@ -226,12 +241,17 @@ class GmailPollTrigger(Trigger):
             except GmailAuthRevoked:
                 logger.error(
                     "Gmail auth revoked for account %r — backing off %.0fs. "
-                    "Operator must re-run backend/tools/gmail_auth.py to recover.",
+                    "Re-run backend/tools/gmail_auth.py; the trigger picks up the "
+                    "new token on its next retry.",
                     self.connector.account,
                     self.auth_revoked_backoff_seconds,
                 )
+                if self._auth_revoked_since is None:
+                    self._auth_revoked_since = datetime.now(UTC)
+                    await self._run_hook("on_auth_revoked", self.on_auth_revoked)
                 if await self._wait_or_stop(self.auth_revoked_backoff_seconds):
                     return
+                self._reload_credentials()
                 continue
             except GmailAuthMisconfigured as exc:
                 # Permanent config error (e.g. credentials absent from the
@@ -253,6 +273,19 @@ class GmailPollTrigger(Trigger):
                 if await self._wait_or_stop(self.poll_interval_seconds):
                     return
                 continue
+
+            if self._auth_revoked_since is not None:
+                revoked_for = (datetime.now(UTC) - self._auth_revoked_since).total_seconds()
+                self._auth_revoked_since = None
+                logger.info(
+                    "Gmail auth restored for account %r after %.0fs.",
+                    self.connector.account,
+                    revoked_for,
+                )
+                if self.on_auth_restored is not None:
+                    await self._run_hook(
+                        "on_auth_restored", functools.partial(self.on_auth_restored, revoked_for)
+                    )
 
             if messages:
                 self._cursor = max(m.received_at for m in messages)
@@ -281,6 +314,28 @@ class GmailPollTrigger(Trigger):
 
             if await self._wait_or_stop(self.poll_interval_seconds):
                 return
+
+    async def _run_hook(self, name: str, hook: Callable[[], Awaitable[None]] | None) -> None:
+        """An alert hook that fails must not stop the poller it reports on —
+        the failure it describes would then be the only thing still running."""
+        if hook is None:
+            return
+        try:
+            await hook()
+        except Exception:
+            logger.exception("Gmail trigger %s hook failed; polling continues.", name)
+
+    def _reload_credentials(self) -> None:
+        if self.reload_credentials is None:
+            return
+        try:
+            if self.reload_credentials():
+                logger.info(
+                    "Loaded a new Gmail refresh token for account %r; retrying now.",
+                    self.connector.account,
+                )
+        except Exception:
+            logger.exception("Reloading Gmail credentials failed; will retry.")
 
     async def _mark_read(self, message_id: str) -> None:
         """Drop Gmail's UNREAD label after the workflow processed the message.

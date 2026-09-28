@@ -271,10 +271,19 @@ completed runs). Evidence only — nothing below is built yet.
   prompts it. Detection: `alert_stale_trigger` fired **72 h** after the
   last run (09-28 14:59), as an audit row nobody sees — while the
   connector itself logged the exact diagnosis every 5 minutes from the
-  first minute. *Options:* raise an alert on the first auth-revoked (not
-  on staleness); warn ~24 h before the known 7-day expiry; deliver alerts
-  through the project's Workspace account (Internal consent, no 7-day
-  clock, so it can't share the failure mode).
+  first minute. **BUILT 2026-09-28** (projector v20): the Gmail trigger
+  fires `alert_trigger_auth_revoked` on the revoke *edge* and
+  `trigger_auth_restored` on recovery; it re-reads `.secrets/` before
+  each retry, so re-consenting recovers without a restart (the 09-28
+  re-auth needed one — the running process only ever read credentials at
+  boot, while its log line said the CLI was enough); monitoring raises
+  `alert_trigger_consent_expiring` 24 h before a consumer account's 7-day
+  clock (consent time = refresh-token mtime); `AlertEmailNotifier` mails
+  every `alert_*` to `WORKFLOW_PLATFORM_ALERT_EMAIL_TO` from the Workspace
+  tools account, rate-limited and audited. All five new entries are
+  instance-less and keyed by workflow, never mailbox. A test pins the
+  notifier's alert list to the registry's `alert_*` actions, so a new
+  alert nobody receives fails the build.
 - **R2 — the G13 codified route has been inert since 2026-08-13.**
   `classify_attention` ran 0 of 610 times (8–12/day through 08-12). The
   rules file was generated once (07-30) and never refreshed:

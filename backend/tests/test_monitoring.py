@@ -637,3 +637,58 @@ async def test_a_genuinely_stuck_run_still_alerts() -> None:
     alerts = [a for a in await service.run_once() if a["action"] == "alert_stuck_workflow"]
     assert len(alerts) == 1
     assert alerts[0]["running_for_seconds"] > 5 * 3600
+
+
+# --- alert_trigger_consent_expiring (review R1, 2026-09-28) ---
+
+
+async def test_consent_expiry_warns_once_per_consent_inside_the_window() -> None:
+    """Google's Testing clock stopped the classifier four times, and each
+    time the outage was the only notice. Warn inside the window, once per
+    consent; a re-consent moves the expiry and re-arms it. Run with the flip
+    ON (production): the entry is instance-less, so a detail projection
+    would strip is refused rather than stored."""
+    from workflow_platform.audit_writer import AuditWriter
+
+    repos = in_memory_repositories()
+    now = datetime(2026, 10, 5, 0, 0, tzinfo=UTC)
+    expiry = {"a@b.c": now + timedelta(hours=20)}
+    service = MonitoringService(
+        repos,
+        config=MonitoringConfig(),
+        audit_writer=AuditWriter(repos, trace_safe_only=True),
+        consent_expires_at=lambda account: expiry.get(account),
+    )
+    await repos.definitions.save(_email_definition("mail", "email"))
+    await repos.definitions.save(_email_definition("hook", "webhook"))
+
+    first = [a for a in await service.run_once(now=now) if "consent" in a["action"]]
+    assert [a["workflow_id"] for a in first] == ["mail"]
+    assert not [a for a in await service.run_once(now=now) if "consent" in a["action"]]
+
+    entries = [e for e in await repos.audit.list_recent(limit=50) if "consent" in e.action]
+    assert len(entries) == 1
+    assert entries[0].detail == {
+        "workflow_id": "mail",
+        "trigger_type": "email",
+        "expires_at": (now + timedelta(hours=20)).isoformat(),
+        "warn_before_seconds": 86_400.0,
+    }
+    assert "a@b.c" not in str(entries[0].detail)
+
+    expiry["a@b.c"] = now + timedelta(days=7, hours=-2)  # re-consented
+    later = now + timedelta(days=6)
+    rearmed = [a for a in await service.run_once(now=later) if "consent" in a["action"]]
+    assert [a["workflow_id"] for a in rearmed] == ["mail"]
+
+
+async def test_consent_outside_the_window_or_without_a_clock_is_quiet() -> None:
+    repos = in_memory_repositories()
+    now = datetime(2026, 10, 1, tzinfo=UTC)
+    await repos.definitions.save(_email_definition("mail", "email"))
+    far = MonitoringService(repos, consent_expires_at=lambda account: now + timedelta(days=3))
+    no_clock = MonitoringService(repos, consent_expires_at=lambda account: None)
+    unwired = MonitoringService(repos)
+    for service in (far, no_clock, unwired):
+        alerts = await service.run_once(now=now)
+        assert not [a for a in alerts if "consent" in a["action"]]

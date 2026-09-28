@@ -229,6 +229,16 @@ IdP is sole authority — D4). Fifteen pinned security tests in
 - Audit: every transition, tool call, capability denial, org bypass,
   budget event, memory write/recall/introspection. Org-scoped reads;
   instance-less audit is Administrator-only.
+- Alert egress (2026-09-28, review R1): `AlertEmailNotifier` mails
+  `alert_*` entries to ONE operator-configured address
+  (`WORKFLOW_PLATFORM_ALERT_EMAIL_TO`, unset = off), sent from the tools
+  account. Deterministic and engine-side — no agent can reach it, and the
+  recipient is config, never data. The body is the entry's STORED
+  (projected) detail, so it discloses nothing an audit viewer could not
+  read. Rate-limited (per alert+subject, and a global hourly cap) and
+  every send audited as `notification_sent` / `notification_failed`.
+  Reload-on-revoke re-reads `.secrets/gmail/<account>/` into the dev
+  store's env; no new secret surface.
 
 ## 7a. The Bedrock (model-provider) boundary — current path
 

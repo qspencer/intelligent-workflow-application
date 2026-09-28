@@ -632,3 +632,110 @@ async def test_marking_is_off_by_default() -> None:
     """Touching the mailbox is opt-in: no config, no mutation."""
     svc = await _run_one(True, marking=False)
     assert _unread_modifies(svc) == []
+
+
+# ---------- auth-revoked transitions (review R1, 2026-09-28) ----------
+
+
+def _revoke_first(trig: GmailPollTrigger, times: int) -> list[int]:
+    """Make the first `times` polls raise GmailAuthRevoked, then succeed."""
+    calls = [0]
+    original_poll = trig.connector.poll_inbox
+
+    async def flaky_poll(*args: Any, **kwargs: Any) -> Any:
+        calls[0] += 1
+        if calls[0] <= times:
+            raise GmailAuthRevoked("revoked")
+        return await original_poll(*args, **kwargs)
+
+    trig.connector.poll_inbox = flaky_poll  # type: ignore[method-assign]
+    return calls
+
+
+async def test_revoked_hook_fires_on_the_EDGE_not_on_every_backoff() -> None:
+    """The 2026-09-25 outage logged 913 identical lines. An alert per back-off
+    would be the same flood with a louder voice; the alert belongs to the
+    transition, and so does the one saying it is over."""
+    svc = FakeGmailService()
+    svc.list_response = {"messages": []}
+    trig, _ = _make_trigger(svc)
+    calls = _revoke_first(trig, times=3)
+    events: list[str] = []
+    restored_after: list[float] = []
+
+    async def revoked() -> None:
+        events.append("revoked")
+
+    async def restored(seconds: float) -> None:
+        events.append("restored")
+        restored_after.append(seconds)
+
+    trig.on_auth_revoked = revoked
+    trig.on_auth_restored = restored
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        pass
+
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: calls[0] >= 5)
+    finally:
+        await trig.stop()
+
+    assert events == ["revoked", "restored"]
+    assert restored_after[0] >= 0
+
+
+async def test_credentials_are_reloaded_before_each_retry() -> None:
+    """Re-running the consent CLI must be enough: the retry after a back-off
+    re-reads the credentials, instead of reusing the dead token until a
+    restart (which the old log line never mentioned)."""
+    svc = FakeGmailService()
+    svc.list_response = {"messages": []}
+    trig, _ = _make_trigger(svc)
+    calls = _revoke_first(trig, times=2)
+    reloads_at_poll: list[int] = []
+
+    def reload() -> bool:
+        reloads_at_poll.append(calls[0])
+        return True
+
+    trig.reload_credentials = reload
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        pass
+
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: calls[0] >= 3)
+    finally:
+        await trig.stop()
+
+    # One reload after each of the two failed polls, each BEFORE the next poll.
+    assert reloads_at_poll[:2] == [1, 2]
+
+
+async def test_a_failing_hook_does_not_stop_the_poller() -> None:
+    svc = FakeGmailService()
+    svc.list_response = {"messages": []}
+    trig, _ = _make_trigger(svc)
+    calls = _revoke_first(trig, times=1)
+
+    async def broken() -> None:
+        raise RuntimeError("alert sink down")
+
+    def broken_reload() -> bool:
+        raise OSError("disk gone")
+
+    trig.on_auth_revoked = broken
+    trig.reload_credentials = broken_reload
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        pass
+
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: calls[0] >= 3)
+    finally:
+        await trig.stop()
+    assert trig._auth_revoked_since is None  # recovered and kept polling

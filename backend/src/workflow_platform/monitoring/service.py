@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -72,6 +73,13 @@ class MonitoringConfig(BaseModel):
     # errors). 3 days catches it while tolerating quiet weekends.
     stale_trigger_threshold_seconds: float = 259_200.0
 
+    # Warn this long before a mailbox's OAuth consent is killed by Google's
+    # Testing-status clock. The classifier went dark four times on that
+    # clock; each time the only prompt was the outage itself, and
+    # `alert_stale_trigger` took 72 h to say so. A day's notice turns a
+    # multi-day outage into a thirty-second chore done in time.
+    consent_warn_before_seconds: float = 86_400.0
+
     instance_sample_limit: int = 500
     step_sample_limit: int = 1000
 
@@ -84,8 +92,13 @@ class MonitoringService:
         events: EventBus | None = None,
         config: MonitoringConfig | None = None,
         audit_writer: AuditWriter | None = None,
+        consent_expires_at: Callable[[str], datetime | None] | None = None,
     ) -> None:
         self.repositories = repositories
+        # account -> when its consent dies, or None for "no clock". Injected
+        # so the check has no disk dependency; main.py passes the
+        # `.secrets/` reader.
+        self.consent_expires_at = consent_expires_at
         self.events = events
         self.config = config or MonitoringConfig()
         # Alerts go through the SHARED chokepoint, not
@@ -113,6 +126,9 @@ class MonitoringService:
         self._alerted_stuck: set[str] = set()
         self._alerted_stale: set[str] = set()
         self._alerted_paused: set[str] = set()
+        # (workflow, expiry) — a re-consent moves the expiry, which re-arms
+        # the warning for the next cycle without re-sending this one.
+        self._alerted_consent: set[tuple[str, datetime]] = set()
         self._last_high_error_alert_at: datetime | None = None
         self._last_high_queue_alert_at: datetime | None = None
         self._last_high_burn_alert_at: datetime | None = None
@@ -160,6 +176,7 @@ class MonitoringService:
         alerts.extend(await self._check_queue_depth(now))
         alerts.extend(await self._check_token_burn(now))
         alerts.extend(await self._check_stale_email_triggers(now))
+        alerts.extend(await self._check_consent_expiry(now))
         return alerts
 
     # --- checks ---
@@ -290,6 +307,42 @@ class MonitoringService:
             }
             await self._emit_alert("alert_stale_trigger", detail, None)
             emitted.append({"action": "alert_stale_trigger", **detail})
+        return emitted
+
+    async def _check_consent_expiry(self, now: datetime) -> list[dict[str, Any]]:
+        """An email trigger whose mailbox consent expires within the warning
+        window. One alert per (workflow, expiry) per process; keyed by
+        workflow, not mailbox, for the `alert_stale_trigger` reason — the
+        account is a field of the definition `workflow_id` names.
+
+        An already-expired consent still warns: a token that has not been
+        exercised since it died has not raised `alert_trigger_auth_revoked`
+        yet, and this is the only other thing that knows."""
+        if self.consent_expires_at is None:
+            return []
+        window = timedelta(seconds=self.config.consent_warn_before_seconds)
+        emitted: list[dict[str, Any]] = []
+        for definition in await self.repositories.definitions.list_all():
+            if definition.trigger.type not in ("email", "gmail_poll"):
+                continue
+            account = (definition.trigger.config or {}).get("account")
+            if not isinstance(account, str) or not account:
+                continue
+            expires = self.consent_expires_at(account)
+            if expires is None or expires - now > window:
+                continue
+            key = (definition.id, expires)
+            if key in self._alerted_consent:
+                continue
+            self._alerted_consent.add(key)
+            detail = {
+                "workflow_id": definition.id,
+                "trigger_type": definition.trigger.type,
+                "expires_at": expires.isoformat(),
+                "warn_before_seconds": self.config.consent_warn_before_seconds,
+            }
+            await self._emit_alert("alert_trigger_consent_expiring", detail, None)
+            emitted.append({"action": "alert_trigger_consent_expiring", **detail})
         return emitted
 
     async def _check_error_rate(self, now: datetime) -> list[dict[str, Any]]:
