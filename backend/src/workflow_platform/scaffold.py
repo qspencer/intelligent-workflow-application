@@ -173,26 +173,23 @@ class ScaffoldIdError(ScaffoldError):
 #:                function (or on `noop`, where it is ordinary returned data)
 #:                stays data.
 #:   `defaults` — defaults defined in THIS function's own body. R9 P2:
-#:                `record_email_triage` READS `route_from`, but that default
-#:                lives in the helper `_record_codified`; materialising it
-#:                onto the caller switched on routing behaviour the original
-#:                never had, and the renamed workflow failed. A key a function
-#:                reads without defaulting is left absent.
+#:                `record_email_triage` once READ `route_from` while its
+#:                default lived in a helper (the codified route, retired
+#:                2026-09-28); materialising it onto the caller switched on
+#:                routing behaviour the original never had, and the renamed
+#:                workflow failed. A key a function reads without defaulting
+#:                is left absent.
 #:
 #: Derived from `engine/functions.py` and pinned by
 #: `test_function_reference_declaration_matches_the_source`.
 FUNCTION_REFERENCES: dict[str, dict[str, Any]] = {
-    "_record_codified": {
-        "fields": ["route_from"],
-        "defaults": {"route_from": "steps.precheck.route"},
-    },
     "append_file": {"fields": ["content_from"], "defaults": {}},
     "copy_files": {"fields": ["paths_from"], "defaults": {}},
     "extract_archive": {"fields": ["paths_from"], "defaults": {}},
     "filter_rows_by_date": {"fields": ["rows_from"], "defaults": {}},
     "pdf_extract": {"fields": ["filepath_from"], "defaults": {}},
     "record_email_triage": {
-        "fields": ["attention_from", "route_from", "triage_from"],
+        "fields": ["triage_from"],
         "defaults": {"triage_from": "steps.triage.output_text"},
     },
     "record_evaluation": {

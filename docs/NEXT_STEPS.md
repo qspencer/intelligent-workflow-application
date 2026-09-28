@@ -308,7 +308,8 @@ completed runs). Evidence only — nothing below is built yet.
   money: over 07-30→08-12, `classify_attention` averaged 8,466 input
   tokens / $0.00865 per message against the full classifier's 6,303 /
   $0.00656 — the codified path cost ~32% MORE, at equal latency.
-  *Options:* (a) **retire the route** (recommended): remove the
+  **DONE 2026-09-28 — option (a), operator's decision: route retired.**
+  *Options were:* (a) **retire the route** (recommended): remove the
   `precheck`/`classify_attention` branch and the stale artifact; it has
   been inert six weeks with no visible loss, and its only remaining
   claim is category consistency. (b) Rebuild the evidence at write time,
