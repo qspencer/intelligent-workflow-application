@@ -252,6 +252,7 @@ class TriggerOrchestrator:
                     annotate_reply_status=bool(config.get("annotate_reply_status", False)),
                     annotate_auth_result=bool(config.get("annotate_auth_result", False)),
                     mark_read_after_success=bool(config.get("mark_read_after_success", False)),
+                    lookback_hours=float(config.get("lookback_hours", 0) or 0),
                     body_max_chars=(
                         int(config["body_max_chars"]) if config.get("body_max_chars") else None
                     ),

@@ -44,7 +44,7 @@ import functools
 import logging
 from collections import deque
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -126,6 +126,7 @@ class GmailPollTrigger(Trigger):
         on_auth_revoked: Callable[[], Awaitable[None]] | None = None,
         on_auth_restored: Callable[[float], Awaitable[None]] | None = None,
         reload_credentials: Callable[[], bool] | None = None,
+        lookback_hours: float = 0.0,
     ) -> None:
         if poll_interval_seconds <= 0:
             raise ValueError("poll_interval_seconds must be positive")
@@ -173,6 +174,15 @@ class GmailPollTrigger(Trigger):
         self.on_auth_revoked = on_auth_revoked
         self.on_auth_restored = on_auth_restored
         self.reload_credentials = reload_credentials
+        # Re-ask for mail this far behind the cursor on every poll. For
+        # senders whose messages arrive LATE carrying an EARLIER timestamp —
+        # Google's DMARC reports are stamped with the report window's end
+        # and delivered 1-4 days later, out of order (the 09-10 report
+        # arrived after the 09-12 one). Without it, a report stamped before
+        # the cursor is never listed again. The seen-id ring absorbs the
+        # re-listing, so the window must hold fewer messages than the ring
+        # (500): fine for a report mailbox, NOT for a busy inbox.
+        self.lookback = timedelta(hours=lookback_hours)
         # Set on the first revoked poll, cleared by the next success: the edge
         # the hooks fire on. Per trigger, per process.
         self._auth_revoked_since: datetime | None = None
@@ -233,13 +243,16 @@ class GmailPollTrigger(Trigger):
         while not self._stop.is_set():
             try:
                 messages = await self.connector.poll_inbox(
-                    since=self._cursor,
+                    since=(self._cursor - self.lookback) if self._cursor else None,
                     label=self.label,
                     max_messages=self.max_messages,
                     query=self.query,
                     # The cursor below advances to the newest returned, so
                     # the batch must be the OLDEST pending, not the newest.
                     oldest_first=True,
+                    # Before the cap: a look-back window full of processed
+                    # mail must not crowd out the new message.
+                    skip_ids=self._seen_ids,
                 )
             except GmailAuthRevoked:
                 logger.error(
@@ -291,7 +304,10 @@ class GmailPollTrigger(Trigger):
                     )
 
             if messages:
-                self._cursor = max(m.received_at for m in messages)
+                # Never backwards: a late message stamped before the cursor
+                # (the look-back case) must not rewind it.
+                newest = max(m.received_at for m in messages)
+                self._cursor = max(self._cursor, newest) if self._cursor else newest
 
             dispatched = False
             for msg in messages:

@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -203,8 +203,10 @@ async def test_download_dir_spools_attachments_onto_payload(tmp_path: Any) -> No
 
 async def test_advances_cursor_so_second_poll_uses_after_query() -> None:
     svc = FakeGmailService()
-    # Two distinct internal dates: 1000ms then 2000ms.
-    svc.get_responses["m-1"] = stage_gmail_message("m-1", internal_ms=1_000)
+    # Stamped AFTER the trigger's starting cursor (2000-01-01). It used to
+    # be 1970, which passed only because the cursor could move backwards —
+    # the thing the look-back fix forbids.
+    svc.get_responses["m-1"] = stage_gmail_message("m-1", internal_ms=1_748_169_600_000)
     svc.list_response = {"messages": [{"id": "m-1"}]}
 
     fired: list[dict[str, Any]] = []
@@ -225,10 +227,9 @@ async def test_advances_cursor_so_second_poll_uses_after_query() -> None:
         await trig.stop()
 
     list_calls = [kw for (m, kw) in svc.calls if m == "messages.list"]
-    # The second poll's `q` should carry `after:<epoch>` derived from the
-    # advanced cursor (which is the received_at of m-1: 2025-05-25T10:00:00Z = 1748169600).
-    # m-1's internal_ms is overridden to 1000, so received_at = 1.0s after epoch.
-    assert "after:1 " in list_calls[1]["q"] + " " or list_calls[1]["q"].startswith("after:1 ")
+    # The second poll's `q` carries `after:<epoch>` from the advanced cursor:
+    # m-1's received_at, 2025-05-25T10:00:00Z = 1748169600.
+    assert list_calls[1]["q"].startswith("after:1748169600 ")
 
 
 async def test_stop_cancels_loop_cleanly() -> None:
@@ -825,3 +826,86 @@ async def test_a_backlog_larger_than_one_poll_is_drained_in_order_with_nothing_s
     finally:
         await trig.stop()
     assert fired == [f"m-{i:03d}" for i in range(130)]
+
+
+# ---------- late, back-dated arrivals (DMARC reports, 2026-09-28) ----------
+
+
+async def _run_until(trig: GmailPollTrigger, fired: list[str], predicate: Any) -> None:
+    async def on_event(payload: dict[str, Any]) -> None:
+        fired.append(payload["message_id"])
+
+    await trig.start(on_event)
+    try:
+        await _wait_for(predicate, timeout=3.0)
+        await asyncio.sleep(0.2)  # a few more polls: nothing may re-fire
+    finally:
+        await trig.stop()
+
+
+async def _late_arrival(monkeypatch: pytest.MonkeyPatch, lookback_hours: float) -> list[str]:
+    """m-new (stamped T+2h) is polled first; then m-late arrives carrying an
+    EARLIER stamp (T+1h) — Google's DMARC reports do exactly this."""
+    svc = FakeGmailService()
+    base = 1_790_000_000_000
+    stamps = {"m-new": base + 2 * 3_600_000}
+    svc.get_responses["m-new"] = stage_gmail_message("m-new", internal_ms=stamps["m-new"])
+    lister = _MailboxList(svc, stamps)
+    monkeypatch.setattr(type(svc.users().messages()), "list", lambda self, **kw: lister(**kw))
+    trig, _ = _make_trigger(svc)
+    trig.lookback = timedelta(hours=lookback_hours)
+    trig._cursor = datetime.fromtimestamp(base / 1000, tz=UTC)
+    fired: list[str] = []
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        fired.append(payload["message_id"])
+        if payload["message_id"] == "m-new":  # it lands after the first poll
+            stamps["m-late"] = base + 3_600_000
+            svc.get_responses["m-late"] = stage_gmail_message(
+                "m-late", internal_ms=stamps["m-late"]
+            )
+
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: bool(fired))
+        await asyncio.sleep(0.4)
+    finally:
+        await trig.stop()
+    assert trig._cursor == datetime.fromtimestamp(stamps["m-new"] / 1000, tz=UTC), (
+        "the cursor moved backwards"
+    )
+    return fired
+
+
+async def test_without_lookback_a_late_backdated_message_is_never_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The hazard, pinned as a control: the default must stay as it was for
+    busy inboxes, and this is what it costs a report mailbox."""
+    assert await _late_arrival(monkeypatch, lookback_hours=0) == ["m-new"]
+
+
+async def test_lookback_reads_a_late_backdated_message_exactly_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert await _late_arrival(monkeypatch, lookback_hours=168) == ["m-new", "m-late"]
+
+
+async def test_seen_mail_in_the_window_cannot_crowd_out_a_new_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A look-back window holding more processed messages than one poll's cap
+    must not starve the new one: seen ids are dropped BEFORE the cap. Without
+    that, oldest-first would return the same 50 seen messages forever."""
+    svc, stamps = _backlog(61)  # m-000 .. m-060, oldest first
+    lister = _MailboxList(svc, stamps)
+    monkeypatch.setattr(type(svc.users().messages()), "list", lambda self, **kw: lister(**kw))
+    trig, _ = _make_trigger(svc)
+    trig.max_messages = 50
+    trig.lookback = timedelta(hours=168)
+    for i in range(60):
+        trig._mark_seen(f"m-{i:03d}")
+    trig._cursor = datetime.fromtimestamp(stamps["m-059"] / 1000, tz=UTC)
+    fired: list[str] = []
+    await _run_until(trig, fired, lambda: bool(fired))
+    assert fired == ["m-060"]

@@ -862,3 +862,24 @@ edges: []
     assert orch.registered_workflow_ids() == {"hook"}
     await orch.stop()
     assert orch.registered_workflow_ids() == set()
+
+
+async def test_lookback_reaches_the_trigger_and_the_dmarc_yaml_sets_it(tmp_path: Path) -> None:
+    """Look-back only helps if config reaches the trigger — and it is set
+    where the late-arrival hazard lives (DMARC reports), not on the busy
+    inbox, whose volume would overrun the seen-id ring."""
+    from datetime import timedelta
+
+    from workflow_platform.workflow import load_definition_from_file
+
+    orch = _orchestrator(tmp_path, engine=_make_engine(), secret_store=EnvSecretStore())
+    repo = Path(__file__).resolve().parents[2]
+    dmarc = orch._make_trigger(
+        load_definition_from_file(repo / "examples/dmarc_ingest/workflow.yaml")
+    )
+    triage = orch._make_trigger(
+        load_definition_from_file(repo / "examples/email_triage_apply/workflow.yaml")
+    )
+    assert isinstance(dmarc, GmailPollTrigger) and isinstance(triage, GmailPollTrigger)
+    assert dmarc.lookback == timedelta(hours=168)
+    assert triage.lookback == timedelta(0)

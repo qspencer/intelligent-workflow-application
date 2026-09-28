@@ -66,7 +66,7 @@ schedule, and API are best-effort or caller-mediated. Exactly-once is
 
 | Trigger | Guarantee | Dedupe | Missed-while-down |
 |---|---|---|---|
-| `email` (Gmail poll) | at-least-once | persisted time cursor + last-500 seen-id ring (G9) | backfilled from the cursor on restart |
+| `email` (Gmail poll) | at-least-once, within the bounds below | persisted time cursor + last-500 seen-id ring (G9) | backfilled from the cursor on restart, **oldest first** (since 2026-09-28) |
 | `filesystem` | at-least-once per file appearance | in-process only | files present at start fire once |
 | `webhook` | one accepted POST → one instance, started synchronously in-request | **none — caller owns idempotency** | lost (no queue; no persist-before-ack) |
 | `schedule` | per tick while the process runs | n/a | missed ticks are NOT replayed |
@@ -80,8 +80,30 @@ client idempotency key exists). The caller owns dedupe before acceptance;
 after a 2xx the instance id is the handle. A persisted inbound queue with
 an optional idempotency key is the named follow-up (G21).
 
+**Email bounds (2026-09-28).** Three statements, each test-pinned in
+`test_gmail_poll_trigger.py`:
+
+- *Backlog drains oldest first.* A poll lists every id after the cursor
+  and processes the OLDEST `max_messages`; the cursor then advances to
+  the newest of those. Before this date a poll took Gmail's newest page
+  and the cursor jumped past everything older — a backlog over one poll
+  (50) lost all but its newest page, on every restart after downtime.
+- *The cursor never moves backwards,* and ids already seen are dropped
+  from the listing BEFORE the per-poll cap.
+- *Late, back-dated mail is missed unless the trigger looks back.* The
+  cursor is Gmail's internal timestamp, and some senders' mail arrives
+  after mail stamped later (Google's DMARC reports carry the report
+  window's end and land 1-4 days late, out of order). A message stamped
+  before the cursor is never listed again — unless the trigger sets
+  `lookback_hours`, which re-lists that far behind the cursor each poll
+  and leaves dedupe to the seen-id ring. So the window must hold fewer
+  than 500 messages: dmarc-ingest sets 168; the busy triage inbox does
+  not, and accepts the (rare, for ordinary SMTP mail) miss.
+
 Duplicate delivery is therefore possible (cursor-persist failure, seen-id
-ring overflow past 500, webhook re-sends). **Consequence: every workflow
+ring overflow past 500, a restart mid-batch — the cursor persists per
+batch, so the batch in flight is re-listed; ~20 duplicate runs on
+2026-09-28 — webhook re-sends). **Consequence: every workflow
 whose steps mutate external state must tolerate re-processing the same
 trigger payload.** The two production workloads do: label application is
 idempotent at Gmail (adding a present label is a no-op) and DMARC
@@ -307,7 +329,8 @@ first-class, referenceable identity. **Built 2026-08-01.**
   what G21 has to replace; `WORKFLOW_PLATFORM_DISABLE_BOOT_RECOVERY=1`
   turns it off for an operator who gets there first.
 - Trigger-side: the email cursor persists (G9), so mail arriving during
-  downtime is delivered late, not lost.
+  downtime is delivered late, not lost — true since 2026-09-28 for any
+  backlog size; before that, only for backlogs of one poll (see §2).
 
 ## 8. Versioning, mutation, lineage
 

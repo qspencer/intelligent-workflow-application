@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+from collections.abc import Collection
 from datetime import UTC, datetime
 from email.message import EmailMessage as RawMimeMessage
 from email.utils import getaddresses, parseaddr
@@ -136,6 +137,7 @@ class GmailConnector(EmailConnector):
         max_messages: int = 50,
         query: str | None = None,
         oldest_first: bool = False,
+        skip_ids: Collection[str] | None = None,
     ) -> list[EmailMessage]:
         """List + fetch messages. `query` is an extra raw Gmail search clause
         (e.g. `has:attachment filename:zip`) ANDed with the since/label parts —
@@ -145,7 +147,11 @@ class GmailConnector(EmailConnector):
         paged (ids are cheap — metadata only, `LIST_PAGE_SIZE` per call) and
         the OLDEST `max_messages` are fetched, ascending, so a cursor that
         advances to the newest one returned never steps over a message it
-        has not seen. See `EmailConnector.poll_inbox`."""
+        has not seen. See `EmailConnector.poll_inbox`.
+
+        `skip_ids` are dropped from the listing BEFORE the `max_messages`
+        cut, so a window full of already-processed mail (a trigger's
+        look-back) cannot crowd out the one message that is new."""
         svc = await self._get_service()
         query_parts: list[str] = []
         if since is not None:
@@ -178,6 +184,8 @@ class GmailConnector(EmailConnector):
             page_token = resp.get("nextPageToken")
             if not page_token:
                 break
+        if skip_ids:
+            ids = [i for i in ids if i not in skip_ids]
         if oldest_first:
             if len(ids) >= list_limit:
                 # Past the ceiling the oldest listed is not the oldest there

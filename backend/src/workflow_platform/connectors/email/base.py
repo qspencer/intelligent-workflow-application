@@ -17,6 +17,7 @@ Graph's delta-link).
 from __future__ import annotations
 
 from abc import abstractmethod
+from collections.abc import Collection
 from datetime import datetime
 from typing import Any, ClassVar
 
@@ -40,6 +41,7 @@ class EmailConnector(Connector):
         max_messages: int = 50,
         query: str | None = None,
         oldest_first: bool = False,
+        skip_ids: Collection[str] | None = None,
     ) -> list[EmailMessage]:
         """Return messages received after `since`, at most `max_messages`.
         `query` is an extra provider-native search clause (providers without
@@ -50,7 +52,9 @@ class EmailConnector(Connector):
         matches, ascending. Without it a provider listing newest-first hands
         back the newest page, the cursor jumps past everything older, and a
         backlog larger than one page is skipped for good — what the
-        2026-09-28 catch-up did to ~250 messages."""
+        2026-09-28 catch-up did to ~250 messages.
+
+        `skip_ids` are excluded before the `max_messages` cut."""
 
     @abstractmethod
     async def send_email(self, req: EmailSendRequest) -> str:

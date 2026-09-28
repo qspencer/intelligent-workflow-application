@@ -38,6 +38,11 @@ trigger:
     # 09-28), so monitoring's default 3-day staleness cried wolf. A week
     # still catches the 2026-07-30 failure — ten days blind — in time.
     stale_alert_after_hours: 168
+    # Google stamps each report with its window's END and delivers it 1-4
+    # days later, out of order (the 09-10 report arrived after the 09-12
+    # one), so a late report can be stamped BEFORE the poll cursor. Re-ask
+    # for a week behind it every poll; the seen-id ring absorbs the repeats.
+    lookback_hours: 168
     # Drop UNREAD once the run COMPLETEs, so the mailbox's unread count is a
     # real backlog signal rather than a permanent one (every report used to
     # stay unread forever — this workflow never touched message state).
