@@ -380,6 +380,17 @@ class PostgresAuditRepo(AuditRepo):
             rows = result.scalars().all()
         return [_from_audit_row(r) for r in rows]
 
+    async def list_by_action(self, action: str, *, limit: int = 100) -> list[AuditEntry]:
+        async with self._sf() as s:
+            result = await s.execute(
+                select(AuditLogRow)
+                .where(AuditLogRow.action == action)
+                .order_by(AuditLogRow.timestamp.desc())
+                .limit(limit)
+            )
+            rows = result.scalars().all()
+        return [_from_audit_row(r) for r in rows]
+
     async def replace_detail_for_migration(
         self, entry_id: str, detail: dict[str, Any], projector_version: str
     ) -> bool:

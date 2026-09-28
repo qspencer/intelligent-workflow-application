@@ -314,6 +314,7 @@ def create_app(
         consent_expires_at=(
             consent_expires_at if isinstance(secret_store, EnvSecretStore) else None
         ),
+        registered_workflows=orchestrator.registered_workflow_ids,
     )
     notifier = _build_alert_notifier(events, secret_store, system_audit)
 

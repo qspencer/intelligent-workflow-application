@@ -108,6 +108,7 @@ class TriggerOrchestrator:
         # are logged, as before, and nothing is audited.
         self.audit_writer = audit_writer
         self._started: list[Trigger] = []
+        self._registered: set[str] = set()
 
     async def start(self) -> None:
         if not self.definitions_dir.exists():
@@ -140,6 +141,12 @@ class TriggerOrchestrator:
             except Exception:
                 logger.exception("Error stopping trigger %r", trigger)
         self._started.clear()
+        self._registered.clear()
+
+    def registered_workflow_ids(self) -> set[str]:
+        """Workflows whose trigger this process started — what monitoring's
+        trigger-health checks are about."""
+        return set(self._registered)
 
     async def _register_one(self, path: Path) -> None:
         definition = load_definition_from_file(path)
@@ -155,6 +162,7 @@ class TriggerOrchestrator:
         callback = self._make_callback(definition)
         await trigger.start(callback)
         self._started.append(trigger)
+        self._registered.add(definition.id)
         logger.info(
             "Started %s trigger for workflow %s (from %s)",
             definition.trigger.type,

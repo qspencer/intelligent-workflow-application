@@ -692,3 +692,88 @@ async def test_consent_outside_the_window_or_without_a_clock_is_quiet() -> None:
     for service in (far, no_clock, unwired):
         alerts = await service.run_once(now=now)
         assert not [a for a in alerts if "consent" in a["action"]]
+
+
+# --- trigger-health noise (2026-09-28: six stale-trigger emails, all noise) ---
+
+
+async def test_only_REGISTERED_triggers_are_checked_for_staleness() -> None:
+    """Two DB-only drafts with email triggers — nothing polls for them —
+    mailed the operator on every restart."""
+    repos = in_memory_repositories()
+    for d in ("polled", "draft"):
+        await repos.definitions.save(_email_definition(d, "email"))
+    service = MonitoringService(repos, registered_workflows=lambda: {"polled"})
+    alerts = await service.run_once(now=datetime.now(UTC))
+    assert [a["workflow_id"] for a in alerts if a["action"] == "alert_stale_trigger"] == ["polled"]
+
+
+async def test_a_stale_episode_alerts_ONCE_across_restarts() -> None:
+    """The in-process set reset on every restart, so every restart re-raised
+    every stale trigger — and, with alert email, re-mailed it. The episode is
+    keyed by the last run and remembered in the audit log."""
+    repos = in_memory_repositories()
+    now = datetime.now(UTC)
+    await repos.definitions.save(_email_definition("mail", "email"))
+    await repos.instances.create(
+        WorkflowInstance(
+            workflow_id="mail",
+            state=WorkflowInstanceState.COMPLETED,
+            started_at=now - timedelta(days=5),
+        )
+    )
+
+    def stale(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        return [a for a in alerts if a["action"] == "alert_stale_trigger"]
+
+    assert len(stale(await MonitoringService(repos).run_once(now=now))) == 1
+    # A fresh process — same episode — stays quiet.
+    assert stale(await MonitoringService(repos).run_once(now=now)) == []
+    # It runs again, then goes stale again: a NEW episode, which alerts.
+    await repos.instances.create(
+        WorkflowInstance(
+            workflow_id="mail",
+            state=WorkflowInstanceState.COMPLETED,
+            started_at=now + timedelta(days=1),
+        )
+    )
+    assert len(stale(await MonitoringService(repos).run_once(now=now + timedelta(days=5)))) == 1
+
+
+async def test_a_sparse_trigger_sets_its_own_staleness_threshold() -> None:
+    from workflow_platform.workflow import WorkflowDefinition
+
+    repos = in_memory_repositories()
+    now = datetime.now(UTC)
+    sparse = _email_definition("dmarc", "email").model_dump()
+    sparse["trigger"]["config"]["stale_alert_after_hours"] = 168
+    await repos.definitions.save(WorkflowDefinition.model_validate(sparse))
+    await repos.instances.create(
+        WorkflowInstance(
+            workflow_id="dmarc",
+            state=WorkflowInstanceState.COMPLETED,
+            started_at=now - timedelta(days=4),
+        )
+    )
+    service = MonitoringService(repos)
+    assert not [a for a in await service.run_once(now=now) if a["action"] == "alert_stale_trigger"]
+    later = [
+        a
+        for a in await service.run_once(now=now + timedelta(days=4))
+        if a["action"] == "alert_stale_trigger"
+    ]
+    assert [a["threshold_seconds"] for a in later] == [168 * 3600.0]
+
+
+async def test_a_consent_warning_is_not_repeated_by_a_restart() -> None:
+    repos = in_memory_repositories()
+    now = datetime(2026, 10, 5, tzinfo=UTC)
+    await repos.definitions.save(_email_definition("mail", "email"))
+
+    def fresh() -> MonitoringService:
+        return MonitoringService(repos, consent_expires_at=lambda account: now + timedelta(hours=3))
+
+    first = await fresh().run_once(now=now)
+    again = await fresh().run_once(now=now)
+    assert len([a for a in first if "consent" in a["action"]]) == 1
+    assert not [a for a in again if "consent" in a["action"]]

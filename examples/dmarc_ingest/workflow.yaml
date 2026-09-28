@@ -34,6 +34,10 @@ trigger:
     query: 'has:attachment (filename:zip OR filename:gz)'
     download_dir: /tmp/dmarc-spool
     poll_interval_seconds: 300
+    # Reports for this domain arrive every few days (2 between 09-18 and
+    # 09-28), so monitoring's default 3-day staleness cried wolf. A week
+    # still catches the 2026-07-30 failure — ten days blind — in time.
+    stale_alert_after_hours: 168
     # Drop UNREAD once the run COMPLETEs, so the mailbox's unread count is a
     # real backlog signal rather than a permanent one (every report used to
     # stay unread forever — this workflow never touched message state).

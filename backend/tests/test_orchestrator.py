@@ -837,3 +837,28 @@ async def test_credential_reload_is_wired_only_for_the_env_store(tmp_path: Path)
     assert isinstance(other_trigger, GmailPollTrigger)
     assert env_trigger.reload_credentials is not None
     assert other_trigger.reload_credentials is None
+
+
+async def test_registered_ids_name_only_the_triggers_actually_started(tmp_path: Path) -> None:
+    """What monitoring's trigger-health checks read: a manual workflow
+    starts no trigger, so it is not registered, and stop() clears the set."""
+    for wf_id, trigger in (("hook", "{type: webhook}"), ("manual-wf", "{type: manual}")):
+        _write_yaml(
+            tmp_path,
+            f"{wf_id}.yaml",
+            f"""\
+id: {wf_id}
+name: {wf_id}
+trigger: {trigger}
+steps:
+  - id: a
+    type: deterministic
+    function: noop
+edges: []
+""",
+        )
+    orch = _orchestrator(tmp_path, engine=_make_engine())
+    await orch.start()
+    assert orch.registered_workflow_ids() == {"hook"}
+    await orch.stop()
+    assert orch.registered_workflow_ids() == set()

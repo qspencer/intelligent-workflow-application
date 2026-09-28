@@ -283,7 +283,13 @@ completed runs). Evidence only — nothing below is built yet.
   tools account, rate-limited and audited. All five new entries are
   instance-less and keyed by workflow, never mailbox. A test pins the
   notifier's alert list to the registry's `alert_*` actions, so a new
-  alert nobody receives fails the build.
+  alert nobody receives fails the build. *First-day correction:* the
+  first two restarts mailed the operator six `alert_stale_trigger`
+  emails, all noise — the check covered DB-only drafts nobody polls, its
+  once-per-episode memory reset on restart, and dmarc-ingest's reports
+  are naturally days apart. Now: registered triggers only, episodes
+  remembered in the audit log (`AuditRepo.list_by_action`), and a
+  per-trigger `stale_alert_after_hours` (dmarc-ingest: 168).
 - **R2 — the G13 codified route has been inert since 2026-08-13.**
   `classify_attention` ran 0 of 610 times (8–12/day through 08-12). The
   rules file was generated once (07-30) and never refreshed:
