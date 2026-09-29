@@ -375,6 +375,21 @@ exactly, so nothing breaks today — but the next upgrade needs the
 platform on 3.14 first (3.14.7 is already on the box via uv). Do it as
 its own step, with the full suite, before bumping the pin.
 
+**CI live-tests red since 2026-09-21 — operator action: rotate two
+secrets (found 2026-09-29).** The weekly `live-tests.yml` job's
+`GMAIL_REFRESH_TOKEN` (set 2026-05-26) authenticates as
+`qrsconsulting@quentinspencer.com`, not the tools mailbox
+(`intelligent.workflow.engine@`) the job claims to test — minted when the
+tools address was an alias of that mailbox. For four months the job mailed
+its round-trip test into the operator's business mailbox; it broke only when
+that mailbox's default send-as became `veracium@veracium.ai` (between 09-14
+and 09-21) and the From-domain assertion failed. Code is fine: all four live
+Gmail tests pass locally with the right credentials. Fix: set
+`GMAIL_REFRESH_TOKEN` and `GMAIL_CLIENT_CREDENTIALS_JSON` from
+`.secrets/gmail/intelligent.workflow.engine@quentinspencer.com/`, then
+dispatch the workflow. `test_the_token_belongs_to_the_configured_account`
+now names this failure directly.
+
 **Immediate priorities, in order:**
 
 0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while
