@@ -616,7 +616,7 @@ async def record_invoice_extraction(
         try:
             datetime.fromisoformat(invoice_date)
             invariants["invoice_date_iso"] = True
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             invariants["invoice_date_iso"] = False
     else:
         invariants["invoice_date_iso"] = None
@@ -1038,7 +1038,7 @@ async def extract_archive(
                 continue
             try:
                 await _write(member, gzip.decompress(blob))
-            except (OSError, EOFError):
+            except OSError, EOFError:
                 skipped.append({"path": path, "reason": "not a valid gzip"})
         else:
             skipped.append({"path": path, "reason": "not an archive"})

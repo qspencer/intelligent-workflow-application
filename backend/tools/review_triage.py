@@ -94,7 +94,7 @@ def _judge_verdicts(path: Path) -> dict[str, dict[str, Any]]:
         return {}
     try:
         items = json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return {}
     return {i["message_id"]: i for i in items if isinstance(i, dict) and "judge_category" in i}
 

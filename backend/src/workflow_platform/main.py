@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import logging
 import os
+import sqlite3
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -318,9 +319,18 @@ def create_app(
     )
     notifier = _build_alert_notifier(events, secret_store, system_audit)
 
+    learned_state: dict[str, str] = {
+        "state": "disabled" if engine.learned_memory is None else "not_checked"
+    }
+
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         await ensure_seed_users(repositories)
+        if start_triggers and engine.learned_memory is not None:
+            refused = await engine.learned_memory.check_open()
+            learned_state.update(
+                {"state": "ok"} if refused is None else {"state": "unopenable", "error": refused}
+            )
         if start_triggers:
             # BEFORE the triggers: an instance this process is about to
             # start must not be swept as though a previous process had left
@@ -388,7 +398,17 @@ def create_app(
                 **({"detail": schema.detail} if schema.detail else {}),
             },
         }
-        if schema.state == "drift":
+        # The learned-memory store (2026-09-29): a runtime whose SQLite build
+        # veracium does not qualify cannot open it, and recall fails OPEN, so
+        # without this nothing surfaces it. Checked ONCE at startup (the
+        # runtime cannot change without a restart, and opening the store per
+        # health call would make every test that builds an app open whatever
+        # store the ambient environment names). Class name + SQLite version
+        # only — health is unauthenticated, so no paths.
+        body["learned_memory"] = {"sqlite": sqlite3.sqlite_version, **learned_state}
+        if learned_state["state"] == "unopenable":
+            body["status"] = "degraded"
+        if schema.state == "drift" or learned_state["state"] == "unopenable":
             response.status_code = 503
         return body
 

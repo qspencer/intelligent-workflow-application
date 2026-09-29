@@ -10,6 +10,11 @@ on:
 permissions:
   contents: read
 
+env:
+  # Use the setup-python interpreter, never a uv-managed one (SQLite
+  # build identity, see the setup-python steps).
+  UV_PYTHON_PREFERENCE: only-system
+
 jobs:
   # Dependency advisories run in their OWN job, in parallel with everything
   # else, and deliberately NOT as a gating step inside backend/frontend.
@@ -19,9 +24,17 @@ jobs:
   # verification-index failure for days. A red audit still fails the workflow
   # (supply-chain risk stays gated); it just no longer hides the rest.
   audit:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: "Set up Python (GitHub build, system SQLite 3.45.1)"
+        # veracium qualifies exactly one SQLite build (3.45.1) and refuses to
+        # open a store on any other; uv's own Python 3.14 bundles SQLite
+        # 3.53.1, on which 13 learned-memory tests fail (measured 2026-09-29).
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
 
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
@@ -57,7 +70,7 @@ jobs:
         run: npm audit --audit-level=high
 
   backend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: backend
@@ -83,6 +96,14 @@ jobs:
 
       - name: Install system deps for PDF/OCR tests
         run: sudo apt-get update && sudo apt-get install -y tesseract-ocr poppler-utils
+
+      - name: "Set up Python (GitHub build, system SQLite 3.45.1)"
+        # veracium qualifies exactly one SQLite build (3.45.1) and refuses to
+        # open a store on any other; uv's own Python 3.14 bundles SQLite
+        # 3.53.1, on which 13 learned-memory tests fail (measured 2026-09-29).
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
 
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
@@ -128,12 +149,20 @@ jobs:
     # the app in-process against in-memory repos + replay Bedrock), so it's a
     # PR gate — but its own job since the hypothesis sweep takes a couple of
     # minutes and shouldn't sit on the backend job's critical path.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: backend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: "Set up Python (GitHub build, system SQLite 3.45.1)"
+        # veracium qualifies exactly one SQLite build (3.45.1) and refuses to
+        # open a store on any other; uv's own Python 3.14 bundles SQLite
+        # 3.53.1, on which 13 learned-memory tests fail (measured 2026-09-29).
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
 
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
@@ -149,7 +178,7 @@ jobs:
         run: uv run pytest -m schema -q
 
   frontend:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     defaults:
       run:
         working-directory: frontend
@@ -177,9 +206,17 @@ jobs:
     # scans jsdom can't do. Self-contained — Playwright's webServer starts an
     # in-memory backend (replay Bedrock, no triggers, dev auth) + the Vite dev
     # server, so it's deterministic with no AWS / Postgres. Own job, ~2-3 min.
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: "Set up Python (GitHub build, system SQLite 3.45.1)"
+        # veracium qualifies exactly one SQLite build (3.45.1) and refuses to
+        # open a store on any other; uv's own Python 3.14 bundles SQLite
+        # 3.53.1, on which 13 learned-memory tests fail (measured 2026-09-29).
+        uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version-file: .python-version
 
       - name: Install uv
         uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0

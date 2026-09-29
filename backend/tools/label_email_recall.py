@@ -115,7 +115,7 @@ def main() -> None:
             _prompt()
             try:
                 choice = input("  > ").strip().lower()
-            except (EOFError, KeyboardInterrupt):
+            except EOFError, KeyboardInterrupt:
                 choice = "q"
             if choice in by_num:
                 row["label"] = by_num[choice]

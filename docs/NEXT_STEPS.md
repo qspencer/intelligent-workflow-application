@@ -368,7 +368,19 @@ completed runs). Evidence only — nothing below is built yet.
   `already_asked`. With a one-topic catalogue, C1 saturated on day one.
 
 **Python 3.14 before the next veracium upgrade (from the Coordination
-seat, 2026-09-28).** veracium's next release requires Python ≥3.14 (dev
+seat, 2026-09-28).** **DONE 2026-09-29: the platform runs 3.14.7.** One
+trap, found before it reached production: veracium qualifies exactly ONE
+SQLite build (3.45.1) and refuses to open a store on any other
+(`unsupported-sqlite`), and uv's own Python 3.14 bundles SQLite 3.53.1 — 13
+learned-memory tests fail on it, and in production recall would fail OPEN,
+silently stripping memory from every triage. So: GitHub's 3.14.7 build
+(system SQLite 3.45.1; the one veracium's own CI and dev venv use), CI via
+`actions/setup-python` + `UV_PYTHON_PREFERENCE: only-system` on pinned
+`ubuntu-24.04`, `run-local-be.sh` preferring that interpreter, and
+`/api/health` now reporting `learned_memory` (503 when unopenable). Recall
+verified byte-identical (5/5 context hashes) on a copy of the production
+store before cutover. veracium itself: 0.26.1 is still the latest release
+— the 3.14-only release is unreleased. Original note: veracium's next release requires Python ≥3.14 (dev
 `87526b0`, first line of its unreleased CHANGELOG). The platform is on
 3.12.3 (`requires-python = ">=3.12"`) and pins `veracium==0.26.1`
 exactly, so nothing breaks today — but the next upgrade needs the
