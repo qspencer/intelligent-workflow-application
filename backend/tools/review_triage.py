@@ -140,12 +140,26 @@ RARE_CATEGORIES = ("personal", "spam")
 
 
 async def _load_items_gmail(
-    account: str, since: datetime, per_bulk: int, seed: int
+    account: str,
+    since: datetime,
+    per_bulk: int,
+    seed: int,
+    per_sender: int = 1,
+    labeled_senders: set[tuple[str, str]] | None = None,
 ) -> list[dict[str, Any]]:
     """Verdicts from the applied `wf/<category>` labels; messages from Gmail.
 
     Read-only: `messages.list` + `messages.get`, throttled — a bulk read
     tripped the per-user quota on 2026-09-28.
+
+    SENDER-DIVERSE (2026-10-04): the unit is the sender, not the message.
+    The first pass queued every spam-labeled message, and 11 of the first 13
+    were one retailer making one mistake — every repeat a label that taught
+    nothing new. Now each category yields at most `per_sender` messages per
+    sender (bulk categories sample `per_bulk` distinct SENDERS), senders
+    already labeled for that category are skipped, and each item carries how
+    many messages its sender has in that category (`represents`), so a
+    verdict can be weighted by volume in the summary.
     """
     import random
 
@@ -162,7 +176,8 @@ async def _load_items_gmail(
         if lbl["name"].startswith("wf/")
     }
     rng = random.Random(seed)
-    chosen: list[tuple[str, str]] = []
+    done = labeled_senders or set()
+    chosen: list[tuple[str, str, int]] = []
     for category in CATEGORIES:
         if category not in label_ids:
             continue
@@ -182,13 +197,49 @@ async def _load_items_gmail(
             token = resp.get("nextPageToken")
             if not token:
                 break
-        if category not in RARE_CATEGORIES and len(ids) > per_bulk:
-            ids = rng.sample(ids, per_bulk)
-        print(f"  {category:<13} {len(ids)} queued")
-        chosen += [(mid, category) for mid in ids]
+        rare = category in RARE_CATEGORIES
+        order = ids if rare else rng.sample(ids, len(ids))
+        picked: dict[str, list[str]] = {}
+        for mid in order:
+            if not rare and len(picked) >= per_bulk:
+                break
+            meta = await conn._execute(
+                svc.users()
+                .messages()
+                .get(userId="me", id=mid, format="metadata", metadataHeaders=["From"])
+            )
+            frm = next(
+                (h["value"] for h in meta["payload"].get("headers", []) if h["name"] == "From"), ""
+            )
+            sender = (frm.rsplit("<", 1)[-1].rstrip(">").strip() or frm).lower()
+            await asyncio.sleep(0.1)
+            if (sender, category) in done or len(picked.get(sender, [])) >= per_sender:
+                continue
+            picked.setdefault(sender, []).append(mid)
+        for sender, mids in picked.items():
+            # How many messages this sender has in this category: the weight
+            # one verdict stands for.
+            n, token = 0, None
+            while True:
+                kwargs = {
+                    "userId": "me",
+                    "labelIds": [label_ids[category]],
+                    "q": f"from:{sender} after:{int(since.timestamp())}",
+                    "maxResults": 500,
+                }
+                if token:
+                    kwargs["pageToken"] = token
+                resp = await conn._execute(svc.users().messages().list(**kwargs))
+                n += len(resp.get("messages", []) or [])
+                token = resp.get("nextPageToken")
+                if not token:
+                    break
+            chosen += [(mid, category, n) for mid in mids]
+        skipped = len({s for s, c in done if c == category})
+        print(f"  {category:<13} {len(picked)} senders queued ({skipped} already labeled)")
 
     items: list[dict[str, Any]] = []
-    for mid, category in chosen:
+    for mid, category, represents in chosen:
         msg = await conn.get_message(mid)
         items.append(
             {
@@ -201,6 +252,7 @@ async def _load_items_gmail(
                 "agent_category": category,
                 "agent_confidence": "n/a",
                 "agent_summary": "(verdict read from the applied wf/* label)",
+                "represents": represents,
             }
         )
         await asyncio.sleep(0.25)
@@ -215,6 +267,11 @@ def _show_card(item: dict[str, Any], pos: int, total: int) -> None:
     name = f"{item['sender_name']} " if item["sender_name"] else ""
     print(f"{BOLD}From   :{RESET} {name}<{item['sender']}>")
     print(f"{BOLD}Subject:{RESET} {item['subject']}")
+    if item.get("represents"):
+        print(
+            f"{DIM}this sender: {item['represents']} message(s) labeled "
+            f"{item['agent_category']} in the window — your answer stands for them{RESET}"
+        )
     preview = " ".join(item["body"].split())
     if len(preview) > 300:
         preview = preview[:300] + " …"
@@ -257,6 +314,23 @@ def _print_summary(labels: dict[str, dict[str, Any]]) -> None:
     print(f"labeled  : {len(entries)}")
     print(f"correct  : {len(correct)}  ({100 * len(correct) / len(entries):.1f}% accuracy)")
     print(f"incorrect: {len(incorrect)}")
+    by_sender: dict[tuple[str, str], dict[str, Any]] = {}
+    for e in entries:  # latest verdict per (sender, agent category)
+        by_sender[(str(e.get("sender", "")).lower(), str(e.get("agent_category")))] = e
+    senders_ok = sum(1 for e in by_sender.values() if e["verdict"] == "correct")
+    weight = sum(int(e.get("represents", 1)) for e in by_sender.values())
+    weight_ok = sum(
+        int(e.get("represents", 1)) for e in by_sender.values() if e["verdict"] == "correct"
+    )
+    print(
+        f"per sender: {senders_ok}/{len(by_sender)} correct"
+        f" ({100 * senders_ok / len(by_sender):.1f}%) — one vote per sender and category"
+    )
+    if weight:
+        print(
+            f"by volume : {weight_ok}/{weight} messages ({100 * weight_ok / weight:.1f}%) — each"
+            " sender's verdict weighted by its message count (`represents`; 1 where unknown)"
+        )
     if incorrect:
         print(f"\n{BOLD}corrections (agent -> truth):{RESET}")
         pairs = Counter((e["agent_category"], e["true_category"]) for e in incorrect)
@@ -277,7 +351,13 @@ async def run(args: argparse.Namespace) -> int:
 
     if args.source == "gmail":
         since = datetime.fromisoformat(args.since).replace(tzinfo=UTC)
-        items = await _load_items_gmail(args.account, since, args.per_bulk, args.seed)
+        labeled_senders = {
+            (str(e.get("sender", "")).lower(), str(e.get("agent_category")))
+            for e in labels.values()
+        }
+        items = await _load_items_gmail(
+            args.account, since, args.per_bulk, args.seed, args.per_sender, labeled_senders
+        )
     else:
         items = await _load_items(args.workflow)
     judges = _judge_verdicts(Path(args.judge_report))
@@ -347,6 +427,7 @@ async def run(args: argparse.Namespace) -> int:
             "true_category": true_cat,
             "labeled_at": datetime.now(UTC).isoformat(),
             "source": args.source,
+            "represents": item.get("represents", 1),
         }
         _append_label(labels_path, entry)
         labels[item["message_id"]] = entry
@@ -387,6 +468,12 @@ def main() -> int:
         "--per-bulk", type=int, default=15, help="gmail source: sample size per bulk class"
     )
     parser.add_argument("--seed", type=int, default=20260928, help="gmail source: sample seed")
+    parser.add_argument(
+        "--per-sender",
+        type=int,
+        default=1,
+        help="gmail source: at most this many messages per sender per category",
+    )
     parser.add_argument("--summary", action="store_true", help="print stats and exit")
     return asyncio.run(run(parser.parse_args()))
 

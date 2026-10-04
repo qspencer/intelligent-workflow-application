@@ -456,6 +456,25 @@ log, so restarts don't re-send), emailed with a `du` hint. Verified live
 end to end on this box. *Not done:* cleaning the scratch/temp growth —
 other sessions' files; flagged to them in COORDINATION.md.
 
+**R4 first finding — a self-reinforcing memory loop (2026-10-04, design
+input, NOT fixed).** The operator's first labels: 11 of 13 were
+`welcome@carawayhome.com`, all classified `spam`, truly promotion (8) /
+notification (3). Since 09-18 Caraway is the ONLY sender in `wf/spam`
+(21 messages, all DKIM/DMARC-authenticated). Cause, read from a copy of
+the learned store: an ACTIVE, NON-quarantined edge `source_dead_end:
+classified as spam/phishing by triage agent` (system-authored, from our
+own verdict observation) beside a quarantined claim that one fear-themed
+marketing email was "a deceptive phishing attempt". Recall injects the
+classifier's own past verdict as trusted context on every Caraway email,
+so one early miss became durable and re-confirms itself. *Options:*
+(a) correct the Caraway facts in the store (data fix, one sender);
+(b) stop recalling the triage agent's OWN verdicts as trusted facts —
+author them as derived/quarantined or exclude them from recall — so no
+sender can get stuck this way (design fix); (c) re-label the 21 messages.
+Also fixed today: `review_triage.py --source gmail` now samples one
+message per SENDER per category (`--per-sender`), skips labeled senders,
+and weights summaries by sender volume (`represents`).
+
 **Immediate priorities, in order:**
 
 0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while
