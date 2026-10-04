@@ -97,8 +97,12 @@ an optional idempotency key is the named follow-up (G21).
   before the cursor is never listed again — unless the trigger sets
   `lookback_hours`, which re-lists that far behind the cursor each poll
   and leaves dedupe to the seen-id ring. So the window must hold fewer
-  than 500 messages: dmarc-ingest sets 168; the busy triage inbox does
-  not, and accepts the (rare, for ordinary SMTP mail) miss.
+  than 500 messages: dmarc-ingest sets 168 (a week of sparse reports);
+  the triage inbox sets 2. **Correction (2026-10-04):** this said the
+  triage inbox could "accept the (rare, for ordinary SMTP mail) miss" —
+  it is not rare. Bulk senders stamp mail 1.5-23 min before Gmail
+  receives it, and 16 of 605 messages (2.6%) were never read in five
+  days, systematically from the same senders.
 
 Duplicate delivery is therefore possible (cursor-persist failure, seen-id
 ring overflow past 500, a restart mid-batch — the cursor persists per
