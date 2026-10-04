@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -72,6 +73,13 @@ class MonitoringConfig(BaseModel):
     # errors). 3 days catches it while tolerating quiet weekends.
     stale_trigger_threshold_seconds: float = 259_200.0
 
+    # Warn this long before a mailbox's OAuth consent is killed by Google's
+    # Testing-status clock. The classifier went dark four times on that
+    # clock; each time the only prompt was the outage itself, and
+    # `alert_stale_trigger` took 72 h to say so. A day's notice turns a
+    # multi-day outage into a thirty-second chore done in time.
+    consent_warn_before_seconds: float = 86_400.0
+
     instance_sample_limit: int = 500
     step_sample_limit: int = 1000
 
@@ -84,8 +92,20 @@ class MonitoringService:
         events: EventBus | None = None,
         config: MonitoringConfig | None = None,
         audit_writer: AuditWriter | None = None,
+        consent_expires_at: Callable[[str], datetime | None] | None = None,
+        registered_workflows: Callable[[], set[str]] | None = None,
     ) -> None:
         self.repositories = repositories
+        # The workflows whose triggers this process actually started. The
+        # trigger-health checks ask about a POLLER, and a definition stored
+        # in the DB with an email trigger nobody registered has none —
+        # alerting on it is noise (two such drafts mailed the operator on
+        # every restart, 2026-09-28). None = every definition, as before.
+        self.registered_workflows = registered_workflows
+        # account -> when its consent dies, or None for "no clock". Injected
+        # so the check has no disk dependency; main.py passes the
+        # `.secrets/` reader.
+        self.consent_expires_at = consent_expires_at
         self.events = events
         self.config = config or MonitoringConfig()
         # Alerts go through the SHARED chokepoint, not
@@ -113,6 +133,9 @@ class MonitoringService:
         self._alerted_stuck: set[str] = set()
         self._alerted_stale: set[str] = set()
         self._alerted_paused: set[str] = set()
+        # (workflow, expiry) — a re-consent moves the expiry, which re-arms
+        # the warning for the next cycle without re-sending this one.
+        self._alerted_consent: set[tuple[str, datetime]] = set()
         self._last_high_error_alert_at: datetime | None = None
         self._last_high_queue_alert_at: datetime | None = None
         self._last_high_burn_alert_at: datetime | None = None
@@ -160,6 +183,7 @@ class MonitoringService:
         alerts.extend(await self._check_queue_depth(now))
         alerts.extend(await self._check_token_burn(now))
         alerts.extend(await self._check_stale_email_triggers(now))
+        alerts.extend(await self._check_consent_expiry(now))
         return alerts
 
     # --- checks ---
@@ -250,24 +274,58 @@ class MonitoringService:
             emitted.append({"action": "alert_stuck_workflow", **detail})
         return emitted
 
+    async def _email_trigger_definitions(self) -> list[Any]:
+        """Email-triggered definitions whose trigger is registered here."""
+        registered = self.registered_workflows() if self.registered_workflows else None
+        return [
+            d
+            for d in await self.repositories.definitions.list_all()
+            if d.trigger.type in ("email", "gmail_poll")
+            and (registered is None or d.id in registered)
+        ]
+
+    async def _already_alerted(self, action: str, key_field: str) -> set[tuple[str, Any]]:
+        """(workflow_id, episode key) pairs this alert has ALREADY fired for,
+        from the audit log — so "once per episode" survives a restart. Held
+        only in memory it did not: every restart re-raised every stale
+        trigger, which was harmless as an unread audit row and is not as an
+        email (six of them on 2026-09-28, from two restarts)."""
+        entries = await self.repositories.audit.list_by_action(action, limit=500)
+        return {
+            (str((e.detail or {}).get("workflow_id")), (e.detail or {}).get(key_field))
+            for e in entries
+        }
+
     async def _check_stale_email_triggers(self, now: datetime) -> list[dict[str, Any]]:
         """Silent-blindness detector: an email-triggered workflow whose newest
         run is older than the threshold (or that has no runs at all) gets one
-        `alert_stale_trigger` per process. Polls that error already log; this
+        `alert_stale_trigger` per staleness EPISODE — keyed by its last run,
+        so a trigger that recovers and goes stale again alerts again, and a
+        restart in between does not. Polls that error already log; this
         catches the poller that runs CLEAN against the wrong view — a label
-        filter, a bad query, a deleted history."""
-        threshold = timedelta(seconds=self.config.stale_trigger_threshold_seconds)
+        filter, a bad query, a deleted history.
+
+        A trigger whose input is naturally sparse sets
+        `stale_alert_after_hours` in its config: dmarc-ingest's reports
+        arrive every few days, so the default three days cried wolf."""
+        default = timedelta(seconds=self.config.stale_trigger_threshold_seconds)
         emitted: list[dict[str, Any]] = []
-        for definition in await self.repositories.definitions.list_all():
-            if definition.trigger.type not in ("email", "gmail_poll"):
-                continue
+        prior: set[tuple[str, Any]] | None = None
+        for definition in await self._email_trigger_definitions():
             if definition.id in self._alerted_stale:
                 continue
+            hours = (definition.trigger.config or {}).get("stale_alert_after_hours")
+            threshold = timedelta(hours=float(hours)) if hours else default
             instances = await self.repositories.instances.list_by_workflow(definition.id)
             newest = max((i.started_at or i.created_at for i in instances), default=None)
             if newest is not None and now - newest < threshold:
                 continue
+            last_run_at = newest.isoformat() if newest else None
+            if prior is None:
+                prior = await self._already_alerted("alert_stale_trigger", "last_run_at")
             self._alerted_stale.add(definition.id)
+            if (definition.id, last_run_at) in prior:
+                continue
             # NO `account`. It is the polled mailbox address, so the v12
             # ownership registry classifies it withheld — and this alert has
             # no instance, so there is nowhere to vault what projection would
@@ -285,11 +343,50 @@ class MonitoringService:
             detail = {
                 "workflow_id": definition.id,
                 "trigger_type": definition.trigger.type,
-                "last_run_at": newest.isoformat() if newest else None,
-                "threshold_seconds": self.config.stale_trigger_threshold_seconds,
+                "last_run_at": last_run_at,
+                "threshold_seconds": threshold.total_seconds(),
             }
             await self._emit_alert("alert_stale_trigger", detail, None)
             emitted.append({"action": "alert_stale_trigger", **detail})
+        return emitted
+
+    async def _check_consent_expiry(self, now: datetime) -> list[dict[str, Any]]:
+        """An email trigger whose mailbox consent expires within the warning
+        window. One alert per (workflow, expiry) per process; keyed by
+        workflow, not mailbox, for the `alert_stale_trigger` reason — the
+        account is a field of the definition `workflow_id` names.
+
+        An already-expired consent still warns: a token that has not been
+        exercised since it died has not raised `alert_trigger_auth_revoked`
+        yet, and this is the only other thing that knows."""
+        if self.consent_expires_at is None:
+            return []
+        window = timedelta(seconds=self.config.consent_warn_before_seconds)
+        emitted: list[dict[str, Any]] = []
+        prior: set[tuple[str, Any]] | None = None
+        for definition in await self._email_trigger_definitions():
+            account = (definition.trigger.config or {}).get("account")
+            if not isinstance(account, str) or not account:
+                continue
+            expires = self.consent_expires_at(account)
+            if expires is None or expires - now > window:
+                continue
+            key = (definition.id, expires)
+            if key in self._alerted_consent:
+                continue
+            self._alerted_consent.add(key)
+            if prior is None:
+                prior = await self._already_alerted("alert_trigger_consent_expiring", "expires_at")
+            if (definition.id, expires.isoformat()) in prior:
+                continue
+            detail = {
+                "workflow_id": definition.id,
+                "trigger_type": definition.trigger.type,
+                "expires_at": expires.isoformat(),
+                "warn_before_seconds": self.config.consent_warn_before_seconds,
+            }
+            await self._emit_alert("alert_trigger_consent_expiring", detail, None)
+            emitted.append({"action": "alert_trigger_consent_expiring", **detail})
         return emitted
 
     async def _check_error_rate(self, now: datetime) -> list[dict[str, Any]]:

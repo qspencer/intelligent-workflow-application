@@ -76,8 +76,10 @@ async def schedule(
 
     Order matters and is the cheap-first order: catalogue validation
     needs no I/O, the answer lookup is one read, and the atomic create is
-    the only write. Nothing is written before the last step, so a crash
-    anywhere earlier leaves nothing at all (§3a).
+    the only write this candidate makes. The expiry sweep just before it
+    writes too, but only housekeeping that is true on its own — a crash
+    after it leaves questions correctly expired and nothing of this
+    candidate at all (§3a).
     """
     topic, reason = validate_candidate(candidate, catalog)
     if topic is None:
@@ -94,6 +96,12 @@ async def schedule(
     if known:
         return SchedulingDecision(topic.id, False, None, "answer_already_known")
 
+    # §3a: expiry releases capacity. Capacity is consumed in exactly one
+    # place — the create below — so expiring here, first, is what makes the
+    # count it reads true. `expire_pending` existed on all three stores and
+    # nothing called it: the first real question sat `pending` five days
+    # past its 72 h expiry holding a slot (review R3, 2026-09-28).
+    await store.expire_pending(now=now)
     result = await store.create_if_permitted(
         org_id=org_id,
         subject=subject,

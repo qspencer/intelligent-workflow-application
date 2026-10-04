@@ -775,3 +775,113 @@ edges: []
         assert registry2.is_registered("unsigned-hook")
     finally:
         await orch2.stop()
+
+
+# --- trigger-health hooks (review R1, 2026-09-28) ---
+
+
+async def test_gmail_trigger_health_transitions_are_audited_by_workflow(tmp_path: Path) -> None:
+    """The revoke edge and its recovery become audit entries — keyed by the
+    workflow, never by the mailbox, and written through the chokepoint with
+    the flip ON: an instance-less detail projection would strip is refused,
+    so this also proves the detail is projection-lossless."""
+    from workflow_platform.audit_writer import AuditWriter
+
+    engine = _make_engine()
+    orch = TriggerOrchestrator(
+        definitions_dir=tmp_path,
+        repositories=engine.repositories,
+        engine=engine,
+        webhook_registry=WebhookRegistry(),
+        secret_store=EnvSecretStore(),
+        audit_writer=AuditWriter(engine.repositories, trace_safe_only=True),
+    )
+    trigger = orch._make_trigger(_gmail_poll_definition())
+    assert isinstance(trigger, GmailPollTrigger)
+    assert trigger.on_auth_revoked is not None and trigger.on_auth_restored is not None
+    await trigger.on_auth_revoked()
+    await trigger.on_auth_restored(3600.5)
+
+    entries = {e.action: e.detail for e in await engine.repositories.audit.list_recent(limit=10)}
+    assert entries["alert_trigger_auth_revoked"] == {
+        "workflow_id": "gmail-wf",
+        "trigger_type": "gmail_poll",
+    }
+    assert entries["trigger_auth_restored"] == {
+        "workflow_id": "gmail-wf",
+        "trigger_type": "gmail_poll",
+        "revoked_for_seconds": 3600.5,
+    }
+
+
+async def test_credential_reload_is_wired_only_for_the_env_store(tmp_path: Path) -> None:
+    """Only the dev store holds a process-local copy of the disk that can go
+    stale; any other store is re-read on every token refresh."""
+    from workflow_platform.secrets import SecretStore
+
+    class _OtherStore(SecretStore):
+        async def get(self, key: str) -> str:
+            raise KeyError(key)
+
+        async def put(self, key: str, value: str) -> None:
+            raise NotImplementedError
+
+        async def delete(self, key: str) -> None:
+            raise NotImplementedError
+
+    env = _orchestrator(tmp_path, engine=_make_engine(), secret_store=EnvSecretStore())
+    other = _orchestrator(tmp_path, engine=_make_engine(), secret_store=_OtherStore())
+    env_trigger = env._make_trigger(_gmail_poll_definition())
+    other_trigger = other._make_trigger(_gmail_poll_definition())
+    assert isinstance(env_trigger, GmailPollTrigger)
+    assert isinstance(other_trigger, GmailPollTrigger)
+    assert env_trigger.reload_credentials is not None
+    assert other_trigger.reload_credentials is None
+
+
+async def test_registered_ids_name_only_the_triggers_actually_started(tmp_path: Path) -> None:
+    """What monitoring's trigger-health checks read: a manual workflow
+    starts no trigger, so it is not registered, and stop() clears the set."""
+    for wf_id, trigger in (("hook", "{type: webhook}"), ("manual-wf", "{type: manual}")):
+        _write_yaml(
+            tmp_path,
+            f"{wf_id}.yaml",
+            f"""\
+id: {wf_id}
+name: {wf_id}
+trigger: {trigger}
+steps:
+  - id: a
+    type: deterministic
+    function: noop
+edges: []
+""",
+        )
+    orch = _orchestrator(tmp_path, engine=_make_engine())
+    await orch.start()
+    assert orch.registered_workflow_ids() == {"hook"}
+    await orch.stop()
+    assert orch.registered_workflow_ids() == set()
+
+
+async def test_lookback_reaches_the_trigger_and_the_dmarc_yaml_sets_it(tmp_path: Path) -> None:
+    """Look-back only helps if config reaches the trigger — and each window
+    is sized to its mailbox: a week for sparse DMARC reports, two hours for
+    the busy triage inbox (whose week would overrun the seen-id ring)."""
+    from datetime import timedelta
+
+    from workflow_platform.workflow import load_definition_from_file
+
+    orch = _orchestrator(tmp_path, engine=_make_engine(), secret_store=EnvSecretStore())
+    repo = Path(__file__).resolve().parents[2]
+    dmarc = orch._make_trigger(
+        load_definition_from_file(repo / "examples/dmarc_ingest/workflow.yaml")
+    )
+    triage = orch._make_trigger(
+        load_definition_from_file(repo / "examples/email_triage_apply/workflow.yaml")
+    )
+    assert isinstance(dmarc, GmailPollTrigger) and isinstance(triage, GmailPollTrigger)
+    assert dmarc.lookback == timedelta(hours=168)
+    # Short, not off: bulk senders back-date by up to ~23 min (2026-10-04),
+    # and a busy inbox's window must stay far inside the 500-id seen ring.
+    assert triage.lookback == timedelta(hours=2)

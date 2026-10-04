@@ -329,3 +329,32 @@ async def test_reseal_and_lookup_against_a_REAL_database(engine: AsyncEngine) ->
     assert stored.payload == {"sealed": "new"}, "reseal did not persist through Postgres"
     assert stored.audit_entry_id == "e-1", "the entry binding was lost by reseal"
     assert not await repos.raw_trace_vault.reseal("no-such-row", payload={}, content_commitment="c")
+
+
+@skip_if_no_db
+async def test_audit_list_by_action_is_newest_first_against_a_REAL_database(
+    engine: AsyncEngine,
+) -> None:
+    """Durable once-per-episode alerting reads prior alerts by action."""
+    from datetime import UTC, datetime, timedelta
+
+    from workflow_platform.persistence.models import AuditEntry
+
+    repos = postgres_repositories(make_session_factory(engine))
+    base = datetime(2026, 9, 28, tzinfo=UTC)
+    for n in range(3):
+        await repos.audit.append(
+            AuditEntry(
+                id=f"by-action-{n}",
+                actor_type="monitoring",
+                actor_id="monitoring_service",
+                action="alert_stale_trigger",
+                detail={"workflow_id": f"wf-{n}"},
+                timestamp=base + timedelta(minutes=n),
+            )
+        )
+    await repos.audit.append(
+        AuditEntry(id="by-action-other", actor_type="system", actor_id="x", action="other")
+    )
+    got = await repos.audit.list_by_action("alert_stale_trigger", limit=2)
+    assert [e.id for e in got] == ["by-action-2", "by-action-1"]

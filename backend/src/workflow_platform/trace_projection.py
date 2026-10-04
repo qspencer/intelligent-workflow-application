@@ -331,7 +331,16 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "19"  # v19: `question_candidate_shadowed` (G12 C1).
+PROJECTOR_VERSION = "20"  # v20: trigger health + alert delivery (review R1).
+# `alert_trigger_auth_revoked` / `trigger_auth_restored` (the Gmail
+# trigger's revoke edge), `alert_trigger_consent_expiring` (the 7-day
+# Testing clock, warned a day early), and `notification_sent` /
+# `notification_failed` (an alert emailed to the operator). All five are
+# INSTANCE-LESS, so every field is released and validated — a withheld field
+# here would not be vaulted, it would be deleted. Keyed by workflow, never by
+# mailbox: the account is a field of the definition `workflow_id` names.
+#
+# v19: `question_candidate_shadowed` (G12 C1).
 # Engine-measured or operator-configured throughout — a catalogued topic
 # id, a suppression token from a closed set, and the experiment's own
 # limits recorded beside every result, because a limit that lives only in
@@ -1368,6 +1377,23 @@ _SUPPRESSION = Leaf(
     )
 )
 
+#: `monitoring.ALERT_ACTIONS` — which alert a `notification_*` entry carried.
+#: Spelled out for the domain-leaf reason and pinned equal by a test, so an
+#: alert added without delivery fails the build.
+_ALERT_ACTION = Leaf(
+    _enum(
+        "alert_abandoned_pause",
+        "alert_high_error_rate",
+        "alert_high_queue_depth",
+        "alert_high_token_burn",
+        "alert_stale_trigger",
+        "alert_stuck_workflow",
+        "alert_trigger_auth_revoked",
+        "alert_trigger_consent_expiring",
+    )
+)
+_NOTIFICATION_CHANNEL = Leaf(_enum("email"))
+
 #: `agent.StopReason`, spelled out rather than imported — the projector is a
 #: domain leaf and importing the agent package to read an enum would invert
 #: that. `test_the_stop_reason_enum_is_the_agents_enum` pins the two equal,
@@ -1710,6 +1736,35 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         "changed": FieldRule(Owner.ENGINE, Seq(_TOKEN), True),
         "sessions_revoked": FieldRule(Owner.ENGINE, _BOOL, True),
         "raw_grants_revoked": FieldRule(Owner.ENGINE, _COUNT, True),
+    },
+    "alert_trigger_auth_revoked": {
+        "workflow_id": FieldRule(Owner.CONFIG, _TOKEN, True),
+        "trigger_type": FieldRule(Owner.CONFIG, _EMAIL_TRIGGER_TYPE, True),
+    },
+    "trigger_auth_restored": {
+        "workflow_id": FieldRule(Owner.CONFIG, _TOKEN, True),
+        "trigger_type": FieldRule(Owner.CONFIG, _EMAIL_TRIGGER_TYPE, True),
+        "revoked_for_seconds": FieldRule(Owner.ENGINE, _AMOUNT, True),
+    },
+    "alert_trigger_consent_expiring": {
+        "workflow_id": FieldRule(Owner.CONFIG, _TOKEN, True),
+        "trigger_type": FieldRule(Owner.CONFIG, _EMAIL_TRIGGER_TYPE, True),
+        # Consent-file mtime + the domain's clock: engine-computed, and a
+        # timestamp says nothing about whose mailbox it is.
+        "expires_at": FieldRule(Owner.ENGINE, _TS_, True),
+        "warn_before_seconds": FieldRule(Owner.CONFIG, _AMOUNT, True),
+    },
+    "notification_sent": {
+        "alert_action": FieldRule(Owner.ENGINE, _ALERT_ACTION, True),
+        "alert_entry_id": FieldRule(Owner.ENGINE, _ID, True),
+        "channel": FieldRule(Owner.CONFIG, _NOTIFICATION_CHANNEL, True),
+    },
+    "notification_failed": {
+        # NO error text: instance-less, so nowhere to vault it. The
+        # exception goes to the log.
+        "alert_action": FieldRule(Owner.ENGINE, _ALERT_ACTION, True),
+        "alert_entry_id": FieldRule(Owner.ENGINE, _ID, True),
+        "channel": FieldRule(Owner.CONFIG, _NOTIFICATION_CHANNEL, True),
     },
     "question_candidate_shadowed": {
         # G12 C1. Everything here is engine-measured or operator-

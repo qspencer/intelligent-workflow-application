@@ -34,7 +34,7 @@ def _normalize_domain(domain: str) -> str:
     domain = domain.strip().strip(">").strip().lower().rstrip(".")
     try:
         return domain.encode("idna").decode("ascii")
-    except (UnicodeError, UnicodeDecodeError):
+    except UnicodeError, UnicodeDecodeError:
         return domain
 
 

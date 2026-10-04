@@ -608,4 +608,65 @@ CORPUS: list[tuple[Any, ...]] = [
         {"observation": 0, "error": "SYNTHETIC veracium failure"},
         "memory_observe_failed",
     ),
+    # --- v20: trigger health + alert delivery (review R1) ---
+    (
+        "at_rest.registry_trigger_auth_revoked",
+        "audit_detail",
+        {"workflow_id": "email-triage-apply", "trigger_type": "email"},
+        "alert_trigger_auth_revoked",
+    ),
+    (
+        # A writer that slipped the mailbox in: withheld by default-deny,
+        # and the AuditWriter refuses it outright for an instance-less entry.
+        "at_rest.registry_trigger_auth_revoked_with_account",
+        "audit_detail",
+        {
+            "workflow_id": "email-triage-apply",
+            "trigger_type": "email",
+            "account": "someone@example.com",
+        },
+        "alert_trigger_auth_revoked",
+    ),
+    (
+        "at_rest.registry_trigger_auth_restored",
+        "audit_detail",
+        {
+            "workflow_id": "email-triage-apply",
+            "trigger_type": "gmail_poll",
+            "revoked_for_seconds": 277500.25,
+        },
+        "trigger_auth_restored",
+    ),
+    (
+        "at_rest.registry_trigger_consent_expiring",
+        "audit_detail",
+        {
+            "workflow_id": "email-triage-apply",
+            "trigger_type": "email",
+            "expires_at": "2026-10-05T19:24:11.123456+00:00",
+            "warn_before_seconds": 86400.0,
+        },
+        "alert_trigger_consent_expiring",
+    ),
+    (
+        "at_rest.registry_notification_sent",
+        "audit_detail",
+        {
+            "alert_action": "alert_trigger_auth_revoked",
+            "alert_entry_id": "3f0c2b9e8d7a4c1e9b6a5d4c3b2a1f0e",
+            "channel": "email",
+        },
+        "notification_sent",
+    ),
+    (
+        "at_rest.registry_notification_failed_forged",
+        "audit_detail",
+        {
+            "alert_action": "SYNTHETIC-alert",
+            "alert_entry_id": "3f0c2b9e8d7a4c1e9b6a5d4c3b2a1f0e",
+            "channel": "carrier-pigeon",
+            "error": "SYNTHETIC smtp failure",
+        },
+        "notification_failed",
+    ),
 ]

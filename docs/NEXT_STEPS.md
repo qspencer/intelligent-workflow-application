@@ -256,6 +256,180 @@ Post-deploy verification on the live definition: indeed ✅ shadows,
 recruiter ✅ shadows, retail ✅ silent, friend ✅ silent; `shadow_questions`
 still 0 rows afterwards, confirming dry runs take no real capacity.
 
+**Email-classifier performance review (2026-09-28).** Window: every
+`email-triage-apply` run since 2026-07-23, detail on 09-20 → 09-25 (610
+completed runs). Evidence only — nothing below is built yet.
+
+- **R1 — availability is the headline, not accuracy.** The classifier
+  has been **offline since 2026-09-25 15:01** (Gmail auth revoked for
+  `qspencer@gmail.com`; 913 back-off log lines since). Of the 65 days
+  since 07-26 it ran on ~25: gaps 08-04→08-08, **08-17→09-17 (32 days)**,
+  09-26→now. Each stop lands ~7 days after a resume (09-18 15:03 →
+  09-25 15:01; 08-09 21:26 → 08-16 16:23): the External+Testing OAuth
+  refresh-token clock that `EMAIL_CONNECTOR_PLAN` Gate 2 accepted as
+  "re-running `gmail_auth.py` weekly is cheap". It is cheap; nothing
+  prompts it. Detection: `alert_stale_trigger` fired **72 h** after the
+  last run (09-28 14:59), as an audit row nobody sees — while the
+  connector itself logged the exact diagnosis every 5 minutes from the
+  first minute. **BUILT 2026-09-28** (projector v20): the Gmail trigger
+  fires `alert_trigger_auth_revoked` on the revoke *edge* and
+  `trigger_auth_restored` on recovery; it re-reads `.secrets/` before
+  each retry, so re-consenting recovers without a restart (the 09-28
+  re-auth needed one — the running process only ever read credentials at
+  boot, while its log line said the CLI was enough); monitoring raises
+  `alert_trigger_consent_expiring` 24 h before a consumer account's 7-day
+  clock (consent time = refresh-token mtime); `AlertEmailNotifier` mails
+  every `alert_*` to `WORKFLOW_PLATFORM_ALERT_EMAIL_TO` from the Workspace
+  tools account, rate-limited and audited. All five new entries are
+  instance-less and keyed by workflow, never mailbox. A test pins the
+  notifier's alert list to the registry's `alert_*` actions, so a new
+  alert nobody receives fails the build. *First-day correction:* the
+  first two restarts mailed the operator six `alert_stale_trigger`
+  emails, all noise — the check covered DB-only drafts nobody polls, its
+  once-per-episode memory reset on restart, and dmarc-ingest's reports
+  are naturally days apart. Now: registered triggers only, episodes
+  remembered in the audit log (`AuditRepo.list_by_action`), and a
+  per-trigger `stale_alert_after_hours` (dmarc-ingest: 168).
+- **R2 — the G13 codified route has been inert since 2026-08-13.**
+  `classify_attention` ran 0 of 610 times (8–12/day through 08-12). The
+  rules file was generated once (07-30) and never refreshed:
+  `last_evidence_at + inactivity_days: 14` retired all 7 rules on 08-13,
+  `expires_at` again on 08-29. Fails open by design, so it was invisible;
+  `tools/codify_senders.py` exists but nothing schedules it. *Options:*
+  schedule re-codification (like `reality-check.timer`), and add a
+  reality-check falsifier "codified route taken ≥1× in 7 days while
+  rules exist". **Checked 2026-09-28 — scheduling would not help; this
+  is a design conflict, awaiting a decision.** `codify_senders.py`
+  (dry run) finds **0 senders with evidence**: it reads the sender from
+  `trigger_payload` (redacted at rest on every instance row, all
+  history) and the category/`category_valid` from the record output
+  (withheld since the B1 flip, week of 09-14). G13's evidence source is
+  exactly what trace governance withholds. And the route was not saving
+  money: over 07-30→08-12, `classify_attention` averaged 8,466 input
+  tokens / $0.00865 per message against the full classifier's 6,303 /
+  $0.00656 — the codified path cost ~32% MORE, at equal latency.
+  **DONE 2026-09-28 — option (a), operator's decision: route retired.**
+  *Options were:* (a) **retire the route** (recommended): remove the
+  `precheck`/`classify_attention` branch and the stale artifact; it has
+  been inert six weeks with no visible loss, and its only remaining
+  claim is category consistency. (b) Rebuild the evidence at write time,
+  keyed by the G-Trace-Subject-Identity pseudonym instead of the
+  address (the rules file would stop holding cleartext addresses too) —
+  but `category` is BUSINESS-owned in the registry, so this needs the
+  external reviewer, and it buys back a path that cost more. (c) Read
+  raw through the vault under an audited grant per codifier run.
+- **R3 — shadow expiry is unwired (M9).** `expire_pending()` is defined
+  on all three stores and called nowhere; the one shadow question has
+  sat `pending` 5 days past its 72 h expiry, holding a capacity slot.
+  Masked today by `already_asked` (one topic), but it falsifies the
+  capacity/expiry evidence C1 exists to produce for C2 gating. **FIXED
+  2026-09-28:** `schedule()` expires before the atomic create — the only
+  place capacity is consumed — and a test pins the call, not just the
+  method (seen to fail without it).
+- **R4 — accuracy: no current measurement.** Last human-labeled baseline
+  is 99.3% (138/139) — but one day (07-17), an older rubric, 1 personal
+  and 0 true-spam messages, so it says nothing about the classes where a
+  mistake costs. Proxy over 09-20→09-25 (per-sender consistency from
+  learned-store episodes): 7 of 51 multi-message senders got split
+  verdicts, **all within newsletter/promotion/notification** — none into
+  personal or spam. Sharpest: near-identical Indeed job-match mails
+  split promotion vs notification. Low cost per message, but unanimity
+  is G13's codification gate, so boundary-wobble senders can never
+  codify. A fresh ground-truth pass needs Gmail back (R1), and should
+  deliberately sample personal + spam. **Tool built 2026-09-28,
+  awaiting the operator's labels:** `review_triage.py --source gmail`
+  reads the verdict from the applied `wf/*` label (the Postgres source is
+  blind under B1, like the codifier) and stratifies — every personal and
+  spam label, 15 per bulk class. First signal before any labeling: in
+  the 10 days since 09-18 exactly **1** message was labeled `personal`,
+  so either the mailbox gets almost none, or personal mail is being
+  called bulk — the expensive error, which only the bulk samples can
+  show.
+- **R5 — outage catch-up silently skipped all but the newest 50
+  (found and FIXED 2026-09-28, `fb29d85`).** Gmail lists newest-first;
+  the trigger took one page of 50 and moved its cursor to the newest,
+  so every older pending message fell behind the cursor for good. The
+  09-28 recovery processed 50 of 338; it has very likely done the same
+  on every earlier resume (the 32-day gap's mail included — not
+  backfilled; the operator chose to leave historic mail on 09-20).
+  Fixed with `poll_inbox(oldest_first=True)` on both cursor-advancing
+  callers. Repaired live: cursor rolled back to its pre-outage value,
+  the 49 already-labeled messages marked seen (verdicts read from their
+  `wf/*` labels, since message ids are redacted at rest), two
+  interrupted runs killed through the audited tool; the drain was
+  verified oldest-first on production. Cost of the repair: ~20
+  duplicate runs from two restarts mid-batch (add-only labels, so
+  harmless; duplicate learned-memory episodes for ~20 messages).
+- **Fine:** triage p50 3.85 s / p95 4.94 s; $0.017 per message all-in
+  ($10.36 / 610 runs; learned-memory writes are 43% of it); 2 apply-step
+  postcondition misses (0.3%), both recovered by retry (add-only label —
+  retry-safe). **G12 C1 since the 09-20 prompt fix:** 34 candidates in
+  ~570 runs (~6%); 1 shadow-asked, 33 correctly suppressed
+  `already_asked`. With a one-topic catalogue, C1 saturated on day one.
+
+**Python 3.14 before the next veracium upgrade (from the Coordination
+seat, 2026-09-28).** **DONE 2026-09-29: the platform runs 3.14.7.** One
+trap, found before it reached production: veracium qualifies exactly ONE
+SQLite build (3.45.1) and refuses to open a store on any other
+(`unsupported-sqlite`), and uv's own Python 3.14 bundles SQLite 3.53.1 — 13
+learned-memory tests fail on it, and in production recall would fail OPEN,
+silently stripping memory from every triage. So: GitHub's 3.14.7 build
+(system SQLite 3.45.1; the one veracium's own CI and dev venv use), CI via
+`actions/setup-python` + `UV_PYTHON_PREFERENCE: only-system` on pinned
+`ubuntu-24.04`, `run-local-be.sh` preferring that interpreter, and
+`/api/health` now reporting `learned_memory` (503 when unopenable). Recall
+verified byte-identical (5/5 context hashes) on a copy of the production
+store before cutover. veracium itself: 0.26.1 is still the latest release
+— the 3.14-only release is unreleased. Original note: veracium's next release requires Python ≥3.14 (dev
+`87526b0`, first line of its unreleased CHANGELOG). The platform is on
+3.12.3 (`requires-python = ">=3.12"`) and pins `veracium==0.26.1`
+exactly, so nothing breaks today — but the next upgrade needs the
+platform on 3.14 first (3.14.7 is already on the box via uv). Do it as
+its own step, with the full suite, before bumping the pin.
+
+**CI live-tests red since 2026-09-21 — operator action: rotate two
+secrets (found 2026-09-29).** The weekly `live-tests.yml` job's
+`GMAIL_REFRESH_TOKEN` (set 2026-05-26) authenticates as
+`qrsconsulting@quentinspencer.com`, not the tools mailbox
+(`intelligent.workflow.engine@`) the job claims to test — minted when the
+tools address was an alias of that mailbox. For four months the job mailed
+its round-trip test into the operator's business mailbox; it broke only when
+that mailbox's default send-as became `veracium@veracium.ai` (between 09-14
+and 09-21) and the From-domain assertion failed. Code is fine: all four live
+Gmail tests pass locally with the right credentials. Fix: set
+`GMAIL_REFRESH_TOKEN` and `GMAIL_CLIENT_CREDENTIALS_JSON` from
+`.secrets/gmail/intelligent.workflow.engine@quentinspencer.com/`, then
+dispatch the workflow. `test_the_token_belongs_to_the_configured_account`
+now names this failure directly.
+
+**Status review 2026-10-04 (email labeling + GitHub).** 587 of 595 runs
+since the 09-29 Python cutover completed and labeled; but 24 of 605
+messages had no label:
+- **16 never read — back-dated bulk mail.** The Information, L.L.Bean,
+  Amazon, Airbnb, Wayfair stamp mail 1.5-23 min before Gmail receives it;
+  the cursor passed the stamp. The 09-28 judgment that the triage inbox
+  could "accept the rare miss" was wrong (2.6%, systematic). **FIXED:**
+  `lookback_hours: 2` on `email-triage-apply`; EXECUTION_SEMANTICS
+  corrected; the 24 backfilled with fresh runs.
+- **8 failed in `triage` (`unexpected: true`).** One was a **full disk**
+  (10-01 16:04, Postgres `No space left on device`; 61 GB free by
+  10-04 — something filled the disk and was cleared, not identified).
+  **Seven were an AWS-side Bedrock outage** — read 2026-10-04 under an
+  audited, dual-approved, 1-hour raw-trace grant (`f30da3d1`, revoked
+  after the read): every one is `ServiceUnavailableException` on
+  Converse "after max retries: 4" (six 09-29 18:16-18:36, one 09-30
+  19:01). The disk-full one failed writing the raw-trace vault. *Options
+  (not built):* engine-level retry with backoff on `triage` — read-only,
+  so EXECUTION_SEMANTICS permits `retries > 0`; and record the exception
+  CLASS (not text) on `step_failed`, so the next one is diagnosable
+  without opening the vault. Note for the governance docs: on this
+  single-operator box, dual control means one person signing twice.
+- **Security (FIXED):** pyjwt 2.13.0 → 2.15.1 (12 advisories), urllib3
+  2.7.0 → 2.8.0 (3), oauthlib 3.3.1 → 4.0.0 (1; the consent flow verified
+  offline end to end). PYSEC-2026-4146 (pyjwt `decode()` mutates a reused
+  `options` dict) has NO upstream fix; our one decode call passes no
+  `options` — `test_oidc.py` now fails if that ever changes.
+
 **Immediate priorities, in order:**
 
 0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while

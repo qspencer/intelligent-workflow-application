@@ -9,6 +9,7 @@ they are structurally incapable of catching it — hence an explicit comparison.
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -112,3 +113,57 @@ def test_health_reports_schema_state(monkeypatch: pytest.MonkeyPatch) -> None:
     assert body["status"] == "ok"
     assert body["schema"]["state"] == "ok"
     assert body["schema"]["expected"], "health must report what revision the code expects"
+
+
+def test_health_reports_an_unopenable_learned_store_as_degraded(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """2026-09-29: veracium qualifies one SQLite build and refuses others, and
+    recall fails OPEN — so a runtime that cannot open the store would make
+    every triage silently lose its memory. Health must say so, loudly, and
+    without leaking the store's path."""
+    from workflow_platform.memory.learned import LearnedMemoryService
+
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    app = create_app(repositories=in_memory_repositories(), start_triggers=True)
+    engine = app.state.engine
+    svc = LearnedMemoryService(None, tmp_path / "secret-path" / "learned.db")  # type: ignore[arg-type]
+
+    class StoreVersionError(Exception):
+        pass
+
+    def refuse() -> None:
+        raise StoreVersionError("sqlite 3.53.1 is not a qualified runtime build identity")
+
+    monkeypatch.setattr(svc, "_get_memory", refuse)
+    engine.learned_memory = svc
+    monkeypatch.setattr("workflow_platform.main.TriggerOrchestrator.start", _noop_async)
+    monkeypatch.setattr("workflow_platform.monitoring.MonitoringService.start", _noop_async)
+    with TestClient(app) as client:
+        response = client.get("/api/health")
+    body = response.json()
+    assert response.status_code == 503
+    assert body["status"] == "degraded"
+    assert body["learned_memory"]["state"] == "unopenable"
+    assert body["learned_memory"]["error"] == "StoreVersionError"
+    assert "secret-path" not in response.text
+
+
+def test_health_reports_a_real_store_as_ok(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    from workflow_platform.memory.learned import LearnedMemoryService
+
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    app = create_app(repositories=in_memory_repositories(), start_triggers=True)
+    app.state.engine.learned_memory = LearnedMemoryService(None, tmp_path / "learned.db")  # type: ignore[arg-type]
+    monkeypatch.setattr("workflow_platform.main.TriggerOrchestrator.start", _noop_async)
+    monkeypatch.setattr("workflow_platform.monitoring.MonitoringService.start", _noop_async)
+    with TestClient(app) as client:
+        body = client.get("/api/health").json()
+    assert body["learned_memory"]["state"] == "ok"
+    assert body["learned_memory"]["sqlite"]
+
+
+async def _noop_async(*args: object, **kwargs: object) -> None:
+    return None

@@ -350,6 +350,11 @@ class AuditRepo(ABC):
     async def list_by_instance(self, instance_id: str) -> list[AuditEntry]: ...
 
     @abstractmethod
+    async def list_by_action(self, action: str, *, limit: int = 100) -> list[AuditEntry]:
+        """Entries of one action, newest first. For durable once-per-episode
+        alerting: whether an alert already fired must survive a restart."""
+
+    @abstractmethod
     async def replace_detail_for_migration(
         self, entry_id: str, detail: dict[str, Any], projector_version: str
     ) -> bool:

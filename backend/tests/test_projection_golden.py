@@ -228,7 +228,7 @@ def test_historical_fixtures_are_authentic_against_their_declared_source() -> No
                 check=True,
                 cwd=Path(__file__).resolve().parents[2],
             ).stdout
-        except (subprocess.CalledProcessError, FileNotFoundError):
+        except subprocess.CalledProcessError, FileNotFoundError:
             pytest.skip(f"git unavailable or {commit} not present; cannot re-derive v{version}")
 
         tmp = Path(__file__).resolve().parent / f"_historical_{version}.py"

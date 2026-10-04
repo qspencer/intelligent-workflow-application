@@ -339,6 +339,16 @@ def test_a_registry_action_classifies_every_field_it_can_actually_emit() -> None
             "outcomes_seconds",
         },
         "memory_observe_failed": {"observation", "error"},
+        "alert_trigger_auth_revoked": {"workflow_id", "trigger_type"},
+        "trigger_auth_restored": {"workflow_id", "trigger_type", "revoked_for_seconds"},
+        "alert_trigger_consent_expiring": {
+            "workflow_id",
+            "trigger_type",
+            "expires_at",
+            "warn_before_seconds",
+        },
+        "notification_sent": {"alert_action", "alert_entry_id", "channel"},
+        "notification_failed": {"alert_action", "alert_entry_id", "channel"},
     }
     for action, fields in emitted.items():
         missing = fields - set(AUDIT_FIELD_RULES[action])
@@ -472,6 +482,14 @@ _WIDENED_BEYOND_FLAT: dict[str, set[str]] = {
         "pre_image_digest",
         "projector_version",
     },
+    # --- v20, trigger health + alert delivery (review R1). Instance-less
+    # again, so the same structural argument as v16: withheld = destroyed.
+    # Nothing here names a mailbox; the account lives on the definition.
+    "alert_trigger_auth_revoked": {"trigger_type"},
+    "trigger_auth_restored": {"trigger_type", "revoked_for_seconds"},
+    "alert_trigger_consent_expiring": {"trigger_type", "expires_at", "warn_before_seconds"},
+    "notification_sent": {"alert_action", "alert_entry_id", "channel"},
+    "notification_failed": {"alert_action", "alert_entry_id", "channel"},
 }
 
 
@@ -578,6 +596,33 @@ def test_the_governance_actions_are_projection_LOSSLESS() -> None:
             "deleted_steps": 8,
             "deleted_instances": 4,
         },
+        # v20. Built by the real writers in the trigger / monitoring /
+        # notifier tests; these are the shapes those writers emit.
+        "alert_trigger_auth_revoked": {
+            "workflow_id": "email-triage-apply",
+            "trigger_type": "email",
+        },
+        "trigger_auth_restored": {
+            "workflow_id": "email-triage-apply",
+            "trigger_type": "email",
+            "revoked_for_seconds": 277_500.25,
+        },
+        "alert_trigger_consent_expiring": {
+            "workflow_id": "email-triage-apply",
+            "trigger_type": "email",
+            "expires_at": "2026-10-05T19:24:11.123456+00:00",
+            "warn_before_seconds": 86_400.0,
+        },
+        "notification_sent": {
+            "alert_action": "alert_trigger_auth_revoked",
+            "alert_entry_id": "3f0c2b9e8d7a4c1e9b6a5d4c3b2a1f0e",
+            "channel": "email",
+        },
+        "notification_failed": {
+            "alert_action": "alert_stale_trigger",
+            "alert_entry_id": "3f0c2b9e8d7a4c1e9b6a5d4c3b2a1f0e",
+            "channel": "email",
+        },
     }
     for action, detail in live_shapes.items():
         projected = project_audit_detail_at_rest(action, detail)
@@ -654,3 +699,22 @@ def test_the_suppression_enum_is_the_elicitation_one() -> None:
     # fails to parse never reaches the scheduler at all.
     assert _SUPPRESSION.validate("candidate_malformed")
     assert not _SUPPRESSION.validate("SYNTHETIC-reason")
+
+
+def test_the_alert_action_enum_is_every_delivered_alert() -> None:
+    """Three copies of one list must agree: the notifier's `ALERT_ACTIONS`
+    (what gets mailed), the projector's `_ALERT_ACTION` (what a
+    `notification_*` entry may name), and the `alert_*` actions in the
+    registry (what the platform can raise). An alert added to the registry
+    and not to the notifier is one nobody receives — the failure R1 was."""
+    from workflow_platform.monitoring import ALERT_ACTIONS
+    from workflow_platform.trace_projection import _ALERT_ACTION
+
+    raised = {a for a in AUDIT_FIELD_RULES if a.startswith("alert_")}
+    assert set(ALERT_ACTIONS) == raised, (
+        f"undelivered: {sorted(raised - set(ALERT_ACTIONS))}; "
+        f"delivered but never raised: {sorted(set(ALERT_ACTIONS) - raised)}"
+    )
+    for action in ALERT_ACTIONS:
+        assert _ALERT_ACTION.validate(action), f"{action} rejected by the projector"
+    assert not _ALERT_ACTION.validate("alert_SYNTHETIC")

@@ -206,3 +206,68 @@ def test_main_default_engine_excludes_email_tools_when_account_unset() -> None:
     assert "email_send" not in tool_names
     assert "email_label_apply" not in tool_names
     assert {"pdf_extract", "file_read", "file_write"}.issubset(tool_names)
+
+
+# ---------- re-consent without a restart + the consent clock (review R1) ----------
+
+
+def _write_account(root: Path, account: str, token: str) -> Path:
+    d = root / account
+    d.mkdir(parents=True, exist_ok=True)
+    (d / "client_credentials.json").write_text(CLIENT_CREDS_JSON)
+    (d / "refresh_token").write_text(token + "\n")
+    return d
+
+
+def test_reseed_picks_up_a_new_token_that_seed_would_ignore(tmp_path: Path) -> None:
+    """The 2026-09-28 finding: after a re-consent the fresh token sat on disk
+    while the process kept the dead one in env, because seeding defers to an
+    env that is already populated. Re-seeding must overwrite, and must say
+    whether anything changed."""
+    from workflow_platform.connectors.email.bootstrap import reseed_gmail_env_from_disk
+
+    os.environ[CREDS_KEY] = CLIENT_CREDS_JSON
+    os.environ[TOKEN_KEY] = "dead-token"
+    _write_account(tmp_path, ACCOUNT, "fresh-token")
+    with patch("workflow_platform.connectors.email.bootstrap._SECRETS_ROOT", tmp_path):
+        assert seed_gmail_env_from_disk(ACCOUNT) is True
+        assert os.environ[TOKEN_KEY] == "dead-token"  # seed defers — the bug
+        assert reseed_gmail_env_from_disk(ACCOUNT) is True
+        assert os.environ[TOKEN_KEY] == "fresh-token"
+        assert reseed_gmail_env_from_disk(ACCOUNT) is False  # nothing new
+
+
+def test_reseed_without_files_changes_nothing(tmp_path: Path) -> None:
+    from workflow_platform.connectors.email.bootstrap import reseed_gmail_env_from_disk
+
+    os.environ[TOKEN_KEY] = "kept"
+    with patch("workflow_platform.connectors.email.bootstrap._SECRETS_ROOT", tmp_path):
+        assert reseed_gmail_env_from_disk(ACCOUNT) is False
+    assert os.environ[TOKEN_KEY] == "kept"
+
+
+def test_consent_expiry_is_seven_days_after_consent_for_consumer_accounts(
+    tmp_path: Path,
+) -> None:
+    from datetime import UTC, datetime, timedelta
+
+    from workflow_platform.connectors.email.bootstrap import consent_expires_at
+
+    consumer = "someone@gmail.com"
+    d = _write_account(tmp_path, consumer, "t")
+    consented = datetime(2026, 9, 28, 19, 20, tzinfo=UTC)
+    os.utime(d / "refresh_token", (consented.timestamp(), consented.timestamp()))
+    with patch("workflow_platform.connectors.email.bootstrap._SECRETS_ROOT", tmp_path):
+        assert consent_expires_at(consumer) == consented + timedelta(days=7)
+        # A clocked domain with no token on disk has nothing to expire.
+        assert consent_expires_at("nobody@gmail.com") is None
+
+
+def test_workspace_and_unknown_accounts_have_no_clock(tmp_path: Path) -> None:
+    """A wrong "no clock" costs a missed warning the revoked alert still
+    catches; a wrong "clock" would cry wolf every week."""
+    from workflow_platform.connectors.email.bootstrap import consent_expires_at
+
+    _write_account(tmp_path, ACCOUNT, "t")
+    with patch("workflow_platform.connectors.email.bootstrap._SECRETS_ROOT", tmp_path):
+        assert consent_expires_at(ACCOUNT) is None

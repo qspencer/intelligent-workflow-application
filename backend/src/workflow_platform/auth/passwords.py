@@ -26,7 +26,7 @@ def verify_password(password: str, password_hash: str) -> tuple[bool, bool]:
     successful login so parameter upgrades roll forward automatically."""
     try:
         _hasher.verify(password_hash, password)
-    except (VerifyMismatchError, InvalidHashError):
+    except VerifyMismatchError, InvalidHashError:
         return False, False
     return True, _hasher.check_needs_rehash(password_hash)
 

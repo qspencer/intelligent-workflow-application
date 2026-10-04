@@ -264,6 +264,10 @@ class InMemoryAuditRepo(AuditRepo):
     async def list_by_instance(self, instance_id: str) -> list[AuditEntry]:
         return [deepcopy(e) for e in self._entries if e.workflow_instance_id == instance_id]
 
+    async def list_by_action(self, action: str, *, limit: int = 100) -> list[AuditEntry]:
+        matching = [e for e in reversed(self._entries) if e.action == action]
+        return [deepcopy(e) for e in matching[:limit]]
+
     async def replace_detail_for_migration(
         self, entry_id: str, detail: dict[str, Any], projector_version: str
     ) -> bool:

@@ -59,7 +59,7 @@ tenant boundary itself.
                          endpoint ──► repos (row-level org key)
  webhook callers     ──► HMAC (X-Hub-Signature-256) when secret_name set
  operator CLIs       ──► same connector code paths; label removal,
-                         codify --apply, user bootstrap live HERE only
+                         user bootstrap live HERE only
 ```
 
 ## 3. Adversaries and their reachable surface
@@ -69,7 +69,7 @@ tenant boundary itself.
 | **Hostile email sender** | mail content, headers, attachment names; indirectly the classifier prompt and (via distillation) the memory store | steer labels, gain attention flags, poison memory/codification, exfiltrate via reply (no reply tool exists) |
 | **Tenant user** (authenticated, other org) | org-scoped API | cross-org reads, escalation, spend |
 | **Network attacker / CSRF** | browser session | ride the cookie |
-| **Spoofed "trusted" sender** | codified-sender fast path | rule-credentialed mislabeling with zero content scrutiny |
+| **Spoofed "trusted" sender** | ~~codified-sender fast path~~ — **surface removed 2026-09-28** (route retired; every message is classified) | was: rule-credentialed mislabeling with zero content scrutiny |
 | **Compromised Administrator** | everything, cross-org, audited-but-permitted | full compromise — **trusted today** (§5a) |
 | **Same-org insider** (malicious/careless) | their org's resources | misuse within org scope |
 | **Compromised Gmail/OAuth account** | the mailbox + its refresh token | read/label as the operator |
@@ -106,7 +106,10 @@ tenant boundary itself.
    quarantined and rendered under a never-assert fence injected
    verbatim (both criteria test-pinned); recall entities normalized so
    attacker-chosen display names never key anything.
-6. Codification: bypass requires DKIM/DMARC-aligned authentication
+6. Codification — **RETIRED 2026-09-28** with the codified-sender route
+   itself, so the fast path this layer guarded no longer exists; kept
+   here so the ladder's numbering and history stay honest. As built:
+   bypass required DKIM/DMARC-aligned authentication
    (ordered AR parsing defeats attacker-appended headers — test-pinned),
    attention is never bypassed, rule applications never count as
    promotion evidence, corrections disqualify at registrable-domain
@@ -158,8 +161,8 @@ scoping) before an org has mutually-distrusting members.
 **The Administrator role and the host operator are FULLY TRUSTED in the
 current deployment.** Administrators reach cross-org resources (audited
 as `org_bypass`), instance-less audit is Administrator-only, operator
-CLIs perform otherwise-prohibited actions (label removal, codify
-`--apply`, user bootstrap), and secrets sit on the same machine as the
+CLIs perform otherwise-prohibited actions (label removal, user
+bootstrap), and secrets sit on the same machine as the
 service. Consequence, stated plainly: **the current single-operator
 deployment does not protect tenants against a malicious host
 administrator.** Acceptable while the operator is the sole user and tenant. **These are
@@ -229,6 +232,16 @@ IdP is sole authority — D4). Fifteen pinned security tests in
 - Audit: every transition, tool call, capability denial, org bypass,
   budget event, memory write/recall/introspection. Org-scoped reads;
   instance-less audit is Administrator-only.
+- Alert egress (2026-09-28, review R1): `AlertEmailNotifier` mails
+  `alert_*` entries to ONE operator-configured address
+  (`WORKFLOW_PLATFORM_ALERT_EMAIL_TO`, unset = off), sent from the tools
+  account. Deterministic and engine-side — no agent can reach it, and the
+  recipient is config, never data. The body is the entry's STORED
+  (projected) detail, so it discloses nothing an audit viewer could not
+  read. Rate-limited (per alert+subject, and a global hourly cap) and
+  every send audited as `notification_sent` / `notification_failed`.
+  Reload-on-revoke re-reads `.secrets/gmail/<account>/` into the dev
+  store's env; no new secret surface.
 
 ## 7a. The Bedrock (model-provider) boundary — current path
 
@@ -284,7 +297,7 @@ the governance-table expansion becomes real at the first external org.*
 | Secrets on local disk (0600) — an operational safeguard, NOT a secrets boundary | **[gated — before first external org]** (external review §6, was "compliance-bound customer"): external secret manager, separate service identities, short-lived creds, encrypted backups, OAuth/HMAC rotation, credential-scrubbed debug dumps |
 | Single-box deployment (DB, service co-located) | Solo-dev posture; `infra/` exists unapplied; revisit at first external user |
 | Resource exhaustion (poll volume, MIME/attachment size, parser CPU, Bedrock spend, repeated invocation, audit/DB growth, alert flooding) | **[partial]** Partial today (body cap, per-workflow token budget, monitoring's token-burn + queue-depth alerts); **follow-up:** per-sender/per-account throttles, max-decoded-size, parser timeouts, an explicit cost circuit-breaker |
-| Generated-code execution | **No such feature exists** — the ARCHITECTURE passage is aspirational; the shipped analogue (codified rules) is human-approved + self-disabling |
+| Generated-code execution | **No such feature exists** — the ARCHITECTURE passage is aspirational; the nearest shipped analogue (codified rules, human-approved + self-disabling) was retired 2026-09-28 |
 | Audit/instance/explain/WS expose raw tool payloads to below-admin roles | **[impl]** ONE `redact_tool_data` projection across every read surface — audit x2, instance endpoint (+context), explain, WS events — for below-admin-tier; admin-tier sees raw; e2e-tested with sentinel secrets (F3). Gate: storage-level separation + separately-audit raw access |
 | Cross-tenant workflow-slug existence oracle | **[gated — before ext org]** create de-dupes ids globally; needs composite (org,slug) identity (F6) |
 | OIDC WS token in query string | **[gated — OIDC only]** move to cookie/BFF (F5); local/dev already cookie/header |
@@ -295,7 +308,6 @@ the governance-table expansion becomes real at the first external org.*
 `test_auth_local.py` (15) · `test_org_isolation.py` (7 invariants) ·
 `test_email_triage_apply.py` (hostile payload, minimization, fences) ·
 `test_auth_results.py` (8, incl. attacker-appended AR) ·
-`test_codified_runtime.py` (auth gate, overlay, fail-open) ·
 `test_learned_memory.py` (verbatim fence, quarantine, normalization) ·
 `test_memory_transparency.py` (scoping, no-leak, audit) — plus the
 schemathesis contract suite and the weekly live job.
@@ -325,7 +337,7 @@ named for the first-external-org gate.
 The §4a empirical side needs a defined metric, not just "corrections
 happen": an adversarial test population, misclassification and
 attention-escalation denominators, benign false-positive rate, correction
-rate, per-authentication-state breakdown, and codification error rate —
+rate, and per-authentication-state breakdown —
 with frozen acceptance thresholds where applicable. Today only the
 correction-driven loop + the two-axis part-2 window exist; they are a
 biased estimator (operator sees his own mail, not a red-team set). The

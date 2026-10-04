@@ -24,6 +24,19 @@ Keys:
 Usage:
     DATABASE_URL=postgresql+asyncpg://... uv run python tools/review_triage.py
     uv run python tools/review_triage.py --summary   # stats from labels so far
+
+    # Under TRACE_SAFE_ONLY the verdicts and the message text are withheld
+    # at rest, so the Postgres source finds nothing to review. The Gmail
+    # source reads the verdict the classifier actually APPLIED — the
+    # `wf/<category>` label — and the message from the mailbox, read-only:
+    uv run python tools/review_triage.py --source gmail --since 2026-09-18 \
+        --labels .memory/triage-ground-truth-2026-09.jsonl
+
+The Gmail source is STRATIFIED, because the July baseline (99.3%) was one
+day of mostly bulk mail — 1 personal message, 0 spam — and said nothing
+about the classes where a mistake costs. Every personal- and spam-labeled
+message in the window is queued; each bulk class contributes a seeded
+random `--per-bulk` sample. Rare classes first.
 """
 
 from __future__ import annotations
@@ -43,6 +56,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "src"))
 from workflow_platform.engine.functions import TRIAGE_CATEGORIES
 from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
+from workflow_platform.secrets import EnvSecretStore
 
 BACKEND_DIR = Path(__file__).resolve().parent.parent
 DEFAULT_LABELS = BACKEND_DIR / ".memory" / "triage-ground-truth.jsonl"
@@ -80,7 +94,7 @@ def _judge_verdicts(path: Path) -> dict[str, dict[str, Any]]:
         return {}
     try:
         items = json.loads(path.read_text())
-    except (json.JSONDecodeError, OSError):
+    except json.JSONDecodeError, OSError:
         return {}
     return {i["message_id"]: i for i in items if isinstance(i, dict) and "judge_category" in i}
 
@@ -120,6 +134,79 @@ async def _load_items(workflow: str) -> list[dict[str, Any]]:
     finally:
         if hasattr(db_engine, "dispose"):
             await db_engine.dispose()
+
+
+RARE_CATEGORIES = ("personal", "spam")
+
+
+async def _load_items_gmail(
+    account: str, since: datetime, per_bulk: int, seed: int
+) -> list[dict[str, Any]]:
+    """Verdicts from the applied `wf/<category>` labels; messages from Gmail.
+
+    Read-only: `messages.list` + `messages.get`, throttled — a bulk read
+    tripped the per-user quota on 2026-09-28.
+    """
+    import random
+
+    from workflow_platform.connectors.email import maybe_build_gmail_connector
+
+    conn = maybe_build_gmail_connector(account=account, secret_store=EnvSecretStore())
+    if conn is None:
+        raise SystemExit(f"No Gmail credentials for {account} under .secrets/gmail/.")
+    svc = await conn._get_service()
+    labels = (await conn._execute(svc.users().labels().list(userId="me")))["labels"]
+    label_ids = {
+        lbl["name"].removeprefix("wf/"): lbl["id"]
+        for lbl in labels
+        if lbl["name"].startswith("wf/")
+    }
+    rng = random.Random(seed)
+    chosen: list[tuple[str, str]] = []
+    for category in CATEGORIES:
+        if category not in label_ids:
+            continue
+        ids: list[str] = []
+        token: str | None = None
+        while True:
+            kwargs: dict[str, Any] = {
+                "userId": "me",
+                "labelIds": [label_ids[category]],
+                "q": f"after:{int(since.timestamp())}",
+                "maxResults": 100,
+            }
+            if token:
+                kwargs["pageToken"] = token
+            resp = await conn._execute(svc.users().messages().list(**kwargs))
+            ids += [m["id"] for m in resp.get("messages", []) or []]
+            token = resp.get("nextPageToken")
+            if not token:
+                break
+        if category not in RARE_CATEGORIES and len(ids) > per_bulk:
+            ids = rng.sample(ids, per_bulk)
+        print(f"  {category:<13} {len(ids)} queued")
+        chosen += [(mid, category) for mid in ids]
+
+    items: list[dict[str, Any]] = []
+    for mid, category in chosen:
+        msg = await conn.get_message(mid)
+        items.append(
+            {
+                "message_id": mid,
+                "received_at": msg.received_at.isoformat()[:16],
+                "sender_name": msg.from_address.name or "",
+                "sender": msg.from_address.address,
+                "subject": msg.subject or "",
+                "body": msg.body_text or "",
+                "agent_category": category,
+                "agent_confidence": "n/a",
+                "agent_summary": "(verdict read from the applied wf/* label)",
+            }
+        )
+        await asyncio.sleep(0.25)
+    # Rare classes first: they are the point of the stratification.
+    items.sort(key=lambda i: (i["agent_category"] not in RARE_CATEGORIES, i["received_at"]))
+    return items
 
 
 def _show_card(item: dict[str, Any], pos: int, total: int) -> None:
@@ -188,7 +275,11 @@ async def run(args: argparse.Namespace) -> int:
         _print_summary(labels)
         return 0
 
-    items = await _load_items(args.workflow)
+    if args.source == "gmail":
+        since = datetime.fromisoformat(args.since).replace(tzinfo=UTC)
+        items = await _load_items_gmail(args.account, since, args.per_bulk, args.seed)
+    else:
+        items = await _load_items(args.workflow)
     judges = _judge_verdicts(Path(args.judge_report))
     for item in items:
         item["judge"] = judges.get(item["message_id"])
@@ -200,10 +291,12 @@ async def run(args: argparse.Namespace) -> int:
         if i["message_id"] not in labels
         or (revisit_cats and labels[i["message_id"]].get("true_category") in revisit_cats)
     ]
-    # Highest-value first: judge disagreements, then the rest chronologically.
+    # Highest-value first: judge disagreements, then (Gmail source) the
+    # rare classes, then the rest chronologically.
     pending.sort(
         key=lambda i: (
             not (i["judge"] and i["judge"]["judge_category"] != i["agent_category"]),
+            args.source == "gmail" and i["agent_category"] not in RARE_CATEGORIES,
             i["received_at"],
         )
     )
@@ -253,6 +346,7 @@ async def run(args: argparse.Namespace) -> int:
             "verdict": verdict,
             "true_category": true_cat,
             "labeled_at": datetime.now(UTC).isoformat(),
+            "source": args.source,
         }
         _append_label(labels_path, entry)
         labels[item["message_id"]] = entry
@@ -280,6 +374,19 @@ def main() -> int:
         "(e.g. 'fyi,spam' after the 2026-07-19 taxonomy split); their prior "
         "labels are superseded by the new answer (append-only file, last wins)",
     )
+    parser.add_argument(
+        "--source",
+        choices=("postgres", "gmail"),
+        default="postgres",
+        help="where verdicts come from; `gmail` reads the applied wf/* labels "
+        "(the only source left under TRACE_SAFE_ONLY)",
+    )
+    parser.add_argument("--account", default="qspencer@gmail.com", help="gmail source: mailbox")
+    parser.add_argument("--since", default="2026-09-18", help="gmail source: ISO date, UTC")
+    parser.add_argument(
+        "--per-bulk", type=int, default=15, help="gmail source: sample size per bulk class"
+    )
+    parser.add_argument("--seed", type=int, default=20260928, help="gmail source: sample seed")
     parser.add_argument("--summary", action="store_true", help="print stats and exit")
     return asyncio.run(run(parser.parse_args()))
 

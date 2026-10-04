@@ -46,7 +46,7 @@ The living status lives in `CLAUDE.md`; the design corpus is under `docs/`
 
 ## Quick start
 
-Prerequisites: Python 3.12, [`uv`](https://docs.astral.sh/uv/), Node 22+, Docker,
+Prerequisites: Python 3.14 (GitHub's build — it links the system SQLite, which veracium requires; see CLAUDE.md), [`uv`](https://docs.astral.sh/uv/), Node 22+, Docker,
 and (for OCR) `tesseract` + `poppler-utils` on the system PATH.
 
 ```bash
@@ -86,7 +86,7 @@ tick-the-box GUI walkthrough).
 
 ```
 .
-├── backend/           Python 3.12 backend (FastAPI, async-throughout)
+├── backend/           Python 3.14 backend (FastAPI, async-throughout)
 │   ├── src/workflow_platform/
 │   │   ├── engine/        Workflow engine (DAG executor, functions, tool catalog)
 │   │   ├── agent/         Bedrock tool-use agent loop

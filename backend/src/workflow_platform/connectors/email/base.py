@@ -17,6 +17,7 @@ Graph's delta-link).
 from __future__ import annotations
 
 from abc import abstractmethod
+from collections.abc import Collection
 from datetime import datetime
 from typing import Any, ClassVar
 
@@ -39,11 +40,21 @@ class EmailConnector(Connector):
         label: str | None = None,
         max_messages: int = 50,
         query: str | None = None,
+        oldest_first: bool = False,
+        skip_ids: Collection[str] | None = None,
     ) -> list[EmailMessage]:
-        """Return messages received strictly after `since`, newest-first
-        order optional. Returns at most `max_messages` entries. `query` is an
-        extra provider-native search clause (providers without server-side
-        search may ignore it)."""
+        """Return messages received after `since`, at most `max_messages`.
+        `query` is an extra provider-native search clause (providers without
+        server-side search may ignore it).
+
+        `oldest_first=True` is REQUIRED for any caller that advances a cursor
+        to the newest message returned: it returns the OLDEST `max_messages`
+        matches, ascending. Without it a provider listing newest-first hands
+        back the newest page, the cursor jumps past everything older, and a
+        backlog larger than one page is skipped for good — what the
+        2026-09-28 catch-up did to ~250 messages.
+
+        `skip_ids` are excluded before the `max_messages` cut."""
 
     @abstractmethod
     async def send_email(self, req: EmailSendRequest) -> str:
@@ -76,7 +87,7 @@ class EmailConnector(Connector):
             return False
 
     async def trigger_poll(self) -> list[dict[str, Any]]:
-        messages = await self.poll_inbox(since=self._cursor)
+        messages = await self.poll_inbox(since=self._cursor, oldest_first=True)
         if messages:
             self._cursor = max(m.received_at for m in messages)
         return [m.model_dump(mode="json") for m in messages]
