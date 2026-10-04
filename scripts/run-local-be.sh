@@ -53,6 +53,18 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 BACKEND="$REPO_ROOT/backend"
 
+# The interpreter. veracium qualifies exactly ONE SQLite build (3.45.1) and
+# refuses to open the learned-memory store on any other; uv's own Python
+# 3.14 bundles SQLite 3.53.1 (measured 2026-09-29). GitHub's Python build
+# links the system SQLite, so prefer it when present — without this, a
+# `uv run` that has to rebuild the venv would pick uv's build, and every
+# triage would quietly lose its memory (`/api/health` reports it as
+# `learned_memory: unopenable`). An explicit UV_PYTHON always wins.
+QUALIFIED_PYTHON="$HOME/.local/opt/python-3.14.7-gh/bin/python3.14"
+if [ -z "${UV_PYTHON:-}" ] && [ -x "$QUALIFIED_PYTHON" ]; then
+  export UV_PYTHON="$QUALIFIED_PYTHON"
+fi
+
 # --- status helpers (colour only on a real terminal) --------------------------
 if [ -t 1 ]; then C_STEP=$'\033[1;36m'; C_OK=$'\033[1;32m'; C_WARN=$'\033[1;33m'; C_OFF=$'\033[0m'
 else C_STEP=''; C_OK=''; C_WARN=''; C_OFF=''; fi
@@ -309,6 +321,7 @@ else
 fi
 echo "   definitions  : $WORKFLOW_DEFINITIONS_DIR"
 echo "   subject key  : $SUBJECT_KEY_STATUS"
+echo "   python       : ${UV_PYTHON:-uv default} (sqlite $("${UV_PYTHON:-python3}" -c 'import sqlite3;print(sqlite3.sqlite_version)' 2>/dev/null || echo ?))"
 if [ "$AUTH_MODE" = "local" ]; then
   echo "   auth         : local (email+password login; manage users via"
   echo "                  backend/tools/create_user.py or the Users admin page)"

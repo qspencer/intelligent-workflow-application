@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
@@ -203,8 +203,10 @@ async def test_download_dir_spools_attachments_onto_payload(tmp_path: Any) -> No
 
 async def test_advances_cursor_so_second_poll_uses_after_query() -> None:
     svc = FakeGmailService()
-    # Two distinct internal dates: 1000ms then 2000ms.
-    svc.get_responses["m-1"] = stage_gmail_message("m-1", internal_ms=1_000)
+    # Stamped AFTER the trigger's starting cursor (2000-01-01). It used to
+    # be 1970, which passed only because the cursor could move backwards —
+    # the thing the look-back fix forbids.
+    svc.get_responses["m-1"] = stage_gmail_message("m-1", internal_ms=1_748_169_600_000)
     svc.list_response = {"messages": [{"id": "m-1"}]}
 
     fired: list[dict[str, Any]] = []
@@ -225,10 +227,9 @@ async def test_advances_cursor_so_second_poll_uses_after_query() -> None:
         await trig.stop()
 
     list_calls = [kw for (m, kw) in svc.calls if m == "messages.list"]
-    # The second poll's `q` should carry `after:<epoch>` derived from the
-    # advanced cursor (which is the received_at of m-1: 2025-05-25T10:00:00Z = 1748169600).
-    # m-1's internal_ms is overridden to 1000, so received_at = 1.0s after epoch.
-    assert "after:1 " in list_calls[1]["q"] + " " or list_calls[1]["q"].startswith("after:1 ")
+    # The second poll's `q` carries `after:<epoch>` from the advanced cursor:
+    # m-1's received_at, 2025-05-25T10:00:00Z = 1748169600.
+    assert list_calls[1]["q"].startswith("after:1748169600 ")
 
 
 async def test_stop_cancels_loop_cleanly() -> None:
@@ -270,7 +271,8 @@ async def test_start_is_idempotent() -> None:
 async def test_callback_exception_does_not_kill_loop(caplog: pytest.LogCaptureFixture) -> None:
     """A misbehaving callback for one message must not stop the trigger."""
     svc = FakeGmailService()
-    svc.list_response = {"messages": [{"id": "m-1"}, {"id": "m-2"}]}
+    # Gmail's real order: newest first. The trigger dispatches oldest first.
+    svc.list_response = {"messages": [{"id": "m-2"}, {"id": "m-1"}]}
     svc.get_responses["m-1"] = stage_gmail_message("m-1", internal_ms=1_000)
     svc.get_responses["m-2"] = stage_gmail_message("m-2", internal_ms=2_000)
 
@@ -632,3 +634,278 @@ async def test_marking_is_off_by_default() -> None:
     """Touching the mailbox is opt-in: no config, no mutation."""
     svc = await _run_one(True, marking=False)
     assert _unread_modifies(svc) == []
+
+
+# ---------- auth-revoked transitions (review R1, 2026-09-28) ----------
+
+
+def _revoke_first(trig: GmailPollTrigger, times: int) -> list[int]:
+    """Make the first `times` polls raise GmailAuthRevoked, then succeed."""
+    calls = [0]
+    original_poll = trig.connector.poll_inbox
+
+    async def flaky_poll(*args: Any, **kwargs: Any) -> Any:
+        calls[0] += 1
+        if calls[0] <= times:
+            raise GmailAuthRevoked("revoked")
+        return await original_poll(*args, **kwargs)
+
+    trig.connector.poll_inbox = flaky_poll  # type: ignore[method-assign]
+    return calls
+
+
+async def test_revoked_hook_fires_on_the_EDGE_not_on_every_backoff() -> None:
+    """The 2026-09-25 outage logged 913 identical lines. An alert per back-off
+    would be the same flood with a louder voice; the alert belongs to the
+    transition, and so does the one saying it is over."""
+    svc = FakeGmailService()
+    svc.list_response = {"messages": []}
+    trig, _ = _make_trigger(svc)
+    calls = _revoke_first(trig, times=3)
+    events: list[str] = []
+    restored_after: list[float] = []
+
+    async def revoked() -> None:
+        events.append("revoked")
+
+    async def restored(seconds: float) -> None:
+        events.append("restored")
+        restored_after.append(seconds)
+
+    trig.on_auth_revoked = revoked
+    trig.on_auth_restored = restored
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        pass
+
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: calls[0] >= 5)
+    finally:
+        await trig.stop()
+
+    assert events == ["revoked", "restored"]
+    assert restored_after[0] >= 0
+
+
+async def test_credentials_are_reloaded_before_each_retry() -> None:
+    """Re-running the consent CLI must be enough: the retry after a back-off
+    re-reads the credentials, instead of reusing the dead token until a
+    restart (which the old log line never mentioned)."""
+    svc = FakeGmailService()
+    svc.list_response = {"messages": []}
+    trig, _ = _make_trigger(svc)
+    calls = _revoke_first(trig, times=2)
+    reloads_at_poll: list[int] = []
+
+    def reload() -> bool:
+        reloads_at_poll.append(calls[0])
+        return True
+
+    trig.reload_credentials = reload
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        pass
+
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: calls[0] >= 3)
+    finally:
+        await trig.stop()
+
+    # One reload after each of the two failed polls, each BEFORE the next poll.
+    assert reloads_at_poll[:2] == [1, 2]
+
+
+async def test_a_failing_hook_does_not_stop_the_poller() -> None:
+    svc = FakeGmailService()
+    svc.list_response = {"messages": []}
+    trig, _ = _make_trigger(svc)
+    calls = _revoke_first(trig, times=1)
+
+    async def broken() -> None:
+        raise RuntimeError("alert sink down")
+
+    def broken_reload() -> bool:
+        raise OSError("disk gone")
+
+    trig.on_auth_revoked = broken
+    trig.reload_credentials = broken_reload
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        pass
+
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: calls[0] >= 3)
+    finally:
+        await trig.stop()
+    assert trig._auth_revoked_since is None  # recovered and kept polling
+
+
+# ---------- backlog order (2026-09-28 catch-up finding) ----------
+
+
+class _MailboxList:
+    """`messages.list` with Gmail's real semantics — honours `after:` and
+    pages NEWEST-FIRST — which the shared fake does not model. The bug this
+    pins only exists where both hold."""
+
+    def __init__(self, svc: FakeGmailService, internal_ms: dict[str, int]) -> None:
+        self.svc = svc
+        self.internal_ms = internal_ms
+
+    def __call__(self, **kwargs: Any) -> Any:
+        import re
+
+        self.svc.calls.append(("messages.list", kwargs))
+        m = re.search(r"after:(\d+)", kwargs.get("q", ""))
+        after = int(m.group(1)) if m else 0
+        # Inclusive, second-granular — the boundary the seen-id ring absorbs.
+        ids = sorted(
+            (i for i, ms in self.internal_ms.items() if ms // 1000 >= after),
+            key=lambda i: -self.internal_ms[i],
+        )
+        start = int(kwargs.get("pageToken") or 0)
+        page = ids[start : start + kwargs["maxResults"]]
+        resp: dict[str, Any] = {"messages": [{"id": i} for i in page]}
+        if start + len(page) < len(ids):
+            resp["nextPageToken"] = str(start + len(page))
+
+        class _R:
+            def execute(self) -> Any:
+                return resp
+
+        return _R()
+
+
+def _backlog(n: int) -> tuple[FakeGmailService, dict[str, int]]:
+    svc = FakeGmailService()
+    base = 1_790_000_000_000  # well after the test cursor
+    stamps = {f"m-{i:03d}": base + i * 60_000 for i in range(n)}  # one a minute
+    for mid, ms in stamps.items():
+        svc.get_responses[mid] = stage_gmail_message(mid, subject=mid, internal_ms=ms)
+    return svc, stamps
+
+
+async def test_oldest_first_returns_the_OLDEST_page_ascending(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    svc, stamps = _backlog(120)
+    conn = GmailConnector(account="a@example.com", auth_provider=FakeAuthProvider(), service=svc)
+    lister = _MailboxList(svc, stamps)
+    monkeypatch.setattr(type(svc.users().messages()), "list", lambda self, **kw: lister(**kw))
+    oldest = await conn.poll_inbox(max_messages=50, oldest_first=True)
+    newest = await conn.poll_inbox(max_messages=50)
+    assert [m.message_id for m in oldest] == [f"m-{i:03d}" for i in range(50)]
+    # The default is unchanged — "latest N" callers (fetch tools, smoke) keep it.
+    assert [m.message_id for m in newest] == [f"m-{i:03d}" for i in range(119, 69, -1)]
+
+
+async def test_a_backlog_larger_than_one_poll_is_drained_in_order_with_nothing_skipped(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The 2026-09-28 finding. After a three-day outage the trigger took the
+    NEWEST 50 of ~300 pending messages, advanced its cursor past them, and
+    the ~250 older ones were never read. Every message must fire, once, in
+    arrival order."""
+    svc, stamps = _backlog(130)
+    trig, _ = _make_trigger(svc)
+    trig.max_messages = 50
+    lister = _MailboxList(svc, stamps)
+    monkeypatch.setattr(type(svc.users().messages()), "list", lambda self, **kw: lister(**kw))
+    fired: list[str] = []
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        fired.append(payload["message_id"])
+
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: len(fired) >= 130, timeout=5.0)
+        await asyncio.sleep(0.2)  # a further poll must not re-fire anything
+    finally:
+        await trig.stop()
+    assert fired == [f"m-{i:03d}" for i in range(130)]
+
+
+# ---------- late, back-dated arrivals (DMARC reports, 2026-09-28) ----------
+
+
+async def _run_until(trig: GmailPollTrigger, fired: list[str], predicate: Any) -> None:
+    async def on_event(payload: dict[str, Any]) -> None:
+        fired.append(payload["message_id"])
+
+    await trig.start(on_event)
+    try:
+        await _wait_for(predicate, timeout=3.0)
+        await asyncio.sleep(0.2)  # a few more polls: nothing may re-fire
+    finally:
+        await trig.stop()
+
+
+async def _late_arrival(monkeypatch: pytest.MonkeyPatch, lookback_hours: float) -> list[str]:
+    """m-new (stamped T+2h) is polled first; then m-late arrives carrying an
+    EARLIER stamp (T+1h) — Google's DMARC reports do exactly this."""
+    svc = FakeGmailService()
+    base = 1_790_000_000_000
+    stamps = {"m-new": base + 2 * 3_600_000}
+    svc.get_responses["m-new"] = stage_gmail_message("m-new", internal_ms=stamps["m-new"])
+    lister = _MailboxList(svc, stamps)
+    monkeypatch.setattr(type(svc.users().messages()), "list", lambda self, **kw: lister(**kw))
+    trig, _ = _make_trigger(svc)
+    trig.lookback = timedelta(hours=lookback_hours)
+    trig._cursor = datetime.fromtimestamp(base / 1000, tz=UTC)
+    fired: list[str] = []
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        fired.append(payload["message_id"])
+        if payload["message_id"] == "m-new":  # it lands after the first poll
+            stamps["m-late"] = base + 3_600_000
+            svc.get_responses["m-late"] = stage_gmail_message(
+                "m-late", internal_ms=stamps["m-late"]
+            )
+
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: bool(fired))
+        await asyncio.sleep(0.4)
+    finally:
+        await trig.stop()
+    assert trig._cursor == datetime.fromtimestamp(stamps["m-new"] / 1000, tz=UTC), (
+        "the cursor moved backwards"
+    )
+    return fired
+
+
+async def test_without_lookback_a_late_backdated_message_is_never_read(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The hazard, pinned as a control: the default must stay as it was for
+    busy inboxes, and this is what it costs a report mailbox."""
+    assert await _late_arrival(monkeypatch, lookback_hours=0) == ["m-new"]
+
+
+async def test_lookback_reads_a_late_backdated_message_exactly_once(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    assert await _late_arrival(monkeypatch, lookback_hours=168) == ["m-new", "m-late"]
+
+
+async def test_seen_mail_in_the_window_cannot_crowd_out_a_new_message(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A look-back window holding more processed messages than one poll's cap
+    must not starve the new one: seen ids are dropped BEFORE the cap. Without
+    that, oldest-first would return the same 50 seen messages forever."""
+    svc, stamps = _backlog(61)  # m-000 .. m-060, oldest first
+    lister = _MailboxList(svc, stamps)
+    monkeypatch.setattr(type(svc.users().messages()), "list", lambda self, **kw: lister(**kw))
+    trig, _ = _make_trigger(svc)
+    trig.max_messages = 50
+    trig.lookback = timedelta(hours=168)
+    for i in range(60):
+        trig._mark_seen(f"m-{i:03d}")
+    trig._cursor = datetime.fromtimestamp(stamps["m-059"] / 1000, tz=UTC)
+    fired: list[str] = []
+    await _run_until(trig, fired, lambda: bool(fired))
+    assert fired == ["m-060"]

@@ -329,22 +329,26 @@ async def test_renaming_does_not_switch_on_behaviour_the_original_lacked() -> No
 
 
 async def test_a_recognised_key_on_another_function_stays_DATA() -> None:
-    """R9 P2: rewriting by key NAME rewrote `route_from` even on `noop`, where
-    it is ordinary returned data. Reference-ness is per function."""
+    """R9 P2: rewriting by key NAME rewrote a reference key even on `noop`,
+    where it is ordinary returned data. Reference-ness is per function."""
     from workflow_platform.scaffold import mint_platform_step_ids
 
+    # `triage_from` IS a reference on `record_email_triage`; on `noop` it is
+    # data. (Was `route_from`, until the codified route that read it was
+    # retired — the example had to move to a key some function still reads,
+    # or this would pass for no reason.)
     raw = {
         "steps": [
             {
-                "id": "precheck",
+                "id": "triage",
                 "type": "deterministic",
                 "function": "noop",
-                "config": {"route_from": "steps.precheck.route"},
+                "config": {"triage_from": "steps.triage.output_text"},
             }
         ]
     }
     cfg = mint_platform_step_ids(json.loads(json.dumps(raw)))["steps"][0]["config"]
-    assert cfg["route_from"] == "steps.precheck.route", f"data was rewritten: {cfg}"
+    assert cfg["triage_from"] == "steps.triage.output_text", f"data was rewritten: {cfg}"
 
 
 async def test_minting_leaves_ordinary_config_data_alone() -> None:

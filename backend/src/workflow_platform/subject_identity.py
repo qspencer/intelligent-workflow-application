@@ -24,8 +24,8 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Any
 
-#: HMAC key for mailbox pseudonyms. From the environment, never the repo —
-#: the pattern `_sampling_bucket` already uses. Unset (dev, tests) means no
+#: HMAC key for mailbox pseudonyms. From the environment, never the repo.
+#: Unset (dev, tests) means no
 #: pseudonym is minted at all rather than an unkeyed hash: an unkeyed digest
 #: of a small address space is reversible by anyone who can guess an
 #: address, which is exactly the disclosure the pseudonym exists to avoid.

@@ -101,6 +101,27 @@ async def test_authenticate_against_live_gmail(live_connector: GmailConnector) -
     await live_connector.authenticate()
 
 
+async def test_the_token_belongs_to_the_configured_account(live_connector: GmailConnector) -> None:
+    """The credentials must authenticate AS the account the job says it tests.
+
+    Found 2026-09-29: CI's GMAIL_REFRESH_TOKEN (set 2026-05-26) was minted
+    when `intelligent.workflow.engine@` was an ALIAS of the
+    `qrsconsulting@quentinspencer.com` mailbox. The tools account later
+    became its own mailbox with its own token; the CI secret did not follow.
+    For four months the weekly job exercised — and mailed test messages
+    into — the operator's business mailbox, and it only surfaced when that
+    mailbox's default send-as changed domain and the round-trip's From
+    assertion broke. This names the actual problem instead."""
+    svc = await live_connector._get_service()
+    profile = await live_connector._execute(svc.users().getProfile(userId="me"))
+    actual = str(profile.get("emailAddress", "")).lower()
+    assert actual == ACCOUNT.lower(), (
+        f"the Gmail token authenticates as {actual!r}, but this job tests {ACCOUNT!r} — "
+        "re-mint the token for the right account (tools/gmail_auth.py) and update "
+        "the GMAIL_REFRESH_TOKEN / GMAIL_CLIENT_CREDENTIALS_JSON secrets"
+    )
+
+
 async def test_send_to_self_and_poll_inbox_roundtrip(live_connector: GmailConnector) -> None:
     """The headline live test: compose a unique-marker message, send it to
     the account itself, then poll the inbox until it arrives. Asserts the

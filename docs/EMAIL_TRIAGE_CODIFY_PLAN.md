@@ -1,6 +1,19 @@
 # Email Triage, Codified Sender Pre-Filter (G13 slice 1) — Design, v2
 
-Status: **BUILT + CUT OVER 2026-07-30** (slice 1: eligibility engine +
+Status: **RETIRED 2026-09-28.** The route had been inert since 2026-08-13
+(the one rules artifact, generated 07-30, aged out under its own 14-day
+inactivity rule and nothing regenerated it); the codifier's evidence —
+sender and category — is exactly what TRACE_SAFE_ONLY withholds at rest,
+so `codify_senders.py` found 0 senders with evidence; and over 07-30→08-12
+the attention-only path cost ~32% MORE per message than the full
+classifier ($0.00865 vs $0.00656, equal latency). Removed: the precheck
+and attention-only steps, `codified_sender_check`, the codified branch
+of `record_email_triage`, `codify.py`, `tools/codify_senders.py` and
+their tests; the artifact moved to `.memory/backups/`. Historic rows
+keep `decision_source: codified_sender_rule`. What follows is the design
+as it was built.
+
+Previous status: **BUILT + CUT OVER 2026-07-30** (slice 1: eligibility engine +
 CLI; runtime slices same day). Live shape: the v2 diamond on
 `email-triage-apply` — deterministic `codified_sender_check` (rule
 artifact + disable overlay read per run via world.fs; schema/TTL/

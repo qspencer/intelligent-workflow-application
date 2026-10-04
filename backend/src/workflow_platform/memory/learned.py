@@ -220,6 +220,25 @@ class LearnedMemoryService:
             )
         return self._memory
 
+    async def check_open(self) -> str | None:
+        """Open the store, or say why it will not open: None when it opens,
+        else the error's class name.
+
+        Recall FAILS OPEN by design — a recall error is audited as
+        `memory_recall_failed` and the run continues without memory — so a
+        store that cannot be opened at all is invisible from the runs
+        themselves: every triage silently loses its memory. The case that
+        motivated this (2026-09-29): veracium qualifies exactly one SQLite
+        build (3.45.1) and refuses any other with `StoreVersionError`, and
+        uv's own Python 3.14 bundles 3.53.1. `/api/health` asks this."""
+        async with self._lock:
+            try:
+                await asyncio.to_thread(self._get_memory)
+            except Exception as exc:
+                logger.error("Learned-memory store %s will not open: %s", self.db_path, exc)
+                return type(exc).__name__
+        return None
+
     async def observe(
         self,
         user_id: str,

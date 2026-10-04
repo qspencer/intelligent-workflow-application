@@ -283,7 +283,7 @@ def build_ws_router(
                                 withheld_kinds=withheld,
                             )
                             await ws.send_json(frame if audit_ok else projected)
-        except (WebSocketDisconnect, RuntimeError, asyncio.CancelledError):
+        except WebSocketDisconnect, RuntimeError, asyncio.CancelledError:
             pass
         finally:
             for task in (recv_task, get_task):

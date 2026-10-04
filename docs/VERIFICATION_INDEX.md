@@ -206,7 +206,7 @@ All confirmed present.
 | 5 | Third-party claims quarantined; never-assert fence injected VERBATIM | `executor.py:1024-1033` (injects `recalled.context` verbatim); `memory/learned.py:279-304` returns veracium's fenced block unchanged; provenance `observe(author=…)` L187-197 | `test_learned_memory.py::test_engine_injects_recall_verbatim_with_fence` (L495: fence text "UNVERIFIED THIRD-PARTY CLAIMS (never assert as fact)" present in system prompt), `::test_recall_context_returns_fenced_block` (L460), `::test_observe_writes_episode_and_meters_usage` (quarantined==1) | VERIFIED-IN-CODE |
 | 5 | Recall entity normalized (attacker display names never key anything) | `memory/learned.py:normalize_entity` (lowercase, strip `+tag`); recall/observe key off `trigger.from_address.address`, not the display name | `test_learned_memory.py::test_normalize_entity` pins address canonicalization | **PARTIAL** — address normalization is CODE+TEST; the end-to-end "hostile `From: display <x@y.com>` keys ONLY by `x@y.com`" call-path is CODE-verified but not pinned by a dedicated test. Named gap. |
 | 6 | Codify bypass requires DKIM/DMARC-aligned auth; ordered AR parse defeats appended headers | `connectors/email/auth_results.py:authentication_pass` L41-60 (first trusted `mx.google.com` entry decides, returns without falling through) | `test_auth_results.py::test_first_trusted_entry_decides_attacker_appended_ignored` (Gmail fail topmost + attacker pass below → False) — **8 tests confirmed** in file | VERIFIED-IN-CODE |
-| 6 | Codified runtime: auth gate + drift-disable overlay + fail-open | `engine/functions.py:codified_sender_check` L1244 (auth L1266, fail-open on missing rules L1278, combined gate L1311); overlay writer `_disable_codified_sender` L569 | `test_codified_runtime.py::test_unauthenticated_listed_sender_gets_judgment` (auth gate), `::test_schema_mismatch_expiry_inactivity_and_overlay_disable`, `::test_unlisted_and_missing_file_fail_open` | VERIFIED-IN-CODE |
+| 6 | ~~Codified runtime: auth gate + drift-disable overlay + fail-open~~ | **RETIRED 2026-09-28** — the codified-sender route, its runtime (`codified_sender_check`, the disable overlay) and its tests were removed; every message now goes through the one classifier (`test_email_triage_apply.py::test_classifier_fence_and_apply_shape` pins that shape) | — | RETIRED |
 
 **§4a two claims kept separate:** authority containment (hard invariant)
 is the ladder above — test-pinned. Decision robustness (which of the 8
@@ -299,12 +299,11 @@ These are honestly not covered. Cross-referenced to the G-numbers in
 9. **Two-axis + codify ARE built and cut over** (correcting a stale claim
    the earlier revision got backwards — external review finding 3):
    `EMAIL_TRIAGE_TWO_AXIS_PLAN` is **BUILT + CUT OVER 2026-07-26**,
-   `EMAIL_TRIAGE_CODIFY_PLAN` **BUILT + CUT OVER 2026-07-30**. What remains
-   **FUTURE/UNBUILT within codify (G23)** is narrow: runtime **rubric-hash
-   enforcement** (schema version IS checked) and the **`skip_if`** engine
-   surface (the decision_source query contract is the live anti-feedback
-   guard). The codify runtime path — precheck routing, auth gate, disable
-   overlay, sampling — is built and pinned (`test_codified_runtime.py`).
+   `EMAIL_TRIAGE_CODIFY_PLAN` was **BUILT + CUT OVER 2026-07-30 and RETIRED
+   2026-09-28**: inert since 08-13 (its rules aged out and were never
+   refreshed), its evidence withheld at rest under TRACE_SAFE_ONLY, and
+   ~32% dearer per message than the classifier it bypassed. The runtime
+   path and its tests are removed; G23's remaining items lapse with it.
 
 10. **Recovery-reasoning categories, compensation, exactly-once, mid-step
     budget, schedule catch-up, approval expiry** — all explicitly "Not

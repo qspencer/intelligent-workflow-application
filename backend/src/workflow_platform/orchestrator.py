@@ -27,11 +27,13 @@ from collections.abc import Awaitable, Callable
 from pathlib import Path
 from typing import Any
 
+from workflow_platform.audit_writer import AuditWriter
 from workflow_platform.connectors.email import (
     GmailConnector,
     GmailOAuthProvider,
     seed_gmail_env_from_disk,
 )
+from workflow_platform.connectors.email.bootstrap import reseed_gmail_env_from_disk
 from workflow_platform.engine import WorkflowEngine
 from workflow_platform.memory import MemoryManager
 from workflow_platform.persistence import Repositories
@@ -92,6 +94,7 @@ class TriggerOrchestrator:
         engine: WorkflowEngine,
         webhook_registry: WebhookRegistry,
         secret_store: SecretStore | None = None,
+        audit_writer: AuditWriter | None = None,
     ) -> None:
         self.definitions_dir = definitions_dir
         self.repositories = repositories
@@ -100,7 +103,12 @@ class TriggerOrchestrator:
         # `secret_store` is only required for triggers that need credentials
         # (e.g., the email trigger). Workflows that don't use them work without it.
         self.secret_store = secret_store
+        # Trigger-health alerts (auth revoked / restored). Optional so the
+        # many test constructions stay one-liners; without it the transitions
+        # are logged, as before, and nothing is audited.
+        self.audit_writer = audit_writer
         self._started: list[Trigger] = []
+        self._registered: set[str] = set()
 
     async def start(self) -> None:
         if not self.definitions_dir.exists():
@@ -133,6 +141,12 @@ class TriggerOrchestrator:
             except Exception:
                 logger.exception("Error stopping trigger %r", trigger)
         self._started.clear()
+        self._registered.clear()
+
+    def registered_workflow_ids(self) -> set[str]:
+        """Workflows whose trigger this process started — what monitoring's
+        trigger-health checks are about."""
+        return set(self._registered)
 
     async def _register_one(self, path: Path) -> None:
         definition = load_definition_from_file(path)
@@ -148,6 +162,7 @@ class TriggerOrchestrator:
         callback = self._make_callback(definition)
         await trigger.start(callback)
         self._started.append(trigger)
+        self._registered.add(definition.id)
         logger.info(
             "Started %s trigger for workflow %s (from %s)",
             definition.trigger.type,
@@ -237,6 +252,7 @@ class TriggerOrchestrator:
                     annotate_reply_status=bool(config.get("annotate_reply_status", False)),
                     annotate_auth_result=bool(config.get("annotate_auth_result", False)),
                     mark_read_after_success=bool(config.get("mark_read_after_success", False)),
+                    lookback_hours=float(config.get("lookback_hours", 0) or 0),
                     body_max_chars=(
                         int(config["body_max_chars"]) if config.get("body_max_chars") else None
                     ),
@@ -245,6 +261,19 @@ class TriggerOrchestrator:
                     # different mailbox starts fresh.
                     cursor_store=self.repositories.trigger_cursors,
                     cursor_key=f"email:{definition.id}:{account}",
+                    on_auth_revoked=lambda: self._audit_trigger(
+                        "alert_trigger_auth_revoked", definition
+                    ),
+                    on_auth_restored=lambda seconds: self._audit_trigger(
+                        "trigger_auth_restored", definition, revoked_for_seconds=seconds
+                    ),
+                    # Only the dev store reads a process-local copy of the
+                    # disk; any other store is re-read on every refresh.
+                    reload_credentials=(
+                        (lambda: reseed_gmail_env_from_disk(account))
+                        if isinstance(self.secret_store, EnvSecretStore)
+                        else None
+                    ),
                 )
             if spec.type == "manual":
                 # `manual` is a deliberate no-op — definitions tagged this way
@@ -262,6 +291,26 @@ class TriggerOrchestrator:
                 spec.type,
             )
         return None
+
+    async def _audit_trigger(
+        self, action: str, definition: WorkflowDefinition, **extra: float
+    ) -> None:
+        """A trigger-health transition, keyed by WORKFLOW rather than by
+        mailbox: the account is a field of the definition `workflow_id`
+        names, and an instance-less entry must be projection-lossless (the
+        `alert_stale_trigger` rule)."""
+        if self.audit_writer is None:
+            return
+        await self.audit_writer.append(
+            action,
+            actor_type="system",
+            actor_id="trigger_orchestrator",
+            detail={
+                "workflow_id": definition.id,
+                "trigger_type": definition.trigger.type,
+                **extra,
+            },
+        )
 
     def _make_callback(
         self, definition: WorkflowDefinition

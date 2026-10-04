@@ -80,6 +80,7 @@ async def _schedule(store: Any, answers: Any = None, catalog: Any = None, **over
         org_id=over.pop("org_id", "default"),
         subject=over.pop("subject", "user-1"),
         recipient=over.pop("recipient", "user-1"),
+        now=over.pop("now", None),
     )
 
 
@@ -222,6 +223,27 @@ async def test_INVARIANT_the_same_topic_is_never_asked_twice() -> None:
 
 
 # --- 4. the remaining suppression reasons -----------------------------------
+
+
+async def test_scheduling_EXPIRES_before_it_counts_capacity() -> None:
+    """The counterpart the invariant above never had: `expire_pending` was
+    correct, tested, and called by nothing, so an unanswered question held
+    its slot forever — production's first one sat `pending` five days past
+    its 72 h expiry. Capacity must recover through the path that uses it."""
+    other = EMPLOYMENT.model_copy(update={"id": "working_pattern"})
+    catalog = QuestionCatalog(
+        topics=[EMPLOYMENT, other], max_outstanding_per_recipient=1, pending_expiry_hours=1
+    )
+    store = InMemoryShadowStore()
+    assert (await _schedule(store, catalog=catalog)).asked
+
+    later = datetime.now(UTC) + timedelta(hours=2)
+    second = await _schedule(
+        store, catalog=catalog, candidate=_candidate(topic="working_pattern"), now=later
+    )
+    assert second.asked, f"an expired question still held capacity: {second.suppressed_because}"
+    statuses = sorted(q.status for q in await store.list_questions())
+    assert statuses == ["expired", "pending"]
 
 
 async def test_a_known_answer_suppresses_the_question() -> None:

@@ -22,20 +22,28 @@ trigger:
     poll_interval_seconds: 120
     # Full-coverage scope (2026-07-26, operator request): judge ALL incoming
     # mail, not just INBOX — sender-based filters route most mail past the
-    # inbox, and those filtered senders are exactly the codification
-    # candidates G13 needs evidence on. `label: null` drops the INBOX
+    # inbox, and that mail still deserves a verdict. `label: null` drops the INBOX
     # restriction; the query excludes the user's own outgoing mail and
     # drafts (spam/trash are excluded by the Gmail API by default).
     label: null
     query: "-in:sent -in:draft -in:chat"
+    # Bulk senders stamp mail BEFORE Gmail receives it (measured 2026-10-04:
+    # The Information, L.L.Bean, Amazon, Airbnb, Wayfair — 1.5 to 23 min
+    # early). When anything else arrives in that gap the cursor passes the
+    # stamp and the message is never listed: 16 of 605 (2.6%) in five days.
+    # Re-list two hours behind the cursor (5x the worst lag seen); ~10
+    # messages per poll, far inside the 500-id seen ring that absorbs them.
+    lookback_hours: 2
 
     # TWO_AXIS §3: annotate reply_status (replied/not_replied/unknown) via a
     # metadata-only thread check, so awaiting-reply is suppressed on
     # already-answered (backfilled) mail — the baseball-email fix.
     annotate_reply_status: true
-    # CODIFY_PLAN §6: annotate Gmail's Authentication-Results verdict —
-    # the codified route requires it (unauthenticated mail always gets the
-    # full classifier).
+    # Gmail's Authentication-Results verdict (`auth_pass`). Added for the
+    # codified-sender route (CODIFY_PLAN §6), which was RETIRED 2026-09-28;
+    # kept because the classifier has read it on every run since, and
+    # removing an input is a classifier behaviour change of its own — one
+    # to make deliberately, with the A/B harness, not inside a removal.
     annotate_auth_result: true
     # Long-body newsletters (full-coverage scope) don't need 30k tokens to
     # classify — the head suffices.
@@ -63,19 +71,11 @@ trigger:
     headers: {}
 
 steps:
-  # CODIFY_PLAN v2 §5: deterministic router. Senders with a unanimous,
-  # authenticated, in-date rule skip the full (category) classifier; the
-  # attention axis is NEVER bypassed. Fail-open to judgment everywhere.
-  - id: precheck
-    label: "Codified-sender routing"
-    type: deterministic
-    function: codified_sender_check
-    config:
-      rules_path: default/qspencer@gmail.com/email-triage-apply.json
-      account: qspencer@gmail.com
-      sample_one_in: 5
-      inactivity_days: 14
-
+  # The codified-sender route (G13: a precheck that sent rule-covered
+  # senders to an attention-only classifier) was RETIRED 2026-09-28. It had
+  # been inert since 08-13, its evidence is withheld at rest under
+  # TRACE_SAFE_ONLY, and it cost ~32% more per message than this
+  # classifier. See docs/EMAIL_TRIAGE_CODIFY_PLAN.md.
   - id: triage
     label: "Classify the email (no tools)"
     type: agentic
@@ -120,34 +120,6 @@ steps:
       max_iterations: 2
       max_total_tokens: 8000
 
-  # Codified route: category comes from the rule; this small step judges
-  # ONLY the attention axis (content-dependent, never codified). No tools,
-  # no recall block, tighter token cap.
-  - id: classify_attention
-    label: "Attention-only check (codified sender)"
-    type: agentic
-    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
-    tools: []
-    capabilities:
-      tools: []
-    goal: |
-      This email's category is already known from a validated sender rule
-      — judge ONLY whether it DEMANDS attention. Read the trigger payload
-      (from_address, subject, body_text) and apply the attention-axis
-      section of the rubric in your memory: `urgent` (time-sensitive for
-      the USER'S own affairs — never a seller's deadline),
-      `awaiting-reply` (sender expects the user's reply), `review`
-      (consequential verify/decide, narrow — routine receipts and digests
-      get NONE). The empty list is the normal answer for a codified
-      (historically boring) sender.
-
-      Respond with ONLY a JSON object on one line:
-        {"attention": [<zero or more of "urgent"|"awaiting-reply"|"review">],
-         "decision_note": "<one short clause>"}
-    policy:
-      max_iterations: 2
-      max_total_tokens: 6000
-
   - id: record
     label: "Record the triage result"
     type: deterministic
@@ -155,9 +127,6 @@ steps:
     output_renderer: triage
     config:
       triage_from: steps.triage.output_text
-      attention_from: steps.classify_attention.output_text
-      route_from: steps.precheck.route
-      rules_path: default/qspencer@gmail.com/email-triage-apply.json
 
   - id: apply
     label: "Apply the wf/<category> label"
@@ -204,15 +173,7 @@ steps:
       retries: 2
 
 edges:
-  - from: precheck
-    to: triage
-    condition: steps.precheck.route == 'full'
-  - from: precheck
-    to: classify_attention
-    condition: steps.precheck.route == 'codified'
   - from: triage
-    to: record
-  - from: classify_attention
     to: record
   - from: record
     to: apply
