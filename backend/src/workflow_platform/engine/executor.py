@@ -36,6 +36,11 @@ from workflow_platform.bedrock import BedrockClient
 from workflow_platform.connectors.browser import BrowserConnector, PlaywrightConnector
 from workflow_platform.cost import cost_for_usage
 from workflow_platform.elicitation import QuestionCandidate, QuestionStore, schedule
+from workflow_platform.elicitation.suggest import (
+    build_suggestion_prompt,
+    parse_suggestion,
+    render_message,
+)
 from workflow_platform.engine.context import WorkflowContext
 from workflow_platform.engine.registry import (
     FunctionRegistry,
@@ -83,6 +88,7 @@ from workflow_platform.workflow import (
     WorkflowDefinition,
     validate_and_order,
 )
+from workflow_platform.workflow.definition import QuestionSpec
 from workflow_platform.world import World
 
 logger = logging.getLogger(__name__)
@@ -1745,7 +1751,11 @@ class WorkflowEngine:
         spec = definition.questions
         if spec is None or self.question_store is None:
             return
-        raw = _resolve_context_value(context, spec.candidate_from)
+        raw: Any
+        if spec.suggest is not None:
+            raw = await self._suggest_question(spec, context, instance_id)
+        else:
+            raw = _resolve_context_value(context, spec.candidate_from)
         if not isinstance(raw, dict):
             return
         try:
@@ -1799,6 +1809,83 @@ class WorkflowEngine:
                 "answers_backed": False,
             },
         )
+
+    async def _suggest_question(
+        self, spec: QuestionSpec, context: WorkflowContext, instance_id: str
+    ) -> dict[str, Any] | None:
+        """The separate suggestion call (`elicitation.suggest`): one small
+        model call over minimized inputs, proposing at most one candidate.
+
+        Never raises, like the rest of the shadow path. Its spend lands in
+        the run's totals, and EVERY call is audited as `question_suggested`
+        — including the ones that propose nothing or fail — so the
+        experiment's cost is on the record, not only its hits."""
+        suggest = spec.suggest
+        assert suggest is not None
+        model = suggest.model
+        values = {path: _resolve_context_value(context, path) for path in suggest.inputs}
+        try:
+            response = await self.bedrock.converse(
+                model_id=model,
+                system=[{"text": build_suggestion_prompt(spec.catalog)}],
+                messages=[
+                    {
+                        "role": "user",
+                        "content": [{"text": render_message(values, suggest.max_input_chars)}],
+                    }
+                ],
+                inference_config={"maxTokens": suggest.max_output_tokens},
+            )
+        except Exception:
+            logger.exception("question suggestion call failed")
+            await self._audit_suggestion(instance_id, model, None, failed=True)
+            return None
+        usage = response.get("usage") or {}
+        await self._audit_suggestion(instance_id, model, usage, failed=False)
+        tokens = int(usage.get("inputTokens", 0)) + int(usage.get("outputTokens", 0))
+        cost = cost_for_usage(
+            {
+                "input_tokens": int(usage.get("inputTokens", 0)),
+                "output_tokens": int(usage.get("outputTokens", 0)),
+            },
+            model,
+        )
+        context.total_tokens += tokens
+        context.total_cost_usd += cost
+        self.metrics.agent_tokens(
+            model, int(usage.get("inputTokens", 0)), int(usage.get("outputTokens", 0))
+        )
+        self.metrics.bedrock_cost(model, cost)
+        content = ((response.get("output") or {}).get("message") or {}).get("content") or []
+        text = "".join(str(block.get("text", "")) for block in content if isinstance(block, dict))
+        return parse_suggestion(text)
+
+    async def _audit_suggestion(
+        self, instance_id: str, model: str, usage: dict[str, Any] | None, *, failed: bool
+    ) -> None:
+        input_tokens = int((usage or {}).get("inputTokens", 0))
+        output_tokens = int((usage or {}).get("outputTokens", 0))
+        try:
+            await self._audit(
+                "question_suggested",
+                actor_type="engine",
+                actor_id="elicitation_shadow",
+                instance_id=instance_id,
+                detail={
+                    "model": model,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "cost_usd": round(
+                        cost_for_usage(
+                            {"input_tokens": input_tokens, "output_tokens": output_tokens}, model
+                        ),
+                        6,
+                    ),
+                    "failed": failed,
+                },
+            )
+        except Exception:
+            logger.exception("auditing the question suggestion failed")
 
     async def _observe_learned_memory(
         self,

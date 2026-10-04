@@ -349,6 +349,7 @@ def test_a_registry_action_classifies_every_field_it_can_actually_emit() -> None
         },
         "notification_sent": {"alert_action", "alert_entry_id", "channel"},
         "notification_failed": {"alert_action", "alert_entry_id", "channel"},
+        "question_suggested": {"model", "input_tokens", "output_tokens", "cost_usd", "failed"},
     }
     for action, fields in emitted.items():
         missing = fields - set(AUDIT_FIELD_RULES[action])
@@ -490,6 +491,9 @@ _WIDENED_BEYOND_FLAT: dict[str, set[str]] = {
     "alert_trigger_consent_expiring": {"trigger_type", "expires_at", "warn_before_seconds"},
     "notification_sent": {"alert_action", "alert_entry_id", "channel"},
     "notification_failed": {"alert_action", "alert_entry_id", "channel"},
+    # v21: the separate question-suggestion call. Only `failed` is beyond
+    # the flat schema; model/tokens/cost already are.
+    "question_suggested": {"failed"},
 }
 
 

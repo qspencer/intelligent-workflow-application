@@ -562,9 +562,23 @@ def mint_platform_step_ids(raw: dict[str, Any]) -> dict[str, Any]:
     # which is the counterpart this detector exists for.
     qs = raw.get("questions")
     if isinstance(qs, dict):
-        out["questions"] = {
-            k: (path(v) if k == "candidate_from" else data(v)) for k, v in qs.items()
-        }
+        new_qs: dict[str, Any] = {}
+        for k, v in qs.items():
+            if k == "candidate_from":
+                new_qs[k] = path(v)
+            elif k == "suggest" and isinstance(v, dict):
+                # `suggest.inputs` are context paths too (2026-10-04).
+                new_qs[k] = {
+                    sk: (
+                        [path(x) for x in sv]
+                        if sk == "inputs" and isinstance(sv, list)
+                        else data(sv)
+                    )
+                    for sk, sv in v.items()
+                }
+            else:
+                new_qs[k] = data(v)
+        out["questions"] = new_qs
 
     for k, v in raw.items():
         # The blocks handled above own their own rewriting; anything else

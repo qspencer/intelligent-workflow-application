@@ -408,9 +408,18 @@ FIELD_CLASSIFICATION: dict[str, dict[str, str]] = {
     # assertion is refused there, not here.
     "QuestionSpec": {
         "candidate_from": "ref_path",
+        "suggest": "data",
         "subject": "data",
         "recipient": "data",
         "catalog": "data",
+    },
+    # 2026-10-04: the separate suggestion call. `inputs` are context paths,
+    # rewritten by minting like `candidate_from`; the rest is operator data.
+    "QuestionSuggestSpec": {
+        "model": "data",
+        "inputs": "ref_path",
+        "max_input_chars": "data",
+        "max_output_tokens": "data",
     },
     "LearnedMemorySpec": {
         "user_id": "data",

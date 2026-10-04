@@ -432,6 +432,17 @@ messages had no label:
   `options` dict) has NO upstream fix; our one decode call passes no
   `options` — `test_oidc.py` now fails if that ever changes.
 
+**G12 C1 — second topic, and the candidate moved out of the classifier
+(2026-10-04).** Two weeks of C1 shadow data (97 candidates / 1,706 runs,
+5.7%; 97/97 in-vocabulary; 96 correctly suppressed `already_asked`;
+expiry recovered after the R3 fix) said the mechanism works and that one
+topic saturates on day one. Adding `travel_plans` to the classifier's
+prompt moved real labels under every wording tried, so the candidate now
+comes from a separate catalog-rendered call (`questions.suggest`; see
+ASK_THE_USER_PLAN §8). *Watch:* `question_suggested` cost (~$0.0014/msg)
+and the travel candidate rate; the cap still cannot bind live until a
+third never-asked topic exists.
+
 **Immediate priorities, in order:**
 
 0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while

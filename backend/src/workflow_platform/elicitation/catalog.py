@@ -51,10 +51,17 @@ class QuestionTopic(BaseModel):
     #: do not change).
     valid_for_days: int | None = None
     review_after_days: int | None = None
+    #: When the topic applies, in a few operator-written words ("mail naming
+    #: roles the owner could take"). Rendered into the separate suggestion
+    #: call (`elicitation.suggest`) so a topic is a CATALOG edit — never a
+    #: classifier prompt edit, which measurably moved labels twice.
+    cue: str | None = None
 
-    @field_validator("prompt")
+    @field_validator("prompt", "cue")
     @classmethod
-    def _prompt_is_untainted(cls, v: str) -> str:
+    def _prompt_is_untainted(cls, v: str | None) -> str | None:
+        if v is None:
+            return v
         if _TAINTED_PLACEHOLDER.search(v):
             raise ValueError(
                 "a question prompt may not interpolate message text or model output "

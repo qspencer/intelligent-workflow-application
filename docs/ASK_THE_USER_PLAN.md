@@ -786,7 +786,25 @@ at all.
 | C3b | memory ingestion + the two-route validity rule | **blocked**: needs a veracium expiry/retire primitive (§6) |
 | C4 | matched comparison and the analysis (§5) | C2/C3 evidence existing |
 
-**How C1 is wired.** A `questions:` block on the workflow definition,
+**Rewired 2026-10-04 — the candidate no longer comes from the
+classifier.** Question text in the classifier's prompt moved real labels
+twice: on 09-20 two drafts moved `category` on 2 of 9 synthetic cases, and
+on 10-04 adding a second topic (`travel_plans`) moved labels on real mail
+and cost the first topic candidates, by every wording tried (temperature
+0; an A/A run showed zero noise). So the candidate now comes from a
+SEPARATE small call after the run (`questions.suggest`,
+`elicitation/suggest.py`): minimized inputs (sender, subject, body head),
+a prompt RENDERED FROM THE CATALOG (each topic's operator-written `cue`),
+the email passed as untrusted data, and the same `validate_candidate`
+gate. Adding a topic is now a catalog edit. Every call is audited as
+`question_suggested` (projector v21) and cannot fail a run. Measured
+before shipping: the suggester got 12/12 synthetic cases right and
+proposed 2 of 40 real messages, both correct (a job alert, a tour); the
+classifier returned to its exact pre-C1 prompt, which moved 4 of 40 real
+labels — the effect the question block had been having since 09-20.
+`candidate_from` remains supported for workflows that want it.
+
+**How C1 is wired** (original, still accurate for `candidate_from`). A `questions:` block on the workflow definition,
 absent everywhere by default — a workflow without one runs no question
 machinery at all, test-pinned, because an experiment must cost the other
 workflows nothing. `candidate_from` is a context path, the same idiom as

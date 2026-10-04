@@ -12,7 +12,7 @@ from __future__ import annotations
 
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from workflow_platform.elicitation.catalog import QuestionCatalog
 from workflow_platform.security import CapabilityPolicy
@@ -196,6 +196,20 @@ class WorkflowPolicy(BaseModel):
     budget_action: Literal["notify", "pause", "escalate"] = "pause"
 
 
+class QuestionSuggestSpec(BaseModel):
+    """A separate model call that proposes the question candidate, made
+    after the run (`elicitation.suggest`). Replaces `candidate_from` —
+    the classifier no longer carries question text in its prompt."""
+
+    model: str
+    #: Context paths sent to the call — e.g. `trigger.subject`. Input
+    #: minimization: the suggester sees what it needs, not the whole run.
+    inputs: list[str] = Field(min_length=1)
+    #: Each string input is cut to this many characters.
+    max_input_chars: int = Field(default=1500, ge=100)
+    max_output_tokens: int = Field(default=200, ge=50)
+
+
 class QuestionSpec(BaseModel):
     """Opt-in clarification elicitation (G12). **C1 is SHADOW-ONLY**: a
     workflow carrying this block logs what it WOULD ask and asks nobody
@@ -208,8 +222,10 @@ class QuestionSpec(BaseModel):
     surfaces it, so the engine stays generic and no new tool exists.
     """
 
-    #: Context path to the classifier's `{topic, if_answer, then}`.
-    candidate_from: str
+    #: Context path to a `{topic, if_answer, then}` some step produced —
+    #: OR `suggest`, a separate call that proposes it. Exactly one.
+    candidate_from: str | None = None
+    suggest: QuestionSuggestSpec | None = None
     #: WHO the resulting assertion would be about, and who would be
     #: asked. Literals in C1; C2 replaces them with the validated
     #: platform-identity binding (§1b), which is why they are separate
@@ -217,6 +233,12 @@ class QuestionSpec(BaseModel):
     subject: str
     recipient: str
     catalog: QuestionCatalog
+
+    @model_validator(mode="after")
+    def _one_candidate_source(self) -> QuestionSpec:
+        if (self.candidate_from is None) == (self.suggest is None):
+            raise ValueError("questions: set exactly one of `candidate_from` or `suggest`")
+        return self
 
 
 class WorkflowDefinition(BaseModel):

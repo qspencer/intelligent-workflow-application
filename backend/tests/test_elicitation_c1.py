@@ -13,6 +13,7 @@ mechanism and measures demand. Value needs C4.
 from __future__ import annotations
 
 import asyncio
+import json
 import os
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -555,3 +556,188 @@ async def test_a_DRY_RUN_does_not_consume_shadow_state(monkeypatch: Any) -> None
             "real shadow capacity and burn a (subject, topic) entry"
         )
         assert "learned_memory" in overridden and "world" in overridden
+
+
+# --- the separate suggestion call (2026-10-04) --------------------------------
+
+TRAVEL = {
+    "id": "travel_plans",
+    "prompt": "Are you planning a trip in the next few months?",
+    "answers": ["planning", "not_planning", "unknown"],
+    "fact": {
+        "planning": "The owner is planning a trip in the next few months.",
+        "not_planning": "The owner is not planning a trip in the next few months.",
+        "unknown": "The owner's travel plans are unknown.",
+    },
+    "valid_for_days": 60,
+    "cue": "trips, stays, tours and travel deals the owner could book",
+}
+
+
+def _suggest_definition() -> Any:
+    from workflow_platform.workflow import load_definition
+
+    return load_definition(
+        {
+            "id": "wf",
+            "name": "wf",
+            "trigger": {"type": "manual"},
+            "steps": [{"id": "only", "type": "deterministic", "function": "noop", "config": {}}],
+            "edges": [],
+            "questions": {
+                "suggest": {
+                    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+                    "inputs": ["trigger.subject", "trigger.body_text"],
+                    "max_input_chars": 100,
+                },
+                "subject": "owner@example.com",
+                "recipient": "owner@example.com",
+                "catalog": {"topics": [EMPLOYMENT.model_dump(), TRAVEL]},
+            },
+        }
+    )
+
+
+async def _run_suggest(responses: list[Any]) -> tuple[Any, list[Any], Any, Any]:
+    from tests._bedrock_fakes import FakeBedrock
+    from workflow_platform.elicitation import InMemoryShadowStore
+    from workflow_platform.engine.executor import ToolCatalog, WorkflowEngine
+    from workflow_platform.engine.functions import default_function_registry
+    from workflow_platform.persistence import in_memory_repositories
+    from workflow_platform.world import mock_world
+
+    repos = in_memory_repositories()
+    store = InMemoryShadowStore()
+    bedrock = FakeBedrock(responses)
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=default_function_registry(),
+        tools=ToolCatalog([]),
+        bedrock=bedrock,
+        world=mock_world(),
+        question_store=store,
+    )
+    payload = {
+        "subject": "Cabins near Asheville this fall",
+        "body_text": "x" * 500,
+        "from_address": {"address": "SECRET-NOT-SELECTED@example.com"},
+    }
+    instance = await engine.run(_suggest_definition(), trigger_payload=payload)
+    entries = await repos.audit.list_by_instance(instance.id)
+    return instance, entries, store, bedrock
+
+
+async def test_the_suggestion_call_proposes_and_the_scheduler_decides() -> None:
+    from tests._bedrock_fakes import text_response
+
+    reply = (
+        '{"question_candidate": {"topic": "travel_plans", "if_answer": "planning",'
+        ' "then": {"priority": "relevant"}}}'
+    )
+    instance, entries, _, bedrock = await _run_suggest(
+        [text_response(reply, input_tokens=600, output_tokens=20)]
+    )
+    assert instance.state.value == "completed"
+    shadowed = [e for e in entries if e.action == "question_candidate_shadowed"]
+    assert [(e.detail["topic"], e.detail["asked"]) for e in shadowed] == [("travel_plans", True)]
+    [suggested] = [e for e in entries if e.action == "question_suggested"]
+    assert suggested.detail["failed"] is False
+    assert suggested.detail["input_tokens"] == 600
+    # The spend is the run's spend.
+    assert instance.context["total_tokens"] >= 620
+    # The call sees the CATALOG (ids, answers, cues) and only the SELECTED,
+    # capped inputs — never the classifier's prompt, never unselected fields.
+    [call] = bedrock.calls
+    system = json.dumps(call["system"])
+    user = json.dumps(call["messages"])
+    assert "travel_plans" in system and "trips, stays, tours" in system
+    assert "Cabins near Asheville" in user and "x" * 101 not in user
+    assert "SECRET-NOT-SELECTED" not in user
+
+
+async def test_no_candidate_is_audited_as_a_call_but_schedules_nothing() -> None:
+    from tests._bedrock_fakes import text_response
+
+    _, entries, store, _ = await _run_suggest([text_response('{"question_candidate": null}')])
+    assert [e.action for e in entries if e.action.startswith("question_")] == ["question_suggested"]
+    assert await store.list_questions() == []
+
+
+async def test_a_failed_suggestion_call_cannot_fail_the_run() -> None:
+    """C1's rule: the experiment must not be able to fail a production run.
+    The call is audited as failed; the run completes."""
+    instance, entries, store, _ = await _run_suggest([])  # the fake raises: nothing queued
+    assert instance.state.value == "completed"
+    [suggested] = [e for e in entries if e.action == "question_suggested"]
+    assert suggested.detail["failed"] is True
+    assert await store.list_questions() == []
+
+
+def test_a_questions_block_needs_exactly_one_candidate_source() -> None:
+    from workflow_platform.workflow.definition import QuestionSpec
+
+    base = {"subject": "s", "recipient": "r", "catalog": {"topics": [EMPLOYMENT.model_dump()]}}
+    with pytest.raises(ValueError, match="exactly one"):
+        QuestionSpec.model_validate(base)
+    with pytest.raises(ValueError, match="exactly one"):
+        QuestionSpec.model_validate(
+            {
+                **base,
+                "candidate_from": "steps.a.b",
+                "suggest": {"model": "m", "inputs": ["trigger.x"]},
+            }
+        )
+
+
+def test_a_cue_may_not_interpolate_message_text() -> None:
+    """The cue is rendered into a prompt, so it gets the prompt's rule."""
+    with pytest.raises(ValueError, match="interpolate"):
+        QuestionTopic.model_validate({**TRAVEL, "cue": "mail like {trigger.subject}"})
+
+
+@pytest.mark.parametrize(
+    ("reply", "expected"),
+    [
+        ('{"question_candidate": null}', None),
+        ("no json at all", None),
+        ('{"question_candidate": {"topic": 5}}', None),
+        (
+            'Sure. {"question_candidate": {"topic": "t", "if_answer": "a", "then": {"priority": "relevant"}}}',
+            {"topic": "t", "if_answer": "a", "then": {"priority": "relevant"}},
+        ),
+    ],
+)
+def test_parse_suggestion(reply: str, expected: Any) -> None:
+    from workflow_platform.elicitation.suggest import parse_suggestion
+
+    assert parse_suggestion(reply) == expected
+
+
+def test_the_shipped_classifier_carries_NO_question_text() -> None:
+    """The regression this whole change exists to prevent: question text in
+    the classifier's prompt moved real labels on 2026-09-20 and 2026-10-04.
+    Questions belong to the suggestion call; the classifier classifies."""
+    from pathlib import Path
+
+    from workflow_platform.workflow import load_definition_from_file
+
+    d = load_definition_from_file(
+        Path(__file__).resolve().parents[2] / "examples/email_triage_apply/workflow.yaml"
+    )
+    from workflow_platform.workflow import AgenticStep
+
+    step = next(s for s in d.steps if s.id == "triage")
+    assert isinstance(step, AgenticStep)
+    goal = step.goal
+    for marker in (
+        "question_candidate",
+        "employment_status",
+        "travel_plans",
+        "Topics you may name",
+    ):
+        assert marker not in goal, f"classifier prompt mentions {marker!r}"
+    assert d.questions is not None and d.questions.suggest is not None
+    assert d.questions.candidate_from is None
+    assert all(t.cue for t in d.questions.catalog.topics), (
+        "every topic needs a cue for the suggester"
+    )

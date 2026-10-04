@@ -669,4 +669,32 @@ CORPUS: list[tuple[Any, ...]] = [
         },
         "notification_failed",
     ),
+    # --- v21: the separate question-suggestion call ---
+    (
+        "at_rest.registry_question_suggested",
+        "audit_detail",
+        {
+            "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+            "input_tokens": 612,
+            "output_tokens": 18,
+            "cost_usd": 0.000702,
+            "failed": False,
+        },
+        "question_suggested",
+    ),
+    (
+        # A writer that slipped the proposal in: model output over
+        # third-party mail — withheld by default-deny.
+        "at_rest.registry_question_suggested_with_proposal",
+        "audit_detail",
+        {
+            "model": "m",
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "cost_usd": 0.0,
+            "failed": False,
+            "question_candidate": {"topic": "travel_plans"},
+        },
+        "question_suggested",
+    ),
 ]

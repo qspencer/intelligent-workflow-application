@@ -331,7 +331,14 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "20"  # v20: trigger health + alert delivery (review R1).
+PROJECTOR_VERSION = "21"  # v21: `question_suggested` (G12 C1, separate suggestion call).
+# The question candidate moved out of the classifier into its own small call
+# (classifier-prompt question text measurably moved labels, 09-20 and 10-04).
+# Every call is audited — model, tokens, cost, and whether it failed. What it
+# proposed is NOT here: a proposal is model output over third-party mail, and
+# it is already on record through `question_candidate_shadowed`.
+#
+# v20: trigger health + alert delivery (review R1).
 # `alert_trigger_auth_revoked` / `trigger_auth_restored` (the Gmail
 # trigger's revoke edge), `alert_trigger_consent_expiring` (the 7-day
 # Testing clock, warned a day early), and `notification_sent` /
@@ -1765,6 +1772,13 @@ AUDIT_FIELD_RULES: dict[str, dict[str, FieldRule]] = {
         "alert_action": FieldRule(Owner.ENGINE, _ALERT_ACTION, True),
         "alert_entry_id": FieldRule(Owner.ENGINE, _ID, True),
         "channel": FieldRule(Owner.CONFIG, _NOTIFICATION_CHANNEL, True),
+    },
+    "question_suggested": {
+        "model": FieldRule(Owner.ENGINE, _TOKEN, True),
+        "input_tokens": FieldRule(Owner.ENGINE, _COUNT, True),
+        "output_tokens": FieldRule(Owner.ENGINE, _COUNT, True),
+        "cost_usd": FieldRule(Owner.ENGINE, _AMOUNT, True),
+        "failed": FieldRule(Owner.ENGINE, _BOOL, True),
     },
     "question_candidate_shadowed": {
         # G12 C1. Everything here is engine-measured or operator-

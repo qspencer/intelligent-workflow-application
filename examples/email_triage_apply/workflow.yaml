@@ -103,19 +103,6 @@ steps:
          "urgent"|"awaiting-reply"|"review">], "category_confidence":
          <0..1>, "summary": "<one short sentence — why>"}
 
-      OPTIONALLY, add one more key:
-        "question_candidate": {"topic": "employment_status",
-         "if_answer": "seeking", "then": {"priority": "relevant"}}
-      Decide it last, once `category` and `attention` are fixed; it
-      never changes either. Emit it when the owner would want this
-      message under one answer below and not under the other — mail
-      naming roles they could take is the canonical case, bulk digests
-      and no-reply senders included. Omit it when the message is worth
-      the same either way, and use only the ids and answers listed.
-
-      Topics you may name:
-        employment_status — answers: seeking | employed | unknown
-      `then.priority` must be "relevant" or "not_relevant".
     policy:
       max_iterations: 2
       max_total_tokens: 8000
@@ -198,7 +185,15 @@ policies:
 # questions is C2 and needs the subject binding (§1b), which does not
 # exist yet — `subject`/`recipient` are literals here for that reason.
 questions:
-  candidate_from: steps.record.question_candidate
+  # The candidate comes from its OWN small call after the run, not from the
+  # classifier: question text in the classifier's prompt measurably moved
+  # labels twice (2026-09-20, 2026-10-04). See elicitation/suggest.py.
+  suggest:
+    model: us.anthropic.claude-haiku-4-5-20251001-v1:0
+    # Input minimization: sender, subject and the head of the body.
+    inputs: [trigger.from_address, trigger.subject, trigger.body_text]
+    max_input_chars: 1500
+    max_output_tokens: 200
   subject: qspencer@gmail.com
   recipient: qspencer@gmail.com
   catalog:
@@ -223,6 +218,23 @@ questions:
         # cannot license indefinite use.
         valid_for_days: 90
         review_after_days: 60
+        cue: "mail naming roles the owner could take, including job alerts and digests"
+      # Added 2026-10-04 (operator's request): a second topic, so C1 also
+      # exercises choosing BETWEEN topics and a second ask/expire cycle
+      # (employment_status is spent — asked once, ever). Travel mail flips
+      # from noise to relevant on this answer.
+      - id: travel_plans
+        revision: 1
+        prompt: "Are you planning a trip in the next few months?"
+        answers: [planning, not_planning, unknown]
+        fact:
+          planning: "The owner is planning a trip in the next few months."
+          not_planning: "The owner is not planning a trip in the next few months."
+          unknown: "The owner's travel plans are unknown."
+        # Travel plans change faster than employment does.
+        valid_for_days: 60
+        review_after_days: 30
+        cue: "trips, stays, tours and travel deals the owner could book"
 
 learned_memory:
   user_id: qspencer@gmail.com
