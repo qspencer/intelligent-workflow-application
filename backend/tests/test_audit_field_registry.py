@@ -350,6 +350,14 @@ def test_a_registry_action_classifies_every_field_it_can_actually_emit() -> None
         "notification_sent": {"alert_action", "alert_entry_id", "channel"},
         "notification_failed": {"alert_action", "alert_entry_id", "channel"},
         "question_suggested": {"model", "input_tokens", "output_tokens", "cost_usd", "failed"},
+        "alert_low_disk": {
+            "mount",
+            "free_gb",
+            "total_gb",
+            "free_pct",
+            "min_free_gb",
+            "min_free_pct",
+        },
     }
     for action, fields in emitted.items():
         missing = fields - set(AUDIT_FIELD_RULES[action])
@@ -494,6 +502,8 @@ _WIDENED_BEYOND_FLAT: dict[str, set[str]] = {
     # v21: the separate question-suggestion call. Only `failed` is beyond
     # the flat schema; model/tokens/cost already are.
     "question_suggested": {"failed"},
+    # v22: instance-less like the other alerts — withheld would mean deleted.
+    "alert_low_disk": {"mount", "free_gb", "total_gb", "free_pct", "min_free_gb", "min_free_pct"},
 }
 
 
@@ -621,6 +631,14 @@ def test_the_governance_actions_are_projection_LOSSLESS() -> None:
             "alert_action": "alert_trigger_auth_revoked",
             "alert_entry_id": "3f0c2b9e8d7a4c1e9b6a5d4c3b2a1f0e",
             "channel": "email",
+        },
+        "alert_low_disk": {
+            "mount": "/",
+            "free_gb": 9.4,
+            "total_gb": 193.0,
+            "free_pct": 4.9,
+            "min_free_gb": 10.0,
+            "min_free_pct": 10.0,
         },
         "notification_failed": {
             "alert_action": "alert_stale_trigger",

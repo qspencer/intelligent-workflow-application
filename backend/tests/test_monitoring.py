@@ -777,3 +777,89 @@ async def test_a_consent_warning_is_not_repeated_by_a_restart() -> None:
     again = await fresh().run_once(now=now)
     assert len([a for a in first if "consent" in a["action"]]) == 1
     assert not [a for a in again if "consent" in a["action"]]
+
+
+# --- alert_low_disk (2026-10-04: the root filesystem filled on 10-01) ---
+
+
+def _disk(total_gb: float, free_gb: float) -> Any:
+    def usage(path: str) -> tuple[int, int, int]:
+        total, free = int(total_gb * 1e9), int(free_gb * 1e9)
+        return total, total - free, free
+
+    return usage
+
+
+def _low(alerts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    return [a for a in alerts if a["action"] == "alert_low_disk"]
+
+
+async def test_low_disk_alerts_with_a_lossless_detail() -> None:
+    """Under the flip (production): the entry is instance-less, so a detail
+    projection would strip is refused — this proves it is stored whole."""
+    from workflow_platform.audit_writer import AuditWriter
+
+    repos = in_memory_repositories()
+    service = MonitoringService(
+        repos,
+        audit_writer=AuditWriter(repos, trace_safe_only=True),
+        disk_usage=_disk(193, 9.4),
+    )
+    [alert] = _low(await service.run_once(now=datetime.now(UTC)))
+    assert alert["mount"] == "/" and alert["free_pct"] == 4.9 and alert["free_gb"] == 9.4
+    [entry] = [e for e in await repos.audit.list_recent(limit=20) if e.action == "alert_low_disk"]
+    assert entry.detail == {
+        "mount": "/",
+        "free_gb": 9.4,
+        "total_gb": 193.0,
+        "free_pct": 4.9,
+        "min_free_gb": 10.0,
+        "min_free_pct": 10.0,
+    }
+
+
+async def test_either_floor_triggers_and_healthy_disks_are_quiet() -> None:
+    now = datetime.now(UTC)
+    # 61 GB free of 193 (31%) — today's disk: quiet.
+    assert not _low(
+        await MonitoringService(in_memory_repositories(), disk_usage=_disk(193, 61)).run_once(
+            now=now
+        )
+    )
+    # 8 GB of 50 is 16% — over the percentage floor, under the GB floor.
+    assert _low(
+        await MonitoringService(in_memory_repositories(), disk_usage=_disk(50, 8)).run_once(now=now)
+    )
+    # 18 GB of 2000 is 0.9% — over the GB floor, under the percentage floor.
+    assert _low(
+        await MonitoringService(in_memory_repositories(), disk_usage=_disk(2000, 18)).run_once(
+            now=now
+        )
+    )
+
+
+async def test_low_disk_repeats_every_six_hours_not_every_poll_or_restart() -> None:
+    repos = in_memory_repositories()
+    now = datetime.now(UTC)
+    assert (
+        len(_low(await MonitoringService(repos, disk_usage=_disk(193, 5)).run_once(now=now))) == 1
+    )
+    # Next poll, and a "restarted" process: the audit log remembers.
+    assert not _low(await MonitoringService(repos, disk_usage=_disk(193, 5)).run_once(now=now))
+    later = now + timedelta(hours=5)
+    assert not _low(await MonitoringService(repos, disk_usage=_disk(193, 5)).run_once(now=later))
+    # Still low six hours on: say so again.
+    again = now + timedelta(hours=6, minutes=1)
+    assert (
+        len(_low(await MonitoringService(repos, disk_usage=_disk(193, 5)).run_once(now=again))) == 1
+    )
+
+
+async def test_an_unreadable_mount_is_skipped_not_fatal() -> None:
+    def broken(path: str) -> tuple[int, int, int]:
+        raise OSError("SYNTHETIC: no such mount")
+
+    alerts = await MonitoringService(in_memory_repositories(), disk_usage=broken).run_once(
+        now=datetime.now(UTC)
+    )
+    assert not _low(alerts)

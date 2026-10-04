@@ -443,6 +443,19 @@ ASK_THE_USER_PLAN §8). *Watch:* `question_suggested` cost (~$0.0014/msg)
 and the travel candidate rate; the cap still cannot bind live until a
 third never-asked topic exists.
 
+**Low-disk alert (BUILT 2026-10-04).** On 10-01 the root filesystem
+filled: Postgres refused writes (`DiskFullError` on a run's vault write)
+and rsyslog went blind; nothing alerted, and the operator resized the disk
+(now 207 GB). Not a burst — steady growth from everything sharing one
+disk: `/tmp` alone is 21 GB, 12 GB of it Claude Code session scratch
+(6.0 GB veracium dev, 4.6 GB veracium-research, 0.6 GB this project), plus
+12,498 leaked `vh-*` temp dirs (small, tracked in COORDINATION). Monitoring
+now raises `alert_low_disk` (projector v22) when `/` drops below 10% or
+10 GB free, repeating at most every 6 h while low (remembered in the audit
+log, so restarts don't re-send), emailed with a `du` hint. Verified live
+end to end on this box. *Not done:* cleaning the scratch/temp growth —
+other sessions' files; flagged to them in COORDINATION.md.
+
 **Immediate priorities, in order:**
 
 0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while

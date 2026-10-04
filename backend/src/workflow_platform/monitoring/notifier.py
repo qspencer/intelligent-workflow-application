@@ -44,6 +44,7 @@ ALERT_ACTIONS: tuple[str, ...] = (
     "alert_high_error_rate",
     "alert_high_queue_depth",
     "alert_high_token_burn",
+    "alert_low_disk",
     "alert_stale_trigger",
     "alert_stuck_workflow",
     "alert_trigger_auth_revoked",
@@ -63,6 +64,12 @@ _REMEDIATION: dict[str, str] = {
         "Google's Testing-status clock will revoke this mailbox's consent at "
         "`expires_at`. Re-run `uv run python tools/gmail_auth.py --account "
         "<account>` before then to reset the 7 days."
+    ),
+    "alert_low_disk": (
+        "A watched filesystem is low on space. Postgres refuses writes when it "
+        "fills (2026-10-01: runs failed and syslog went blind). Find what grew: "
+        "`sudo du -xh --max-depth=2 / | sort -rh | head -20` — /tmp (session "
+        "scratch, test temp dirs) and docker are the usual suspects."
     ),
     "alert_stale_trigger": (
         "This email trigger has dispatched nothing for longer than the threshold. "

@@ -697,4 +697,18 @@ CORPUS: list[tuple[Any, ...]] = [
         },
         "question_suggested",
     ),
+    # --- v22: low disk ---
+    (
+        "at_rest.registry_alert_low_disk",
+        "audit_detail",
+        {
+            "mount": "/",
+            "free_gb": 9.4,
+            "total_gb": 193.0,
+            "free_pct": 4.9,
+            "min_free_gb": 10.0,
+            "min_free_pct": 10.0,
+        },
+        "alert_low_disk",
+    ),
 ]

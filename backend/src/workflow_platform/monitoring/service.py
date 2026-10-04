@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import shutil
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -80,6 +81,17 @@ class MonitoringConfig(BaseModel):
     # multi-day outage into a thirty-second chore done in time.
     consent_warn_before_seconds: float = 86_400.0
 
+    # Free space on the filesystems the platform writes to — Postgres's data
+    # and the learned-memory store both live on `/` here. 2026-10-01 the root
+    # filesystem filled: Postgres refused writes (`DiskFullError` on a run's
+    # vault write) and rsyslog went blind, and nothing alerted until the
+    # operator found it. Alert when EITHER floor is crossed; repeat while it
+    # stays low, at most every `disk_alert_repeat_seconds`.
+    disk_paths: list[str] = ["/"]
+    disk_min_free_pct: float = 10.0
+    disk_min_free_gb: float = 10.0
+    disk_alert_repeat_seconds: float = 21_600.0
+
     instance_sample_limit: int = 500
     step_sample_limit: int = 1000
 
@@ -94,8 +106,12 @@ class MonitoringService:
         audit_writer: AuditWriter | None = None,
         consent_expires_at: Callable[[str], datetime | None] | None = None,
         registered_workflows: Callable[[], set[str]] | None = None,
+        disk_usage: Callable[[str], tuple[int, int, int]] = shutil.disk_usage,
     ) -> None:
         self.repositories = repositories
+        # (total, used, free) bytes for a path — `shutil.disk_usage`, or a
+        # fake in tests.
+        self.disk_usage = disk_usage
         # The workflows whose triggers this process actually started. The
         # trigger-health checks ask about a POLLER, and a definition stored
         # in the DB with an email trigger nobody registered has none —
@@ -184,6 +200,7 @@ class MonitoringService:
         alerts.extend(await self._check_token_burn(now))
         alerts.extend(await self._check_stale_email_triggers(now))
         alerts.extend(await self._check_consent_expiry(now))
+        alerts.extend(await self._check_disk_space(now))
         return alerts
 
     # --- checks ---
@@ -387,6 +404,50 @@ class MonitoringService:
             }
             await self._emit_alert("alert_trigger_consent_expiring", detail, None)
             emitted.append({"action": "alert_trigger_consent_expiring", **detail})
+        return emitted
+
+    async def _check_disk_space(self, now: datetime) -> list[dict[str, Any]]:
+        """Low free space on a watched filesystem. Repeats while it stays low,
+        at most once per `disk_alert_repeat_seconds` per mount — measured
+        from the last alert in the AUDIT LOG, so a restart does not re-send."""
+        cfg = self.config
+        emitted: list[dict[str, Any]] = []
+        last_by_mount: dict[str, datetime] | None = None
+        for mount in dict.fromkeys(cfg.disk_paths):
+            try:
+                total, _used, free = self.disk_usage(mount)
+            except OSError:
+                logger.exception("disk usage unavailable for %s", mount)
+                continue
+            if total <= 0:
+                continue
+            free_gb = free / 1e9
+            free_pct = 100.0 * free / total
+            if free_pct >= cfg.disk_min_free_pct and free_gb >= cfg.disk_min_free_gb:
+                continue
+            if last_by_mount is None:
+                last_by_mount = {}
+                for e in await self.repositories.audit.list_by_action("alert_low_disk", limit=200):
+                    m = str((e.detail or {}).get("mount"))
+                    if m not in last_by_mount or e.timestamp > last_by_mount[m]:
+                        last_by_mount[m] = e.timestamp
+            last = last_by_mount.get(mount)
+            if last is not None:
+                if last.tzinfo is None:
+                    last = last.replace(tzinfo=UTC)
+                if (now - last).total_seconds() < cfg.disk_alert_repeat_seconds:
+                    continue
+            detail = {
+                "mount": mount,
+                "free_gb": round(free_gb, 1),
+                "total_gb": round(total / 1e9, 1),
+                "free_pct": round(free_pct, 1),
+                "min_free_gb": cfg.disk_min_free_gb,
+                "min_free_pct": cfg.disk_min_free_pct,
+            }
+            await self._emit_alert("alert_low_disk", detail, None)
+            last_by_mount[mount] = now
+            emitted.append({"action": "alert_low_disk", **detail})
         return emitted
 
     async def _check_error_rate(self, now: datetime) -> list[dict[str, Any]]:
