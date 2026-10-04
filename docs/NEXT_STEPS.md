@@ -402,6 +402,34 @@ Gmail tests pass locally with the right credentials. Fix: set
 dispatch the workflow. `test_the_token_belongs_to_the_configured_account`
 now names this failure directly.
 
+**Status review 2026-10-04 (email labeling + GitHub).** 587 of 595 runs
+since the 09-29 Python cutover completed and labeled; but 24 of 605
+messages had no label:
+- **16 never read — back-dated bulk mail.** The Information, L.L.Bean,
+  Amazon, Airbnb, Wayfair stamp mail 1.5-23 min before Gmail receives it;
+  the cursor passed the stamp. The 09-28 judgment that the triage inbox
+  could "accept the rare miss" was wrong (2.6%, systematic). **FIXED:**
+  `lookback_hours: 2` on `email-triage-apply`; EXECUTION_SEMANTICS
+  corrected; the 24 backfilled with fresh runs.
+- **8 failed in `triage` (`unexpected: true`).** One was a **full disk**
+  (10-01 16:04, Postgres `No space left on device`; 61 GB free by
+  10-04 — something filled the disk and was cleared, not identified).
+  **Seven were an AWS-side Bedrock outage** — read 2026-10-04 under an
+  audited, dual-approved, 1-hour raw-trace grant (`f30da3d1`, revoked
+  after the read): every one is `ServiceUnavailableException` on
+  Converse "after max retries: 4" (six 09-29 18:16-18:36, one 09-30
+  19:01). The disk-full one failed writing the raw-trace vault. *Options
+  (not built):* engine-level retry with backoff on `triage` — read-only,
+  so EXECUTION_SEMANTICS permits `retries > 0`; and record the exception
+  CLASS (not text) on `step_failed`, so the next one is diagnosable
+  without opening the vault. Note for the governance docs: on this
+  single-operator box, dual control means one person signing twice.
+- **Security (FIXED):** pyjwt 2.13.0 → 2.15.1 (12 advisories), urllib3
+  2.7.0 → 2.8.0 (3), oauthlib 3.3.1 → 4.0.0 (1; the consent flow verified
+  offline end to end). PYSEC-2026-4146 (pyjwt `decode()` mutates a reused
+  `options` dict) has NO upstream fix; our one decode call passes no
+  `options` — `test_oidc.py` now fails if that ever changes.
+
 **Immediate priorities, in order:**
 
 0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while
