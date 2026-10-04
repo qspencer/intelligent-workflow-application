@@ -418,9 +418,11 @@ messages had no label:
   audited, dual-approved, 1-hour raw-trace grant (`f30da3d1`, revoked
   after the read): every one is `ServiceUnavailableException` on
   Converse "after max retries: 4" (six 09-29 18:16-18:36, one 09-30
-  19:01). The disk-full one failed writing the raw-trace vault. *Options
-  (not built):* engine-level retry with backoff on `triage` — read-only,
-  so EXECUTION_SEMANTICS permits `retries > 0`; and record the exception
+  19:01). The disk-full one failed writing the raw-trace vault. **Retry
+  BUILT 2026-10-04 — at the model-call layer, not the step:**
+  exponential backoff with jitter on transient Bedrock errors inside
+  `BedrockClient` (safe on every step, tool-holders included; see
+  EXECUTION_SEMANTICS §4). *Still an option:* record the exception
   CLASS (not text) on `step_failed`, so the next one is diagnosable
   without opening the vault. Note for the governance docs: on this
   single-operator box, dual control means one person signing twice.

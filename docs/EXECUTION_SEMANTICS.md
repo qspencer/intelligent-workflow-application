@@ -258,7 +258,23 @@ first-class, referenceable identity. **Built 2026-08-01.**
   require a declared idempotency strategy on mutating steps, and reject
   retries on unknown/non-idempotent effects (manual override explicit +
   audited). Tracked as G21.
-- **Not provided (execution-time):** automatic error classification,
+- **Model-call retries — a separate, lower layer (2026-10-04).** Every
+  Bedrock `converse` call (`BedrockClient`, LIVE/RECORD; REPLAY never
+  calls) is retried on TRANSIENT errors only — `ServiceUnavailable`,
+  `Throttling`, `InternalServer`, `ModelNotReady`, and connection-level
+  drops/timeouts — with exponential backoff and equal jitter: 7 attempts,
+  2 s doubling to a 60 s cap, at most 300 s of waiting, each retry logged
+  with its error code (never message text). Anything else fails on the
+  first attempt; exhaustion re-raises the original error. **Why it meets
+  the invariant above:** a model call's only effect is SPEND — Bedrock
+  returns text, and tools run in our code BETWEEN calls, so a failed call
+  executed nothing and repeating it repeats no effect, even when the
+  outcome is unknown (a read timeout may duplicate metered spend, never
+  an action). That is why it is safe on tool-holding steps where a step
+  retry would not be. Motivation: the 2026-09-29 Bedrock outage failed
+  seven triage runs after botocore's own few-second retry window.
+- **Not provided (execution-time):** automatic error classification
+  (except the transient-error set at the model-call layer above),
   acknowledgement-aware retry, engine-enforced effect-gating at runtime.
 
 ## 5. Timeouts, budgets, pause
