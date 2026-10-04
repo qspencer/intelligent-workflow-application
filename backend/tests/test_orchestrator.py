@@ -865,9 +865,9 @@ edges: []
 
 
 async def test_lookback_reaches_the_trigger_and_the_dmarc_yaml_sets_it(tmp_path: Path) -> None:
-    """Look-back only helps if config reaches the trigger — and it is set
-    where the late-arrival hazard lives (DMARC reports), not on the busy
-    inbox, whose volume would overrun the seen-id ring."""
+    """Look-back only helps if config reaches the trigger — and each window
+    is sized to its mailbox: a week for sparse DMARC reports, two hours for
+    the busy triage inbox (whose week would overrun the seen-id ring)."""
     from datetime import timedelta
 
     from workflow_platform.workflow import load_definition_from_file
@@ -882,4 +882,6 @@ async def test_lookback_reaches_the_trigger_and_the_dmarc_yaml_sets_it(tmp_path:
     )
     assert isinstance(dmarc, GmailPollTrigger) and isinstance(triage, GmailPollTrigger)
     assert dmarc.lookback == timedelta(hours=168)
-    assert triage.lookback == timedelta(0)
+    # Short, not off: bulk senders back-date by up to ~23 min (2026-10-04),
+    # and a busy inbox's window must stay far inside the 500-id seen ring.
+    assert triage.lookback == timedelta(hours=2)

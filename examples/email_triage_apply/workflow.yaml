@@ -27,6 +27,13 @@ trigger:
     # drafts (spam/trash are excluded by the Gmail API by default).
     label: null
     query: "-in:sent -in:draft -in:chat"
+    # Bulk senders stamp mail BEFORE Gmail receives it (measured 2026-10-04:
+    # The Information, L.L.Bean, Amazon, Airbnb, Wayfair — 1.5 to 23 min
+    # early). When anything else arrives in that gap the cursor passes the
+    # stamp and the message is never listed: 16 of 605 (2.6%) in five days.
+    # Re-list two hours behind the cursor (5x the worst lag seen); ~10
+    # messages per poll, far inside the 500-id seen ring that absorbs them.
+    lookback_hours: 2
 
     # TWO_AXIS §3: annotate reply_status (replied/not_replied/unknown) via a
     # metadata-only thread check, so awaiting-reply is suppressed on
