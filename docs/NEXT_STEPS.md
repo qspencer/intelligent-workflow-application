@@ -475,6 +475,25 @@ Also fixed today: `review_triage.py --source gmail` now samples one
 message per SENDER per category (`--per-sender`), skips labeled senders,
 and weights summaries by sender volume (`represents`).
 
+**DEFERRED (operator, 2026-10-04): the classifier lacks owner context —
+"tackle later, not now".** The operator's framing: *they have bought from
+Caraway several times; a model that knew that would not have called any of
+it spam — "spam implies an email that I am uninterested in."* Two
+observations to carry into that design:
+- **Two definitions of spam are in play.** The rubric's
+  (`email_triage_apply/agent_memory.md`) is about DECEPTION: "a real
+  vendor's marketing is `promotion` even when unwanted." The operator's is
+  about INTEREST. Caraway was wrong under both — the self-reinforcing
+  memory loop above overrode the rubric — but the gap is real.
+- **"Uninterested" is a relevance axis, not a category.** It needs (1) owner
+  context — relationships such as "customer of X", which the mailbox itself
+  evidences (order confirmations, shipping notices from the sender) — and
+  (2) a relevance judgment that uses it, distinct from source category and
+  from deception. G12's `then.priority: relevant | not_relevant` is the
+  nearest existing seed. Decide the vocabulary (what `spam` means, whether
+  relevance gets its own axis or label) BEFORE building context, so the
+  context has a defined job.
+
 **Immediate priorities, in order:**
 
 0. ~~**Orphaned RUNNING instances**~~ — **DONE 2026-09-19.** Found while
