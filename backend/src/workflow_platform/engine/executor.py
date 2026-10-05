@@ -526,7 +526,10 @@ class WorkflowEngine:
             entity = normalize_entity(str(raw))
             namespace = memory_namespace(result.org_id, spec.user_id)
             recalled = await self.learned_memory.recall_context(
-                namespace, entity, token_budget=spec.recall.token_budget
+                namespace,
+                entity,
+                token_budget=spec.recall.token_budget,
+                filters=spec.recall.filters,
             )
             if not recalled.edge_ids:
                 return
@@ -1657,7 +1660,10 @@ class WorkflowEngine:
         recall_started = time.perf_counter()
         try:
             recalled = await self.learned_memory.recall_context(
-                namespace, entity, token_budget=spec.recall.token_budget
+                namespace,
+                entity,
+                token_budget=spec.recall.token_budget,
+                filters=spec.recall.filters,
             )
         except Exception as exc:
             logger.exception("learned-memory recall failed")

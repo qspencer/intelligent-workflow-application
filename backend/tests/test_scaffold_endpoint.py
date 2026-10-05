@@ -435,7 +435,7 @@ FIELD_CLASSIFICATION: dict[str, dict[str, str]] = {
         "date_from": "ref_path",
         "ref_from": "ref_path",
     },
-    "RecallSpec": {"query_from": "ref_path", "token_budget": "data"},
+    "RecallSpec": {"query_from": "ref_path", "token_budget": "data", "filters": "data"},
     "TriggerSpec": {"type": "data", "config": "data", "example_payload": "data"},
     "RequireToolCall": {"name": "data", "min_success": "data"},
     "AgenticStepPolicy": {

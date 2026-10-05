@@ -377,11 +377,10 @@ def test_email_triage_live_declares_learned_memory() -> None:
     assert spec is not None
     assert spec.user_id == "qspencer@gmail.com"
     authors = [o.author for o in spec.observations]
-    # The mail itself is quarantined third-party content; the verdict is ours.
-    assert authors == ["third_party", "system"]
-    # The verdict's TEXT embeds third-party content (subject/summary) — the
-    # mixed-provenance declaration caps its trust (laundering fix, >=0.1.7).
-    assert spec.observations[1].derived_from == "third_party"
+    # Only the mail itself, as quarantined third-party content. The verdict
+    # observation ("the triage agent classified …") was REMOVED 2026-10-04:
+    # recall fed the classifier's own past opinions back to it as facts.
+    assert authors == ["third_party"]
     assert all(o.ref_from == "trigger.message_id" for o in spec.observations)
 
 
@@ -854,3 +853,67 @@ def test_off_schema_relation_costs_a_retry_and_renders_unclassified(tmp_path: Pa
     assert "sender_category" not in recalled.context
     # the never-assert fence still holds over the re-mapped fact
     assert "never assert as fact" in recalled.context.lower()
+
+
+def test_no_shipped_workflow_remembers_a_steps_output() -> None:
+    """The anti-feedback rule (2026-10-04). An observation templated from a
+    step's output writes the platform's own judgment into memory, and recall
+    hands it back to the next run as knowledge about the sender: the triage
+    verdict did exactly that — 5,432 of 15,491 active facts — and one early
+    misclassification (Caraway → spam) re-confirmed itself on every later
+    email. Memory is for evidence from the world (the email), never for what
+    our own steps concluded."""
+    from pathlib import Path
+
+    from workflow_platform.workflow import load_definition_from_file
+
+    examples = Path(__file__).resolve().parents[2] / "examples"
+    checked = 0
+    for path in sorted(examples.rglob("workflow*.yaml")):
+        d = load_definition_from_file(path)
+        if d.learned_memory is None:
+            continue
+        for obs in d.learned_memory.observations:
+            checked += 1
+            assert "{steps." not in obs.text, (
+                f"{path.parent.name}: an observation templates a step output"
+            )
+    assert checked >= 2, "expected the email-triage workflows to be checked"
+
+
+def test_recall_filters_reach_veracium(tmp_path: Path) -> None:
+    """The filter must actually be applied by the store, not just parsed."""
+    service = _service(tmp_path, FakeBedrock([]))
+    seen: dict[str, Any] = {}
+
+    class _Recall:
+        def __init__(self) -> None:
+            self.context = ""
+            self.edges: list[Any] = []
+            self.episodes: list[Any] = []
+
+    class _Memory:
+        def recall(self, user_id: str, query: str, **kwargs: Any) -> _Recall:
+            seen.update(kwargs)
+            return _Recall()
+
+    service._memory = _Memory()
+    asyncio.run(
+        service.recall_context(
+            "org:default:user:u", "x@example.com", filters={"author_of_evidence": "third_party"}
+        )
+    )
+    assert seen.get("author_of_evidence") == "third_party"
+
+
+def test_the_email_workflows_recall_only_mail_derived_facts() -> None:
+    """The second half of the loop fix: even disputed verdict-derived claims
+    are rendered by veracium as history, so recall must be narrowed to facts
+    authored from the mail itself."""
+    from workflow_platform.workflow import load_definition_from_file
+
+    root = Path(__file__).resolve().parents[2] / "examples"
+    for name in ("email_triage_apply", "email_triage_live"):
+        spec = load_definition_from_file(root / name / "workflow.yaml").learned_memory
+        assert spec is not None and spec.recall is not None
+        assert spec.recall.filters == {"author_of_evidence": "third_party"}, name

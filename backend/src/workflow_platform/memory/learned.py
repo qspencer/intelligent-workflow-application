@@ -351,7 +351,12 @@ class LearnedMemoryService:
         return await asyncio.to_thread(_introspect)
 
     async def recall_context(
-        self, user_id: str, query: str, *, token_budget: int = 600
+        self,
+        user_id: str,
+        query: str,
+        *,
+        token_budget: int = 600,
+        filters: dict[str, str] | None = None,
     ) -> RecalledMemory:
         """Assemble the learned-memory context for a query (G10 read side).
 
@@ -368,7 +373,7 @@ class LearnedMemoryService:
         async with self._lock:
             memory = self._get_memory()
             recall = await asyncio.to_thread(
-                memory.recall, user_id, query, token_budget=token_budget
+                memory.recall, user_id, query, token_budget=token_budget, **(filters or {})
             )
         context = str(recall.context or "")
         return RecalledMemory(

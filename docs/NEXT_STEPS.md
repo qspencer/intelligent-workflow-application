@@ -466,11 +466,29 @@ classified as spam/phishing by triage agent` (system-authored, from our
 own verdict observation) beside a quarantined claim that one fear-themed
 marketing email was "a deceptive phishing attempt". Recall injects the
 classifier's own past verdict as trusted context on every Caraway email,
-so one early miss became durable and re-confirms itself. *Options:*
-(a) correct the Caraway facts in the store (data fix, one sender);
-(b) stop recalling the triage agent's OWN verdicts as trusted facts —
-author them as derived/quarantined or exclude them from recall — so no
-sender can get stuck this way (design fix); (c) re-label the 21 messages.
+so one early miss became durable and re-confirms itself. **FIXED
+2026-10-05, in three layers.** (1) The verdict observation is gone from
+both email workflows; a test fails if any shipped observation templates
+a `{steps.…}` output. (2) `tools/dispute_verdict_facts.py` disputed every
+active `system`/`derived_from: third_party` edge — **5,432 of 15,491
+active facts (35%)** were the classifier's own past verdicts — non-
+destructively (history kept). (3) Recall is filtered to
+`author_of_evidence: third_party`, because veracium still renders
+disputed and superseded QUARANTINED claims as history: disputing alone
+would not have kept them out of the prompt. *Side effect at deploy:* the
+5,432 dispute records are the newest episodes, so recall's episode slots
+show them until a few hours of new mail displaces them. *Not done:*
+re-labelling the 21 Caraway messages (removal is operator-CLI only).
+**But the loop was NOT why Caraway is spam** — measured before cutover at
+temperature 0: with the cleaned store and the filter, Caraway stayed `spam`
+8/8, and the 40 recent messages changed 0/40; with NO memory at all,
+Caraway is still `spam` 8/8 ("deceptive phishing attempt impersonating
+Caraway … fake security alert"), although every one is `auth_pass: true`
+— authenticated as carawayhome.com, which rules impersonation out. The
+real cause is the emails' text part read as a phishing template plus a
+classifier that ignores authentication. *Next (not built):* a rubric rule
+that authenticated mail from the sender's own domain cannot be
+impersonation, A/B-tested like the prompt changes.
 Also fixed today: `review_triage.py --source gmail` now samples one
 message per SENDER per category (`--per-sender`), skips labeled senders,
 and weights summaries by sender volume (`represents`).

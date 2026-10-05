@@ -167,6 +167,14 @@ class RecallSpec(BaseModel):
 
     query_from: str
     token_budget: int = 600
+    #: veracium's closed recall-filter grammar (equality only: `subject`,
+    #: `relation`, `author_of_evidence`, `source_id`, `volatility`). The
+    #: email workflows set `author_of_evidence: third_party` (2026-10-04):
+    #: only facts distilled from the mail itself reach the prompt. veracium
+    #: renders even disputed/superseded quarantined claims as history, so
+    #: disputing the old verdict-derived facts alone could not keep the
+    #: classifier's own past opinions out of its prompt; the filter does.
+    filters: dict[str, str] | None = None
 
 
 class LearnedMemorySpec(BaseModel):

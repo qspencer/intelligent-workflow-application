@@ -245,6 +245,11 @@ learned_memory:
   recall:
     query_from: trigger.from_address.address
     token_budget: 600
+    # Only facts distilled from the mail itself — never from our own past
+    # verdicts, which veracium keeps rendering as history even once
+    # disputed (2026-10-04, the Caraway → spam loop).
+    filters:
+      author_of_evidence: third_party
   observations:
     - text: |
         Received email from {trigger.from_address.name} <{trigger.from_address.address}>
@@ -255,13 +260,8 @@ learned_memory:
       event_type: email
       date_from: trigger.received_at
       ref_from: trigger.message_id
-    - text: >
-        The triage agent classified the email from {trigger.from_address.address}
-        (subject: "{trigger.subject}") as {steps.record.category} (attention:
-        {steps.record.attention}, schema v{steps.record.triage_schema_version})
-        with confidence {steps.record.confidence}. Reason: {steps.record.summary}
-      author: system
-      derived_from: third_party
-      event_type: triage
-      date_from: trigger.received_at
-      ref_from: trigger.message_id
+    # The classifier's VERDICT is no longer observed (2026-10-04): recall
+    # injected the agent's own past opinions back as facts about the sender,
+    # so one early mistake re-confirmed itself (Caraway: every email → spam).
+    # Only the email itself is remembered. tools/dispute_verdict_facts.py
+    # retired what the old observation left behind.
