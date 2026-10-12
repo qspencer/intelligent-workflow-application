@@ -42,6 +42,7 @@ import asyncio
 import contextlib
 import functools
 import logging
+import re
 from collections import deque
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime, timedelta
@@ -103,6 +104,104 @@ def summarize_html_structure(html: str, *, max_items: int = 8, max_chars: int = 
     return summary[:max_chars] if summary else "(no structure extracted)"
 
 
+#: Inline-style declarations that keep an element's text off the screen in
+#: every mainstream mail client. Matched on the style with whitespace removed.
+_HIDING_STYLE_RE = re.compile(
+    r"(?:^|;)(?:display:none|visibility:hidden|opacity:0(?:\.0+)?"
+    r"|font-size:0(?:\.0+)?(?:px|pt|em|rem|%)?)(?:!important)?(?:;|$)"
+)
+_ZERO_BOX_RE = re.compile(r"(?:^|;)(?:max-)?height:0(?:px)?(?:!important)?(?:;|$)")
+_BLOCK_TAGS = frozenset(
+    [
+        "address",
+        "article",
+        "aside",
+        "blockquote",
+        "br",
+        "dd",
+        "div",
+        "dl",
+        "dt",
+        "footer",
+        "h1",
+        "h2",
+        "h3",
+        "h4",
+        "h5",
+        "h6",
+        "header",
+        "hr",
+        "li",
+        "main",
+        "nav",
+        "ol",
+        "p",
+        "pre",
+        "section",
+        "table",
+        "td",
+        "th",
+        "tr",
+        "ul",
+    ]
+)
+
+
+def _is_hidden(tag: Any) -> bool:
+    if tag.has_attr("hidden"):
+        return True
+    style = re.sub(r"\s+", "", str(tag.get("style") or "")).lower()
+    if not style:
+        return False
+    if _HIDING_STYLE_RE.search(style):
+        return True
+    return bool(_ZERO_BOX_RE.search(style)) and "overflow:hidden" in style
+
+
+def visible_text_from_html(html: str) -> tuple[str, int]:
+    """The text a reader of the rendered HTML actually sees, and how many
+    characters of text the HTML hides from them.
+
+    The text/plain part is whatever the sender chose to put there, and it
+    need not match what the owner reads. Measured 2026-10-12: every
+    Caraway email carried a phishing-template block — "verify your
+    account: [Insert Link Here]" — inside `display: none`, so the owner saw
+    a cookware ad and the classifier read a phishing attempt (21 of 21
+    labelled spam). Hidden text is also the channel for instructions a
+    human reviewer cannot see, so the classifier reads what the human does
+    and gets the hidden amount as a number, not as text.
+
+    Inline styles and the `hidden` attribute only: rules in a `<style>`
+    block (`.preheader {display:none}`) are not resolved, so that text
+    counts as visible. Link targets are kept as `(domain)` after the link
+    text — the rubric judges links by domain. Nothing is fetched."""
+    from bs4 import BeautifulSoup
+
+    soup = BeautifulSoup(html, "html.parser")
+    for tag in soup.find_all(["script", "style", "head", "title", "noscript", "template"]):
+        tag.decompose()
+    hidden = 0
+    for tag in soup.find_all(True):
+        if tag.decomposed:
+            continue  # inside a hidden ancestor, already counted
+        if _is_hidden(tag):
+            hidden += len(re.sub(r"\s+", "", tag.get_text()))
+            tag.decompose()
+    for a in soup.find_all("a", href=True):
+        href = str(a["href"])
+        if href.startswith(("http://", "https://")) and a.get_text(strip=True):
+            domain = href.split("/", 3)[2].lower().removeprefix("www.")
+            a.append(f" ({domain})")
+    for tag in soup.find_all(_BLOCK_TAGS):
+        tag.insert_before("\n")
+        tag.insert_after("\n")
+    lines = (
+        re.sub(r"[ \t\xa0\u200b-\u200d\ufeff\u034f]+", " ", ln).strip()
+        for ln in soup.get_text().splitlines()
+    )
+    return "\n".join(ln for ln in lines if ln), hidden
+
+
 class GmailPollTrigger(Trigger):
     type: ClassVar[str] = "gmail_poll"
 
@@ -119,6 +218,7 @@ class GmailPollTrigger(Trigger):
         slim_payload: bool = False,
         annotate_reply_status: bool = False,
         annotate_auth_result: bool = False,
+        visible_body: bool = False,
         mark_read_after_success: bool = False,
         body_max_chars: int | None = None,
         cursor_store: TriggerCursorRepo | None = None,
@@ -153,6 +253,10 @@ class GmailPollTrigger(Trigger):
         # Authentication-Results verdict (trusted-authserv policy). Computed
         # BEFORE slimming (slim_payload drops raw headers).
         self.annotate_auth_result = annotate_auth_result
+        # When the message has HTML, `body_text` becomes the text a reader of
+        # it SEES (`visible_text_from_html`) and the payload gains
+        # `hidden_text_chars`. Opt-in: it changes what the classifier reads.
+        self.visible_body = visible_body
         # Mutating: after a run COMPLETEs, drop UNREAD so the mailbox's unread
         # count becomes a real backlog signal. Only an explicit True from the
         # callback marks; a failed, unknown or errored run stays unread.
@@ -397,6 +501,10 @@ class GmailPollTrigger(Trigger):
         if self.annotate_auth_result:
             payload["auth_pass"] = authentication_pass(msg.auth_results, msg.from_address.address)
         payload.pop("auth_results", None)
+        if self.visible_body and msg.body_html:
+            payload["body_text"], payload["hidden_text_chars"] = visible_text_from_html(
+                msg.body_html
+            )
         body_text = payload.get("body_text")
         if (
             self.body_max_chars
