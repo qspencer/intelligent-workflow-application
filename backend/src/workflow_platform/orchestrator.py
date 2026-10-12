@@ -251,6 +251,7 @@ class TriggerOrchestrator:
                     slim_payload=bool(config.get("slim_payload", False)),
                     annotate_reply_status=bool(config.get("annotate_reply_status", False)),
                     annotate_auth_result=bool(config.get("annotate_auth_result", False)),
+                    visible_body=bool(config.get("visible_body", False)),
                     mark_read_after_success=bool(config.get("mark_read_after_success", False)),
                     lookback_hours=float(config.get("lookback_hours", 0) or 0),
                     body_max_chars=(
