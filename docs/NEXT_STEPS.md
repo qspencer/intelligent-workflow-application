@@ -489,6 +489,28 @@ real cause is the emails' text part read as a phishing template plus a
 classifier that ignores authentication. *Next (not built):* a rubric rule
 that authenticated mail from the sender's own domain cannot be
 impersonation, A/B-tested like the prompt changes.
+**R4 complete + that rubric rule TRIED AND REVERTED (2026-10-12).** The
+operator's review: 51 senders, 48 correct (94%); ~97% of 1,422 messages by
+volume. Errors: Caraway (`spam`, all 21 — the only `spam` sender, so spam
+precision is 0) and newsletter→notification for LinkedIn invitations and
+Patreon new-post alerts. A temperature-0 A/B of the authenticated-sender
+rule plus a notification-vs-newsletter tiebreaker, on all 62 labels: old
+50/62, new **48/62** — it fixed Patreon and 1 of 11 Caraway, and broke
+two `personal` (Church Center, Thumbtack → notification) and one
+newsletter (→ promotion). LinkedIn was already right under today's
+classifier (the miss was historical). **The real Caraway cause:** every
+Caraway email carries a block of phishing-template text — "Click on the
+following link to verify your account: [Insert Link Here]", "The [Your
+Company Name] Security Team" — inside `<div style="display: none">`. The
+owner never sees it; the text/plain part and the classifier do. The
+model is reading text that is really there, so no rubric rule on
+authentication fixes it. *Next (not built — design input):* derive the
+classifier's `body_text` from the VISIBLE HTML (drop `display:none` /
+zero-height / hidden elements) when HTML is present, and pass the hidden
+amount as a signal (e.g. `hidden_text_chars`). That is also an injection
+defense: hidden text is the classic channel for instructions a human
+reviewer cannot see. Harness: real engine, triage+record only, snapshot
+recall, no writes; built in session scratch, not committed.
 Also fixed today: `review_triage.py --source gmail` now samples one
 message per SENDER per category (`--per-sender`), skips labeled senders,
 and weights summaries by sender volume (`represents`).
