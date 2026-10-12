@@ -885,3 +885,23 @@ async def test_lookback_reaches_the_trigger_and_the_dmarc_yaml_sets_it(tmp_path:
     # Short, not off: bulk senders back-date by up to ~23 min (2026-10-04),
     # and a busy inbox's window must stay far inside the 500-id seen ring.
     assert triage.lookback == timedelta(hours=2)
+
+
+async def test_visible_body_reaches_the_trigger_and_the_triage_yaml_sets_it(
+    tmp_path: Path,
+) -> None:
+    """The production classifier reads the text the owner sees (2026-10-12,
+    Caraway's hidden phishing template); config must reach the trigger."""
+    from workflow_platform.workflow import load_definition_from_file
+
+    orch = _orchestrator(tmp_path, engine=_make_engine(), secret_store=EnvSecretStore())
+    repo = Path(__file__).resolve().parents[2]
+    triage = orch._make_trigger(
+        load_definition_from_file(repo / "examples/email_triage_apply/workflow.yaml")
+    )
+    dmarc = orch._make_trigger(
+        load_definition_from_file(repo / "examples/dmarc_ingest/workflow.yaml")
+    )
+    assert isinstance(triage, GmailPollTrigger) and isinstance(dmarc, GmailPollTrigger)
+    assert triage.visible_body is True
+    assert dmarc.visible_body is False

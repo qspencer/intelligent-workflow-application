@@ -389,9 +389,11 @@ async def run(args: argparse.Namespace) -> int:
         print(f"{YELLOW}{disagreements} judge disagreement(s) queued first.{RESET}")
     print(f"labels file: {labels_path}")
 
-    total = len(items)
-    for item in pending:
-        _show_card(item, len(labels) + 1, total)
+    # Position within THIS queue. It once counted every label in the file
+    # against the size of the sample, so labels from an earlier session ran
+    # the counter past its total ([51/49]) while items were still left.
+    for pos, item in enumerate(pending, 1):
+        _show_card(item, pos, len(pending))
         while True:
             answer = (
                 input(f"[{GREEN}Enter=correct{RESET} / i=incorrect / b=body / s=skip / q=quit] ")
