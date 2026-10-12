@@ -504,13 +504,22 @@ following link to verify your account: [Insert Link Here]", "The [Your
 Company Name] Security Team" — inside `<div style="display: none">`. The
 owner never sees it; the text/plain part and the classifier do. The
 model is reading text that is really there, so no rubric rule on
-authentication fixes it. *Next (not built — design input):* derive the
-classifier's `body_text` from the VISIBLE HTML (drop `display:none` /
-zero-height / hidden elements) when HTML is present, and pass the hidden
-amount as a signal (e.g. `hidden_text_chars`). That is also an injection
-defense: hidden text is the classic channel for instructions a human
-reviewer cannot see. Harness: real engine, triage+record only, snapshot
-recall, no writes; built in session scratch, not committed.
+authentication fixes it. **BUILT 2026-10-12: `visible_body`** (email
+trigger config, on for email-triage-apply): when there is HTML, `body_text`
+is its visible text (`visible_text_from_html`: inline-hidden elements
+dropped, link targets kept as `(domain)`) and `hidden_text_chars` counts
+what it hid. Same A/B, same rubric, only the payload differing: **50 → 55
+of 62**; Caraway `spam` 11/11 → 0/11 (8 exactly right; 3 abandoned-cart
+emails the operator called notification became promotion). Three
+borderline flips the other way, near-identical summaries both sides:
+Church Center group mail personal → notification, TripIt anniversary
+promotion → newsletter (the classifier previously saw NO text — its text
+part was empty), Practicing the Way newsletter → promotion. Input tokens
+−22% (median body 3.8k → 0.9k chars). Also an injection defense — see
+THREAT_MODEL §4a. Harness: real engine, triage+record only, snapshot
+recall, no writes; session scratch, not committed. *Not done:*
+re-labelling the 21 Caraway messages (operator CLI); CSS-class hiding is
+not resolved (stated gap).
 Also fixed today: `review_triage.py --source gmail` now samples one
 message per SENDER per category (`--per-sender`), skips labeled senders,
 and weights summaries by sender volume (`represents`).

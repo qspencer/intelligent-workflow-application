@@ -129,6 +129,19 @@ tenant boundary itself.
   misclassification / attention-escalation rate is tracked empirically
   (the correction-driven rubric loop + the two-axis part-2 window are
   the measurement), never claimed as pinned.
+- **Hidden text (2026-10-12):** the content readers see the text the
+  OWNER sees. With `visible_body` on the email trigger (production
+  triage), `body_text` is derived from the HTML with inline-hidden
+  elements removed (`display:none`, `visibility:hidden`, `opacity:0`,
+  `font-size:0`, zero-height + overflow-hidden, `hidden`), and the amount
+  removed arrives as a number, `hidden_text_chars` — so text a human
+  reviewer cannot see does not reach the classifier, the question
+  suggester, or learned memory as words. Found by mislabeling, not
+  attack: a vendor's `display:none` phishing template made all 21 of its
+  emails `spam`. *Gap:* hiding done by `<style>` rules (class selectors,
+  media queries) is not resolved, and color-on-background hiding is not
+  detected; that text still counts as visible. Pinned in
+  `test_gmail_poll_trigger.py` (`visible_*`).
 
 ## 5. Tenant isolation (A6)
 
