@@ -45,6 +45,12 @@ trigger:
     # removing an input is a classifier behaviour change of its own — one
     # to make deliberately, with the A/B harness, not inside a removal.
     annotate_auth_result: true
+    # Classify the text the owner SEES: when there is HTML, body_text is
+    # its visible text and `hidden_text_chars` counts what it hides
+    # (2026-10-12: Caraway hid a phishing template in `display: none`, and
+    # all 21 of its emails were labelled spam). A/B on the operator's 62
+    # labels, temperature 0: 50 → 55 correct, Caraway 11/11 spam → 0/11.
+    visible_body: true
     # Long-body newsletters (full-coverage scope) don't need 30k tokens to
     # classify — the head suffices.
     body_max_chars: 8000

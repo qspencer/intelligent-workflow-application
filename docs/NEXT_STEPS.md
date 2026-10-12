@@ -489,6 +489,37 @@ real cause is the emails' text part read as a phishing template plus a
 classifier that ignores authentication. *Next (not built):* a rubric rule
 that authenticated mail from the sender's own domain cannot be
 impersonation, A/B-tested like the prompt changes.
+**R4 complete + that rubric rule TRIED AND REVERTED (2026-10-12).** The
+operator's review: 51 senders, 48 correct (94%); ~97% of 1,422 messages by
+volume. Errors: Caraway (`spam`, all 21 — the only `spam` sender, so spam
+precision is 0) and newsletter→notification for LinkedIn invitations and
+Patreon new-post alerts. A temperature-0 A/B of the authenticated-sender
+rule plus a notification-vs-newsletter tiebreaker, on all 62 labels: old
+50/62, new **48/62** — it fixed Patreon and 1 of 11 Caraway, and broke
+two `personal` (Church Center, Thumbtack → notification) and one
+newsletter (→ promotion). LinkedIn was already right under today's
+classifier (the miss was historical). **The real Caraway cause:** every
+Caraway email carries a block of phishing-template text — "Click on the
+following link to verify your account: [Insert Link Here]", "The [Your
+Company Name] Security Team" — inside `<div style="display: none">`. The
+owner never sees it; the text/plain part and the classifier do. The
+model is reading text that is really there, so no rubric rule on
+authentication fixes it. **BUILT 2026-10-12: `visible_body`** (email
+trigger config, on for email-triage-apply): when there is HTML, `body_text`
+is its visible text (`visible_text_from_html`: inline-hidden elements
+dropped, link targets kept as `(domain)`) and `hidden_text_chars` counts
+what it hid. Same A/B, same rubric, only the payload differing: **50 → 55
+of 62**; Caraway `spam` 11/11 → 0/11 (8 exactly right; 3 abandoned-cart
+emails the operator called notification became promotion). Three
+borderline flips the other way, near-identical summaries both sides:
+Church Center group mail personal → notification, TripIt anniversary
+promotion → newsletter (the classifier previously saw NO text — its text
+part was empty), Practicing the Way newsletter → promotion. Input tokens
+−22% (median body 3.8k → 0.9k chars). Also an injection defense — see
+THREAT_MODEL §4a. Harness: real engine, triage+record only, snapshot
+recall, no writes; session scratch, not committed. *Not done:*
+re-labelling the 21 Caraway messages (operator CLI); CSS-class hiding is
+not resolved (stated gap).
 Also fixed today: `review_triage.py --source gmail` now samples one
 message per SENDER per category (`--per-sender`), skips labeled senders,
 and weights summaries by sender volume (`represents`).

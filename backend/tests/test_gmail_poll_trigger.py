@@ -909,3 +909,102 @@ async def test_seen_mail_in_the_window_cannot_crowd_out_a_new_message(
     fired: list[str] = []
     await _run_until(trig, fired, lambda: bool(fired))
     assert fired == ["m-060"]
+
+
+# --- visible_body: classify the text the owner sees (2026-10-12) ---
+
+
+def test_visible_text_drops_every_hiding_style_and_counts_it() -> None:
+    from workflow_platform.triggers.gmail_poll import visible_text_from_html
+
+    html = """<html><head><title>Head Title</title><style>p{color:red}</style></head><body>
+      <p>Shop the sale</p>
+      <div style="display: none; max-height: 0px; overflow: hidden;">
+        verify your account <span>[Insert Link Here]</span></div>
+      <div style="visibility:hidden">aaaa</div>
+      <span style="font-size:0px">bbbb</span>
+      <span style="opacity: 0 !important">cccc</span>
+      <div style="max-height:0;overflow:hidden">dddd</div>
+      <p hidden>eeee</p>
+      <p style="opacity:0.5">faded but shown</p>
+      <script>steal()</script>
+    </body></html>"""
+    text, hidden = visible_text_from_html(html)
+    assert "Shop the sale" in text and "faded but shown" in text
+    for gone in (
+        "verify",
+        "Insert Link",
+        "aaaa",
+        "bbbb",
+        "cccc",
+        "dddd",
+        "eeee",
+        "steal",
+        "red",
+        "Head Title",
+    ):
+        assert gone not in text, gone
+    # Non-whitespace characters, each hidden subtree counted ONCE (the
+    # nested span is inside the display:none div).
+    assert hidden == len("verifyyouraccount[InsertLinkHere]") + 4 * 5
+
+
+def test_visible_text_keeps_link_domains_and_line_structure() -> None:
+    from workflow_platform.triggers.gmail_poll import visible_text_from_html
+
+    text, hidden = visible_text_from_html(
+        '<table><tr><td>Hello</td></tr><tr><td><a href="https://www.Vendor.com/x?y=1">'
+        "Shop now</a></td></tr></table><p>Bye&nbsp;&nbsp;now</p>"
+    )
+    assert text == "Hello\nShop now (vendor.com)\nBye now"
+    assert hidden == 0
+
+
+async def test_visible_body_replaces_body_text_and_reports_hidden() -> None:
+    svc = FakeGmailService()
+    svc.list_response = {"messages": [{"id": "v-1"}]}
+    svc.get_responses["v-1"] = stage_gmail_message(
+        "v-1",
+        body_text="Cookware sale. Click to verify your account: [Insert Link Here]",
+        body_html='<p>Cookware sale.</p><div style="display:none">Click to verify</div>',
+    )
+    fired: list[dict[str, Any]] = []
+
+    async def on_event(payload: dict[str, Any]) -> None:
+        fired.append(payload)
+
+    trig, _ = _make_trigger(svc)
+    trig.visible_body = True
+    trig.slim_payload = True
+    await trig.start(on_event)
+    try:
+        await _wait_for(lambda: len(fired) >= 1)
+    finally:
+        await trig.stop()
+    assert fired[0]["body_text"] == "Cookware sale."
+    assert fired[0]["hidden_text_chars"] == len("Clicktoverify")
+    assert fired[0]["body_html"] is None  # slimming still applies after
+
+
+async def test_visible_body_leaves_text_only_mail_and_is_off_by_default() -> None:
+    from workflow_platform.connectors.email.gmail import _parse_gmail_message
+
+    svc = FakeGmailService()
+    plain = _parse_gmail_message(stage_gmail_message("p-1", body_text="plain only"))
+    html = _parse_gmail_message(
+        stage_gmail_message(
+            "h-1", body_text="part", body_html='<p>x</p><p style="display:none">y</p>'
+        )
+    )
+    trig, _ = _make_trigger(svc)
+    assert trig.visible_body is False
+    off = await trig._build_payload(html)
+    assert off["body_text"] == "part" and "hidden_text_chars" not in off
+
+    trig.visible_body = True
+    on = await trig._build_payload(html)
+    assert on["body_text"] == "x" and on["hidden_text_chars"] == 1
+    # No HTML part: nothing to derive from, body_text is the plain part.
+    text_only = await trig._build_payload(plain)
+    assert text_only["body_text"] == "plain only"
+    assert "hidden_text_chars" not in text_only
