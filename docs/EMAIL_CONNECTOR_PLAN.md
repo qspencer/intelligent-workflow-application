@@ -206,6 +206,13 @@ libraries are synchronous. Every call from the connector wraps in
 isn't optional — blocking the event loop in a polling connector wedges
 every other workflow on the same engine.
 
+**OAuth client classification (`is_agentic`).** Our client is deliberately **not**
+marked agentic, so it cannot call Google Workspace **MCP** servers — we are a pure
+REST consumer and nothing breaks. The flag freezes per-client on 2026-11-12, after
+which reopening costs a new Client ID plus re-consent for all three accounts.
+Rationale, alternatives and the reopen trigger: `docs/SEMANTICS.md` → *Deferred:
+marking our Google OAuth client "agentic"*.
+
 ### Capability allowlist
 
 Email capabilities are explicit strings on the workflow / step capability

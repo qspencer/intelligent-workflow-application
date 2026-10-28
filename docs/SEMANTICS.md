@@ -328,6 +328,55 @@ exceeds the benefit at this scale.
 aggregation, with care to define each metric in exactly one place
 (currently `backend/src/workflow_platform/cost/`).
 
+## Deferred: marking our Google OAuth client "agentic" (Workspace MCP eligibility)
+
+**Deferred 2026-10-28.** Google is adding an `is_agentic` flag to OAuth clients
+ahead of launching Workspace **MCP** servers (Gmail/Drive/Calendar over the Model
+Context Protocol); only agentic-marked clients may call them. Dates: **2026-10-12**
+the flag became settable in the Cloud console · **2026-11-11** MCP servers refuse
+non-agentic clients · **2026-11-12** the flag *freezes per client* — changing it
+after that requires a **new OAuth Client ID**. Notified 2026-10-12 to
+`qrsconsulting@quentinspencer.com` (DKIM/SPF/DMARC all pass, `p=REJECT`), naming
+project `avid-life-497419-k6`. Source mail kept at
+`~/Documents/veracium/to-read/[Action Required] Mark AI agent OAuth clients as agentic…eml`.
+
+**Why it changes nothing we run today.** Our Gmail path is the plain REST API —
+`googleapiclient.discovery.build("gmail", "v1", …)` with scope
+`https://mail.google.com/` — and there is **no MCP client code in the backend**.
+Google's own carve-out covers exactly this: an app that is not an AI agent and only
+calls Workspace REST APIs needs no action. DMARC ingest, email triage, and
+`email_send` / `email_label_apply` are unaffected on Nov 11.
+
+**Why it is nevertheless a decision.** Google asks AI-agent clients to
+self-identify *"including agents that currently use Workspace REST APIs only"* —
+which is precisely what we are. And agentic clients get *"separate security
+controls applied, such as agent access controls"*, so setting the flag on the one
+OAuth client that all three mailboxes and both live mail workflows depend on could
+constrain traffic that works today.
+
+**Alternatives considered.**
+
+- *Mark the existing client agentic before Nov 12.* Pro: keeps MCP reachable with
+  no new credential. **Why not:** it applies new, unspecified agent access controls
+  to the single OAuth client the live mail path runs on — a production risk accepted
+  for a capability that has no consumer.
+- *Create a second, agentic OAuth client now* (Google's own advice where one app
+  has both agent and non-agent traffic). Pro: preserves the MCP option while leaving
+  the REST client untouched. **Why not now:** it is a real credential to create,
+  consent and store for a path nothing calls; the cost of deferring is bounded and
+  named below.
+- *Do nothing and let the flag freeze.* **Chosen** — see the trigger.
+
+**Decision trigger to reopen.** A concrete need to call a Google Workspace **MCP**
+server rather than the REST API. Note the asymmetry deliberately accepted: after
+**2026-11-12**, reopening is no longer a console toggle — it costs a **new OAuth
+Client ID**, re-running the consent flow for all three accounts
+(`intelligent.workflow.engine@`, `qrsconsulting@`, `qspencer@gmail.com`) and
+re-minting every refresh token under `.secrets/gmail/<account>/`.
+
+**Default until then.** Remain a pure Workspace **REST** consumer on the existing
+non-agentic client. No code or config change; nothing to do by any deadline.
+
 ---
 
 ## How to use this doc
