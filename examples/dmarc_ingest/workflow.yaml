@@ -32,7 +32,12 @@ trigger:
     # query is the real scope; this is a dedicated report mailbox.
     label: null
     query: 'has:attachment (filename:zip OR filename:gz)'
-    download_dir: /tmp/dmarc-spool
+    # NOT /tmp: this box's tmpfiles.d carries `D /tmp 1777 root root 30d`, and
+    # the `D` type EMPTIES /tmp on every boot (and clears entries over 30 days
+    # old). Spool and staging both lived there until 2026-10-28, which let a
+    # reboot silently destroy in-flight report files in a pipeline whose whole
+    # job is delivering files.
+    download_dir: /home/ubuntu/.local/share/workflow-platform/dmarc/spool
     poll_interval_seconds: 300
     # Reports for this domain arrive every few days (2 between 09-18 and
     # 09-28), so monitoring's default 3-day staleness cried wolf. A week
@@ -51,7 +56,7 @@ trigger:
   example_payload:
     subject: "Report domain: quentinspencer.com Submitter: google.com"
     attachment_paths:
-      - /tmp/dmarc-spool/example-msg-id/google.com!quentinspencer.com!1700000000!1700086400.zip
+      - /home/ubuntu/.local/share/workflow-platform/dmarc/spool/example-msg-id/google.com!quentinspencer.com!1700000000!1700086400.zip
 
 steps:
   - id: extract_reports
@@ -60,7 +65,7 @@ steps:
     function: extract_archive
     config:
       paths_from: trigger.attachment_paths
-      dest_dir: /tmp/dmarc-extracted
+      dest_dir: /home/ubuntu/.local/share/workflow-platform/dmarc/extracted
       member_suffix: .xml
 
   - id: deliver_reports

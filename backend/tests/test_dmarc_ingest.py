@@ -203,10 +203,13 @@ async def test_dmarc_ingest_runs_end_to_end() -> None:
     definition = _load_definition()
     world = mock_world()
     await world.fs.write_bytes(
-        "/tmp/dmarc-spool/m1/google.zip",
+        "/home/ubuntu/.local/share/workflow-platform/dmarc/spool/m1/google.zip",
         _zip_bytes({"google.com!qs.com!1!2.xml": b"<feedback/>"}),
     )
-    await world.fs.write_bytes("/tmp/dmarc-spool/m1/agg.xml.gz", gzip.compress(b"<gz/>"))
+    await world.fs.write_bytes(
+        "/home/ubuntu/.local/share/workflow-platform/dmarc/spool/m1/agg.xml.gz",
+        gzip.compress(b"<gz/>"),
+    )
 
     engine = WorkflowEngine(
         repositories=in_memory_repositories(),
@@ -220,8 +223,8 @@ async def test_dmarc_ingest_runs_end_to_end() -> None:
         trigger_payload={
             "subject": "Report domain: qs.com",
             "attachment_paths": [
-                "/tmp/dmarc-spool/m1/google.zip",
-                "/tmp/dmarc-spool/m1/agg.xml.gz",
+                "/home/ubuntu/.local/share/workflow-platform/dmarc/spool/m1/google.zip",
+                "/home/ubuntu/.local/share/workflow-platform/dmarc/spool/m1/agg.xml.gz",
             ],
         },
     )
@@ -230,7 +233,7 @@ async def test_dmarc_ingest_runs_end_to_end() -> None:
     # Step 1: archives unzipped into the staging dir…
     extract_out = instance.context["steps"]["extract_reports"]
     assert extract_out["extracted_count"] == 2
-    assert extract_out["dest_dir"] == "/tmp/dmarc-extracted"
+    assert extract_out["dest_dir"] == "/home/ubuntu/.local/share/workflow-platform/dmarc/extracted"
     # …step 2: XMLs delivered to the viewer's watched dir.
     deliver_out = instance.context["steps"]["deliver_reports"]
     assert deliver_out["copied_count"] == 2

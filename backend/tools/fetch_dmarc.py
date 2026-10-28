@@ -104,7 +104,9 @@ def main() -> int:
         "--query", default=DEFAULT_QUERY, help=f"Gmail query (default: {DEFAULT_QUERY!r})"
     )
     parser.add_argument(
-        "--spool-dir", default="/tmp/dmarc-spool", help="Attachment spool directory"
+        "--spool-dir",
+        default="/home/ubuntu/.local/share/workflow-platform/dmarc/spool",
+        help="Attachment spool directory",
     )
     parser.add_argument("--max", type=int, default=500, help="Max messages to fetch")
     parser.add_argument("--fire", action="store_true", help="POST payloads to run-batch")

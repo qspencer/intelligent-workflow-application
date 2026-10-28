@@ -2552,6 +2552,61 @@ layer L3 — pull ideas from it if this grows judge scoring).
 Open: the full sweep is a spend decision (~$0.70/model for Haiku-class,
 ~$2 Sonnet, ~$3.50 Opus over all 139) — operator's call per run.
 
+### G28 — DMARC spool + staging moved off `/tmp` — **Done 2026-10-28**
+
+Both the email trigger's attachment spool (`download_dir`) and `extract_archive`'s
+staging dir (`dest_dir`) were under `/tmp`. This box's
+`/usr/lib/tmpfiles.d/tmp.conf` carries `D /tmp 1777 root root 30d`, and the **`D`
+type empties `/tmp` on every boot** (the age rule clears anything over 30 days on
+top of that). A reboot therefore destroys in-flight report files in the one
+pipeline whose entire job is moving files — found with both directories **missing**
+after the 2026-10-24 reboot.
+
+Moved to `/home/ubuntu/.local/share/workflow-platform/dmarc/{spool,extracted}`:
+persistent across reboots, and outside the repo tree so the `--reload` watcher
+can't flap on spooled files. Updated in `examples/dmarc_ingest/workflow.yaml` (with
+the reason in a comment, because the next reader will otherwise re-pick `/tmp`),
+`backend/tools/fetch_dmarc.py`'s `--spool-dir` default, and
+`backend/tests/test_dmarc_ingest.py` — which loads the real YAML and asserts on
+`dest_dir`, so it was correctly coupled and moved with it.
+
+**Deliberately not widened.** `scheduled_health_report` (`/tmp/…log`),
+`invoice_extraction` (`/tmp/invoice-inbox`) and the RPA output path are demo or
+cosmetic; only DMARC is a live delivery pipeline. If any of them becomes
+load-bearing, it inherits this problem and this fix.
+
+### G29 — "delivered zero files" is indistinguishable from success
+
+**The defect this closes is already proven, not hypothetical.** Between 2026-09-29
+and 2026-10-14 `dmarc-ingest` ran at least eight times, every run `completed`, and
+**no XML reached the viewer after 2026-09-15** — a month of silent non-delivery.
+Nothing surfaced it: `copy_files` copying zero files is a successful step, the
+instance is `COMPLETED`, and the per-step counts are withheld from the read surface
+by the trace flip (`{"_withheld_keys": true}`), so neither the dashboard nor a SQL
+query over `step_executions.output` showed it without a raw-trace grant.
+
+Found 2026-10-28 only because someone compared `ls` on the viewer's directory
+against the run history by hand.
+
+**What to decide (design, not a patch).** A deterministic step that is configured to
+move files and moves none is *usually* wrong but not *always* (a poll with nothing
+new is legitimate). So the fix is not "fail on zero". Options, cheapest first:
+
+1. **Emit the counts as projection-safe fields** so `delivered_count` survives the
+   flip and is queryable without a grant. Counts of rows are not business content —
+   this is the same call already made for `workflow_deleted`'s
+   `deleted_instances`/`deleted_steps` (see the backfill item's project-in-place
+   reasoning). Cheapest and closes the observability half outright.
+2. **A monitoring check**: `alert_zero_delivery` when a workflow whose steps declare
+   a `dest_dir` completes with zero files moved N consecutive times. Fits the
+   existing threshold-check shape in `monitoring/service.py`.
+3. **Per-function expectations** in the catalog (`copy_files` declares "zero is
+   suspicious"), which generalises but needs a vocabulary nothing else uses yet.
+
+(1) is the recommendation; (2) is what would actually have paged someone. Related
+to the same observability class as the backend crash-looping 56,413 times over four
+days with nothing reporting it — the monitoring service cannot detect its own death.
+
 ### G17 — Proactive recall adoption (veracium 0.4.x, trigger-gated)
 
 The one 0.4.x feature assessed and deliberately NOT consumed
