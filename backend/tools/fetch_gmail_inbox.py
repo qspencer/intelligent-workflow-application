@@ -22,6 +22,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+from datetime import UTC, datetime
 from pathlib import Path
 
 from workflow_platform.connectors.email.bootstrap import maybe_build_gmail_connector
@@ -33,8 +34,22 @@ logger = logging.getLogger("fetch_gmail_inbox")
 REPO_ROOT = Path(__file__).resolve().parents[2]
 
 
-async def fetch(account: str, count: int, label: str | None) -> int:
-    out_dir = REPO_ROOT / "data" / "email_triage" / account
+async def fetch(
+    account: str,
+    count: int,
+    label: str | None,
+    *,
+    since: datetime | None = None,
+    query: str | None = None,
+    oldest_first: bool = False,
+    out_subdir: str | None = None,
+) -> int:
+    # `out_subdir` keeps a new corpus from overwriting an existing one: the
+    # filenames here are `NN_<slug>.json`, so a second fetch into the same
+    # directory silently replaces 01..NN — and the label CSVs key on
+    # `message_id` while reading bodies back out of these files, so clobbering
+    # them destroys the labels' evidence. Default is unchanged.
+    out_dir = REPO_ROOT / "data" / "email_triage" / (out_subdir or account)
     out_dir.mkdir(parents=True, exist_ok=True)
     logger.info("Output dir: %s", out_dir)
 
@@ -47,8 +62,21 @@ async def fetch(account: str, count: int, label: str | None) -> int:
         )
         return 1
 
-    logger.info("Polling inbox (max %d messages, label=%r)…", count, label)
-    messages = await connector.poll_inbox(max_messages=count, label=label)
+    logger.info(
+        "Polling inbox (max %d, label=%r, since=%s, query=%r, oldest_first=%s)…",
+        count,
+        label,
+        since.isoformat() if since else None,
+        query,
+        oldest_first,
+    )
+    messages = await connector.poll_inbox(
+        max_messages=count,
+        label=label,
+        since=since,
+        query=query,
+        oldest_first=oldest_first,
+    )
     logger.info("Got %d messages.", len(messages))
 
     for i, msg in enumerate(messages, start=1):
@@ -79,9 +107,52 @@ def main() -> int:
         default="INBOX",
         help="Gmail label filter (default INBOX). Use empty string for all mail.",
     )
+    parser.add_argument(
+        "--since",
+        help=(
+            "ISO date/datetime; only mail received after it (Gmail `after:`). "
+            "Use with --count high enough to cover the window."
+        ),
+    )
+    parser.add_argument(
+        "--query",
+        help="Raw Gmail search clause ANDed with the rest, e.g. '-in:sent -in:chat'",
+    )
+    parser.add_argument(
+        "--oldest-first",
+        action="store_true",
+        help=(
+            "Fetch the OLDEST messages in the window, ascending, so file order "
+            "is arrival order. Required for a corpus used to study order or "
+            "anchoring effects — Gmail lists newest-first by default."
+        ),
+    )
+    parser.add_argument(
+        "--out-subdir",
+        help=(
+            "Write under data/email_triage/<out-subdir>/ instead of "
+            "<account>/. Use this for a NEW corpus so it cannot overwrite an "
+            "existing one (filenames are NN_<slug>.json and would collide)."
+        ),
+    )
     args = parser.parse_args()
     label = args.label if args.label else None
-    return asyncio.run(fetch(args.account, args.count, label))
+    since = None
+    if args.since:
+        since = datetime.fromisoformat(args.since)
+        if since.tzinfo is None:
+            since = since.replace(tzinfo=UTC)
+    return asyncio.run(
+        fetch(
+            args.account,
+            args.count,
+            label,
+            since=since,
+            query=args.query,
+            oldest_first=args.oldest_first,
+            out_subdir=args.out_subdir,
+        )
+    )
 
 
 if __name__ == "__main__":

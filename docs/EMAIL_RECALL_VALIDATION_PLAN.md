@@ -231,3 +231,93 @@ point is a verdict, not a confirmation.
 ~`$0.008/message × N × (2 arms + K noise-floor re-runs)`. A 300-message corpus,
 both arms, K=20 floor ≈ **$5–6**. Bounded and one-off; gate a large run on a small
 smoke first.
+
+---
+
+## Pre-registration: the Oct-2026 catch-up corpus
+
+**Written 2026-10-28, BEFORE any message in this window was classified.** The
+point of writing it first is the rule we already hold on the veracium side: *a
+freeze must fix every degree of freedom that could be chosen differently after
+seeing outcomes.* A run examined after the fact can always be made to say
+something; this records what would count as a finding while nobody knows the
+answer.
+
+### What the corpus is
+
+Mail to `qspencer@gmail.com` from **2026-10-16 14:07:27Z** (the `email-triage-apply`
+cursor, i.e. the last message the platform processed) to whenever it is captured —
+about twelve days. It exists because the platform was down: the Gmail refresh token
+for that account was revoked around 10-16, the backend then crash-looped from the
+10-24 reboot, and nothing processed mail in between.
+
+Captured with `fetch_gmail_inbox.py --since 2026-10-16T14:07:27Z --oldest-first
+--out-subdir <name>`, and classified with `run_email_triage_batch.py --data-subdir
+<name> --workflow email_triage`.
+
+Three deliberate choices, each with a reason:
+
+- **`--oldest-first`** so file order is arrival order. Half the questions below are
+  about order; a newest-first corpus cannot answer them.
+- **`--out-subdir`** so this corpus cannot overwrite
+  `data/email_triage/qspencer@gmail.com/` — 100 files whose bodies the existing
+  55-message label CSV reads back by `message_id`. The filenames are
+  `NN_<slug>.json` and would collide.
+- **`--workflow email_triage`**, the classifier-only variant (`tools: []`), NOT
+  `email_triage_apply`. The acting variant writes `wf/*` labels to the live
+  mailbox; a study should not mutate its subject.
+
+### Baseline fingerprint (so results stay attributable)
+
+| | |
+|---|---|
+| platform commit | `5b48e34` |
+| veracium | 0.27.1, store schema v16 |
+| runtime | Python 3.14.7, SQLite 3.45.1 |
+| model | `us.anthropic.claude-haiku-4-5-20251001-v1` |
+| rubric | `examples/email_triage_apply/agent_memory.md`, sha256 `3bef3b8b35614a77`, 234 lines |
+| learned store at T0 | **7154 edges / 75370 episodes** |
+| store snapshot | `.memory/backups/learned.db.PRE-CATCHUP-BASELINE.20261028T212823Z` |
+
+The snapshot is the load-bearing artifact. It is what makes the identical corpus
+re-runnable with **recall OFF** later, which is the properly-powered version of the
+OFF/ON comparison the 55-message crux set could not deliver (split 0.176 → 0.125,
+McNemar needing ≥5 same-way flips at N=17). Once the live run writes observations,
+that baseline is unrecoverable.
+
+### Questions, with the query and what would count as a finding
+
+Q1–Q4 need **no labels**. That is the whole reason they are listed first.
+
+| # | Question | Measure | Would be a finding |
+|---|---|---|---|
+| **Q1** | Is the classifier self-consistent? | For senders appearing ≥3 times: share of the modal category | Modal share **< 0.8** on senders with no plausible category change — unreliability independent of correctness |
+| **Q2** | Do earlier verdicts anchor later ones? | For repeat senders, compare first-third vs last-third verdicts in arrival order | A **directional** shift toward the first verdict. Must be compared against the recall-OFF replay — the 55-message run's mixed-sender flag blamed recall before checking that OFF collapsed too, and that error changed the verdict's meaning |
+| **Q3** | How often does memory actually fire, and does it move anything? | `recall` + `memory_hash` on each agent step output; verdict with vs without a non-empty recall block | Recall firing on **> 50%** of messages while changing **< 2%** of verdicts = the G10 injection is paying rent it does not earn |
+| **Q4** | Mechanical health at volume | `parse_ok=False` rate, `no_output` rate, off-schema relation rate, cost and latency per message | Parse failure **> 5%** (the harness's own exclusion ceiling); off-schema materially above the measured 0.08%; triage latency back above ~60s (the act-time-use regression signature) |
+| **Q5** | Accuracy — **the dominant open question** | Stratified sample of ~100 from this pool, labeled blind via `label_email_recall.py`, compared to the classifier | Agreement **at or below ~60%** confirms base accuracy as the lever and not memory. Materially above 60% means the earlier estimate was an artifact of the repeat-sender-biased crux set |
+
+### Stated in advance, so it cannot be discovered conveniently later
+
+- **This is not an i.i.d. eval sample.** It is one sequential run in which the
+  classifier's own observations accumulate, so message *n* is classified under
+  memory written by messages *1..n-1*. Q1/Q2 exist because of that; Q5's accuracy
+  number inherits it and is an estimate for *this* regime, not for a cold store.
+- **Q5 requires the operator's time** and nothing else here does. If the labeling
+  does not happen, Q1–Q4 still stand on their own.
+- **The sample is one mailbox over twelve particular days.** Seasonality (end of
+  October), a backlog of unread promotional mail, and whatever arrived while the
+  account sat idle are all confounds. Distribution drift against the earlier
+  139-message corpus is therefore **descriptive, not a regression signal**.
+- **Any question added after seeing the data gets recorded as such.** Not
+  forbidden — exploratory findings are how the last two real defects were found —
+  but labeled, so an exploratory result is never reported as a pre-registered one.
+
+### Afterwards, at no extra fetch cost
+
+The same corpus is the input for **G18's model sweep** (Haiku / Sonnet / Opus, ~$6
+total over a corpus this size). That is the cheapest available test of whether the
+*model* is the lever on Q5's gap. Running the sweep on a corpus captured for a
+different purpose is legitimate precisely because the corpus was frozen before any
+of its numbers were seen.
+

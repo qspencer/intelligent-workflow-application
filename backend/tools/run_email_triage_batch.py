@@ -75,6 +75,7 @@ async def run_batch(
     concurrency: int,
     max_body_chars: int,
     strip_html: bool,
+    data_subdir: str | None = None,
 ) -> int:
     # Wire the email-tool catalog by setting the env var before main builds.
     os.environ["WORKFLOW_PLATFORM_GMAIL_ACCOUNT"] = account
@@ -92,7 +93,7 @@ async def run_batch(
     from workflow_platform.workflow import load_definition_from_yaml
     from workflow_platform.world import real_world
 
-    inbox_dir = DATA_DIR / account
+    inbox_dir = DATA_DIR / (data_subdir or account)
     fixtures = sorted(inbox_dir.glob("*.json"))
     if limit:
         fixtures = fixtures[:limit]
@@ -318,6 +319,14 @@ def main() -> int:
             "what you want for classification."
         ),
     )
+    parser.add_argument(
+        "--data-subdir",
+        help=(
+            "Read fixtures from data/email_triage/<data-subdir>/ instead of "
+            "<account>/. Pairs with fetch_gmail_inbox.py --out-subdir so a new "
+            "corpus can be run without touching an existing labeled one."
+        ),
+    )
     args = parser.parse_args()
     return asyncio.run(
         run_batch(
@@ -327,6 +336,7 @@ def main() -> int:
             args.concurrency,
             args.max_body_chars,
             strip_html=not args.keep_html,
+            data_subdir=args.data_subdir,
         )
     )
 
