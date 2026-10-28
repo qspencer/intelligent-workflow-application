@@ -251,9 +251,37 @@ about twelve days. It exists because the platform was down: the Gmail refresh to
 for that account was revoked around 10-16, the backend then crash-looped from the
 10-24 reboot, and nothing processed mail in between.
 
-Captured with `fetch_gmail_inbox.py --since 2026-10-16T14:07:27Z --oldest-first
---out-subdir <name>`, and classified with `run_email_triage_batch.py --data-subdir
-<name> --workflow email_triage`.
+### Which instrument answers which question (revised 2026-10-28, before any data)
+
+The first draft of this section had it wrong, and the correction matters enough to
+record rather than quietly fix. It proposed classifying the corpus offline with
+`run_email_triage_batch.py`. **That tool cannot answer Q2 or Q3**: it wires only
+`MemoryManager` (the rubric Markdown) and never constructs a
+`LearnedMemoryService`, so recall never fires in it. A question about whether
+memory anchors or pays rent cannot be answered by an instrument with no memory.
+
+So the two halves run on different instruments, and the cursor is NOT advanced:
+
+- **Q1–Q4 come from the LIVE catch-up run.** On re-consent the `email-triage-apply`
+  trigger resumes from its 2026-10-16 cursor and processes the window itself:
+  real workflow, recall ON, production store, sequentially in arrival order. That
+  is the production regime these questions are about, it needs no extra step, and
+  the structured results land in `step_executions.output`. Accepted cost: `wf/*`
+  labels are written to ~12 days of already-handled mail (add-only, allowlisted,
+  reversible).
+- **Q5 and every replay come from a CAPTURED corpus**, because the live path's
+  inputs are withheld and vaulted (`{"_withheld_keys": true}`) and so cannot be
+  re-run. `label_email_recall.py` reads bodies from the captured JSON, and
+  `validate_email_recall.py` takes `fixtures: list[Path]` and runs each arm against
+  its own **scratch** store — the OFF/ON instrument, and the one for G18's sweep.
+
+Capture is read-only and independent of the cursor, so it is simply done first:
+
+```
+fetch_gmail_inbox.py --account qspencer@gmail.com \
+    --since 2026-10-16T14:07:27Z --oldest-first \
+    --query "-in:sent -in:draft -in:chat" --out-subdir catchup-2026-10 --count <n>
+```
 
 Three deliberate choices, each with a reason:
 
@@ -263,9 +291,9 @@ Three deliberate choices, each with a reason:
   `data/email_triage/qspencer@gmail.com/` — 100 files whose bodies the existing
   55-message label CSV reads back by `message_id`. The filenames are
   `NN_<slug>.json` and would collide.
-- **`--workflow email_triage`**, the classifier-only variant (`tools: []`), NOT
-  `email_triage_apply`. The acting variant writes `wf/*` labels to the live
-  mailbox; a study should not mutate its subject.
+- **`--query` matching the trigger's own scope** (`-in:sent -in:draft -in:chat`), so
+  the captured corpus and the live run cover the same population. If they diverge,
+  Q5's accuracy estimate stops describing the run that Q1–Q4 measured.
 
 ### Baseline fingerprint (so results stay attributable)
 
