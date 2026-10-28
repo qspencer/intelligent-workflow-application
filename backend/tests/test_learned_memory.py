@@ -46,7 +46,11 @@ _ADMIN = {"X-Dev-User": "a", "X-Dev-Groups": "admins"}
 
 
 def _distill_response(
-    *, facts: int = 1, quarantined: int = 0, episode: str = "an event happened"
+    *,
+    facts: int = 1,
+    quarantined: int = 0,
+    episode: str = "an event happened",
+    obj: str | None = None,
 ) -> dict[str, Any]:
     """A converse response shaped like veracium's EXTRACT_SCHEMA output.
     `third_party_claim` is veracium's structural quarantine relation.
@@ -55,10 +59,19 @@ def _distill_response(
     veracium 0.21.0 (specs/0039) an off-schema row costs a second `distill-retry`
     LLM call that re-asks the model to map it into the known set. Using
     `prefers` keeps these fixtures on the one-call-per-observation path that
-    the usage assertions below pin."""
+    the usage assertions below pin.
+
+    Objects must be GROUNDED: since veracium 0.27.0 (specs/0045, declarative
+    grounding) a fact whose object does not appear in the observed event text is
+    REFUSED for any author but the user's own direct statement — it is dropped,
+    not quarantined, and writes no edge. Pass `obj=` a token that really occurs
+    in the text you hand `observe()` whenever a test asserts on facts or edges;
+    the default stays ungrounded on purpose, because the tests that use it assert
+    on call routing and audit rather than on stored facts."""
+    objects = [obj] * facts if obj else [f"thing-{i}" for i in range(facts)]
     triples = [
-        {"subject": "user", "relation": "prefers", "object": f"thing-{i}", "volatility": "durable"}
-        for i in range(facts)
+        {"subject": "user", "relation": "prefers", "object": o, "volatility": "durable"}
+        for o in objects
     ] + [
         {"subject": f"sender-{i}", "relation": "third_party_claim", "object": "you owe $900"}
         for i in range(quarantined)
@@ -104,7 +117,10 @@ def _engine(
 
 
 def test_observe_writes_episode_and_meters_usage(tmp_path: Path) -> None:
-    bedrock = FakeBedrock([_distill_response(facts=1, quarantined=1)])
+    # `obj` must occur in the event text below — specs/0045 refuses an
+    # ungrounded object outright (no fact, no edge), which would make the
+    # facts == 1 assertion unreachable.
+    bedrock = FakeBedrock([_distill_response(facts=1, quarantined=1, obj="billing@x")])
     service = _service(tmp_path, bedrock)
 
     result = asyncio.run(
@@ -388,7 +404,10 @@ def test_observe_derived_from_caps_disclosure(tmp_path: Path) -> None:
     """A system-authored observation with derived_from=third_party must not
     produce assertable (mentionable) edges — the laundering fix in veracium
     >=0.1.7, exercised through our full write path."""
-    bedrock = FakeBedrock([_distill_response(facts=1)])
+    # Grounded in the event text ("subject: URGENT invoice") so an edge is
+    # actually written: specs/0045 would drop an ungrounded fact, and a store
+    # with zero edges passes the disclosure assertion below vacuously.
+    bedrock = FakeBedrock([_distill_response(facts=1, obj="invoice")])
     service = _service(tmp_path, bedrock)
     result = asyncio.run(
         service.observe(
