@@ -23,8 +23,8 @@ prose and fails on any that no claim covers and no labelled exemption explains.
 Limit, stated: the sweep sees DIGITS. A figure written as a word ("four
 consumers") is checked only if it is registered; the evidence-bearing ones are.
 
-Scope: the LIVE review package — G30 round 2 since 2026-10-29. G29's package
-and G30 round 1 were answered and their registries retired; each package's
+Scope: the LIVE review package — G30 round 3 since 2026-10-29. G29's package
+and G30 rounds 1 and 2 were answered and their registries retired; each package's
 archive is its record. Between packages `GUIDE` is None and both tests skip.
 A historical guide should not fail the build because a later commit added a test.
 """
@@ -42,11 +42,11 @@ BACKEND = Path(__file__).resolve().parents[1]
 REPO = BACKEND.parent
 DOCS = REPO / "docs"
 #: The live guide, or None between packages.
-GUIDE: Path | None = None  # round 2 answered; the round-3 guide re-arms it
+GUIDE: Path | None = DOCS / "G30_CAPABILITY_REVIEW_GUIDE_R3.md"
 pytestmark = pytest.mark.skipif(GUIDE is None, reason="no live review package")
-GATES = DOCS / "archives" / "GATE_OUTPUT_G30_R2.txt"
-LIVE = DOCS / "archives" / "LIVE_EVIDENCE_G30_R2.txt"
-RESULTS = DOCS / "TRACE_G30_REVIEW_RESULTS.md"
+GATES = DOCS / "archives" / "GATE_OUTPUT_G30_R3.txt"
+LIVE = DOCS / "archives" / "LIVE_EVIDENCE_G30_R3.txt"
+RESULTS = DOCS / "TRACE_G30_R2_REVIEW_RESULTS.md"
 
 
 def _printed(path: Path, pattern: str, group: int = 1) -> str:
@@ -81,7 +81,7 @@ CLAIMS: list[Claim] = [
             _printed(GATES, r"^(\d+) claims; \d+ test results run"),
             _printed(GATES, r"^\d+ claims; (\d+) test results run"),
         ),
-        "the reproductions run captured in GATE_OUTPUT_G30_R2.txt",
+        "the reproductions run captured in GATE_OUTPUT_G30_R3.txt",
     ),
     Claim(
         r"defines (\d+) controls, all fire",
@@ -92,17 +92,17 @@ CLAIMS: list[Claim] = [
     Claim(
         r"(\d+) real `email-triage-apply` runs",
         lambda: (_printed(LIVE, r"email-triage-apply: runs=(\d+)"),),
-        "LIVE_EVIDENCE_G30_R2.txt",
+        "LIVE_EVIDENCE_G30_R3.txt",
     ),
     Claim(
         r"called (\d+) times under the layer",
         lambda: (_printed(LIVE, r"label calls ok: (\d+)"),),
-        "LIVE_EVIDENCE_G30_R2.txt",
+        "LIVE_EVIDENCE_G30_R3.txt",
     ),
     Claim(
         r"largest agent-step output was (\d+) tokens",
         lambda: (_printed(LIVE, r"largest agent-step output since phase 1: (\d+) tokens"),),
-        "LIVE_EVIDENCE_G30_R2.txt",
+        "LIVE_EVIDENCE_G30_R3.txt",
     ),
     Claim(
         r"distillation: (\d+) observations recorded, the largest (\d+) output",
@@ -110,22 +110,22 @@ CLAIMS: list[Claim] = [
             _printed(LIVE, r"distillations recorded: (\d+)"),
             _printed(LIVE, r"largest output_tokens per observation: (\d+)"),
         ),
-        "LIVE_EVIDENCE_G30_R2.txt",
+        "LIVE_EVIDENCE_G30_R3.txt",
     ),
     Claim(
         r"including all (\d+) the viewer\s+holds",
         lambda: (_printed(LIVE, r"viewer xml-files \(write\)\s+files=\s*(\d+)"),),
-        "LIVE_EVIDENCE_G30_R2.txt",
+        "LIVE_EVIDENCE_G30_R3.txt",
     ),
     Claim(
-        r"(\d+) real `scheduled-health-report` runs, both completed",
+        r"(\d+) real `scheduled-health-report` runs, all completed",
         lambda: (_printed(LIVE, r"scheduled-health-report: runs=(\d+) completed=\1 failed=0"),),
-        "LIVE_EVIDENCE_G30_R2.txt",
+        "LIVE_EVIDENCE_G30_R3.txt",
     ),
     Claim(
         r"all (\d+) failures\s+in your full-suite run",
         lambda: (_printed(RESULTS, r"(\d+) failed\*\*"),),
-        "the reviewer's own verification table, docs/TRACE_G30_REVIEW_RESULTS.md",
+        "the reviewer's own verification table, docs/TRACE_G30_R2_REVIEW_RESULTS.md",
     ),
 ]
 

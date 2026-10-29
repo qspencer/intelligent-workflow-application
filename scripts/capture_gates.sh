@@ -25,7 +25,9 @@ aggregate=$(find src tests -name '*.py' -type f | sort | xargs sha256sum | sha25
   echo "Host: $(uname -sro) · $(uv run python -V 2>&1) · $(date -u +%Y-%m-%dT%H:%M:%SZ)"
   # veracium opens its store on ONE SQLite build only; a capture that does not
   # say which one ran cannot show the learned-memory tests ran where they can.
-  echo "Runtime: $(uv run python -c 'import sqlite3, importlib.metadata as m; print("sqlite", sqlite3.sqlite_version, "· veracium", m.version("veracium"))' 2>&1)"
+  # The version alone does not qualify a runtime: veracium compares its recorded
+  # build identity and constructor evidence, so its own verdict is printed too.
+  echo "Runtime: $(uv run python -c 'import sqlite3, importlib.metadata as m; from veracium.store.schema_version import runtime_supported as q; print("sqlite", sqlite3.sqlite_version, "· veracium", m.version("veracium"), "· runtime_supported()", q())' 2>&1)"
   echo
 } > "$out"
 
