@@ -2782,6 +2782,40 @@ breaks them; (2) whether scaffold should drop or stage privileged fields
 (`capabilities`, `policies`, `learned_memory`, trigger config) so a draft
 carries none until a human sets them on the canvas.
 
+**Inventory, 2026-10-29 — taken before proposing a layer, and it narrows what
+a system layer can do.**
+
+*What the capability system enforces* (derived from call sites, not the
+schema): `tools` at agent dispatch; `file_read` in the `file_read`,
+`pdf_extract` and `image_ocr` tools; `file_write` in the `file_write` tool.
+**`allowed_hosts` and `max_tokens_per_call` are enforced nowhere** — the trace
+projector's schema is their only reader. **Deterministic functions bypass the
+system entirely:** `copy_files`, `append_file`, `extract_archive`,
+`route_by_classification`, `write_csv` call `world.fs` directly; only the
+`pdf_extract` function routes through a checked tool.
+
+*What production uses.* Three of 27 definitions ran in the last 30 days:
+`email-triage-apply` (3,317 runs), `scheduled-health-report` (413),
+`dmarc-ingest` (16). In capability-governed terms the union is ONE tool —
+`email_label_apply__qspencer_gmail_com`. Every file they touch is touched by a
+deterministic function or a trigger, outside the system. No definition
+declares a workflow-level layer.
+
+*The resulting proposal (not applied):* `tools: [email_label_apply__qspencer_gmail_com]`,
+`file_read: []`, `file_write: []`, set once at `main.py`'s engine construction
+(dry-run inherits it via `dataclasses.replace`). It changes nothing for the
+three live workflows, and makes every other tool — including `email_send` —
+an operator configuration decision rather than a draft's. It does NOT bound a
+scaffolded deterministic step's file paths; that needs the file-moving
+functions to consult `can_read`/`can_write`, and then the layer must list the
+live DMARC and health-report paths. Two phases, in that order.
+
+*Found while inventorying:* ten `e2e-mutating-*` definitions — Playwright IA
+fixtures with goal `noop` and `tools: ["email_send"]` — sit in the production
+DB with `email_send` live in the catalog (bound to the project account), and
+two empty `*-secret-report` isolation fixtures. Manual-trigger only; deleting
+them is the operator's call.
+
 **Not built; a deployment and design decision.**
 
 ### G17 — Proactive recall adoption (veracium 0.4.x, trigger-gated)
