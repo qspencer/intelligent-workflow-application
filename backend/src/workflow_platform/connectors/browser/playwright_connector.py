@@ -17,7 +17,7 @@ import logging
 from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
-from typing import Any, ClassVar
+from typing import Any, ClassVar, NoReturn
 from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Tag
@@ -275,9 +275,14 @@ class PlaywrightConnector(BrowserConnector):
         if getattr(frame, "parent_frame", None) is None:
             self._navigations += 1
 
+    def _document(self) -> tuple[int, str]:
+        """Which document the page holds: main-frame navigations so far, and
+        the URL. See `_fenced` for why both."""
+        return self._navigations, self._page.url
+
     async def _fenced[T](self, read: Callable[[], Awaitable[T]]) -> T:
         """Return `read()` only if the page is still the document `_guard`
-        checked (G30 round-2 review, R2-F3).
+        checked (G30 round-2 review, R2-F3) — and the same for its ERROR.
 
         `_guard` checks the URL, then the read waits — for its element, or for
         Playwright's retries — and the page can navigate meanwhile, by its own
@@ -288,21 +293,68 @@ class PlaywrightConnector(BrowserConnector):
         result, even to an allowed page — which document was read is unknown.
         The count is current when `read()` returns because Playwright delivers
         a navigation's event before the reply to anything run in the new
-        document, and runs this connector's handler as it dispatches it."""
+        document, and runs this connector's handler as it dispatches it.
+
+        An error is withheld the same way (round-3 review, R3-F1): Playwright's
+        errors quote the page — a strict-mode violation previews every element
+        the selector matched, text included — and the tool hands the error to
+        the agent. Found in real Chromium: two matches on the off-list landing
+        put its text in the error. An error about the checked document is kept;
+        it is the agent's to act on."""
         if self._host_allowed is None:
             return await read()
-        before = (self._navigations, self._page.url)
-        result = await read()
-        if (self._navigations, self._page.url) != before:
-            withheld = (
-                "the page navigated while this read was in progress, so its result was withheld"
-            )
-            try:
-                await self._enforce_landing()
-            except BrowserHostDenied as exc:
-                raise BrowserHostDenied(f"{withheld}; {exc}") from None
-            raise BrowserHostDenied(f"{withheld}; check where the page is and read again")
+        before = self._document()
+        failed: str | None = None  # the error's class name — never its text
+        try:
+            result = await read()
+        except Exception as exc:
+            if self._document() == before:
+                raise
+            failed = exc.__class__.__name__
+        if failed is not None or self._document() != before:
+            await self._withhold("read", failed)
         return result
+
+    async def _acted[T](self, action: Callable[[], Awaitable[T]]) -> T:
+        """Run an action and check the page on EVERY exit (R3-F1). An action
+        cannot be withheld — its effect may have landed — so a normal return
+        is judged by where the page ENDS: an off-list page fails the call and
+        is cleared, and a page that left and came back is not detected
+        (R3-F2). An error is withheld if the page navigated during the action,
+        for the same reason a read's is: it may quote the page it failed on."""
+        if self._host_allowed is None:
+            return await action()
+        before = self._document()
+        failed: str | None = None  # the error's class name — never its text
+        try:
+            result = await action()
+        except Exception as exc:
+            if self._document() == before:
+                raise
+            failed = exc.__class__.__name__
+        if failed is not None:
+            await self._withhold("action", failed)
+        await self._enforce_landing()
+        return result
+
+    async def _withhold(self, call: str, failed: str | None) -> NoReturn:
+        """Fail a call whose page navigated while it ran, carrying nothing from
+        either page: not the result, not the original error (only its type),
+        and not the URL the page reached, which a redirect's server chose. Every
+        raise here is outside the `except` that caught the original or the
+        landing check's own error, so neither rides along as `__context__`."""
+        what = f"its error ({failed})" if failed else "its result"
+        withheld = f"the page navigated while this {call} was in progress, so {what} was withheld"
+        cleared = False
+        try:
+            await self._enforce_landing()
+        except BrowserHostDenied:  # it names the URL; raised outside, so not chained
+            cleared = True
+        if cleared:
+            raise BrowserHostDenied(
+                f"{withheld}; the page had left this step's allowed_hosts and was cleared"
+            )
+        raise BrowserHostDenied(f"{withheld}; check where the page is and try again")
 
     # --- lifecycle ---
 
@@ -391,20 +443,18 @@ class PlaywrightConnector(BrowserConnector):
 
     async def click(self, selector: str, *, timeout_ms: int = 5000) -> None:
         await self._guard()
-        await self._page.locator(selector).click(timeout=timeout_ms)
-        await self._enforce_landing()
+        await self._acted(lambda: self._page.locator(selector).click(timeout=timeout_ms))
 
     async def fill(self, selector: str, value: str, *, clear_first: bool = True) -> None:
         await self._guard()
         locator = self._page.locator(selector)
         if clear_first:
             # Playwright's `fill` blanks the field before typing.
-            await locator.fill(value)
+            await self._acted(lambda: locator.fill(value))
         else:
             # Append-mode: type the value at the current cursor position
             # without clearing what's already there.
-            await locator.press_sequentially(value)
-        await self._enforce_landing()
+            await self._acted(lambda: locator.press_sequentially(value))
 
     async def read_text(self, selector: str) -> str:
         await self._guard()
@@ -476,10 +526,11 @@ class PlaywrightConnector(BrowserConnector):
 
     async def upload_file(self, selector: str, upload: BrowserUpload) -> None:
         await self._guard()
-        await self._page.locator(selector).set_input_files(
-            {"name": upload.name, "mimeType": upload.mime_type, "buffer": upload.content}
+        await self._acted(
+            lambda: self._page.locator(selector).set_input_files(
+                {"name": upload.name, "mimeType": upload.mime_type, "buffer": upload.content}
+            )
         )
-        await self._enforce_landing()
 
     async def submit_form(self, selector: str) -> None:
         # `evaluate_handle` would let us inspect the result; we just need
@@ -487,8 +538,7 @@ class PlaywrightConnector(BrowserConnector):
         # the matched element as `el`, so no XSS-like arbitrary JS surface
         # is exposed via the tool — only `.submit()` on the resolved form.
         await self._guard()
-        await self._page.locator(selector).first.evaluate("el => el.submit()")
-        await self._enforce_landing()
+        await self._acted(lambda: self._page.locator(selector).first.evaluate("el => el.submit()"))
 
     async def download_via_click(
         self, selector: str, *, timeout_ms: int = 30000
@@ -501,9 +551,13 @@ class PlaywrightConnector(BrowserConnector):
         directory using the browser-suggested filename.
         """
         await self._guard()
-        async with self._page.expect_download(timeout=timeout_ms) as info:
-            await self._page.locator(selector).click(timeout=timeout_ms)
-        download = await info.value
+
+        async def click_for_download() -> Any:
+            async with self._page.expect_download(timeout=timeout_ms) as info:
+                await self._page.locator(selector).click(timeout=timeout_ms)
+            return await info.value
+
+        download = await self._acted(click_for_download)
         source = getattr(download, "url", "")
         if (
             self._host_allowed is not None

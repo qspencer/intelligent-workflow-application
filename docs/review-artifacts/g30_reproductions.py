@@ -271,10 +271,12 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
     ),
     (
         "E8",
-        "A read returns only what the checked document gave it: a page that navigates "
-        "during the read — off-list, or off-list and back — has the result withheld; late "
-        "content on the checked page and child-frame navigation pass; an action whose page "
-        "leaves fails and is cleared; every page method is classified (round-2 R2-F3)",
+        "A read returns only what the checked document gave it — its result OR its error: "
+        "a page that navigates during the call — off-list, or off-list and back — has either "
+        "withheld, quoting nothing of the page; late content, child-frame navigation and an "
+        "error about the checked page pass; an action is checked on every exit, its error "
+        "withheld the same way; the model never sees the quote; every page method is "
+        "routed through one of the two (R2-F3; round-3 R3-F1, R3-F2)",
         [
             f"{EN}::test_a_read_whose_page_leaves_for_an_off_list_host_mid_read_is_withheld",
             f"{EN}::test_a_read_through_an_off_list_page_and_back_is_withheld",
@@ -282,7 +284,12 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
             f"{EN}::test_a_read_that_waits_on_a_page_that_stays_put_is_returned",
             f"{EN}::test_without_a_policy_a_read_is_not_fenced",
             f"{EN}::test_an_action_whose_page_leaves_mid_action_fails_and_clears",
-            f"{EN}::test_every_page_method_is_a_fenced_read_or_a_landing_checked_action",
+            f"{EN}::test_every_page_method_is_a_fenced_read_or_a_checked_action",
+            f"{EN}::test_an_error_after_the_page_left_for_an_off_list_host_is_withheld",
+            f"{EN}::test_an_error_after_off_list_and_back_is_withheld",
+            f"{EN}::test_an_error_about_the_checked_page_is_kept",
+            f"{EN}::test_an_action_that_leaves_and_returns_is_not_detected",
+            f"{EN}::test_the_model_never_sees_an_error_from_an_unchecked_page",
         ],
         None,
     ),
@@ -297,7 +304,9 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
         "Against real Chromium: off-list clicks and navigations send nothing; the redirect "
         "residual is MEASURED; fetch_url never follows a redirect off-list; the backslash "
         "smuggle is refused; a read waiting while the page redirects itself off-list is "
-        "withheld, beside a late element on a page that stays put (R2-F3)",
+        "withheld, beside a late element on a page that stays put (R2-F3); so is the error "
+        "two matches on the off-list landing raise, beside the same error kept on a page "
+        "that stays put (R3-F1)",
         [
             f"{LIVE}::test_a_click_off_list_is_stopped_before_the_request_is_sent",
             f"{LIVE}::test_navigate_off_list_sends_nothing",
@@ -306,6 +315,8 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
             f"{LIVE}::test_a_backslash_cannot_smuggle_a_disallowed_host_past_fetch_url",
             f"{LIVE}::test_a_read_waiting_while_the_page_leaves_for_an_off_list_host_is_withheld",
             f"{LIVE}::test_a_read_waiting_on_a_page_that_stays_put_returns_its_content",
+            f"{LIVE}::test_an_error_quoting_an_off_list_page_is_withheld",
+            f"{LIVE}::test_the_same_error_on_a_page_that_stays_put_is_kept",
         ],
         "BROWSER_LIVE",
     ),

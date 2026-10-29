@@ -89,21 +89,27 @@ class BrowserConnector(Connector):
     2. the TOP-LEVEL PAGE, which is checked before every read and action and
        cleared if it is on a disallowed host (`_enforce_landing`):
        - a READ (`read_text`, `read_table`, `wait_for`, `screenshot`) returns
-         only what the CHECKED document gave it. The URL and a count of
-         main-frame navigations are taken with the check; if either differs
-         when the read ends, the result is withheld and the page re-checked.
-         A URL check alone would miss a read taken from an off-list page the
-         browser then left (round-2 review, R2-F3). This relies on Playwright
+         only what the CHECKED document gave it — its result or its ERROR,
+         since Playwright's errors quote the page (a strict-mode violation
+         previews every match). The URL and a count of main-frame navigations
+         are taken with the check; if either differs when the read ends,
+         normally or not, what it produced is withheld, nothing of the page is
+         passed on, and the page is re-checked. A URL check alone would miss a
+         read taken from an off-list page the browser then left (round-2
+         review R2-F3; errors, round-3 R3-F1). This relies on Playwright
          delivering a navigation's event before the reply to anything run in
          the new document — its protocol messages arrive in order and the
-         handler runs as each is dispatched — and a real-Chromium test pins it;
-       - an ACTION (`click`, `fill`, `upload_file`, `submit_form`) starts only
-         on an allowed page and the page is checked again when it ends. If the
-         page navigates while Playwright waits for the element — to a
-         disallowed host, through a redirect hop — the action can land there,
-         and its effect cannot be undone; the call fails and the page is
-         cleared. That stays inside the bound below: an allowed page's own
-         scripts can already send what is typed into it anywhere;
+         handler runs as each is dispatched — and real-Chromium tests pin it
+         for a script navigation through a redirect;
+       - an ACTION (`click`, `fill`, `upload_file`, `submit_form`,
+         `download_via_click`) starts only on an allowed page and is checked
+         on every exit. On a normal return the page is judged by where it
+         ENDS: off-list fails the call and clears the page; leaving and
+         returning to an allowed URL is not detected (R3-F2). An error is
+         withheld, as a read's is, if the page navigated during the action.
+         The effect cannot be undone either way: if the page navigates while
+         Playwright waits for the element, the action can land on the new page
+         and act with whatever session that page has;
        - `fetch_url` / `download_via_click` save nothing from a disallowed host.
 
     It is NOT a content-origin guarantee. A page on an allowed host can load a

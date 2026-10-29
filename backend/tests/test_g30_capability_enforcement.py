@@ -333,29 +333,205 @@ async def test_an_action_whose_page_leaves_mid_action_fails_and_clears(
     assert page.url == "about:blank"
 
 
-def test_every_page_method_is_a_fenced_read_or_a_landing_checked_action() -> None:
+def test_every_page_method_is_a_fenced_read_or_a_checked_action() -> None:
     """Derived from the source: every connector method that runs `_guard` is
-    classified. A read must go through `_fenced`; an action must end with
-    `_enforce_landing`. A new method fails here until it is one or the other."""
+    classified — a read goes through `_fenced`, an action through `_acted`, and
+    a new method fails here until it is one or the other. This pins ROUTING
+    only; what happens on each exit is pinned by the behavioural tests around
+    it, because a shape test cannot show every exit reaches a check (the
+    round-3 review showed the previous version of this test could not)."""
     import ast
     import inspect
     import textwrap
 
-    reads = set(_READS)
-    actions = {"click", "fill", "upload_file", "submit_form"}
-    # Its download is checked by host before it is saved; see the download test.
-    other = {"download_via_click"}
     guarded = {}
     for name, fn in inspect.getmembers(PlaywrightConnector, inspect.iscoroutinefunction):
-        tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
-        if "self._guard()" in ast.unparse(tree):
-            guarded[name] = tree.body[0]
-    assert set(guarded) == reads | actions | other
-    for name in reads:
-        assert "self._fenced(" in ast.unparse(guarded[name]), f"{name} is not fenced"
-    for name in actions:
-        last = guarded[name].body[-1]  # type: ignore[attr-defined]
-        assert ast.unparse(last) == "await self._enforce_landing()", f"{name} is not re-checked"
+        source = ast.unparse(ast.parse(textwrap.dedent(inspect.getsource(fn))))
+        if "self._guard()" in source:
+            guarded[name] = source
+    assert set(guarded) == set(_READS) | set(_ACTIONS)
+    for name in _READS:
+        assert "self._fenced(" in guarded[name], f"{name} is not fenced"
+    for name in _ACTIONS:
+        assert "self._acted(" in guarded[name], f"{name} is not checked on every exit"
+
+
+# --- the same fence on the ERROR path (round-3 review, R3-F1) ---
+
+_ACTIONS = ["click", "fill", "upload_file", "submit_form", "download_via_click"]
+MARKER = "OFF_LIST_DIAGNOSTIC_FIXTURE"
+#: The shape of Playwright's strict-mode error: it previews every match, text
+#: included. Seen for real in the live suite, beside the test that pins it.
+DIAGNOSTIC = (
+    "Locator.inner_text: Error: strict mode violation: locator('#late') resolved to 2 elements:\n"
+    f'    1) <p id="late">{MARKER}</p>\n    2) <p id="late">second fixture</p>\n'
+)
+
+
+def _failing(name: str, page: FakePlaywrightPage, during: Callable[[], None]) -> None:
+    """Make `name`'s page call run `during`, then raise the diagnostic."""
+    from playwright.async_api import Error as PlaywrightError
+
+    page_call, errors = {
+        "read_text": ("inner_text", page.raise_on_text),
+        "read_table": ("inner_html", page.raise_on_html),
+        "wait_for": ("wait_for", page.raise_on_wait),
+        "click": ("click", page.raise_on_click),
+        "download_via_click": ("click", page.raise_on_click),
+        "fill": ("fill", page.raise_on_fill),
+        "upload_file": ("set_input_files", page.raise_on_set_files),
+        "submit_form": ("evaluate", page.raise_on_evaluate),
+    }[name]
+    page.during[page_call] = during
+    errors["#late"] = PlaywrightError(DIAGNOSTIC)
+    page.expect_download_value = FakeDownload()
+
+
+def _call(conn: PlaywrightConnector, name: str) -> Awaitable[object]:
+    upload = BrowserUpload(name="a.csv", mime_type="text/csv", content=b"a\n")
+    calls: dict[str, Callable[[], Awaitable[object]]] = {
+        "read_text": lambda: conn.read_text("#late"),
+        "read_table": lambda: conn.read_table("#late"),
+        "wait_for": lambda: conn.wait_for("#late"),
+        "click": lambda: conn.click("#late"),
+        "download_via_click": lambda: conn.download_via_click("#late"),
+        "fill": lambda: conn.fill("#late", "v"),
+        "upload_file": lambda: conn.upload_file("#late", upload),
+        "submit_form": lambda: conn.submit_form("#late"),
+    }
+    return calls[name]()
+
+
+_ERRORING = ["read_text", "read_table", "wait_for", *_ACTIONS]
+
+
+@pytest.mark.parametrize("name", _ERRORING)
+async def test_an_error_after_the_page_left_for_an_off_list_host_is_withheld(
+    tmp_path: Path, name: str
+) -> None:
+    """The reviewer's sequence: the page navigates off-list mid-call and the
+    call FAILS with an error quoting the page. Before the fix the error passed
+    straight to the agent and the page stayed off-list. Now nothing of it
+    reaches the caller — not the quote, not the URL the page reached."""
+    page = FakePlaywrightPage(url=ALLOWED)
+    _failing(name, page, lambda: page.commit(OTHER))
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(BrowserHostDenied, match="withheld") as caught:
+        await _call(conn, name)
+    assert MARKER not in str(caught.value) and OTHER not in str(caught.value)
+    assert caught.value.__context__ is None, "the original error rides along as context"
+    assert page.url == "about:blank"
+
+
+@pytest.mark.parametrize("name", _ERRORING)
+async def test_an_error_after_off_list_and_back_is_withheld(tmp_path: Path, name: str) -> None:
+    """Back at the checked URL by the time the error arrives: only the
+    navigation count shows the error may quote the page in between."""
+    page = FakePlaywrightPage(url=ALLOWED)
+
+    def away_and_back() -> None:
+        page.commit(OTHER)
+        page.commit(ALLOWED)
+
+    _failing(name, page, away_and_back)
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(BrowserHostDenied, match="withheld") as caught:
+        await _call(conn, name)
+    assert MARKER not in str(caught.value)
+    assert page.url == ALLOWED
+
+
+@pytest.mark.parametrize("name", _ERRORING)
+async def test_an_error_about_the_checked_page_is_kept(tmp_path: Path, name: str) -> None:
+    """The positive control: with no navigation, the error is about the page
+    that was checked, and the agent needs it to correct its selector."""
+    from playwright.async_api import Error as PlaywrightError
+
+    page = FakePlaywrightPage(url=ALLOWED)
+    _failing(name, page, lambda: None)
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(PlaywrightError, match=MARKER):
+        await _call(conn, name)
+    assert page.url == ALLOWED
+
+
+async def test_an_action_that_leaves_and_returns_is_not_detected(tmp_path: Path) -> None:
+    """R3-F2, the contract as stated rather than a defect: an action is judged
+    by where the page ENDS. Leaving and returning to the checked URL during a
+    successful action is not detected — failing every action that navigates
+    would fail every link click. Pinned so a change to it is a decision."""
+    page = FakePlaywrightPage(url=ALLOWED)
+
+    def away_and_back() -> None:
+        page.commit(OTHER)
+        page.commit(ALLOWED)
+
+    page.during["fill"] = away_and_back
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    await conn.fill("#late", "v")
+    assert page.url == ALLOWED
+
+
+async def test_the_model_never_sees_an_error_from_an_unchecked_page(tmp_path: Path) -> None:
+    """Through the real engine and agent loop, only the page and the model
+    faked: the reviewer's probe, inverted. Before the fix the quote reached
+    the model's next turn and the stored step output."""
+    from playwright.async_api import Error as PlaywrightError
+
+    from tests._bedrock_fakes import tool_use_response
+    from workflow_platform.engine import ToolCatalog, WorkflowEngine, default_function_registry
+    from workflow_platform.persistence import in_memory_repositories
+    from workflow_platform.tools.browser import BrowserReadTextTool
+    from workflow_platform.workflow import load_definition
+    from workflow_platform.world import mock_world
+
+    page = FakePlaywrightPage(url=ALLOWED)
+    page.during["inner_text"] = lambda: page.commit(OTHER)
+    page.raise_on_text["#late"] = PlaywrightError(DIAGNOSTIC)
+    conn = PlaywrightConnector(page=page, downloads_dir=tmp_path)
+    model = FakeBedrock(
+        [
+            tool_use_response(tool_uses=[("r1", "browser_read_text", {"selector": "#late"})]),
+            text_response("done"),
+        ]
+    )
+    repos = in_memory_repositories()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=default_function_registry(),
+        tools=ToolCatalog([BrowserReadTextTool()]),
+        bedrock=model,
+        world=mock_world(),
+        browser_connector_factory=lambda: conn,
+        system_capabilities=CapabilityPolicy(
+            tools=["browser_read_text"], allowed_hosts=["allowed.example"]
+        ),
+    )
+    definition = load_definition(
+        {
+            "id": "r3-error",
+            "name": "r3 error",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {
+                    "id": "read",
+                    "type": "agentic",
+                    "goal": "read",
+                    "model": "fixture-model",
+                    "tools": ["browser_read_text"],
+                }
+            ],
+            "edges": [],
+        }
+    )
+    instance = await engine.run(definition)
+    assert len(model.calls) == 2
+    seen = str(model.calls[1]["messages"])
+    assert "withheld" in seen, "the tool result did not reach the model at all"
+    assert MARKER not in seen
+    (step,) = await repos.steps.list_by_instance(instance.id)
+    assert MARKER not in str(step.output)
+    assert page.url == "about:blank"
 
 
 async def test_fetch_url_to_a_disallowed_host_makes_no_request(tmp_path: Path) -> None:

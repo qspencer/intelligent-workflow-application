@@ -372,10 +372,78 @@ CONTROLS = [
     (
         "R2-F3: fill stops checking the page when it ends",
         "src/workflow_platform/connectors/browser/playwright_connector.py",
-        "            await locator.press_sequentially(value)\n        await self._enforce_landing()\n",
-        "            await locator.press_sequentially(value)\n",
+        "            await self._acted(lambda: locator.fill(value))\n",
+        "            await locator.fill(value)\n",
         "tests/test_g30_capability_enforcement.py::"
         "test_an_action_whose_page_leaves_mid_action_fails_and_clears",
+    ),
+    (
+        "R3-F1: a read's error passes through unfenced",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "            result = await read()\n        except Exception as exc:\n"
+        "            if self._document() == before:\n",
+        "            result = await read()\n        except Exception as exc:\n"
+        "            if True:\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_an_error_after_the_page_left_for_an_off_list_host_is_withheld",
+    ),
+    (
+        "R3-F1: a read's error passes through unfenced (seen by the model)",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "            result = await read()\n        except Exception as exc:\n"
+        "            if self._document() == before:\n",
+        "            result = await read()\n        except Exception as exc:\n"
+        "            if True:\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_the_model_never_sees_an_error_from_an_unchecked_page",
+    ),
+    (
+        "R3-F1: an action's error passes through unchecked",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "            result = await action()\n        except Exception as exc:\n"
+        "            if self._document() == before:\n",
+        "            result = await action()\n        except Exception as exc:\n"
+        "            if True:\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_an_error_after_off_list_and_back_is_withheld",
+    ),
+    (
+        "R3-F1: every error is withheld, even about the checked page",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "            result = await read()\n        except Exception as exc:\n"
+        "            if self._document() == before:\n",
+        "            result = await read()\n        except Exception as exc:\n"
+        "            if False:\n",
+        "tests/test_g30_capability_enforcement.py::test_an_error_about_the_checked_page_is_kept",
+    ),
+    (
+        "R3-F1: the withheld error chains the landing check's, which names the URL",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "        except BrowserHostDenied:  # it names the URL; raised outside, so not chained\n"
+        "            cleared = True\n",
+        "        except BrowserHostDenied:\n"
+        "            raise BrowserHostDenied(withheld)\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_an_error_after_the_page_left_for_an_off_list_host_is_withheld",
+    ),
+    (
+        "R3-F1: a click-download is not routed through the action check",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "        download = await self._acted(click_for_download)\n",
+        "        download = await click_for_download()\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_every_page_method_is_a_fenced_read_or_a_checked_action",
+    ),
+    (
+        "R3-F1, real Chromium: a read's error passes through unfenced",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "            result = await read()\n        except Exception as exc:\n"
+        "            if self._document() == before:\n",
+        "            result = await read()\n        except Exception as exc:\n"
+        "            if True:\n",
+        "tests/test_browser_host_policy_live.py::"
+        "test_an_error_quoting_an_off_list_page_is_withheld",
+        "BROWSER_LIVE",
     ),
     (
         "R2-F3, real Chromium: reads are not fenced",

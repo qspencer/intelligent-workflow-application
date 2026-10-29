@@ -63,12 +63,21 @@ def site() -> Iterator[_Site]:
                 self.send_header("Content-Type", "text/html")
                 self.end_headers()
                 self.wfile.write(body)
-            elif self.path in ("/redir", "/late-hop"):
-                landing = "/late-landing" if self.path == "/late-hop" else "/landing"
+            elif self.path in ("/redir", "/late-hop", "/dup-hop"):
+                landing = {"/late-hop": "/late-landing", "/dup-hop": "/dup-landing"}.get(
+                    self.path, "/landing"
+                )
                 self.send_response(302)
                 self.send_header("Location", f"{other}{landing}")
                 self.end_headers()
-            elif self.path in ("/late-start", "/late-stable", "/late-landing"):
+            elif self.path in (
+                "/late-start",
+                "/late-stable",
+                "/late-landing",
+                "/dup-start",
+                "/dup-stable",
+                "/dup-landing",
+            ):
                 body = {
                     # No #late here; the page leaves on its own while a read waits.
                     "/late-start": "<script>setTimeout(() => location.href = '/late-hop', 300)"
@@ -77,6 +86,15 @@ def site() -> Iterator[_Site]:
                     "/late-stable": "<script>setTimeout(() => document.body.insertAdjacentHTML("
                     "'beforeend', '<p id=late>late on the allowed site</p>'), 300)</script>",
                     "/late-landing": '<p id="late">SECRET-LATE from the disallowed host</p>',
+                    # R3-F1: TWO matches, so the read fails with an error that
+                    # previews both — the disallowed host's text in an error.
+                    "/dup-start": "<script>setTimeout(() => location.href = '/dup-hop', 300)"
+                    "</script><p>on the allowed site</p>",
+                    "/dup-stable": "<script>setTimeout(() => document.body.insertAdjacentHTML("
+                    "'beforeend', '<p class=late>ALLOWED-DUP one</p><p class=late>two</p>'), 300)"
+                    "</script>",
+                    "/dup-landing": '<p class="late">SECRET-DUP from the disallowed host</p>'
+                    '<p class="late">second</p>',
                 }[self.path].encode()
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html")
@@ -208,3 +226,32 @@ async def test_a_read_waiting_on_a_page_that_stays_put_returns_its_content(
     checked page, is returned — the fence refuses navigation, not waiting."""
     await browser.navigate(f"http://127.0.0.1:{site.port}/late-stable")
     assert await browser.read_text("#late") == "late on the allowed site"
+
+
+async def test_an_error_quoting_an_off_list_page_is_withheld(
+    site: _Site, browser: PlaywrightConnector
+) -> None:
+    """Round-3 review, R3-F1, in a real browser: the same self-navigation, but
+    the off-list landing has TWO matches, so the read fails with Playwright's
+    strict-mode error — which previews both, text included. Before the fix
+    that error reached the agent and the page stayed off-list."""
+    await browser.navigate(f"http://127.0.0.1:{site.port}/dup-start")
+    with pytest.raises(BrowserHostDenied, match="withheld") as caught:
+        await browser.read_text(".late")
+    assert "/dup-landing" in _paths(site, "localhost"), "the sequence did not run as designed"
+    assert "SECRET-DUP" not in str(caught.value)
+    assert "localhost" not in str(caught.value)
+    assert browser._page.url == "about:blank"
+
+
+async def test_the_same_error_on_a_page_that_stays_put_is_kept(
+    site: _Site, browser: PlaywrightConnector
+) -> None:
+    """The control: two matches on the checked page give the agent the
+    strict-mode error it needs to fix its selector."""
+    from playwright.async_api import Error as PlaywrightError
+
+    await browser.navigate(f"http://127.0.0.1:{site.port}/dup-stable")
+    with pytest.raises(PlaywrightError, match="strict mode violation") as caught:
+        await browser.read_text(".late")
+    assert "ALLOWED-DUP" in str(caught.value)

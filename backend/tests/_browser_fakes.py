@@ -56,6 +56,7 @@ class FakeLocator:
 
     async def click(self, *, timeout: int = 5000) -> None:
         self._page.calls.append(("locator.click", {"selector": self._selector, "timeout": timeout}))
+        self._page.run_during("click")
         if self._selector in self._page.raise_on_click:
             raise self._page.raise_on_click[self._selector]
         if self._selector in self._page.click_navigates:
