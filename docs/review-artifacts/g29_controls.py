@@ -66,27 +66,6 @@ CONTROLS = [
         "",
         "tests/test_projection_call_sites.py::test_every_projection_site_is_declared",
     ),
-    (
-        "a figure in the guide is typed wrong (51.3 -> 53.0 bits)",
-        "../docs/TRACE_G29_REVIEW_GUIDE.md",
-        "**51.3 bits per run**",
-        "**53.0 bits per run**",
-        "tests/test_review_figures.py",
-    ),
-    (
-        "an unregistered figure appears in the guide's prose",
-        "../docs/TRACE_G29_REVIEW_GUIDE.md",
-        "Two specific things to push on:",
-        "Two specific things to push on, across 42 surfaces:",
-        "tests/test_review_figures.py::test_no_figure_in_the_guide_is_unaccounted_for",
-    ),
-    (
-        "the shipped evidence disagrees with the guide (78 -> 79 rows)",
-        "../docs/archives/GATE_OUTPUT_G29.txt",
-        "v23 rows today: 78;",
-        "v23 rows today: 79;",
-        "tests/test_review_figures.py",
-    ),
 ]
 
 

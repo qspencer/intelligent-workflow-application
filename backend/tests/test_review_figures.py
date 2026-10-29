@@ -23,41 +23,26 @@ prose and fails on any that no claim covers and no labelled exemption explains.
 Limit, stated: the sweep sees DIGITS. A figure written as a word ("four
 consumers") is checked only if it is registered; the evidence-bearing ones are.
 
-Scope: the LIVE review package. When a package is retired its entry here goes,
-and its archive is the record — a historical guide should not fail the build
-because a later commit added a test.
+Scope: the LIVE review package — G30 since 2026-10-29. G29's package closed
+and its registry was retired here, as this rule says; its archive is the record.
+A historical guide should not fail the build because a later commit added a test.
 """
 
 from __future__ import annotations
 
-import ast
-import json
-import math
 import re
-import subprocess
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
 import pytest
 
-from tests.test_projection_call_sites import _DECLARED as PROJECTION_SITES
-from tests.test_projection_call_sites import WRITE
-from workflow_platform.engine.functions import ATTENTION_LEVELS, TRIAGE_CATEGORIES
-from workflow_platform.trace_projection import MAX_VOCAB_FIELDS, MAX_VOCAB_VALUES
-
 BACKEND = Path(__file__).resolve().parents[1]
 REPO = BACKEND.parent
 DOCS = REPO / "docs"
-GUIDE = DOCS / "TRACE_G29_REVIEW_GUIDE.md"
-GATES = DOCS / "archives" / "GATE_OUTPUT_G29.txt"
-AUDIT = DOCS / "archives" / "AUDIT_EVIDENCE_G29.txt"
-GOLDEN = BACKEND / "tests" / "golden" / "projection_v23.json"
-REPRO = DOCS / "review-artifacts" / "g29_reproductions.py"
-
-
-# --- independent producers of each figure ----------------------------------
+GUIDE = DOCS / "G30_CAPABILITY_REVIEW_GUIDE.md"
+GATES = DOCS / "archives" / "GATE_OUTPUT_G30.txt"
+LIVE = DOCS / "archives" / "LIVE_EVIDENCE_G30.txt"
 
 
 def _printed(path: Path, pattern: str, group: int = 1) -> str:
@@ -67,108 +52,15 @@ def _printed(path: Path, pattern: str, group: int = 1) -> str:
     return m.group(group)
 
 
-def _repro_output() -> str:
-    r = subprocess.run(
-        [sys.executable, str(REPRO)], cwd=BACKEND, capture_output=True, text=True, check=False
-    )
-    assert r.returncode == 0, f"reproduction script failed:\n{r.stdout[-2000:]}\n{r.stderr[-2000:]}"
-    return r.stdout
+def _defined_controls() -> int:
+    import ast
 
-
-def _repro_checks(section: str | None = None) -> int:
-    lines = _repro_output().splitlines()
-    if section is not None:
-        start = next(i for i, ln in enumerate(lines) if ln.startswith(f"{section}. "))
-        end = next(
-            (i for i, ln in enumerate(lines[start + 1 :], start + 1) if re.match(r"^[A-Z]\. ", ln)),
-            len(lines),
-        )
-        lines = lines[start:end]
-    return sum(bool(re.match(r"^\s+\[(ok  |FAIL)\]", ln)) for ln in lines)
-
-
-def _golden() -> list[dict[str, object]]:
-    cases: list[dict[str, object]] = json.loads(GOLDEN.read_text())["cases"]
-    return cases
-
-
-def _sequences() -> int:
-    """List-channel size, computed from the constants — an oracle written
-    independently of the reproduction script's own arithmetic."""
-    return sum(len(ATTENTION_LEVELS) ** k for k in range(MAX_VOCAB_VALUES + 1))
-
-
-def _ordered_subsets() -> int:
-    n = len(ATTENTION_LEVELS)
-    return sum(math.perm(n, k) for k in range(n + 1))
-
-
-def _migration_projection_lines() -> list[int]:
-    """Where `backfill_instance` calls the projector — the guide cites them."""
-    tree = ast.parse((BACKEND / "src/workflow_platform/trace_migration.py").read_text())
-    fn = next(
-        n
-        for n in ast.walk(tree)
-        if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name == "backfill_instance"
-    )
-    return sorted(
-        n.lineno
-        for n in ast.walk(fn)
-        if isinstance(n, ast.Call) and getattr(n.func, "id", None) == "redact_tool_data"
-    )
-
-
-def _section_3_table_rows() -> int:
-    text = GUIDE.read_text()
-    body = text[text.index("## 3.") : text.index("### 3.1")]
-    return sum(1 for ln in body.splitlines() if ln.startswith("| ") and "---" not in ln) - 1
-
-
-def _golden_test_count() -> int:
-    r = subprocess.run(
-        [sys.executable, "-m", "pytest", "--collect-only", "-q", "tests/test_projection_golden.py"],
-        cwd=BACKEND,
-        capture_output=True,
-        text=True,
-        check=False,
-    )
-    return sum("::" in ln for ln in r.stdout.splitlines())
-
-
-_WORDS = {
-    w: i
-    for i, w in enumerate(
-        [
-            "zero",
-            "one",
-            "two",
-            "three",
-            "four",
-            "five",
-            "six",
-            "seven",
-            "eight",
-            "nine",
-            "ten",
-            "eleven",
-            "twelve",
-            "thirteen",
-            "fourteen",
-            "fifteen",
-            "sixteen",
-            "seventeen",
-            "eighteen",
-            "nineteen",
-        ]
-    )
-}
-
-
-def _word(n: int) -> str:
-    return next(w for w, i in _WORDS.items() if i == n)
-
-
-# --- the claims -------------------------------------------------------------
+    tree = ast.parse((DOCS / "review-artifacts" / "g30_controls.py").read_text())
+    for node in tree.body:
+        if isinstance(node, ast.Assign) and getattr(node.targets[0], "id", "") == "CONTROLS":
+            assert isinstance(node.value, ast.List)
+            return len(node.value.elts)
+    raise AssertionError("CONTROLS not found in g30_controls.py")
 
 
 @dataclass(frozen=True)
@@ -178,193 +70,54 @@ class Claim:
     source: str  # where the truth comes from, for the failure message
 
 
-def _n(*xs: object) -> tuple[str, ...]:
-    return tuple(f"{x:,}" if isinstance(x, int) and x >= 1000 else str(x) for x in xs)
-
-
 CLAIMS: list[Claim] = [
-    Claim(r"— (\d+) checks, all executed", lambda: _n(_repro_checks()), "reproduction script"),
     Claim(
-        r"bounded \((\d+) fields / (\d+) values\)",
-        lambda: _n(MAX_VOCAB_FIELDS, MAX_VOCAB_VALUES),
-        "trace_projection constants",
-    ),
-    Claim(
-        r"The ([\d,]+)-message catch-up",
-        lambda: (_printed(DOCS / "EMAIL_RECALL_VALIDATION_PLAN.md", r"\b(1,297)\b"),),
-        "the recall-validation plan that measured the run",
-    ),
-    Claim(
-        r"answer what\s+(\w+) enum values answer",
-        lambda: (_word(len(TRIAGE_CATEGORIES)),),
-        "TRIAGE_CATEGORIES",
-    ),
-    Claim(
-        r"only the (\w+) \*write\* sites",
-        lambda: (_word(sum(role == WRITE for role, _ in PROJECTION_SITES.values())),),
-        "test_projection_call_sites._DECLARED",
-    ),
-    Claim(
-        r"that (\w+) consumers\n> which re-project",
-        lambda: (_word(_section_3_table_rows()),),
-        "rows in the guide's own §3 table",
-    ),
-    Claim(
-        r"(\w+) consumers that hold only the row",
-        lambda: (_word(_section_3_table_rows()),),
-        "rows in the guide's own §3 table",
-    ),
-    Claim(
-        r"The (\w+) consumers \*\*cannot\*\*",
-        lambda: (_word(_section_3_table_rows()),),
-        "rows in the guide's own §3 table",
-    ),
-    Claim(
-        r"\(lines (\d+)/(\d+)/(\d+)\)",
-        lambda: _n(*_migration_projection_lines()),
-        "AST of trace_migration.backfill_instance",
-    ),
-    Claim(
-        r"All (\w+) checks are in §C",
-        lambda: (_word(_repro_checks("C")),),
-        "section C of the reproduction script",
-    ),
-    Claim(
-        r"for `attention` \((\d+) values, length ≤ (\d+)\)",
-        lambda: _n(len(ATTENTION_LEVELS), MAX_VOCAB_VALUES),
-        "ATTENTION_LEVELS, MAX_VOCAB_VALUES",
-    ),
-    Claim(
-        r"\*\*([\d.]+) bits per run\*\* \(([\d.]+) \u00d7 10¹⁵ sequences\)",
-        lambda: (f"{math.log2(_sequences()):.1f}", f"{_sequences() / 1e15:.2f}"),
-        "computed from the constants",
-    ),
-    Claim(
-        r"not the (\d+) bits the declaration",
-        lambda: _n(int(math.log2(2 ** len(ATTENTION_LEVELS)))),
-        "the subset lattice of ATTENTION_LEVELS",
-    ),
-    Claim(
-        r"3\^32 alone is (\d+\.\d+)",
-        lambda: (f"{math.log2(len(ATTENTION_LEVELS) ** MAX_VOCAB_VALUES):.1f}",),
-        "computed",
-    ),
-    Claim(
-        r"leaving (\d+) ordered subsets ≈ (\d+) bits",
-        lambda: _n(_ordered_subsets(), int(math.log2(_ordered_subsets()))),
-        "computed",
-    ),
-    Claim(
-        r"\*\*Blast radius:\*\* (\d+) `step_executions` and (\d+) `workflow_instances`",
+        r"reports (\d+) claims, (\d+) test results",
         lambda: (
-            _printed(
-                GATES, r"step rows stamped v23 still carrying a released key: \d+ +\(was (\d+)\)"
-            ),
-            _printed(GATES, r"instance contexts still carrying one: \d+ +\(was (\d+)\)"),
+            _printed(GATES, r"^(\d+) claims; \d+ test results run"),
+            _printed(GATES, r"^\d+ claims; (\d+) test results run"),
         ),
-        "GATE_OUTPUT_G29.txt",
+        "the reproductions run captured in GATE_OUTPUT_G30.txt",
     ),
     Claim(
-        r"all (\d+) rows re-projected",
-        lambda: _n(
-            int(
-                _printed(
-                    GATES,
-                    r"step rows stamped v23 still carrying a released key: \d+ +\(was (\d+)\)",
-                )
-            )
-            + int(_printed(GATES, r"instance contexts still carrying one: \d+ +\(was (\d+)\)"))
-        ),
-        "GATE_OUTPUT_G29.txt",
+        r"(\d+) controls, all\s+fire",
+        lambda: (str(_defined_controls()),),
+        "the number of controls DEFINED in g30_controls.py — not the number that fired "
+        "in the capture, which would make this check read its own sabotage",
     ),
     Claim(
-        r"(\d+) rows carry a released key, all (\d+) of that day's v23 rows",
+        r"(\d+) real `email-triage-apply` runs",
+        lambda: (_printed(LIVE, r"email-triage-apply: runs=(\d+)"),),
+        "LIVE_EVIDENCE_G30.txt",
+    ),
+    Claim(
+        r"called (\d+) times under the layer",
+        lambda: (_printed(LIVE, r"label calls ok: (\d+)"),),
+        "LIVE_EVIDENCE_G30.txt",
+    ),
+    Claim(
+        r"largest agent-step output was (\d+) tokens",
+        lambda: (_printed(LIVE, r"largest agent-step output since phase 1: (\d+) tokens"),),
+        "LIVE_EVIDENCE_G30.txt",
+    ),
+    Claim(
+        r"distillation: (\d+) observations recorded, the largest (\d+) output",
         lambda: (
-            _printed(GATES, r"rows still carrying a released key: steps=(\d+)"),
-            _printed(GATES, r"v23 rows today: (\d+)"),
+            _printed(LIVE, r"distillations recorded: (\d+)"),
+            _printed(LIVE, r"largest output_tokens per observation: (\d+)"),
         ),
-        "GATE_OUTPUT_G29.txt",
+        "LIVE_EVIDENCE_G30.txt",
     ),
     Claim(
-        r"\*\*([\d,]+) older\n?\s*instances",
-        lambda: _n(int(_printed(GATES, r"PRE-FLIP backlog, a separate known item: (\d+)"))),
-        "GATE_OUTPUT_G29.txt",
-    ),
-    Claim(
-        r"\*\*([\d,]+) tests pass\*\*, (\d+) skipped",
-        lambda: _n(
-            int(_printed(GATES, r"^(\d+) passed, \d+ skipped")),
-            int(_printed(GATES, r"^\d+ passed, (\d+) skipped")),
-        ),
-        "GATE_OUTPUT_G29.txt",
-    ),
-    Claim(
-        r"\*\*(\d+) rows, (\d+) distinct advisories in (\d+)\n?\s*packages\*\* \(pillow (\d+)\)",
-        lambda: (
-            _printed(AUDIT, r"^rows: (\d+)"),
-            _printed(AUDIT, r"^rows: \d+ +distinct advisories: (\d+)"),
-            _printed(AUDIT, r"packages: (\d+)$"),
-            _printed(AUDIT, r"by package \(distinct\): \{'pillow': (\d+)"),
-        ),
-        "AUDIT_EVIDENCE_G29.txt",
-    ),
-    Claim(
-        r"The frontend had \*\*(\d+) more\*\* in (\d+) packages\. All (\d+)",
-        lambda: (
-            _printed(AUDIT, r"^distinct advisories: (\d+) +by package: \{'undici'"),
-            _printed(AUDIT, r"'total': (\d+)\}"),
-            _printed(AUDIT, r"^TOTAL cleared this session: (\d+)"),
-        ),
-        "AUDIT_EVIDENCE_G29.txt",
-    ),
-    Claim(
-        r"\*\*(\d+) new cases\*\*",
-        lambda: _n(sum("vocab" in str(c["id"]) for c in _golden())),
-        "golden v23",
-    ),
-    Claim(r"is (\d+) cases stamped", lambda: _n(len(_golden())), "golden v23"),
-    Claim(
-        r"(\w+) of the (\w+) carry a `vocab` key",
-        lambda: (
-            _word(sum("vocab" in c for c in _golden())).capitalize(),
-            _word(sum("vocab" in str(c["id"]) for c in _golden())),
-        ),
-        "golden v23",
-    ),
-    Claim(r"Restored: (\d+) passed", lambda: _n(_golden_test_count()), "pytest --collect-only"),
-    Claim(
-        r"has taken (\w+) rounds",
-        lambda: (
-            _word(
-                max(
-                    int(m.group(1))
-                    for p in DOCS.glob("TRACE_F1_REVIEW_ROUND*.md")
-                    if (m := re.search(r"ROUND(\d+)", p.name))
-                )
-            ),
-        ),
-        "the highest TRACE_F1_REVIEW_ROUND file",
+        r"including all (\d+) the\s+viewer holds",
+        lambda: (_printed(LIVE, r"viewer xml-files \(write\)\s+files=\s*(\d+)"),),
+        "LIVE_EVIDENCE_G30.txt",
     ),
 ]
 
-#: Digits in prose that are NOT figures, each with the reason. Matched as a
-#: regex against the line, so the exemption is as narrow as the context.
+#: Digits in prose that are NOT figures, each with the reason.
 EXEMPT: list[tuple[str, str]] = [
-    (r"\b[Rr]ound\s+\d+\b", "a review-round reference, not a measurement"),
-    (r"\bcriterion \d+\b", "a named contract criterion"),
-    (r"\bitem \d+\b", "a list-item reference into another document"),
-    (
-        r"said \"~3\^32 ≈ 53 bits\"",
-        "the WRONG figure, quoted inside its own correction note",
-    ),
-    (
-        r"This bullet said 11 advisories, 8 of them",
-        "the WRONG figures, quoted inside their own correction note",
-    ),
-    (
-        r"accepts any string ≤ 120 chars",
-        "describes the reviewed tree's validator, removed in 111542f; see the archive",
-    ),
+    (r"\b[Pp]hase \d\b", "a phase label, not a measurement"),
 ]
 
 

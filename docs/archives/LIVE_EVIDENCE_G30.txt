@@ -1,0 +1,29 @@
+G30 live evidence — captured 2026-10-29T15:50:18Z
+
+=== the deployed commit and the service ===
+repo HEAD: 7eeb80d
+service started: Thu 2026-10-29 15:14:12 UTC
+
+=== /api/health (unauthenticated: counts only) ===
+status: ok
+system_capabilities: {"allowed_hosts": 0, "file_read": 3, "file_write": 3, "max_tokens_per_call": 4096, "status": "configured", "tools": 1}
+
+=== real runs under the layer since phase 1 (2026-10-29T13:33:39Z), by workflow ===
+email-triage-apply: runs=18 completed=18 failed=0
+
+=== email-triage-apply: the one governed tool, used under the layer ===
+apply steps run: 18   label calls ok: 18   label calls failed: 0
+largest agent-step output since phase 1: 121 tokens (cap 4096)
+
+=== memory distillation: the size the system cap now bounds ===
+distillations recorded: 10861   largest output_tokens per observation: 2196
+(per observation is the SUM of its distill calls, so each call is at most this)
+
+=== scheduled-health-report: did the moved log get written for real? ===
+real log NOT YET WRITTEN at /home/ubuntu/.local/share/workflow-platform/health/scheduled-health-report.log
+
+=== every real DMARC file against the shipped layer ===
+spool (read)               files=   1  admitted=   1  denied=0
+extracted (read)           files=   1  admitted=   1  denied=0
+extracted (write)          files=   1  admitted=   1  denied=0
+viewer xml-files (write)   files=  48  admitted=  48  denied=0

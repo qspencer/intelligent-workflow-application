@@ -1,0 +1,859 @@
+Captured standalone gate results
+
+Gates ran at tree: d0aa6e8c47da747efaab7fb67950fd279b9b1aaf   (manifest aggregate: cd32bf7e0a6029a6d1121679f17434032b8c95498c050c2b5ba5979e5f7e8415)
+Full output; each exit code captured before any pipe.
+Host: Linux 7.0.0-1014-aws GNU/Linux · Python 3.14.7 · 2026-10-29T15:53:14Z
+
+=== ruff check ===
+All checks passed!
+exit: 0
+
+=== ruff format --check ===
+305 files already formatted
+exit: 0
+
+=== mypy src tests ===
+Success: no issues found in 260 source files
+exit: 0
+
+=== pytest ===
+........................................................................ [  4%]
+........................................................................ [  8%]
+...............................s........................................ [ 13%]
+........................................................................ [ 17%]
+........................................................................ [ 22%]
+........................................................................ [ 26%]
+..FF.................................................................... [ 31%]
+........................................................................ [ 35%]
+........................................................................ [ 40%]
+........................................................................ [ 44%]
+..............................ssss...................................... [ 49%]
+........................................................................ [ 53%]
+........................................................................ [ 58%]
+........................................................................ [ 62%]
+........................................................................ [ 66%]
+........................................................................ [ 71%]
+.............................................F.......................... [ 75%]
+............................................sss......................... [ 80%]
+........................................................................ [ 84%]
+........................................................................ [ 89%]
+................s....................................................... [ 93%]
+........................................................................ [ 98%]
+............................                                             [100%]
+=================================== FAILURES ===================================
+___________ test_INVARIANT_two_topics_cannot_both_take_the_last_slot ___________
+
+self = <sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_cursor object at 0x7ae501adf040>
+operation = "update shadow_questions set status = 'expired' where status = 'pending' and expires_at <= coalesce($1, now()) returning recipient"
+parameters = (None,)
+
+    async def _prepare_and_execute(self, operation, parameters):
+        adapt_connection = self._adapt_connection
+    
+        async with adapt_connection._execute_mutex:
+            if not adapt_connection._started:
+                await adapt_connection._start_transaction()
+    
+            if parameters is None:
+                parameters = ()
+    
+            try:
+>               prepared_stmt, attributes = await adapt_connection._prepare(
+                    operation, self._invalidate_schema_cache_asof
+                )
+
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:526: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:773: in _prepare
+    prepared_stmt = await self._connection.prepare(
+.venv/lib/python3.14/site-packages/asyncpg/connection.py:638: in prepare
+    return await self._prepare(
+.venv/lib/python3.14/site-packages/asyncpg/connection.py:657: in _prepare
+    stmt = await self._get_statement(
+.venv/lib/python3.14/site-packages/asyncpg/connection.py:443: in _get_statement
+    statement = await self._protocol.prepare(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+>   ???
+E   asyncpg.exceptions.UndefinedTableError: relation "shadow_questions" does not exist
+
+asyncpg/protocol/protocol.pyx:165: UndefinedTableError
+
+The above exception was the direct cause of the following exception:
+
+self = <sqlalchemy.engine.base.Connection object at 0x7ae502fc4830>
+dialect = <sqlalchemy.dialects.postgresql.asyncpg.PGDialect_asyncpg object at 0x7ae502df0590>
+context = <sqlalchemy.dialects.postgresql.asyncpg.PGExecutionContext_asyncpg object at 0x7ae501d750f0>
+statement = <sqlalchemy.dialects.postgresql.asyncpg.PGCompiler_asyncpg object at 0x7ae502fc57f0>
+parameters = [(None,)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:1969: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+.venv/lib/python3.14/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <AdaptedConnection <asyncpg.connection.Connection object at 0x7ae501735c70>>
+error = UndefinedTableError('relation "shadow_questions" does not exist')
+
+    def _handle_exception(self, error):
+        if self._connection.is_closed():
+            self._transaction = None
+            self._started = False
+    
+        if not isinstance(error, AsyncAdapt_asyncpg_dbapi.Error):
+            exception_mapping = self.dbapi._asyncpg_error_translate
+    
+            for super_ in type(error).__mro__:
+                if super_ in exception_mapping:
+                    translated_error = exception_mapping[super_](
+                        "%s: %s" % (type(error), error)
+                    )
+                    translated_error.pgcode = translated_error.sqlstate = (
+                        getattr(error, "sqlstate", None)
+                    )
+>                   raise translated_error from error
+E                   sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.UndefinedTableError'>: relation "shadow_questions" does not exist
+
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: ProgrammingError
+
+The above exception was the direct cause of the following exception:
+
+    @pytest.mark.integration
+    @pytest.mark.skipif(TEST_DATABASE_URL is None, reason="TEST_DATABASE_URL not set")
+    async def test_INVARIANT_two_topics_cannot_both_take_the_last_slot() -> None:
+        """Round 2's race, and round 3's insistence that "inside one
+        transaction" needs an enforcing mechanism.
+    
+        A `(subject, topic)` constraint stops two runs asking the SAME
+        question and does nothing here: these are two DIFFERENT topics
+        competing for one remaining slot. The enforcement is the conditional
+        insert — the capacity predicate is evaluated inside the statement
+        that writes — and this is the test that establishes it.
+    
+        **An in-memory double cannot exhibit this** (ledger M8), which is why
+        it runs against Postgres or not at all.
+        """
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    
+        from workflow_platform.elicitation import PostgresShadowStore
+    
+        engine = create_async_engine(TEST_DATABASE_URL or "")
+        sf = async_sessionmaker(engine, expire_on_commit=False)
+        store = PostgresShadowStore(sf)
+    
+        topics = [EMPLOYMENT, EMPLOYMENT.model_copy(update={"id": "working_pattern"})]
+        catalog = QuestionCatalog(topics=topics, max_outstanding_per_recipient=1)
+        subject = f"race-{datetime.now(UTC).timestamp()}"
+    
+>       results = await asyncio.gather(
+            _schedule(store, catalog=catalog, subject=subject, recipient=subject),
+            _schedule(
+                store,
+                catalog=catalog,
+                subject=subject,
+                recipient=subject,
+                candidate=_candidate(topic="working_pattern"),
+            ),
+        )
+
+tests/test_elicitation_c1.py:314: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_elicitation_c1.py:76: in _schedule
+    return await schedule(
+src/workflow_platform/elicitation/scheduler.py:104: in schedule
+    await store.expire_pending(now=now)
+src/workflow_platform/elicitation/store.py:323: in expire_pending
+    await s.execute(
+.venv/lib/python3.14/site-packages/sqlalchemy/ext/asyncio/session.py:448: in execute
+    result = await greenlet_spawn(
+.venv/lib/python3.14/site-packages/sqlalchemy/util/_concurrency_py3k.py:201: in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/sqlalchemy/orm/session.py:2373: in execute
+    return self._execute_internal(
+.venv/lib/python3.14/site-packages/sqlalchemy/orm/session.py:2280: in _execute_internal
+    result = conn.execute(
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+.venv/lib/python3.14/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+.venv/lib/python3.14/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <AdaptedConnection <asyncpg.connection.Connection object at 0x7ae501735c70>>
+error = UndefinedTableError('relation "shadow_questions" does not exist')
+
+    def _handle_exception(self, error):
+        if self._connection.is_closed():
+            self._transaction = None
+            self._started = False
+    
+        if not isinstance(error, AsyncAdapt_asyncpg_dbapi.Error):
+            exception_mapping = self.dbapi._asyncpg_error_translate
+    
+            for super_ in type(error).__mro__:
+                if super_ in exception_mapping:
+                    translated_error = exception_mapping[super_](
+                        "%s: %s" % (type(error), error)
+                    )
+                    translated_error.pgcode = translated_error.sqlstate = (
+                        getattr(error, "sqlstate", None)
+                    )
+>                   raise translated_error from error
+E                   sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedTableError'>: relation "shadow_questions" does not exist
+E                   [SQL: update shadow_questions set status = 'expired' where status = 'pending' and expires_at <= coalesce($1, now()) returning recipient]
+E                   [parameters: (None,)]
+E                   (Background on this error at: https://sqlalche.me/e/20/f405)
+
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: ProgrammingError
+_______ test_INVARIANT_the_capacity_update_SERIALIZES_deterministically ________
+
+self = <sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_cursor object at 0x7ae500979120>
+operation = 'insert into shadow_capacity (recipient, outstanding) values ($1, 0)'
+parameters = ('lock-1793289239.207642',)
+
+    async def _prepare_and_execute(self, operation, parameters):
+        adapt_connection = self._adapt_connection
+    
+        async with adapt_connection._execute_mutex:
+            if not adapt_connection._started:
+                await adapt_connection._start_transaction()
+    
+            if parameters is None:
+                parameters = ()
+    
+            try:
+>               prepared_stmt, attributes = await adapt_connection._prepare(
+                    operation, self._invalidate_schema_cache_asof
+                )
+
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:526: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:773: in _prepare
+    prepared_stmt = await self._connection.prepare(
+.venv/lib/python3.14/site-packages/asyncpg/connection.py:638: in prepare
+    return await self._prepare(
+.venv/lib/python3.14/site-packages/asyncpg/connection.py:657: in _prepare
+    stmt = await self._get_statement(
+.venv/lib/python3.14/site-packages/asyncpg/connection.py:443: in _get_statement
+    statement = await self._protocol.prepare(
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+>   ???
+E   asyncpg.exceptions.UndefinedTableError: relation "shadow_capacity" does not exist
+
+asyncpg/protocol/protocol.pyx:165: UndefinedTableError
+
+The above exception was the direct cause of the following exception:
+
+self = <sqlalchemy.engine.base.Connection object at 0x7ae501d76190>
+dialect = <sqlalchemy.dialects.postgresql.asyncpg.PGDialect_asyncpg object at 0x7ae503337750>
+context = <sqlalchemy.dialects.postgresql.asyncpg.PGExecutionContext_asyncpg object at 0x7ae5017bca50>
+statement = <sqlalchemy.dialects.postgresql.asyncpg.PGCompiler_asyncpg object at 0x7ae501700a50>
+parameters = [('lock-1793289239.207642',)]
+
+    def _exec_single_context(
+        self,
+        dialect: Dialect,
+        context: ExecutionContext,
+        statement: Union[str, Compiled],
+        parameters: Optional[_AnyMultiExecuteParams],
+    ) -> CursorResult[Any]:
+        """continue the _execute_context() method for a single DBAPI
+        cursor.execute() or cursor.executemany() call.
+    
+        """
+        if dialect.bind_typing is BindTyping.SETINPUTSIZES:
+            generic_setinputsizes = context._prepare_set_input_sizes()
+    
+            if generic_setinputsizes:
+                try:
+                    dialect.do_set_input_sizes(
+                        context.cursor, generic_setinputsizes, context
+                    )
+                except BaseException as e:
+                    self._handle_dbapi_exception(
+                        e, str(statement), parameters, None, context
+                    )
+    
+        cursor, str_statement, parameters = (
+            context.cursor,
+            context.statement,
+            context.parameters,
+        )
+    
+        effective_parameters: Optional[_AnyExecuteParams]
+    
+        if not context.executemany:
+            effective_parameters = parameters[0]
+        else:
+            effective_parameters = parameters
+    
+        if self._has_events or self.engine._has_events:
+            for fn in self.dispatch.before_cursor_execute:
+                str_statement, effective_parameters = fn(
+                    self,
+                    cursor,
+                    str_statement,
+                    effective_parameters,
+                    context,
+                    context.executemany,
+                )
+    
+        if self._echo:
+            self._log_info(str_statement)
+    
+            stats = context._get_cache_stats()
+    
+            if not self.engine.hide_parameters:
+                self._log_info(
+                    "[%s] %r",
+                    stats,
+                    sql_util._repr_params(
+                        effective_parameters,
+                        batches=10,
+                        ismulti=context.executemany,
+                    ),
+                )
+            else:
+                self._log_info(
+                    "[%s] [SQL parameters hidden due to hide_parameters=True]",
+                    stats,
+                )
+    
+        evt_handled: bool = False
+        try:
+            if context.execute_style is ExecuteStyle.EXECUTEMANY:
+                effective_parameters = cast(
+                    "_CoreMultiExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_executemany:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_executemany(
+                        cursor,
+                        str_statement,
+                        effective_parameters,
+                        context,
+                    )
+            elif not effective_parameters and context.no_parameters:
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute_no_params:
+                        if fn(cursor, str_statement, context):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+                    self.dialect.do_execute_no_params(
+                        cursor, str_statement, context
+                    )
+            else:
+                effective_parameters = cast(
+                    "_CoreSingleExecuteParams", effective_parameters
+                )
+                if self.dialect._has_events:
+                    for fn in self.dialect.dispatch.do_execute:
+                        if fn(
+                            cursor,
+                            str_statement,
+                            effective_parameters,
+                            context,
+                        ):
+                            evt_handled = True
+                            break
+                if not evt_handled:
+>                   self.dialect.do_execute(
+                        cursor, str_statement, effective_parameters, context
+                    )
+
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:1969: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+.venv/lib/python3.14/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <AdaptedConnection <asyncpg.connection.Connection object at 0x7ae5013a8500>>
+error = UndefinedTableError('relation "shadow_capacity" does not exist')
+
+    def _handle_exception(self, error):
+        if self._connection.is_closed():
+            self._transaction = None
+            self._started = False
+    
+        if not isinstance(error, AsyncAdapt_asyncpg_dbapi.Error):
+            exception_mapping = self.dbapi._asyncpg_error_translate
+    
+            for super_ in type(error).__mro__:
+                if super_ in exception_mapping:
+                    translated_error = exception_mapping[super_](
+                        "%s: %s" % (type(error), error)
+                    )
+                    translated_error.pgcode = translated_error.sqlstate = (
+                        getattr(error, "sqlstate", None)
+                    )
+>                   raise translated_error from error
+E                   sqlalchemy.dialects.postgresql.asyncpg.AsyncAdapt_asyncpg_dbapi.ProgrammingError: <class 'asyncpg.exceptions.UndefinedTableError'>: relation "shadow_capacity" does not exist
+
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: ProgrammingError
+
+The above exception was the direct cause of the following exception:
+
+    @pytest.mark.integration
+    @pytest.mark.skipif(TEST_DATABASE_URL is None, reason="TEST_DATABASE_URL not set")
+    async def test_INVARIANT_the_capacity_update_SERIALIZES_deterministically() -> None:
+        """The test above races two schedulers and asserts one wins. **That
+        is opportunistic**: it caught the original count-based predicate
+        letting two questions take one slot, but when the broken predicate
+        was put back deliberately it passed — two `gather`ed coroutines do
+        not reliably interleave inside their transactions.
+    
+        A race test that passes is not evidence the race cannot happen. So
+        this one proves the mechanism instead of hoping for the schedule: it
+        holds transaction A open past its capacity update and shows that B's
+        identical update BLOCKS on the row lock rather than reading a stale
+        count. That is the serialization the conditional counter update buys
+        and the counting predicate did not.
+        """
+        from sqlalchemy import text as sql
+        from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
+    
+        engine = create_async_engine(TEST_DATABASE_URL or "")
+        sf = async_sessionmaker(engine, expire_on_commit=False)
+        recipient = f"lock-{datetime.now(UTC).timestamp()}"
+        bump = sql(
+            "update shadow_capacity set outstanding = outstanding + 1 "
+            "where recipient = :r and outstanding < :cap returning outstanding"
+        )
+    
+        async with sf() as setup, setup.begin():
+>           await setup.execute(
+                sql("insert into shadow_capacity (recipient, outstanding) values (:r, 0)"),
+                {"r": recipient},
+            )
+
+tests/test_elicitation_c1.py:361: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+.venv/lib/python3.14/site-packages/sqlalchemy/ext/asyncio/session.py:448: in execute
+    result = await greenlet_spawn(
+.venv/lib/python3.14/site-packages/sqlalchemy/util/_concurrency_py3k.py:201: in greenlet_spawn
+    result = context.throw(*sys.exc_info())
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/sqlalchemy/orm/session.py:2373: in execute
+    return self._execute_internal(
+.venv/lib/python3.14/site-packages/sqlalchemy/orm/session.py:2280: in _execute_internal
+    result = conn.execute(
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:1421: in execute
+    return meth(
+.venv/lib/python3.14/site-packages/sqlalchemy/sql/elements.py:526: in _execute_on_connection
+    return connection._execute_clauseelement(
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:1643: in _execute_clauseelement
+    ret = self._execute_context(
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:1848: in _execute_context
+    return self._exec_single_context(
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:1988: in _exec_single_context
+    self._handle_dbapi_exception(
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:2365: in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/base.py:1969: in _exec_single_context
+    self.dialect.do_execute(
+.venv/lib/python3.14/site-packages/sqlalchemy/engine/default.py:952: in do_execute
+    cursor.execute(statement, parameters)
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:585: in execute
+    self._adapt_connection.await_(
+.venv/lib/python3.14/site-packages/sqlalchemy/util/_concurrency_py3k.py:132: in await_only
+    return current.parent.switch(awaitable)  # type: ignore[no-any-return,attr-defined] # noqa: E501
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/sqlalchemy/util/_concurrency_py3k.py:196: in greenlet_spawn
+    value = await result
+            ^^^^^^^^^^^^
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:563: in _prepare_and_execute
+    self._handle_exception(error)
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:513: in _handle_exception
+    self._adapt_connection._handle_exception(error)
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = <AdaptedConnection <asyncpg.connection.Connection object at 0x7ae5013a8500>>
+error = UndefinedTableError('relation "shadow_capacity" does not exist')
+
+    def _handle_exception(self, error):
+        if self._connection.is_closed():
+            self._transaction = None
+            self._started = False
+    
+        if not isinstance(error, AsyncAdapt_asyncpg_dbapi.Error):
+            exception_mapping = self.dbapi._asyncpg_error_translate
+    
+            for super_ in type(error).__mro__:
+                if super_ in exception_mapping:
+                    translated_error = exception_mapping[super_](
+                        "%s: %s" % (type(error), error)
+                    )
+                    translated_error.pgcode = translated_error.sqlstate = (
+                        getattr(error, "sqlstate", None)
+                    )
+>                   raise translated_error from error
+E                   sqlalchemy.exc.ProgrammingError: (sqlalchemy.dialects.postgresql.asyncpg.ProgrammingError) <class 'asyncpg.exceptions.UndefinedTableError'>: relation "shadow_capacity" does not exist
+E                   [SQL: insert into shadow_capacity (recipient, outstanding) values ($1, 0)]
+E                   [parameters: ('lock-1793289239.207642',)]
+E                   (Background on this error at: https://sqlalche.me/e/20/f405)
+
+.venv/lib/python3.14/site-packages/sqlalchemy/dialects/postgresql/asyncpg.py:797: ProgrammingError
+_ test_every_registered_figure_matches_what_produces_it[reports (\\d+) claims, (\\d+) test results] _
+
+claim = Claim(pattern='reports (\\d+) claims, (\\d+) test results', truth=<function <lambda> at 0x7ae504977e20>, source='the reproductions run captured in GATE_OUTPUT_G30.txt')
+
+    @pytest.mark.parametrize("claim", CLAIMS, ids=lambda c: c.pattern[:48])
+    def test_every_registered_figure_matches_what_produces_it(claim: Claim) -> None:
+        m = re.search(claim.pattern, GUIDE.read_text())
+        assert m, f"claim pattern no longer matches the guide: {claim.pattern!r}"
+        written = tuple(g for g in m.groups() if g is not None)
+>       truth = claim.truth()
+                ^^^^^^^^^^^^^
+
+tests/test_review_figures.py:147: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review_figures.py:77: in <lambda>
+    _printed(GATES, r"^(\d+) claims; \d+ test results run"),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_review_figures.py:50: in _printed
+    m = re.search(pattern, path.read_text(), re.M)
+                           ^^^^^^^^^^^^^^^^
+../../../.local/opt/python-3.14.7-gh/lib/python3.14/pathlib/__init__.py:787: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/home/ubuntu/Dev/intelligent-workflow-application/docs/archives/GATE_OUTPUT_G30.txt')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/home/ubuntu/Dev/intelligent-workflow-application/docs/archives/GATE_OUTPUT_G30.txt'
+
+../../../.local/opt/python-3.14.7-gh/lib/python3.14/pathlib/__init__.py:771: FileNotFoundError
+=============================== warnings summary ===============================
+.venv/lib/python3.14/site-packages/fastapi/testclient.py:1
+  /home/ubuntu/Dev/intelligent-workflow-application/backend/.venv/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_auth.py: 1 warning
+tests/test_health.py: 1 warning
+tests/test_schema_drift.py: 12 warnings
+tests/test_system_capabilities.py: 2 warnings
+  /home/ubuntu/Dev/intelligent-workflow-application/backend/.venv/lib/python3.14/site-packages/alembic/config.py:604: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_schema_conformance.py:29: SCHEMA_TESTS not set; skipping schemathesis contract tests
+SKIPPED [1] tests/test_browser_live.py:115: BEDROCK_LIVE not set; skipping end-to-end live workflow test
+SKIPPED [1] tests/test_gmail_live.py:97: GMAIL_LIVE not set; skipping live Gmail tests
+SKIPPED [1] tests/test_gmail_live.py:104: GMAIL_LIVE not set; skipping live Gmail tests
+SKIPPED [1] tests/test_gmail_live.py:125: GMAIL_LIVE not set; skipping live Gmail tests
+SKIPPED [1] tests/test_gmail_live.py:180: GMAIL_LIVE not set; skipping live Gmail tests
+SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
+FAILED tests/test_elicitation_c1.py::test_INVARIANT_two_topics_cannot_both_take_the_last_slot
+FAILED tests/test_elicitation_c1.py::test_INVARIANT_the_capacity_update_SERIALIZES_deterministically
+FAILED tests/test_review_figures.py::test_every_registered_figure_matches_what_produces_it[reports (\\d+) claims, (\\d+) test results]
+3 failed, 1600 passed, 10 skipped, 17 warnings in 115.98s (0:01:55)
+exit: 1
+
+=== pip-audit ===
+No known vulnerabilities found
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== claims: g30_reproductions.py (BROWSER_LIVE=1, TEST_DATABASE_URL set) ===
+claim     tests controls  status   (controls = aimed at this claim's own tests)
+A1       9/9           1  ok    The shipped system layer loads strictly: every attribute stated; a mis
+A2       2/2           1  ok    Every engine — the service and every operator script — carries a syste
+A3      11/11          1  ok    Every armed workflow is accounted for: runs under the layer, or is dec
+A4       2/2           1  ok    /api/health reports the layer as counts, never names, through the real
+B1       2/2           1  ok    Through the real engine, a tool the layer does not list is refused — o
+B2       7/7           3  ok    max_tokens_per_call clamps agent steps (most restrictive layer), quest
+C1      11/11          3  ok    The path matcher: absolute only, `..` refused, whole-path match, `**` 
+C2      24/24          3  ok    Every deterministic file function checks before access; a denial raise
+C3       8/8           3  ok    Every filesystem access follows a check of that SAME path in that same
+C4       1/1           1  ok    A parallel sibling step cannot widen a step's capabilities
+C5       3/3           1  ok    The live deterministic workflows run under the SHIPPED layer at their 
+D1      17/17          2  ok    Workflow and step ids are plain tokens; memory refuses paths outside i
+D3       1/1           1  ok    A definition stored around the API with a released vocabulary is refus
+E1      24/24          4  ok    allowed_hosts blocks agent-initiated requests before dispatch and keep
+E2       7/7           1  ok    URLs the host check and the browser could parse differently are refuse
+E3       6/6           1  ok    Browser outputs stay in the run's downloads directory, whatever name i
+E4       1/1           1  ok    The browser stays out of the system layer until destinations are enfor
+E5       5/5           1  ok    Against real Chromium: off-list clicks and navigations send nothing; t
+
+18 claims; 141 test results run; 35 controls in g30_controls.py; pytest exit 0
+every runnable claim reproduced
+exit: 0
+
+=== controls: g30_controls.py (BROWSER_LIVE=1, TEST_DATABASE_URL set) ===
+--- max_tokens_per_call: the clamp is bypassed
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- allowed_hosts: the step's policy never reaches the connector
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- allowed_hosts: navigate stops checking the URL first
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- allowed_hosts: fetch_url lets the API context follow redirects again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- allowed_hosts: read_text stops checking where the page is
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- loader: a misspelt key is accepted (fails open)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- the launcher stops naming the layer
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- health leaks the tool names
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- an armed workflow goes undeclared
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- a browser tool is enabled before destinations are enforced
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- phase 2: copy_files stops checking what it reads
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- phase 2: a denial moves inside the skip-on-failure try (becomes a silent skip)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- phase 2: a file function stops consulting capabilities
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- matcher: back to PurePosixPath.match (admits ..)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- matcher: '..' segments no longer refused
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- pattern rule: relative patterns accepted again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- layer: DMARC spool pattern one level too shallow
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- layer: widened enough to run invoice-extraction, declaration not updated
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- review: the id rule is switched off (traversal ids load again)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- review: the memory manager stops containing its paths
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- review: fetch_url joins the agent's file name onto the directory again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- review: an operator script builds its engine without the layer
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 2: step capabilities written to the SHARED context again (the race)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 3: the host check stops refusing parser-divergent URLs
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 1: the question-suggestion call escapes the cap
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 1: memory distillation sends no cap again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 4: copy_files checks dest_dir instead of the file it writes (their mutant)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- re-check: copy_files checks only the FIRST file it writes (their weaker mutant)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- re-check: extract_archive checks only the FIRST member it writes
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- the agent stops checking whether a tool is allowed (B1)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- E5 (live Chromium): the host check stops refusing parser-divergent URLs
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- D3 (real Postgres): a stored released vocabulary loads again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- figures: a number in the guide is typed wrong (18 -> 19 claims)
+    sabotaged exit=1 (want 1)   restored exit=1 (want 0)   DID NOT FIRE
+--- figures: an unregistered number appears in the guide's prose
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+Traceback (most recent call last):
+  File "/home/ubuntu/Dev/intelligent-workflow-application/docs/review-artifacts/g30_controls.py", line 296, in <module>
+    original = f.read_text()
+  File "/home/ubuntu/.local/opt/python-3.14.7-gh/lib/python3.14/pathlib/__init__.py", line 787, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/.local/opt/python-3.14.7-gh/lib/python3.14/pathlib/__init__.py", line 771, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/home/ubuntu/Dev/intelligent-workflow-application/backend/../docs/archives/GATE_OUTPUT_G30.txt'
+exit: 1

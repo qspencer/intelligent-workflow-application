@@ -15,6 +15,7 @@ failures instead of running them.
 """
 
 import ast
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -26,42 +27,42 @@ CONTROLS = [
         "src/workflow_platform/agent/agent.py",
         "                inference_config=inference_config,\n",
         "                inference_config=self.policy.inference_config,\n",
-        "tests/test_g30_capability_enforcement.py",
+        "tests/test_g30_capability_enforcement.py::test_a_cap_sets_max_tokens_when_the_step_asked_for_none",
     ),
     (
         "allowed_hosts: the step's policy never reaches the connector",
         "src/workflow_platform/tools/browser.py",
         "    conn.set_host_policy(caps.host_allowed if caps is not None and caps.restricts_hosts else None)\n",
         "    conn.set_host_policy(None)\n",
-        "tests/test_g30_capability_enforcement.py",
+        "tests/test_g30_capability_enforcement.py::test_the_step_capabilities_reach_the_connector_through_the_tool",
     ),
     (
         "allowed_hosts: navigate stops checking the URL first",
         "src/workflow_platform/connectors/browser/playwright_connector.py",
         "        self.check_url(url)\n        await self._arm()\n",
         "        await self._arm()\n",
-        "tests/test_g30_capability_enforcement.py",
+        "tests/test_g30_capability_enforcement.py::test_navigation_to_a_disallowed_host_is_refused_before_any_request",
     ),
     (
         "allowed_hosts: fetch_url lets the API context follow redirects again",
         "src/workflow_platform/connectors/browser/playwright_connector.py",
         "        response = await self._fetch_checked(url)\n",
         "        response = await self._page.context.request.get(url)\n",
-        "tests/test_g30_capability_enforcement.py",
+        "tests/test_g30_capability_enforcement.py::test_fetch_url_follows_redirects_one_checked_hop_at_a_time",
     ),
     (
         "allowed_hosts: read_text stops checking where the page is",
         "src/workflow_platform/connectors/browser/playwright_connector.py",
         "        await self._guard()\n        # `_page` is Any",
         "        # `_page` is Any",
-        "tests/test_g30_capability_enforcement.py",
+        "tests/test_g30_capability_enforcement.py::test_nothing_reads_or_acts_on_a_page_that_is_off_list",
     ),
     (
         "loader: a misspelt key is accepted (fails open)",
         "src/workflow_platform/security/capabilities.py",
         "    if missing or unknown:\n",
         "    if missing:\n",
-        "tests/test_system_capabilities.py",
+        "tests/test_system_capabilities.py::test_the_loader_refuses_a_layer_that_could_fail_open",
     ),
     (
         "the launcher stops naming the layer",
@@ -75,7 +76,7 @@ CONTROLS = [
         "src/workflow_platform/security/capabilities.py",
         '        "tools": shape(policy.tools),\n',
         '        "tools": policy.tools,\n',
-        "tests/test_system_capabilities.py",
+        "tests/test_system_capabilities.py::test_health_reports_the_layer_as_counts_never_contents",
     ),
     (
         "an armed workflow goes undeclared",
@@ -97,42 +98,42 @@ CONTROLS = [
         "src/workflow_platform/engine/functions.py",
         "        _require_path(context, path, write=False)  # outside the try: a denial is not a skip\n        try:\n            payload",
         "        try:\n            payload",
-        "tests/test_g30_function_capabilities.py",
+        "tests/test_g30_function_capabilities.py::test_a_denied_read_raises_and_is_never_a_skip",
     ),
     (
         "phase 2: a denial moves inside the skip-on-failure try (becomes a silent skip)",
         "src/workflow_platform/engine/functions.py",
         "        _require_path(context, path, write=False)  # outside the try: a denial is not a skip\n        try:\n            payload = await world.fs.read_bytes(path)\n",
         "        try:\n            _require_path(context, path, write=False)\n            payload = await world.fs.read_bytes(path)\n",
-        "tests/test_g30_function_capabilities.py",
+        "tests/test_g30_function_capabilities.py::test_a_denied_read_raises_and_is_never_a_skip",
     ),
     (
         "phase 2: a file function stops consulting capabilities",
         "src/workflow_platform/engine/functions.py",
         "    _require_path(context, path, write=True)\n    await world.fs.write_bytes(path, buf.getvalue().encode())\n",
         "    await world.fs.write_bytes(path, buf.getvalue().encode())\n",
-        "tests/test_g30_function_capabilities.py",
+        "tests/test_g30_function_capabilities.py::test_a_denied_write_raises_before_anything_is_written",
     ),
     (
         "matcher: back to PurePosixPath.match (admits ..)",
         "src/workflow_platform/security/capabilities.py",
         "    return candidate.full_match(pattern)\n",
         "    return PurePosixPath(path).match(pattern)\n",
-        "tests/test_g30_function_capabilities.py",
+        "tests/test_g30_function_capabilities.py::test_the_matcher",
     ),
     (
         "matcher: '..' segments no longer refused",
         "src/workflow_platform/security/capabilities.py",
         '    if ".." in candidate.parts:\n        return False\n',
         "",
-        "tests/test_g30_function_capabilities.py",
+        "tests/test_g30_function_capabilities.py::test_the_matcher",
     ),
     (
         "pattern rule: relative patterns accepted again",
         "src/workflow_platform/security/capabilities.py",
         '            if not pattern.startswith("/") or ".." in PurePosixPath(pattern).parts:\n',
         "            if False:\n",
-        "tests/test_g30_function_capabilities.py",
+        "tests/test_g30_function_capabilities.py::test_a_pattern_the_matcher_could_never_honour_is_refused",
     ),
     (
         "layer: DMARC spool pattern one level too shallow",
@@ -154,7 +155,7 @@ CONTROLS = [
         "src/workflow_platform/workflow/definition.py",
         '    if not _SAFE_ID.match(value) or ".." in value:\n',
         "    if False:\n",
-        "tests/test_id_traversal.py",
+        "tests/test_id_traversal.py::test_an_unsafe_workflow_id_is_refused",
     ),
     (
         "review: the memory manager stops containing its paths",
@@ -168,7 +169,7 @@ CONTROLS = [
         "src/workflow_platform/connectors/browser/playwright_connector.py",
         "        target = self._contained(dest_filename)\n",
         "        target = self.downloads_dir / dest_filename\n",
-        "tests/test_g30_capability_enforcement.py",
+        "tests/test_g30_capability_enforcement.py::test_fetch_url_cannot_write_outside_the_downloads_directory",
     ),
     (
         "review: an operator script builds its engine without the layer",
@@ -227,6 +228,51 @@ CONTROLS = [
         "        if not extracted:\n            _require_path(context, out, write=True)\n        await world.fs.write_bytes(out, data)\n",
         "tests/test_g30_function_capabilities.py::test_every_access_is_preceded_by_a_check_of_that_same_path",
     ),
+    (
+        "the agent stops checking whether a tool is allowed (B1)",
+        "src/workflow_platform/agent/agent.py",
+        "            and not context.capabilities.tool_allowed(name)\n",
+        "            and False\n",
+        "tests/test_system_capabilities.py::test_the_shipped_layer_refuses_a_tool_it_does_not_list",
+    ),
+    (
+        "E5 (live Chromium): the host check stops refusing parser-divergent URLs",
+        "src/workflow_platform/connectors/browser/base.py",
+        '    if not url.isascii() or any(\n        c == "\\\\" or c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F for c in url\n    ):\n        return False\n    parts = urlsplit(url)\n    if parts.scheme not in ("http", "https") or not parts.hostname:\n        return False\n    if "@" in parts.netloc or "%" in parts.netloc:\n        return False\n',
+        '    parts = urlsplit(url)\n    if parts.scheme not in ("http", "https") or not parts.hostname:\n        return False\n',
+        "tests/test_browser_host_policy_live.py::"
+        "test_a_backslash_cannot_smuggle_a_disallowed_host_past_fetch_url",
+        "BROWSER_LIVE",
+    ),
+    (
+        "D3 (real Postgres): a stored released vocabulary loads again",
+        "src/workflow_platform/workflow/definition.py",
+        "        if self.released_fields is not None:\n",
+        "        if False:\n",
+        "tests/test_g29_withdrawn_postgres.py::test_a_stored_declaration_is_refused_on_load",
+        "TEST_DATABASE_URL",
+    ),
+    (
+        "figures: a number in the guide is typed wrong (18 -> 19 claims)",
+        "../docs/G30_CAPABILITY_REVIEW_GUIDE.md",
+        "reports 18 claims, 141 test results",
+        "reports 19 claims, 141 test results",
+        "tests/test_review_figures.py::test_every_registered_figure_matches_what_produces_it",
+    ),
+    (
+        "figures: an unregistered number appears in the guide's prose",
+        "../docs/G30_CAPABILITY_REVIEW_GUIDE.md",
+        "These are the claims to attack.",
+        "These are the 42 claims to attack.",
+        "tests/test_review_figures.py::test_no_figure_in_the_guide_is_unaccounted_for",
+    ),
+    (
+        "figures: the shipped evidence disagrees with the guide (141 -> 142 results)",
+        "../docs/archives/GATE_OUTPUT_G30.txt",
+        "18 claims; 141 test results run",
+        "18 claims; 142 test results run",
+        "tests/test_review_figures.py::test_every_registered_figure_matches_what_produces_it",
+    ),
 ]
 
 
@@ -238,7 +284,14 @@ def pytest(target: str) -> int:
 
 
 ok = True
-for label, rel, old, new, target in CONTROLS:
+skipped = 0
+for label, rel, old, new, target, *requires in CONTROLS:
+    # An optional 6th field names the env var an opt-in suite needs. Without
+    # it the control is reported NOT RUN — never counted as firing.
+    if requires and not os.environ.get(requires[0]):
+        print(f"--- {label}\n    NOT RUN (opt-in: set {requires[0]})")
+        skipped += 1
+        continue
     f = ROOT / rel
     original = f.read_text()
     n = original.count(old)
@@ -262,5 +315,8 @@ for label, rel, old, new, target in CONTROLS:
         f"--- {label}\n    sabotaged exit={sabotaged} (want 1)   restored exit={restored} "
         f"(want 0)   {'FIRED' if fired else 'DID NOT FIRE'}"
     )
-print("\nALL CONTROLS FIRED" if ok else "\nA CONTROL DID NOT FIRE")
+print(
+    ("\nALL CONTROLS FIRED" if ok else "\nA CONTROL DID NOT FIRE")
+    + (f" ({skipped} opt-in not run)" if skipped else "")
+)
 sys.exit(0 if ok else 1)
