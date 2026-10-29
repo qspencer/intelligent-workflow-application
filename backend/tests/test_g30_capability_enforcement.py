@@ -25,9 +25,13 @@ from typing import Any
 import pytest
 
 from tests._bedrock_fakes import FakeBedrock, text_response
-from tests._browser_fakes import FakeDownload, FakePlaywrightPage
+from tests._browser_fakes import FakeDownload, FakeFrame, FakePlaywrightPage
 from workflow_platform.agent import Agent
-from workflow_platform.connectors.browser import BrowserHostDenied, PlaywrightConnector
+from workflow_platform.connectors.browser import (
+    BrowserHostDenied,
+    BrowserUpload,
+    PlaywrightConnector,
+)
 from workflow_platform.security.capabilities import CapabilityPolicy, resolve_capabilities
 from workflow_platform.tools import ToolContext
 from workflow_platform.tools.browser import BrowserFetchUrlTool, BrowserNavigateTool
@@ -198,6 +202,160 @@ async def test_nothing_reads_or_acts_on_a_page_that_is_off_list(
         await actions[action]()
     assert page.url == "about:blank"
     assert not [c for c in page.calls if c[0].startswith("locator") or c[0] == "screenshot"]
+
+
+# --- the check's lifetime: a page that navigates DURING a call (round-2 review R2-F3) ---
+
+_READS = ["read_text", "read_table", "wait_for", "screenshot"]
+_PAGE_CALL = {
+    "read_text": "inner_text",
+    "read_table": "inner_html",
+    "wait_for": "wait_for",
+    "screenshot": "screenshot",
+}
+
+
+def _read(conn: PlaywrightConnector, name: str, tmp_path: Path) -> Awaitable[object]:
+    reads: dict[str, Callable[[], Awaitable[object]]] = {
+        "read_text": lambda: conn.read_text("#late"),
+        "read_table": lambda: conn.read_table("#late"),
+        "wait_for": lambda: conn.wait_for("#late"),
+        "screenshot": lambda: conn.screenshot(path=str(tmp_path / "s.png")),
+    }
+    return reads[name]()
+
+
+def _page_with_late_content() -> FakePlaywrightPage:
+    page = FakePlaywrightPage(url=ALLOWED)
+    page.text_at["#late"] = "OFF_LIST_PAGE_FIXTURE"
+    page.html_at["#late"] = "<tr><td>OFF_LIST_PAGE_FIXTURE</td></tr>"
+    return page
+
+
+@pytest.mark.parametrize("name", _READS)
+async def test_a_read_whose_page_leaves_for_an_off_list_host_mid_read_is_withheld(
+    tmp_path: Path, name: str
+) -> None:
+    """The reviewer's sequence: the check passes on the allowed page, the read
+    waits, a navigation commits to an off-list page, and the read's reply comes
+    from there. Before the fix the content was returned and the page left."""
+    page = _page_with_late_content()
+    page.during[_PAGE_CALL[name]] = lambda: page.commit(OTHER)
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(BrowserHostDenied, match="withheld"):
+        await _read(conn, name, tmp_path)
+    assert page.url == "about:blank"
+    assert not (tmp_path / "dl" / "s.png").exists(), "an image of the unchecked page was kept"
+
+
+@pytest.mark.parametrize("name", _READS)
+async def test_a_read_through_an_off_list_page_and_back_is_withheld(
+    tmp_path: Path, name: str
+) -> None:
+    """Why a URL comparison is not enough: the page goes off-list and returns
+    to the very URL that was checked, so start and end agree while the reply
+    may have come from the page in between. The navigation count differs."""
+    page = _page_with_late_content()
+
+    def away_and_back() -> None:
+        page.commit(OTHER)
+        page.commit(ALLOWED)
+
+    page.during[_PAGE_CALL[name]] = away_and_back
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(BrowserHostDenied, match="withheld"):
+        await _read(conn, name, tmp_path)
+    assert page.url == ALLOWED, "an allowed page is left in place; only the result is withheld"
+
+
+async def test_the_reviewers_probe_a_url_change_with_no_event_is_withheld(tmp_path: Path) -> None:
+    """Their probe changed the URL without firing a navigation event; the URL
+    half of the comparison refuses that on its own."""
+    page = _page_with_late_content()
+    page.during["inner_text"] = lambda: setattr(page, "_url", OTHER)
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(BrowserHostDenied, match="withheld"):
+        await conn.read_text("#late")
+    assert page.url == "about:blank"
+
+
+@pytest.mark.parametrize("name", _READS)
+async def test_a_read_that_waits_on_a_page_that_stays_put_is_returned(
+    tmp_path: Path, name: str
+) -> None:
+    """The positive control: waiting is not what is refused. Content that
+    arrives late on the checked page, and a child frame navigating, pass."""
+    page = _page_with_late_content()
+    page.during[_PAGE_CALL[name]] = lambda: page.commit(
+        "https://ads.other.example/f", frame=FakeFrame(parent_frame=page.main_frame)
+    )
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    result = await _read(conn, name, tmp_path)
+    if name == "read_text":
+        assert result == "OFF_LIST_PAGE_FIXTURE"
+    assert page.url == ALLOWED
+
+
+async def test_without_a_policy_a_read_is_not_fenced(tmp_path: Path) -> None:
+    """An unrestricted run is unchanged: nothing is checked, so nothing is withheld."""
+    page = _page_with_late_content()
+    page.during["inner_text"] = lambda: page.commit(OTHER)
+    conn = PlaywrightConnector(downloads_dir=tmp_path / "dl", page=page)
+    await conn.__aenter__()
+    assert await conn.read_text("#late") == "OFF_LIST_PAGE_FIXTURE"
+
+
+@pytest.mark.parametrize("name", ["click", "fill", "upload_file", "submit_form"])
+async def test_an_action_whose_page_leaves_mid_action_fails_and_clears(
+    tmp_path: Path, name: str
+) -> None:
+    """An action cannot be withheld — its effect may already have landed — so
+    the contract for actions is narrower: the page is checked when the action
+    ends, and an off-list page fails the call and is cleared. `fill` and
+    `upload_file` did not check afterwards before this."""
+    page = FakePlaywrightPage(url=ALLOWED)
+    page_call = {"fill": "fill", "upload_file": "set_input_files"}
+    if name in page_call:
+        page.during[page_call[name]] = lambda: page.commit(OTHER)
+    else:
+        page.click_navigates["#late"] = OTHER  # click
+        page.during["evaluate"] = lambda: page.commit(OTHER)  # submit_form
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    upload = BrowserUpload(name="a.csv", mime_type="text/csv", content=b"a\n")
+    actions: dict[str, Callable[[], Awaitable[object]]] = {
+        "click": lambda: conn.click("#late"),
+        "fill": lambda: conn.fill("#late", "v"),
+        "upload_file": lambda: conn.upload_file("#late", upload),
+        "submit_form": lambda: conn.submit_form("#late"),
+    }
+    with pytest.raises(BrowserHostDenied):
+        await actions[name]()
+    assert page.url == "about:blank"
+
+
+def test_every_page_method_is_a_fenced_read_or_a_landing_checked_action() -> None:
+    """Derived from the source: every connector method that runs `_guard` is
+    classified. A read must go through `_fenced`; an action must end with
+    `_enforce_landing`. A new method fails here until it is one or the other."""
+    import ast
+    import inspect
+    import textwrap
+
+    reads = set(_READS)
+    actions = {"click", "fill", "upload_file", "submit_form"}
+    # Its download is checked by host before it is saved; see the download test.
+    other = {"download_via_click"}
+    guarded = {}
+    for name, fn in inspect.getmembers(PlaywrightConnector, inspect.iscoroutinefunction):
+        tree = ast.parse(textwrap.dedent(inspect.getsource(fn)))
+        if "self._guard()" in ast.unparse(tree):
+            guarded[name] = tree.body[0]
+    assert set(guarded) == reads | actions | other
+    for name in reads:
+        assert "self._fenced(" in ast.unparse(guarded[name]), f"{name} is not fenced"
+    for name in actions:
+        last = guarded[name].body[-1]  # type: ignore[attr-defined]
+        assert ast.unparse(last) == "await self._enforce_landing()", f"{name} is not re-checked"
 
 
 async def test_fetch_url_to_a_disallowed_host_makes_no_request(tmp_path: Path) -> None:

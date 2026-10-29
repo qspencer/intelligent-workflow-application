@@ -49,3 +49,15 @@ class BrowserScreenshot(BaseModel):
     local_path: str
     bytes: int = Field(ge=0)
     full_page: bool = False
+
+
+class BrowserUpload(BaseModel):
+    """A file for `upload_file`, as BYTES rather than a path (G30 external
+    review round 2, R2-F2). A path is classified again by the browser library
+    when it is used — Playwright uploads a directory's contents when the path
+    has become one — so the bytes of the file that was checked are what is
+    handed over."""
+
+    name: str = Field(min_length=1)
+    mime_type: str
+    content: bytes

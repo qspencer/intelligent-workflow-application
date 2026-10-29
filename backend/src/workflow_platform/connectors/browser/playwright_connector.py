@@ -14,6 +14,7 @@ in.
 from __future__ import annotations
 
 import logging
+from collections.abc import Awaitable, Callable
 from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar
@@ -29,6 +30,7 @@ from workflow_platform.connectors.browser.base import (
 from workflow_platform.connectors.browser.models import (
     BrowserDownload,
     BrowserScreenshot,
+    BrowserUpload,
     WaitState,
 )
 
@@ -181,6 +183,10 @@ class PlaywrightConnector(BrowserConnector):
         self._browser: Any = None
         self._context: Any = None
         self._route_armed = False
+        #: Main-frame navigations committed so far; see `_fenced`.
+        self._navigations = 0
+        if self._injected:
+            self._track_navigations(page)
 
     # --- host policy (G30: `allowed_hosts`, see BrowserConnector) ---
 
@@ -260,6 +266,44 @@ class PlaywrightConnector(BrowserConnector):
         await self._arm()
         await self._enforce_landing()
 
+    def _track_navigations(self, page: Any) -> None:
+        on = getattr(page, "on", None)
+        if callable(on):
+            on("framenavigated", self._on_frame_navigated)
+
+    def _on_frame_navigated(self, frame: Any) -> None:
+        if getattr(frame, "parent_frame", None) is None:
+            self._navigations += 1
+
+    async def _fenced[T](self, read: Callable[[], Awaitable[T]]) -> T:
+        """Return `read()` only if the page is still the document `_guard`
+        checked (G30 round-2 review, R2-F3).
+
+        `_guard` checks the URL, then the read waits — for its element, or for
+        Playwright's retries — and the page can navigate meanwhile, by its own
+        script or a redirect hop, so the result came from a page nobody
+        checked. Comparing URLs at the end is not enough: the read could have
+        come from an off-list page the browser has since left. So the count of
+        main-frame navigations is compared too, and any change withholds the
+        result, even to an allowed page — which document was read is unknown.
+        The count is current when `read()` returns because Playwright delivers
+        a navigation's event before the reply to anything run in the new
+        document, and runs this connector's handler as it dispatches it."""
+        if self._host_allowed is None:
+            return await read()
+        before = (self._navigations, self._page.url)
+        result = await read()
+        if (self._navigations, self._page.url) != before:
+            withheld = (
+                "the page navigated while this read was in progress, so its result was withheld"
+            )
+            try:
+                await self._enforce_landing()
+            except BrowserHostDenied as exc:
+                raise BrowserHostDenied(f"{withheld}; {exc}") from None
+            raise BrowserHostDenied(f"{withheld}; check where the page is and read again")
+        return result
+
     # --- lifecycle ---
 
     async def __aenter__(self) -> PlaywrightConnector:
@@ -274,6 +318,7 @@ class PlaywrightConnector(BrowserConnector):
         self._browser = await self._playwright.chromium.launch(headless=self.headless)
         self._context = await self._browser.new_context(viewport=self.viewport)
         self._page = await self._context.new_page()
+        self._track_navigations(self._page)
         self.downloads_dir.mkdir(parents=True, exist_ok=True)
         logger.info(
             "PlaywrightConnector launched (headless=%s, viewport=%s, downloads_dir=%s)",
@@ -334,7 +379,11 @@ class PlaywrightConnector(BrowserConnector):
             path = str(self.downloads_dir / f"screenshot-{ts}.png")
         else:
             path = str(self._contained(path))
-        await self._page.screenshot(path=path, full_page=full_page)
+        try:
+            await self._fenced(lambda: self._page.screenshot(path=path, full_page=full_page))
+        except BrowserHostDenied:
+            Path(path).unlink(missing_ok=True)  # an image of an unchecked page
+            raise
         size = Path(path).stat().st_size if Path(path).exists() else 0
         return BrowserScreenshot(local_path=path, bytes=size, full_page=full_page)
 
@@ -355,16 +404,17 @@ class PlaywrightConnector(BrowserConnector):
             # Append-mode: type the value at the current cursor position
             # without clearing what's already there.
             await locator.press_sequentially(value)
+        await self._enforce_landing()
 
     async def read_text(self, selector: str) -> str:
         await self._guard()
         # `_page` is Any (Playwright not type-checked) — annotate explicitly.
-        text: str = await self._page.locator(selector).inner_text()
+        text: str = await self._fenced(lambda: self._page.locator(selector).inner_text())
         return text
 
     async def read_table(self, selector: str) -> list[dict[str, str]]:
         await self._guard()
-        html: str = await self._page.locator(selector).inner_html()
+        html: str = await self._fenced(lambda: self._page.locator(selector).inner_html())
         # Wrap the locator's inner_html in a <table> shell so bs4 can parse
         # consistently — Playwright's inner_html returns the children of the
         # selected element (not the element itself). Pass the page's
@@ -424,9 +474,12 @@ class PlaywrightConnector(BrowserConnector):
             self.check_url(current)
         raise BrowserHostDenied(f"more than {_MAX_REDIRECTS} redirects from {url!r}")
 
-    async def upload_file(self, selector: str, file_path: str) -> None:
+    async def upload_file(self, selector: str, upload: BrowserUpload) -> None:
         await self._guard()
-        await self._page.locator(selector).set_input_files(file_path)
+        await self._page.locator(selector).set_input_files(
+            {"name": upload.name, "mimeType": upload.mime_type, "buffer": upload.content}
+        )
+        await self._enforce_landing()
 
     async def submit_form(self, selector: str) -> None:
         # `evaluate_handle` would let us inspect the result; we just need
@@ -482,7 +535,9 @@ class PlaywrightConnector(BrowserConnector):
         # / fill / read_text stay strict — they're acting on a specific
         # element, so multiple matches there is a real ambiguity.)
         await self._guard()
-        await self._page.locator(selector).first.wait_for(state=state, timeout=timeout_ms)
+        await self._fenced(
+            lambda: self._page.locator(selector).first.wait_for(state=state, timeout=timeout_ms)
+        )
 
     async def authenticate(self) -> None:
         # Browsers don't have a generic auth step — sites that need login

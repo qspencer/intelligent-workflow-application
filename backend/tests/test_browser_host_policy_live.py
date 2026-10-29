@@ -63,10 +63,25 @@ def site() -> Iterator[_Site]:
                 self.send_header("Content-Type", "text/html")
                 self.end_headers()
                 self.wfile.write(body)
-            elif self.path == "/redir":
+            elif self.path in ("/redir", "/late-hop"):
+                landing = "/late-landing" if self.path == "/late-hop" else "/landing"
                 self.send_response(302)
-                self.send_header("Location", f"{other}/landing")
+                self.send_header("Location", f"{other}{landing}")
                 self.end_headers()
+            elif self.path in ("/late-start", "/late-stable", "/late-landing"):
+                body = {
+                    # No #late here; the page leaves on its own while a read waits.
+                    "/late-start": "<script>setTimeout(() => location.href = '/late-hop', 300)"
+                    "</script><p>on the allowed site</p>",
+                    # The positive control: #late arrives on the page that was checked.
+                    "/late-stable": "<script>setTimeout(() => document.body.insertAdjacentHTML("
+                    "'beforeend', '<p id=late>late on the allowed site</p>'), 300)</script>",
+                    "/late-landing": '<p id="late">SECRET-LATE from the disallowed host</p>',
+                }[self.path].encode()
+                self.send_response(200)
+                self.send_header("Content-Type", "text/html")
+                self.end_headers()
+                self.wfile.write(body)
             else:
                 self.send_response(200)
                 self.send_header("Content-Type", "text/html")
@@ -168,3 +183,28 @@ async def test_a_backslash_cannot_smuggle_a_disallowed_host_past_fetch_url(
     with pytest.raises(BrowserHostDenied):
         await browser.fetch_url(smuggled)
     assert _paths(site, "localhost") == [], "the smuggled request reached the disallowed host"
+
+
+async def test_a_read_waiting_while_the_page_leaves_for_an_off_list_host_is_withheld(
+    site: _Site, browser: PlaywrightConnector
+) -> None:
+    """Round-2 review, R2-F3, the sequence they asked to see in a real browser:
+    the read is checked on an allowed page that has no `#late`; while
+    Playwright waits for it, the page's own script navigates to an allowed hop
+    that redirects off-list, where `#late` exists. Without the fence this read
+    returns the disallowed host's text."""
+    base = f"http://127.0.0.1:{site.port}"
+    await browser.navigate(f"{base}/late-start")
+    with pytest.raises(BrowserHostDenied, match="withheld"):
+        await browser.read_text("#late")
+    assert "/late-landing" in _paths(site, "localhost"), "the sequence did not run as designed"
+    assert browser._page.url == "about:blank"
+
+
+async def test_a_read_waiting_on_a_page_that_stays_put_returns_its_content(
+    site: _Site, browser: PlaywrightConnector
+) -> None:
+    """The control beside it: the same wait, with `#late` arriving on the
+    checked page, is returned — the fence refuses navigation, not waiting."""
+    await browser.navigate(f"http://127.0.0.1:{site.port}/late-stable")
+    assert await browser.read_text("#late") == "late on the allowed site"

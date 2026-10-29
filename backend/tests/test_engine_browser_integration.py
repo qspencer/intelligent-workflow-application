@@ -19,7 +19,11 @@ from typing import Any
 import pytest
 
 from tests._bedrock_fakes import FakeBedrock, text_response, tool_use_response
-from workflow_platform.connectors.browser import BrowserConnector, PlaywrightConnector
+from workflow_platform.connectors.browser import (
+    BrowserConnector,
+    BrowserUpload,
+    PlaywrightConnector,
+)
 from workflow_platform.engine import (
     FunctionRegistry,
     ToolCatalog,
@@ -96,7 +100,7 @@ class _RecordingBrowserConnector(BrowserConnector):
     async def fill(self, selector: str, value: str, *, clear_first: bool = True) -> None:
         return None
 
-    async def upload_file(self, selector: str, file_path: str) -> None:
+    async def upload_file(self, selector: str, upload: BrowserUpload) -> None:
         return None
 
     async def submit_form(self, selector: str) -> None:

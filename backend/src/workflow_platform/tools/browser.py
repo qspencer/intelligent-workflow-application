@@ -20,11 +20,15 @@ Capability gating runs at the `Agent` layer via `tool_allowed(name)`, and
 
 from __future__ import annotations
 
+import asyncio
+import mimetypes
+import os
+import stat
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 
-from workflow_platform.connectors.browser import BrowserConnector
+from workflow_platform.connectors.browser import BrowserConnector, BrowserUpload
 from workflow_platform.tools.base import Tool, ToolContext, ToolResult
 
 CONNECTOR_KEY = "browser"
@@ -338,6 +342,39 @@ class BrowserFillTool(Tool):
         )
 
 
+#: Larger files belong on a path Playwright streams; none of ours come close.
+MAX_UPLOAD_BYTES = 50 * 1024 * 1024
+
+
+class _UploadSourceError(Exception):
+    """The upload source is not a single regular file this call can send."""
+
+
+def _read_upload_source(file_path: str) -> BrowserUpload:
+    """Open `file_path` once and take its bytes from that open file, so what
+    is sent is the file whose type was checked. O_NONBLOCK keeps a FIFO from
+    blocking the open; it is then refused like any non-regular file."""
+    try:
+        fd = os.open(file_path, os.O_RDONLY | os.O_NONBLOCK)
+    except FileNotFoundError:
+        raise _UploadSourceError(f"{file_path!r} does not exist") from None
+    try:
+        mode = os.fstat(fd).st_mode
+        if stat.S_ISDIR(mode):
+            raise _UploadSourceError(f"uploads one file; {file_path!r} is a directory")
+        if not stat.S_ISREG(mode):
+            raise _UploadSourceError(f"{file_path!r} is not a regular file")
+        with os.fdopen(os.dup(fd), "rb") as source:
+            content = source.read(MAX_UPLOAD_BYTES + 1)
+    finally:
+        os.close(fd)
+    if len(content) > MAX_UPLOAD_BYTES:
+        raise _UploadSourceError(f"{file_path!r} is larger than {MAX_UPLOAD_BYTES} bytes")
+    name = Path(file_path).name
+    mime_type = mimetypes.guess_type(name)[0] or "application/octet-stream"
+    return BrowserUpload(name=name, mime_type=mime_type, content=content)
+
+
 class BrowserUploadFileTool(Tool):
     effect = "mutating"
     name: ClassVar[str] = "browser_upload_file"
@@ -376,15 +413,19 @@ class BrowserUploadFileTool(Tool):
             return ToolResult(
                 error=f"Capability denied: read {file_path!r} is outside file_read ACL"
             )
-        # Playwright uploads a directory's contents on some inputs; the check
-        # above is on the directory's path, not each file in it, so refuse.
-        if Path(file_path).is_dir():
-            return ToolResult(
-                error=f"browser_upload_file uploads one file; {file_path!r} is a directory"
-            )
+        # The FILE is examined only once this call owns the browser, and what
+        # reaches the page is the bytes read from it — never the path, which
+        # Playwright would classify again and upload a directory's contents if
+        # it had become one. Checking the path before waiting for the lock let
+        # a queued upload of a missing path become a directory upload (G30
+        # round-2 review, R2-F2); the check above is on this path, not on each
+        # file inside a directory.
         try:
             async with connector.operation(_host_policy(context)):
-                await connector.upload_file(sel, file_path)
+                upload = await asyncio.to_thread(_read_upload_source, file_path)
+                await connector.upload_file(sel, upload)
+        except _UploadSourceError as exc:
+            return ToolResult(error=f"browser_upload_file {exc}")
         except Exception as exc:
             return ToolResult(error=f"browser_upload_file failed: {exc}")
         return ToolResult(content={"selector": sel, "file_path": file_path})

@@ -309,6 +309,84 @@ CONTROLS = [
         "tests/test_browser_tools.py::test_upload_outside_file_read_never_reaches_the_page",
     ),
     (
+        "R2-F1: the ECR script builds from backend/ again",
+        "../infra/scripts/build_and_push.sh",
+        'docker build -f "$REPO_ROOT/backend/Dockerfile" -t "$REPO_URL:$TAG" "$REPO_ROOT"',
+        'docker build -t "$REPO_URL:$TAG" "$REPO_ROOT/backend"',
+        "tests/test_system_capabilities.py::test_the_ecr_script_builds_from_the_root_context",
+    ),
+    (
+        "R2-F1: a place that builds the image goes unlisted",
+        "tests/test_system_capabilities.py",
+        'IMAGE_BUILD_SITES = {"docker-compose.yml", "infra/scripts/build_and_push.sh"}',
+        'IMAGE_BUILD_SITES = {"docker-compose.yml"}',
+        "tests/test_system_capabilities.py::test_every_image_build_site_is_known",
+    ),
+    (
+        "R2-F2: the upload source is examined before the call owns the browser",
+        "src/workflow_platform/tools/browser.py",
+        "            async with connector.operation(_host_policy(context)):\n"
+        "                upload = await asyncio.to_thread(_read_upload_source, file_path)\n",
+        "            upload = await asyncio.to_thread(_read_upload_source, file_path)\n"
+        "            async with connector.operation(_host_policy(context)):\n",
+        "tests/test_browser_tools.py::test_a_queued_upload_reads_its_source_when_its_turn_comes",
+    ),
+    (
+        "R2-F2: the upload stops refusing a directory",
+        "src/workflow_platform/tools/browser.py",
+        "        if stat.S_ISDIR(mode):\n",
+        "        if False:\n",
+        "tests/test_browser_tools.py::test_a_queued_upload_cannot_become_a_directory_upload",
+    ),
+    (
+        "R2-F2: the upload accepts a non-regular file",
+        "src/workflow_platform/tools/browser.py",
+        "        if not stat.S_ISREG(mode):\n",
+        "        if False:\n",
+        "tests/test_browser_tools.py::test_upload_refuses_anything_but_one_regular_file",
+    ),
+    (
+        "R2-F3: reads are not fenced",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "        if self._host_allowed is None:\n            return await read()\n",
+        "        if True:\n            return await read()\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_a_read_whose_page_leaves_for_an_off_list_host_mid_read_is_withheld",
+    ),
+    (
+        "R2-F3: the fence compares URLs only (navigations go uncounted)",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "            self._navigations += 1\n",
+        "            pass\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_a_read_through_an_off_list_page_and_back_is_withheld",
+    ),
+    (
+        "R2-F3: a child frame's navigation counts as the page's",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        '        if getattr(frame, "parent_frame", None) is None:\n',
+        "        if True:\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_a_read_that_waits_on_a_page_that_stays_put_is_returned",
+    ),
+    (
+        "R2-F3: fill stops checking the page when it ends",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "            await locator.press_sequentially(value)\n        await self._enforce_landing()\n",
+        "            await locator.press_sequentially(value)\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_an_action_whose_page_leaves_mid_action_fails_and_clears",
+    ),
+    (
+        "R2-F3, real Chromium: reads are not fenced",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "        if self._host_allowed is None:\n            return await read()\n",
+        "        if True:\n            return await read()\n",
+        "tests/test_browser_host_policy_live.py::"
+        "test_a_read_waiting_while_the_page_leaves_for_an_off_list_host_is_withheld",
+        "BROWSER_LIVE",
+    ),
+    (
         "figures: a number in the guide is typed wrong (20 -> 21 claims)",
         "../docs/G30_CAPABILITY_REVIEW_GUIDE_R2.md",
         "reports 20 claims, 156 test results",

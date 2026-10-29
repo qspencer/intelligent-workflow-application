@@ -40,6 +40,7 @@ LIVE = "tests/test_browser_host_policy_live.py"
 PG = "tests/test_g29_withdrawn_postgres.py"
 BE = "tests/test_engine_browser_integration.py"
 BT = "tests/test_browser_tools.py"
+PC = "tests/test_playwright_connector.py"
 
 #: (claim id, claim as the guide states it, test node ids, opt-in env var or None)
 CLAIMS: list[tuple[str, str, list[str], str | None]] = [
@@ -61,7 +62,8 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
         "A2",
         "Every engine — the service on every launch path and every operator script — "
         "runs under a system layer: the real service, built with nothing set, refuses an "
-        "unlisted tool on a real file; the image carries the layer (review R1)",
+        "unlisted tool on a real file; the image carries the layer, and every place that "
+        "builds it supplies the root context (review R1; round-2 R2-F1)",
         [
             f"{SC}::test_every_engine_built_outside_tests_carries_a_system_layer",
             f"{SC}::test_the_production_launcher_names_the_shipped_layer",
@@ -70,6 +72,8 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
             f"{SC}::test_the_service_refuses_to_start_on_a_layer_it_cannot_use",
             f"{SC}::test_the_service_default_refuses_an_unlisted_tool_on_a_real_file",
             f"{SC}::test_the_image_carries_the_layer_where_the_service_looks_for_it",
+            f"{SC}::test_every_image_build_site_is_known",
+            f"{SC}::test_the_ecr_script_builds_from_the_root_context",
         ],
         None,
     ),
@@ -193,8 +197,8 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
     ),
     (
         "E1",
-        "allowed_hosts blocks agent-initiated requests before dispatch, and the agent "
-        "reads or acts only while the top-level page is on an allowed host (fakes)",
+        "allowed_hosts blocks agent-initiated requests before dispatch, and the top-level "
+        "page is checked before every read and action (fakes)",
         [
             f"{EN}::test_no_restricting_layer_means_no_host_policy",
             f"{EN}::test_navigation_to_a_disallowed_host_is_refused_before_any_request",
@@ -251,11 +255,34 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
     (
         "E7",
         "A browser upload reads a local file, so file_read applies: refused before "
-        "Playwright sees the path; allowed twin uploads; directories refused (review R4)",
+        "Playwright sees anything; allowed twin uploads; the source is examined only once "
+        "the call owns the browser, must be one regular file, and reaches the page as its "
+        "bytes, so a queued path that becomes a directory is refused (review R4; R2-F2)",
         [
             f"{BT}::test_upload_outside_file_read_never_reaches_the_page",
             f"{BT}::test_upload_inside_file_read_reaches_the_page",
             f"{BT}::test_upload_refuses_a_directory_even_when_its_path_is_allowed",
+            f"{BT}::test_a_queued_upload_cannot_become_a_directory_upload",
+            f"{BT}::test_a_queued_upload_reads_its_source_when_its_turn_comes",
+            f"{BT}::test_upload_refuses_anything_but_one_regular_file",
+            f"{PC}::test_upload_file_hands_the_page_bytes_never_a_path",
+        ],
+        None,
+    ),
+    (
+        "E8",
+        "A read returns only what the checked document gave it: a page that navigates "
+        "during the read — off-list, or off-list and back — has the result withheld; late "
+        "content on the checked page and child-frame navigation pass; an action whose page "
+        "leaves fails and is cleared; every page method is classified (round-2 R2-F3)",
+        [
+            f"{EN}::test_a_read_whose_page_leaves_for_an_off_list_host_mid_read_is_withheld",
+            f"{EN}::test_a_read_through_an_off_list_page_and_back_is_withheld",
+            f"{EN}::test_the_reviewers_probe_a_url_change_with_no_event_is_withheld",
+            f"{EN}::test_a_read_that_waits_on_a_page_that_stays_put_is_returned",
+            f"{EN}::test_without_a_policy_a_read_is_not_fenced",
+            f"{EN}::test_an_action_whose_page_leaves_mid_action_fails_and_clears",
+            f"{EN}::test_every_page_method_is_a_fenced_read_or_a_landing_checked_action",
         ],
         None,
     ),
@@ -269,13 +296,16 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
         "E5",
         "Against real Chromium: off-list clicks and navigations send nothing; the redirect "
         "residual is MEASURED; fetch_url never follows a redirect off-list; the backslash "
-        "smuggle is refused",
+        "smuggle is refused; a read waiting while the page redirects itself off-list is "
+        "withheld, beside a late element on a page that stays put (R2-F3)",
         [
             f"{LIVE}::test_a_click_off_list_is_stopped_before_the_request_is_sent",
             f"{LIVE}::test_navigate_off_list_sends_nothing",
             f"{LIVE}::test_a_redirect_hop_is_the_residual_and_its_content_never_reaches_the_agent",
             f"{LIVE}::test_fetch_url_never_follows_a_redirect_off_list",
             f"{LIVE}::test_a_backslash_cannot_smuggle_a_disallowed_host_past_fetch_url",
+            f"{LIVE}::test_a_read_waiting_while_the_page_leaves_for_an_off_list_host_is_withheld",
+            f"{LIVE}::test_a_read_waiting_on_a_page_that_stays_put_returns_its_content",
         ],
         "BROWSER_LIVE",
     ),

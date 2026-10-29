@@ -11,6 +11,7 @@ test pre-stages whatever return values it needs.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -26,12 +27,14 @@ class FakeLocator:
 
     async def inner_text(self) -> str:
         self._page.calls.append(("locator.inner_text", {"selector": self._selector}))
+        self._page.run_during("inner_text")
         if self._selector in self._page.raise_on_text:
             raise self._page.raise_on_text[self._selector]
         return self._page.text_at.get(self._selector, "")
 
     async def inner_html(self) -> str:
         self._page.calls.append(("locator.inner_html", {"selector": self._selector}))
+        self._page.run_during("inner_html")
         if self._selector in self._page.raise_on_html:
             raise self._page.raise_on_html[self._selector]
         return self._page.html_at.get(self._selector, "")
@@ -40,6 +43,7 @@ class FakeLocator:
         self._page.calls.append(
             ("locator.wait_for", {"selector": self._selector, "state": state, "timeout": timeout})
         )
+        self._page.run_during("wait_for")
         if self._selector in self._page.raise_on_wait:
             raise self._page.raise_on_wait[self._selector]
 
@@ -55,10 +59,11 @@ class FakeLocator:
         if self._selector in self._page.raise_on_click:
             raise self._page.raise_on_click[self._selector]
         if self._selector in self._page.click_navigates:
-            self._page._url = self._page.click_navigates[self._selector]
+            self._page.commit(self._page.click_navigates[self._selector])
 
     async def fill(self, value: str) -> None:
         self._page.calls.append(("locator.fill", {"selector": self._selector, "value": value}))
+        self._page.run_during("fill")
         if self._selector in self._page.raise_on_fill:
             raise self._page.raise_on_fill[self._selector]
 
@@ -67,10 +72,11 @@ class FakeLocator:
             ("locator.press_sequentially", {"selector": self._selector, "value": value})
         )
 
-    async def set_input_files(self, files: str) -> None:
+    async def set_input_files(self, files: Any) -> None:
         self._page.calls.append(
             ("locator.set_input_files", {"selector": self._selector, "files": files})
         )
+        self._page.run_during("set_input_files")
         if self._selector in self._page.raise_on_set_files:
             raise self._page.raise_on_set_files[self._selector]
 
@@ -81,6 +87,7 @@ class FakeLocator:
         self._page.calls.append(
             ("locator.evaluate", {"selector": self._selector, "script": script})
         )
+        self._page.run_during("evaluate")
         if self._selector in self._page.raise_on_evaluate:
             raise self._page.raise_on_evaluate[self._selector]
         return None
@@ -186,6 +193,13 @@ class FakeBrowserContext:
         self.request = FakeRequest()
 
 
+class FakeFrame:
+    """Stand-in for `Frame`; the connector asks only whether it is the main one."""
+
+    def __init__(self, parent_frame: FakeFrame | None = None) -> None:
+        self.parent_frame = parent_frame
+
+
 class FakePlaywrightPage:
     """Stand-in for `playwright.async_api.Page` with the surface we use.
 
@@ -219,17 +233,40 @@ class FakePlaywrightPage:
         # Browser context for fetch_url. Exposes a FakeRequest at
         # `.context.request` matching Playwright's API surface.
         self.context = FakeBrowserContext()
+        self.main_frame = FakeFrame()
+        self._handlers: dict[str, list[Any]] = {}
+        #: method name -> what happens to the page WHILE that call waits, e.g.
+        #: a navigation committing between the connector's check and the reply.
+        self.during: dict[str, Callable[[], None]] = {}
 
     @property
     def url(self) -> str:
         return self._url
 
+    def run_during(self, method: str) -> None:
+        if method in self.during:
+            self.during.pop(method)()
+
+    def on(self, event: str, handler: Any) -> None:
+        self._handlers.setdefault(event, []).append(handler)
+
+    def commit(self, url: str, *, frame: FakeFrame | None = None) -> None:
+        """A navigation commits: the URL changes and `framenavigated` fires
+        synchronously, the way Playwright dispatches it. A child `frame`
+        leaves the page's URL alone."""
+        target = frame or self.main_frame
+        if target is self.main_frame:
+            self._url = url
+        for handler in self._handlers.get("framenavigated", []):
+            handler(target)
+
     async def goto(self, url: str, *, wait_until: str = "load") -> None:
         self.calls.append(("goto", {"url": url, "wait_until": wait_until}))
-        self._url = self.redirect_to.get(url, url)
+        self.commit(self.redirect_to.get(url, url))
 
     async def screenshot(self, *, path: str, full_page: bool = False) -> bytes:
         self.calls.append(("screenshot", {"path": path, "full_page": full_page}))
+        self.run_during("screenshot")
         # Write a tiny PNG-shaped file so the connector's stat() succeeds.
         # (Not a valid PNG, but enough to be a non-empty file on disk.)
         Path(path).write_bytes(b"\x89PNG\r\n\x1a\n" + b"fake-screenshot")

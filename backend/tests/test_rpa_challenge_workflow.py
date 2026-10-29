@@ -31,7 +31,7 @@ from typing import Any
 
 from tests._bedrock_fakes import FakeBedrock, text_response, tool_use_response
 from tests.test_engine_browser_integration import _RecordingBrowserConnector
-from workflow_platform.connectors.browser import BrowserDownload, BrowserScreenshot
+from workflow_platform.connectors.browser import BrowserDownload, BrowserScreenshot, BrowserUpload
 from workflow_platform.engine import ToolCatalog, WorkflowEngine
 from workflow_platform.engine.functions import default_function_registry
 from workflow_platform.persistence import WorkflowInstanceState, in_memory_repositories
@@ -68,7 +68,7 @@ class _RpaFakeBrowser(_RecordingBrowserConnector):
         self.table_rows: list[dict[str, str]] = []
         self.download_dir: Path = Path("/tmp/rpa-fake-downloads")
         self.screenshot_path: str = "/tmp/rpa-result.png"
-        self.uploaded_files: list[tuple[str, str]] = []
+        self.uploaded_files: list[tuple[str, str, bytes]] = []
         self._download_queue: list[tuple[str, bytes]] = []
 
     async def read_table(self, selector: str) -> list[dict[str, str]]:
@@ -108,8 +108,8 @@ class _RpaFakeBrowser(_RecordingBrowserConnector):
             bytes=len(content),
         )
 
-    async def upload_file(self, selector: str, file_path: str) -> None:
-        self.uploaded_files.append((selector, file_path))
+    async def upload_file(self, selector: str, upload: BrowserUpload) -> None:
+        self.uploaded_files.append((selector, upload.name, upload.content))
 
     async def submit_form(self, selector: str) -> None:
         self.submitted_forms: list[str] = getattr(self, "submitted_forms", [])
@@ -335,7 +335,10 @@ async def test_rpa_challenge_workflow_runs_end_to_end(tmp_path: Path) -> None:
 
     # The browser connector saw the right tool calls
     assert browser.navigate_calls == ["https://rpachallengeocr.azurewebsites.net/"]
-    assert browser.uploaded_files == [("#csv", "/tmp/rpa-challenge-output.csv")]
+    # What reached the page is the CSV build_csv wrote — its bytes, not a path.
+    assert browser.uploaded_files == [
+        ("#csv", "rpa-challenge-output.csv", Path("/tmp/rpa-challenge-output.csv").read_bytes())
+    ]
 
     # Lifecycle: connector entered once and exited once
     assert browser.entered == 1

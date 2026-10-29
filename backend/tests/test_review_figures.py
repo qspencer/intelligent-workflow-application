@@ -42,7 +42,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 REPO = BACKEND.parent
 DOCS = REPO / "docs"
 #: The live guide, or None between packages.
-GUIDE: Path | None = DOCS / "G30_CAPABILITY_REVIEW_GUIDE_R2.md"
+GUIDE: Path | None = None  # round 2 answered; the round-3 guide re-arms it
 pytestmark = pytest.mark.skipif(GUIDE is None, reason="no live review package")
 GATES = DOCS / "archives" / "GATE_OUTPUT_G30_R2.txt"
 LIVE = DOCS / "archives" / "LIVE_EVIDENCE_G30_R2.txt"

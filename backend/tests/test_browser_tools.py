@@ -426,6 +426,7 @@ async def test_upload_file_tool_happy_path(tmp_path: Path) -> None:
     fake = FakePlaywrightPage()
     ctx, conn = await _ctx_with_browser(tmp_path, fake)
     target_csv = str(tmp_path / "upload.csv")
+    Path(target_csv).write_text("a,b\n1,2\n")
     try:
         result = await BrowserUploadFileTool().execute(
             {"selector": "input[type='file']", "file_path": target_csv}, context=ctx
@@ -435,7 +436,11 @@ async def test_upload_file_tool_happy_path(tmp_path: Path) -> None:
     assert result.ok
     assert result.content == {"selector": "input[type='file']", "file_path": target_csv}
     upload_call = next(kw for (m, kw) in fake.calls if m == "locator.set_input_files")
-    assert upload_call["files"] == target_csv
+    assert upload_call["files"] == {
+        "name": "upload.csv",
+        "mimeType": "text/csv",
+        "buffer": b"a,b\n1,2\n",
+    }
 
 
 async def test_upload_file_tool_requires_file_path(tmp_path: Path) -> None:
@@ -674,7 +679,7 @@ async def test_upload_inside_file_read_reaches_the_page(tmp_path: Path) -> None:
     allowed.write_text("a,b\n")
     result, uploads = await _upload(tmp_path, str(allowed), file_read=[f"{allowed.parent}/*"])
     assert result.ok, result.error
-    assert [u["files"] for u in uploads] == [str(allowed)]
+    assert [u["files"]["buffer"] for u in uploads] == [b"a,b\n"]
 
 
 async def test_upload_refuses_a_directory_even_when_its_path_is_allowed(tmp_path: Path) -> None:
@@ -683,3 +688,109 @@ async def test_upload_refuses_a_directory_even_when_its_path_is_allowed(tmp_path
     result, uploads = await _upload(tmp_path, str(folder), file_read=[f"{folder.parent}/*"])
     assert not result.ok and "directory" in (result.error or "")
     assert uploads == []
+
+
+async def test_a_queued_upload_cannot_become_a_directory_upload(tmp_path: Path) -> None:
+    """Round-2 review, R2-F2, their sequence: an upload of a path that does not
+    exist yet queues behind a browser call in progress; while it waits, the
+    stock `write_csv` creates that path as a DIRECTORY (its parent) under a
+    policy allowing the write. Before the fix the type was checked before the
+    wait, the path was handed over afterwards, and Playwright uploaded the
+    directory — the child the upload step may not read included. No symlink,
+    rename or replacement is involved."""
+    import asyncio
+
+    from workflow_platform.engine.context import WorkflowContext
+    from workflow_platform.engine.functions import write_csv
+    from workflow_platform.security.capabilities import CapabilityPolicy, resolve_capabilities
+    from workflow_platform.world import real_world
+
+    fake = FakePlaywrightPage(url="https://allowed.example/")
+    ctx, conn = await _ctx_with_browser(tmp_path, fake)
+    target = tmp_path / "upload-target"
+    ctx.capabilities = resolve_capabilities(
+        CapabilityPolicy(file_read=[str(target)], allowed_hosts=["allowed.example"])
+    )
+    held, release = asyncio.Event(), asyncio.Event()
+
+    async def call_in_progress() -> None:
+        async with conn.operation(None):
+            held.set()
+            await release.wait()
+
+    blocker = asyncio.create_task(call_in_progress())
+    await held.wait()
+    queued = asyncio.create_task(
+        BrowserUploadFileTool().execute({"selector": "#f", "file_path": str(target)}, ctx)
+    )
+    await asyncio.sleep(0)  # the upload reaches the lock and waits there
+    assert not queued.done() and not target.exists()
+
+    child = target / "fixture.csv"
+    writer = WorkflowContext(
+        instance_id="writer",
+        workflow_id="writer",
+        capabilities=resolve_capabilities(CapabilityPolicy(file_write=[str(child)])),
+    )
+    await write_csv(
+        {"path": str(child), "columns": ["v"], "rows_from": [{"v": "X"}]}, writer, real_world()
+    )
+    assert target.is_dir() and not ctx.capabilities.can_read(str(child))
+
+    release.set()
+    await blocker
+    result = await asyncio.wait_for(queued, 1)
+    await conn.__aexit__(None, None, None)
+    assert not result.ok and "is a directory" in (result.error or "")
+    assert [c for c in fake.calls if c[0] == "locator.set_input_files"] == []
+
+
+@pytest.mark.parametrize("kind", ["missing", "fifo"])
+async def test_upload_refuses_anything_but_one_regular_file(tmp_path: Path, kind: str) -> None:
+    import os
+
+    source = tmp_path / "out" / "source"
+    source.parent.mkdir()
+    if kind == "fifo":
+        os.mkfifo(source)
+    result, uploads = await _upload(tmp_path, str(source), file_read=[f"{source.parent}/*"])
+    assert not result.ok
+    assert ("does not exist" if kind == "missing" else "not a regular file") in (result.error or "")
+    assert uploads == []
+
+
+async def test_a_queued_upload_reads_its_source_when_its_turn_comes(tmp_path: Path) -> None:
+    """The allowed twin of the directory case, and what pins WHEN the source
+    is examined: missing when the upload queues, a regular file by the time
+    the call owns the browser — so it is sent, with those bytes. Examined
+    before the wait, it would have been refused as missing."""
+    import asyncio
+
+    from workflow_platform.security.capabilities import CapabilityPolicy, resolve_capabilities
+
+    fake = FakePlaywrightPage(url="https://allowed.example/")
+    ctx, conn = await _ctx_with_browser(tmp_path, fake)
+    target = tmp_path / "report.csv"
+    ctx.capabilities = resolve_capabilities(CapabilityPolicy(file_read=[str(target)]))
+    held, release = asyncio.Event(), asyncio.Event()
+
+    async def call_in_progress() -> None:
+        async with conn.operation(None):
+            held.set()
+            await release.wait()
+
+    blocker = asyncio.create_task(call_in_progress())
+    await held.wait()
+    queued = asyncio.create_task(
+        BrowserUploadFileTool().execute({"selector": "#f", "file_path": str(target)}, ctx)
+    )
+    await asyncio.sleep(0.05)  # long enough for an early examination to have happened
+    assert not queued.done()
+    target.write_bytes(b"written while queued\n")
+    release.set()
+    await blocker
+    result = await asyncio.wait_for(queued, 1)
+    await conn.__aexit__(None, None, None)
+    assert result.ok, result.error
+    (upload,) = [c[1]["files"] for c in fake.calls if c[0] == "locator.set_input_files"]
+    assert upload["buffer"] == b"written while queued\n"

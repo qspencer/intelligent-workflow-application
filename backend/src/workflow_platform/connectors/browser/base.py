@@ -32,6 +32,7 @@ from workflow_platform.connectors.base import Connector
 from workflow_platform.connectors.browser.models import (
     BrowserDownload,
     BrowserScreenshot,
+    BrowserUpload,
     SelectorType,
     WaitState,
 )
@@ -85,9 +86,25 @@ class BrowserConnector(Connector):
     1. requests the AGENT initiates — blocked before dispatch: `navigate`, the
        first hop of a navigation a click or form submit sets off, and every
        hop of `fetch_url`;
-    2. the TOP-LEVEL PAGE — the agent reads or acts only while the page's own
-       URL is on an allowed host (`_enforce_landing` clears it otherwise), and
-       `fetch_url` / `download_via_click` save nothing from a disallowed host.
+    2. the TOP-LEVEL PAGE, which is checked before every read and action and
+       cleared if it is on a disallowed host (`_enforce_landing`):
+       - a READ (`read_text`, `read_table`, `wait_for`, `screenshot`) returns
+         only what the CHECKED document gave it. The URL and a count of
+         main-frame navigations are taken with the check; if either differs
+         when the read ends, the result is withheld and the page re-checked.
+         A URL check alone would miss a read taken from an off-list page the
+         browser then left (round-2 review, R2-F3). This relies on Playwright
+         delivering a navigation's event before the reply to anything run in
+         the new document — its protocol messages arrive in order and the
+         handler runs as each is dispatched — and a real-Chromium test pins it;
+       - an ACTION (`click`, `fill`, `upload_file`, `submit_form`) starts only
+         on an allowed page and the page is checked again when it ends. If the
+         page navigates while Playwright waits for the element — to a
+         disallowed host, through a redirect hop — the action can land there,
+         and its effect cannot be undone; the call fails and the page is
+         cleared. That stays inside the bound below: an allowed page's own
+         scripts can already send what is typed into it anywhere;
+       - `fetch_url` / `download_via_click` save nothing from a disallowed host.
 
     It is NOT a content-origin guarantee. A page on an allowed host can load a
     disallowed host's images, scripts or frames, and what they render or write
@@ -188,10 +205,12 @@ class BrowserConnector(Connector):
         """
 
     @abstractmethod
-    async def upload_file(self, selector: str, file_path: str) -> None:
+    async def upload_file(self, selector: str, upload: BrowserUpload) -> None:
         """Set the value of an `<input type="file">` matching `selector`
-        to the local `file_path`. Does not click submit — that's a
-        separate `click` call so the workflow controls the ordering."""
+        to `upload` — the bytes of a file the caller already read and
+        checked, never a path the browser library would resolve again. Does
+        not click submit — that's a separate `click` call so the workflow
+        controls the ordering."""
 
     @abstractmethod
     async def download_via_click(

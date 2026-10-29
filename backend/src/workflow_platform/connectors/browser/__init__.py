@@ -16,6 +16,7 @@ from workflow_platform.connectors.browser.models import (
     BrowserDownload,
     BrowserScreenshot,
     BrowserSelector,
+    BrowserUpload,
     SelectorType,
     WaitState,
 )
@@ -29,6 +30,7 @@ __all__ = [
     "BrowserHostDenied",
     "BrowserScreenshot",
     "BrowserSelector",
+    "BrowserUpload",
     "PlaywrightConnector",
     "SelectorType",
     "WaitState",

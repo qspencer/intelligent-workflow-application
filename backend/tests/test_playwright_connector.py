@@ -17,6 +17,7 @@ from tests._browser_fakes import FakeDownload, FakePlaywrightPage
 from workflow_platform.connectors.browser import (
     BrowserDownload,
     BrowserScreenshot,
+    BrowserUpload,
     PlaywrightConnector,
 )
 
@@ -349,14 +350,19 @@ async def test_fill_propagates_errors(tmp_path: Path) -> None:
 # --- upload_file ---
 
 
-async def test_upload_file_forwards_path_to_set_input_files(tmp_path: Path) -> None:
+_CSV = BrowserUpload(name="some-upload.csv", mime_type="text/csv", content=b"a,b\n")
+
+
+async def test_upload_file_hands_the_page_bytes_never_a_path(tmp_path: Path) -> None:
     fake = FakePlaywrightPage()
     conn = _make_connector(tmp_path, page=fake)
-    target_path = "/tmp/some-upload.csv"
     async with conn:
-        await conn.upload_file("input[type='file']", target_path)
+        await conn.upload_file("input[type='file']", _CSV)
     upload_call = next(kw for (m, kw) in fake.calls if m == "locator.set_input_files")
-    assert upload_call == {"selector": "input[type='file']", "files": target_path}
+    assert upload_call == {
+        "selector": "input[type='file']",
+        "files": {"name": "some-upload.csv", "mimeType": "text/csv", "buffer": b"a,b\n"},
+    }
 
 
 async def test_upload_file_propagates_errors(tmp_path: Path) -> None:
@@ -365,7 +371,7 @@ async def test_upload_file_propagates_errors(tmp_path: Path) -> None:
     conn = _make_connector(tmp_path, page=fake)
     async with conn:
         with pytest.raises(FileNotFoundError):
-            await conn.upload_file("#file", "/missing")
+            await conn.upload_file("#file", _CSV)
 
 
 # --- download_via_click ---
