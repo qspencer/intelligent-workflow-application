@@ -217,12 +217,31 @@ class RawTraceApprovalMode(StrEnum):
 class RawTraceReasonCode(StrEnum):
     """CLOSED reason enum — NOT free-form prose (TRACE_GOVERNANCE_PLAN §2/F2:
     a bounded note would still hold a pasted email body). Governance detail
-    that carries customer content lives in a separately-governed record."""
+    that carries customer content lives in a separately-governed record.
+
+    Adding a code widens what a grant may be justified BY, so each one names a
+    purpose that recurs and that none of the others describes honestly. The
+    honesty is the point: a reason code is written into the governance log
+    permanently, and a log whose codes are approximations is worth less than one
+    whose codes are true.
+
+    `QUALITY_EVALUATION` was added 2026-10-29 for exactly that reason. Measuring
+    whether a classifier agrees with itself or with human labels needs the
+    verdicts, which sit below the grant line; none of the four original codes fit
+    — there is no incident, no customer, no audit obligation, and nothing is
+    broken. `DEBUGGING` was the nearest and would have been a misdescription
+    recorded forever. It is NOT a licence for routine browsing: it justifies
+    reading verdicts for a measurement whose question was written down first
+    (`docs/EMAIL_RECALL_VALIDATION_PLAN.md` is the worked example), and it stops
+    being the right code the moment the fields a measurement needs are released
+    below grant — see NEXT_STEPS G29, which is the standing plan to make most of
+    these grants unnecessary."""
 
     INCIDENT_INVESTIGATION = "incident_investigation"
     CUSTOMER_SUPPORT = "customer_support"
     COMPLIANCE_AUDIT = "compliance_audit"
     DEBUGGING = "debugging"
+    QUALITY_EVALUATION = "quality_evaluation"
 
 
 class RawTraceGrant(BaseModel):

@@ -5,11 +5,15 @@ import { fmtShort } from '../lib/format';
 import { Skeleton } from './Skeleton';
 import type { AuditEntry, Organization, PlatformUser, RawTraceGrant } from '../types';
 
+// Mirrors `RawTraceReasonCode` in the backend. Pinned by
+// `test_reason_codes_match_the_frontend_picker` — a code added on one side only
+// is either an option the operator cannot pick or a pick the API rejects.
 const REASON_CODES = [
   'incident_investigation',
   'customer_support',
   'compliance_audit',
   'debugging',
+  'quality_evaluation',
 ] as const;
 
 // The governance trail this page surfaces — grant lifecycle + raw-access.

@@ -170,3 +170,33 @@ def test_org_transfer_revokes_grants(monkeypatch: pytest.MonkeyPatch) -> None:
         if g["principal_id"] == bob_id
     ]
     assert bob_grants and all(g["state"] == "revoked" for g in bob_grants)
+
+
+# ---------- the reason-code vocabulary (added 2026-10-29) ----------
+
+
+def test_reason_codes_match_the_frontend_picker() -> None:
+    """The closed reason enum is mirrored in `GrantsAdmin.tsx`, and a drift is
+    silent in both directions: a backend-only code is an option the operator
+    cannot pick, a frontend-only code is a pick the API rejects at submit. Pin
+    the duplication rather than trust it — the alternative is importing TS into
+    Python or shipping generated types, neither of which this repo does yet."""
+    import re
+    from pathlib import Path
+
+    from workflow_platform.persistence.models import RawTraceReasonCode
+
+    tsx = Path(__file__).resolve().parents[2] / "frontend/src/components/GrantsAdmin.tsx"
+    block = re.search(r"const REASON_CODES = \[(.*?)\] as const;", tsx.read_text(), re.S)
+    assert block is not None, "REASON_CODES literal not found — did the picker move?"
+    picker = set(re.findall(r"'([a-z_]+)'", block.group(1)))
+
+    assert picker == {c.value for c in RawTraceReasonCode}
+
+
+def test_quality_evaluation_is_accepted_end_to_end() -> None:
+    """The code exists because none of the original four described measuring a
+    classifier honestly; it is worth nothing if the API refuses it."""
+    from workflow_platform.persistence.models import RawTraceReasonCode
+
+    assert RawTraceReasonCode("quality_evaluation") is RawTraceReasonCode.QUALITY_EVALUATION
