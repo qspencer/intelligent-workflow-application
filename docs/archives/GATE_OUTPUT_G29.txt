@@ -1,10 +1,10 @@
 Captured standalone gate results — G29 review package (projector v23)
 
-Gates ran at tree: 5a48a0bc65fbf1980f51d214cb335c4a8b2b81d2   (manifest aggregate: f89822849518a68edaa0e96212f4e928cee95d0fb22eb9e79772b4a1ee68ca33)
+Gates ran at tree: ccb067b8865fb4396b157599d9d8b044f12c1787   (manifest aggregate: 3d4e9d5fa544ab52a5d11fc64d0967f581ad89d245230991c3a296f099d5daaf)
 Exit codes captured before any pipe; all five also run under
 scripts/gate.sh as ONE exit code, chained to the commit with &&.
 
-Host: Linux 7.0.0-1014-aws GNU/Linux · Python Python 3.14.7 · 2026-10-29T10:33:51Z
+Host: Linux 7.0.0-1014-aws GNU/Linux · Python Python 3.14.7 · 2026-10-29T10:51:34Z
 
 === uv run ruff check . ===
 All checks passed!
@@ -30,30 +30,34 @@ SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bed
 SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
 SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
 SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
-1428 passed, 23 skipped, 15 warnings in 55.32s
+1428 passed, 23 skipped, 15 warnings in 138.54s (0:02:18)
 exit: 0
 
 === uv run pip-audit ===
-pillow       12.3.0    CVE-2026-112406     13.0.0
-pillow       12.3.0    CVE-2026-112399     13.0.0
-pillow       12.3.0    CVE-2026-112892     13.0.0
-pillow       12.3.0    CVE-2026-112393     13.0.0
-pillow       12.3.0    CVE-2026-96638      13.0.0
-pillow       12.3.0    CVE-2026-96640      13.0.0
-pillow       12.3.0    CVE-2026-96778      13.0.0
-pillow       12.3.0    GHSA-78g4-xqwv-q3g8 13.0.0
-
+No known vulnerabilities found
 Name              Skip Reason
 ----------------- --------------------------------------------------------------------------------
 workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
-exit: 1
+exit: 0
 
-NOTE on the pip-audit gate — RED, and not from this change.
-`pillow` 12.3.0 carries 8 advisories fixed in 13.0.0. It is a TRANSITIVE
-dependency (pdf2image, pytesseract — the PDF/OCR path), not a direct pin,
-and it was clean at round 18; the advisories are new. Reported rather than
-bundled into a trace change: four gates green, this one red, stated so the
-count is honest. Tracked separately for the operator.
+=== APPENDIX A: the audit gate was RED when this package was first captured ===
+
+Recorded because it is evidence, not noise. The first capture of this
+package (tree 5a48a0bc, aggregate f8982284) had pip-audit exit 1:
+
+    pillow 12.3.0  CVE-2026-112406 / 112399 / 112892 / 112393 /
+                   96638 / 96640 / 96778 / GHSA-78g4-xqwv-q3g8   -> 13.0.0
+
+pillow is transitive (pdf2image, pytesseract — the PDF/OCR path) and was
+clean at round 18, so these were new advisories rather than drift. Fixing
+it exposed two more that had been masked, because the first reading took
+pip-audit's exit code THROUGH `tail`, which reports tail's status:
+
+    graphql-core 3.2.11  CVE-2026-75507, CVE-2026-75508  -> 3.2.13
+    certifi 2026.4.22    PYSEC-2026-4320                 -> 2026.10.23
+
+All three upgraded in the lockfile (805fc88); the capture above is the
+state of the shipped tree. 11 advisories cleared, none of them ours.
 
 === reproductions: docs/review-artifacts/g29_reproductions.py ===
 (run from backend/: uv run python ../docs/review-artifacts/g29_reproductions.py)
@@ -109,12 +113,14 @@ D. the authoring-time / projection-time disagreement (minor, fails closed)
 all checks reproduced as the review guide states them.
 repro exit: 0
 
-=== live blast radius (production Postgres, counts and enum values only) ===
-Queried 2026-10-29. No message content was read; only key sets and the
-released enum values, which are the five operator-authored strings.
-step rows stamped projector_version=23: 68
-of those, rows carrying a released key: 18
-window: 2026-10-29 03:19:40.991011+00 -> 2026-10-29 10:31:04.049287+00
-their output key set: _withheld_keys,attention,category,parse_ok
-distinct released category values: newsletter, notification, promotion
+=== the live rows G29 wrote, and their repair ===
+Counts and enum values only; no message content was read. The released
+values are three of the five operator-authored strings.
+
+step rows stamped v23 still carrying a released key: 0   (was 19)
+instance contexts still carrying one: 0   (was 19)
+PRE-FLIP backlog, a separate known item: 1997 instances before 2026-10-29
+rows still carrying a released key: steps=0 instances=0  (want 0 / 0)
+v23 rows today: 78; NOT a fixed point: 0  (want 0)
+flagged by the zero-raw B1 verifier: 0  (want 0)
 DONE

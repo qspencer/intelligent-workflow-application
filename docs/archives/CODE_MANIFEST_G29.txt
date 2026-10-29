@@ -3,8 +3,8 @@ Test-time code manifest — G29 review package (projector v23)
 Recompute from the extracted package, no git needed:
     cd backend && find src tests -name '*.py' -type f | sort | xargs sha256sum | sha256sum
 
-Gates ran at tree: 5a48a0bc65fbf1980f51d214cb335c4a8b2b81d2
-AGGREGATE SOURCE HASH: f89822849518a68edaa0e96212f4e928cee95d0fb22eb9e79772b4a1ee68ca33
+Gates ran at tree: ccb067b8865fb4396b157599d9d8b044f12c1787
+AGGREGATE SOURCE HASH: 3d4e9d5fa544ab52a5d11fc64d0967f581ad89d245230991c3a296f099d5daaf
 Files: 251
 
 b172e1ee0dca0b84021717191814e91b6b1c47b866981b0c8eae8ba91a6d9118  src/workflow_platform/__init__.py
@@ -172,7 +172,7 @@ e16288ba44c480400635e25b3884d033ffa25b5bdc4540ad34bad96251bd41b7  tests/test_dry
 97308acf312e70a9658a7cad6349509334b7f068da43d9cc8d1c53b8d20e09de  tests/test_email_bootstrap.py
 7e24c8d251d1967ea2d2bd3dd21f711b684beae5fd75667dc2ec3491838f47cd  tests/test_email_models.py
 a5b487676e41b2754537f3d36a924b5fee2e625fb02c4809083b521115376586  tests/test_email_tools.py
-1ed4b9ec7e53611eaf7c6bdf04e8d39853c0517e2b53819c776811736de267ca  tests/test_email_triage_apply.py
+04002974ed577b3036ba7e3f1ff44570fee8db463f5875cb1b505fd0d75bfb2f  tests/test_email_triage_apply.py
 06b2c0771ba24ef125d002fd09c023c085c8b60aee989094992fb1ec13bec76d  tests/test_email_triage_workflow.py
 2fa0d6e84f1c901091d1fb359d9b4d8c3e82bfe0ddc1a5ad45f3e866dfa322eb  tests/test_engine.py
 bb506361b2d2c22ee6df022ab59b0583fa238640bc542ba847096f5fed233d10  tests/test_engine_browser_integration.py

@@ -2673,7 +2673,7 @@ not a definition, and all four are wrong as a result:
 - the **zero-raw B1 verifier** flags correctly-projected rows as raw;
 - the **backfill** would silently strip released fields on any future sweep.
 
-Proven, not reasoned: `docs/review-artifacts/g29_reproductions.py` (28 checks).
+Proven, not reasoned: `docs/review-artifacts/g29_reproductions.py` (29 checks).
 Blast radius was **19 step rows + 19 instance contexts** in one window,
 2026-10-29 03:19–10:47 UTC. No data at risk — raw is vaulted and AEAD-sealed and
 a grant recovers every verdict; the harm was to two controls. **Withdrawn,

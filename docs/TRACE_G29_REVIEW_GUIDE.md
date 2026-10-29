@@ -1,13 +1,13 @@
 # Reviewer's guide — per-workflow released vocabularies (G29, projector v23)
 
 **Branch:** `main` · **Commits:** `3f1c77e` (the change) + `081cfb3` (golden
-provenance + guard compatibility) · **Nineteenth package on this subsystem by
+provenance + guard compatibility) + `286fda7` (the withdrawal) · **Nineteenth package on this subsystem by
 count, but not a remediation round:** nothing here answers a finding you
 returned. It asks about one new widening of the below-grant disclosure surface.
 
 > **Read §3 before §2.** We packaged this intending to ask whether the argument
 > in §2 holds. While assembling the package we found that the implementation
-> **breaks the projector's fixed-point property**, and that three consumers
+> **breaks the projector's fixed-point property**, and that four consumers
 > which re-project a stored row are wrong as a result — including the frozen
 > §4.3 agreement predicate and the zero-raw B1 verifier. The change is
 > therefore presented as **withdrawn pending your ruling**, not as a candidate
@@ -17,8 +17,8 @@ returned. It asks about one new widening of the below-grant disclosure surface.
 | | |
 |---|---|
 | Change | `docs/NEXT_STEPS.md` G29 · projector v22 → v23 |
-| Reproductions | `docs/review-artifacts/g29_reproductions.py` — 28 checks, all executed |
-| Gates / manifest | `docs/archives/GATE_OUTPUT_G29.txt` · `CODE_MANIFEST_G29.txt` |
+| Reproductions | `docs/review-artifacts/g29_reproductions.py` — 29 checks, all executed |
+| Gates / manifest | `docs/archives/GATE_OUTPUT_G29.txt` (five gates, reproductions, repair evidence) · `CODE_MANIFEST_G29.txt` |
 | Prior ruling this answers | `test_rr_p1_registered_key_with_unvalidated_value_is_redacted` (GR4-R4) |
 | Live state | **withdrawn, deployed and swept** before this package left — §6 |
 
@@ -252,12 +252,12 @@ deterministic step's output — is also still unanswered and unrelated.
 - **pip-audit went RED while this package was being captured**, and not from
   this change: 11 advisories across three transitive pins (`pillow` 12.3.0 → 8
   of them, plus `graphql-core` and `certifi`), all clean at round 18. Fixed by
-  lockfile upgrade in `805fc88`; all five gates are green at the packaged
-  commit. `GATE_OUTPUT_G29.txt` is the capture from *before* that fix and still
-  shows the red exit — it is the evidence of the state the gates were run in,
-  not a claim about now. Two of the three only surfaced after the first was
-  fixed, because the first reading took pip-audit's exit code through `tail`,
-  which reports tail's status.
+  lockfile upgrade in `805fc88`, and `GATE_OUTPUT_G29.txt` is the re-capture at
+  the shipped tree: **all five green**, with the red exit and its eight pillow
+  advisories preserved verbatim in its Appendix A. Two of the three pins only
+  surfaced after the first was fixed, because the first reading took
+  pip-audit's exit code through `tail`, which reports tail's status — the
+  masking this project has been bitten by before.
 - The golden corpus has **7 new cases** freezing every branch of the new code
   (released scalar, released list, out-of-set value, partially-valid list,
   undeclared field, an attempt to release `_withheld_keys`, and
