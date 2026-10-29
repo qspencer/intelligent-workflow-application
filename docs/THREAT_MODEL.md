@@ -255,7 +255,10 @@ IdP is sole authority — D4). Fifteen pinned security tests in
     be withheld — if its page navigates mid-action, the effect may land on
     the new page and use that page's session. It is judged by where the
     page ends (off-list: the call fails and the page is cleared); leaving
-    and returning to an allowed URL is not detected (R3-F2).
+    and returning to an allowed URL is not detected (R3-F2). All of this
+    holds when clearing the page itself fails: the call is withheld, the
+    failure is reported without Playwright's text, and a rejected screenshot
+    never reaches its path (R4-F1).
     Redirect hops, subresources, preconnect and WebSockets can still reach
     a disallowed host. Nor is it a content-origin guarantee: an allowed
     page can render a disallowed host's images, scripts or frames, and the

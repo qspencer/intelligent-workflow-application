@@ -3029,7 +3029,18 @@ removed and each with a control:
 **Round 4 package built 2026-10-29** — `g30-capability-review-r4-8be82be`
 (guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R4.md`; hashes in
 `docs/archives/README.md`). Dispatched to the reviewer 2026-10-29 by the
-operator; awaiting results.
+operator.
+
+**Round 4 (2026-10-29): request changes** — results in
+`docs/TRACE_G30_R4_REVIEW_RESULTS.md` (archive
+`trace-g30-r4-review-results-2026-10-29.tar.gz`, sha256 `f2ec77b0…99382`).
+R3-F2 closed; the error rule accepted.
+
+- **R4-F1 (P2), done** (`75052a1`, deployed) — a failed CLEARING navigation's
+  error (which can name the interrupting URL) replaced the withheld error and
+  reached the model; a rejected screenshot stayed on disk. Clearing failures
+  are now reported as a fixed status, never as their error, at every caller;
+  screenshots go to a pending name and move into place only after the check.
 
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's

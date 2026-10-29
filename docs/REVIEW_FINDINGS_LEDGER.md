@@ -286,6 +286,19 @@ R2-F1 and R2-F2 closed; R2-F3 closed for successful replies only.
 EVERY way out — return, raise, and what the raise carries — and test each.
 A structural test can pin routing; only behaviour pins exits.
 
+### G30 external review, round 4 — request changes (2026-10-29)
+
+R3-F2 closed; R3-F1 closed whenever clearing succeeds.
+
+| Finding | Class | Why we missed it |
+|---|---|---|
+| **R4-F1 (P2)** Withholding relied on the clearing navigation succeeding; a failed clear's error (which can name the interrupting URL) replaced the withheld one and reached the model, and a rejected screenshot stayed on disk | M6 | We applied round 3's lesson — every exit of the guarded call — but not to the HELPER the guard calls on its way out. Every fixture made clearing succeed. A recovery path is itself a function with exits. |
+
+**The lesson to keep:** the exits to enumerate include those of every helper
+called on the way out — cleanup, rollback, clearing. Make the safe outcome
+not depend on the cleanup succeeding, and report the cleanup's result as
+data, never as its error.
+
 ### Self-inflicted, found by us mid-remediation (worth counting)
 
 Authorized-producer list written from memory (`record_invoice` for
