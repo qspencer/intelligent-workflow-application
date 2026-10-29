@@ -23,6 +23,9 @@ aggregate=$(find src tests -name '*.py' -type f | sort | xargs sha256sum | sha25
   echo "Gates ran at tree: $tree   (manifest aggregate: $aggregate)"
   echo "Full output; each exit code captured before any pipe."
   echo "Host: $(uname -sro) · $(uv run python -V 2>&1) · $(date -u +%Y-%m-%dT%H:%M:%SZ)"
+  # veracium opens its store on ONE SQLite build only; a capture that does not
+  # say which one ran cannot show the learned-memory tests ran where they can.
+  echo "Runtime: $(uv run python -c 'import sqlite3, importlib.metadata as m; print("sqlite", sqlite3.sqlite_version, "· veracium", m.version("veracium"))' 2>&1)"
   echo
 } > "$out"
 
