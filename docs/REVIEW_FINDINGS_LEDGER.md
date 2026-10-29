@@ -237,6 +237,27 @@ site of X); the second seat found the ones that need an ADVERSARIAL reading of
 a claim — concurrency, parser disagreement, a guard that tests itself. Neither
 pass alone would have been enough, which is the argument for running both.
 
+### G30 external review, round 1 — request changes (2026-10-29)
+
+After both passes above, the external reviewer found four more. None was past
+the shipped layer in production; one (R1) was a real way to run without it.
+
+| Finding | Class | Why both our passes missed it |
+|---|---|---|
+| **R1 (P1)** The service ran with NO layer on every launch path but `run-local-be.sh` (Compose, ECS, README; the image could not even carry the file) | M6 + M3 | A2 checked that `system_capabilities=` was PRESENT — the same presence-only flaw the second seat had just found in our phase-2 guard. We fixed that guard and did not audit our other derived guards for the same shape. And we derived engine CONSTRUCTIONS, not LAUNCH PATHS: "every workflow the service runs" is a claim about deployment manifests too. |
+| **R2** A parallel step swapped another's browser host policy mid-redirect (shared connector) | M3 | The phase-2 race was fixed for the deterministic step context and not for the other object parallel steps share. Fixing one instance of shared mutable state is not fixing the class — enumerate everything a parallel step shares (R-c). |
+| **R3** Every run wrote browser outputs to one `./downloads` | M6 | Containment was tested against a directory the TEST supplied; nobody tested what the engine supplies. A claim about "the run's own" directory is a claim about allocation, not containment. |
+| **R4** Browser upload read any local file, ignoring `file_read` | M3 | Our `file_read` population was functions plus tools named for files. An upload READS a file; the population is "everything that opens a local path", by behaviour, not by name. |
+| Content claim — "nothing a disallowed host returns reaches the agent" | M6 | Subresources were passed on purpose; the sentence claimed more than the design. |
+
+**The lesson to keep:** when a detector is found flawed, audit every detector
+of the same SHAPE, not only the one reported. A2 and the phase-2 guard were the
+same mistake, found a day apart by two different readers.
+
+**Our gap in the package:** the reviewer's full-suite run failed 14 tests
+because "How to run" never said veracium needs the qualified SQLite build —
+uv's own Python links one it refuses. State the runtime in the next guide.
+
 ### Self-inflicted, found by us mid-remediation (worth counting)
 
 Authorized-producer list written from memory (`record_invoice` for

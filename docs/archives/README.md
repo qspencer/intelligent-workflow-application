@@ -94,6 +94,12 @@ un-migrated database and two unrelated tests failed for that reason alone — th
 and controls WITH both opt-in suites. The control-count figure in the guide is checked against
 the harness definition, not the capture, so the capture never grades its own sabotage.
 
+**Results received 2026-10-29: request changes** (one P1, three P2). Results archive
+`inbox/trace-g30-review-results-2026-10-29.tar.gz`, sha256
+`df5b65f64b692d2b3f29fa3e0c30a1cb0e24bfb45fe6273efb69d8eb481a4857`; its own `SHA256SUMS`
+verified on extraction. The reviewer reproduced the input hash and the source aggregate.
+Review text: `docs/TRACE_G30_REVIEW_RESULTS.md`; disposition in `docs/NEXT_STEPS.md` G30.
+
 **Live evidence is not reproducible by a reviewer**: `LIVE_EVIDENCE_G30.txt` queries the
 production database; the script ships so the queries are on the record. Counts and enum
 values only.

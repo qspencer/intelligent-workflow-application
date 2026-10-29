@@ -32,8 +32,8 @@ CONTROLS = [
     (
         "allowed_hosts: the step's policy never reaches the connector",
         "src/workflow_platform/tools/browser.py",
-        "    conn.set_host_policy(caps.host_allowed if caps is not None and caps.restricts_hosts else None)\n",
-        "    conn.set_host_policy(None)\n",
+        "    return caps.host_allowed if caps is not None and caps.restricts_hosts else None\n",
+        "    return None\n",
         "tests/test_g30_capability_enforcement.py::test_the_step_capabilities_reach_the_connector_through_the_tool",
     ),
     (
@@ -253,25 +253,60 @@ CONTROLS = [
         "TEST_DATABASE_URL",
     ),
     (
-        "figures: a number in the guide is typed wrong (18 -> 19 claims)",
-        "../docs/G30_CAPABILITY_REVIEW_GUIDE.md",
-        "reports 18 claims, 141 test results",
-        "reports 19 claims, 141 test results",
-        "tests/test_review_figures.py::test_every_registered_figure_matches_what_produces_it",
+        "R1: the service passes no layer again",
+        "src/workflow_platform/main.py",
+        "        system_capabilities=configured_system_capabilities(),\n",
+        "        system_capabilities=None,\n",
+        "tests/test_system_capabilities.py::"
+        "test_the_service_default_refuses_an_unlisted_tool_on_a_real_file",
     ),
     (
-        "figures: an unregistered number appears in the guide's prose",
-        "../docs/G30_CAPABILITY_REVIEW_GUIDE.md",
-        "These are the claims to attack.",
-        "These are the 42 claims to attack.",
-        "tests/test_review_figures.py::test_no_figure_in_the_guide_is_unaccounted_for",
+        "R1: unset means no layer again",
+        "src/workflow_platform/security/capabilities.py",
+        "        return load_system_capabilities(SHIPPED_SYSTEM_CAPABILITIES)\n",
+        "        return None  # type: ignore[return-value]\n",
+        "tests/test_system_capabilities.py::"
+        "test_the_service_started_with_nothing_set_runs_the_shipped_layer",
     ),
     (
-        "figures: the shipped evidence disagrees with the guide (141 -> 142 results)",
-        "../docs/archives/GATE_OUTPUT_G30.txt",
-        "18 claims; 141 test results run",
-        "18 claims; 142 test results run",
-        "tests/test_review_figures.py::test_every_registered_figure_matches_what_produces_it",
+        "R1: the image stops carrying the layer",
+        "Dockerfile",
+        "COPY config/system_capabilities.yaml /app/config/system_capabilities.yaml\n",
+        "",
+        "tests/test_system_capabilities.py::"
+        "test_the_image_carries_the_layer_where_the_service_looks_for_it",
+    ),
+    (
+        "R2: the policy operation drops its lock",
+        "src/workflow_platform/connectors/browser/base.py",
+        "        async with self._operation_lock:\n            self._host_allowed = allowed\n            yield\n",
+        "        self._host_allowed = allowed\n        yield\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_a_parallel_sibling_cannot_widen_a_step_host_policy_mid_call",
+    ),
+    (
+        "R2: a tool calls the connector outside a policy operation",
+        "src/workflow_platform/tools/browser.py",
+        "            async with connector.operation(_host_policy(context)):\n"
+        "                text = await connector.read_text(sel)\n",
+        "            text = await connector.read_text(sel)\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_every_browser_tool_acts_only_inside_one_policy_operation",
+    ),
+    (
+        "R3: every run shares one downloads directory again",
+        "src/workflow_platform/engine/executor.py",
+        "            run_downloads = self.browser_downloads_dir / instance_id\n",
+        "            run_downloads = self.browser_downloads_dir\n",
+        "tests/test_engine_browser_integration.py::"
+        "test_two_runs_saving_the_same_name_keep_both_outputs",
+    ),
+    (
+        "R4: an upload stops consulting file_read",
+        "src/workflow_platform/tools/browser.py",
+        "        if caps is not None and not caps.can_read(file_path):\n",
+        "        if False:\n",
+        "tests/test_browser_tools.py::test_upload_outside_file_read_never_reaches_the_page",
     ),
 ]
 

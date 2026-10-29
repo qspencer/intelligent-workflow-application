@@ -38,27 +38,38 @@ FN = "tests/test_g30_function_capabilities.py"
 ID = "tests/test_id_traversal.py"
 LIVE = "tests/test_browser_host_policy_live.py"
 PG = "tests/test_g29_withdrawn_postgres.py"
+BE = "tests/test_engine_browser_integration.py"
+BT = "tests/test_browser_tools.py"
 
 #: (claim id, claim as the guide states it, test node ids, opt-in env var or None)
 CLAIMS: list[tuple[str, str, list[str], str | None]] = [
     (
         "A1",
         "The shipped system layer loads strictly: every attribute stated; a missing, "
-        "misspelt or extra key, or an unreadable file, refuses rather than running open",
+        "misspelt or extra key, an unreadable file, or a set-but-empty variable refuses "
+        "rather than running open; unset means the shipped layer, never none",
         [
             f"{SC}::test_the_shipped_layer_loads_with_every_attribute_stated",
             f"{SC}::test_the_loader_refuses_a_layer_that_could_fail_open",
             f"{SC}::test_an_unreadable_configured_layer_refuses_rather_than_running_open",
-            f"{SC}::test_unset_means_no_layer",
+            f"{SC}::test_unset_means_the_shipped_layer",
+            f"{SC}::test_set_but_empty_is_refused",
         ],
         None,
     ),
     (
         "A2",
-        "Every engine — the service and every operator script — carries a system layer",
+        "Every engine — the service on every launch path and every operator script — "
+        "runs under a system layer: the real service, built with nothing set, refuses an "
+        "unlisted tool on a real file; the image carries the layer (review R1)",
         [
             f"{SC}::test_every_engine_built_outside_tests_carries_a_system_layer",
             f"{SC}::test_the_production_launcher_names_the_shipped_layer",
+            f"{SC}::test_the_service_started_with_nothing_set_runs_the_shipped_layer",
+            f"{SC}::test_the_service_runs_a_named_layer",
+            f"{SC}::test_the_service_refuses_to_start_on_a_layer_it_cannot_use",
+            f"{SC}::test_the_service_default_refuses_an_unlisted_tool_on_a_real_file",
+            f"{SC}::test_the_image_carries_the_layer_where_the_service_looks_for_it",
         ],
         None,
     ),
@@ -79,7 +90,7 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
         "/api/health reports the layer as counts, never names, through the real wiring",
         [
             f"{SC}::test_health_reports_the_layer_as_counts_never_contents",
-            f"{SC}::test_health_reports_an_absent_layer",
+            f"{SC}::test_health_reports_an_absent_layer_honestly",
         ],
         None,
     ),
@@ -182,8 +193,8 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
     ),
     (
         "E1",
-        "allowed_hosts blocks agent-initiated requests before dispatch and keeps a "
-        "disallowed host's content from the agent (fakes)",
+        "allowed_hosts blocks agent-initiated requests before dispatch, and the agent "
+        "reads or acts only while the top-level page is on an allowed host (fakes)",
         [
             f"{EN}::test_no_restricting_layer_means_no_host_policy",
             f"{EN}::test_navigation_to_a_disallowed_host_is_refused_before_any_request",
@@ -214,12 +225,37 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
     ),
     (
         "E3",
-        "Browser outputs stay in the run's downloads directory, whatever name is supplied",
+        "Browser outputs stay in the run's OWN downloads directory — one per instance — "
+        "whatever name is supplied; a second run cannot overwrite the first's (review R3)",
         [
+            f"{BE}::test_two_runs_saving_the_same_name_keep_both_outputs",
             f"{EN}::test_fetch_url_cannot_write_outside_the_downloads_directory",
             f"{EN}::test_a_screenshot_path_is_confined_to_the_downloads_directory",
             f"{EN}::test_a_server_suggested_download_name_is_confined",
             f"{EN}::test_a_bare_dot_dot_name_is_refused",
+        ],
+        None,
+    ),
+    (
+        "E6",
+        "A step's host policy holds for its whole browser call: a parallel sibling sharing "
+        "the page cannot widen it mid-redirect; every tool call runs in one policy "
+        "operation (review R2)",
+        [
+            f"{EN}::test_a_parallel_sibling_cannot_widen_a_step_host_policy_mid_call",
+            f"{EN}::test_the_serial_twin_refuses_the_same_redirect",
+            f"{EN}::test_every_browser_tool_acts_only_inside_one_policy_operation",
+        ],
+        None,
+    ),
+    (
+        "E7",
+        "A browser upload reads a local file, so file_read applies: refused before "
+        "Playwright sees the path; allowed twin uploads; directories refused (review R4)",
+        [
+            f"{BT}::test_upload_outside_file_read_never_reaches_the_page",
+            f"{BT}::test_upload_inside_file_read_reaches_the_page",
+            f"{BT}::test_upload_refuses_a_directory_even_when_its_path_is_allowed",
         ],
         None,
     ),

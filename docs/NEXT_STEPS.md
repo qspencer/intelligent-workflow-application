@@ -2961,7 +2961,40 @@ trigger, so a draft's trigger config never runs.
 
 **Residuals, stated:** triggers' own I/O (operator config, never scaffolded);
 symlinks inside an allowed tree; the browser destination gap (browser pinned
-off). **Next: G30 to external review** — one control, both phases.
+off).
+
+**External review, round 1 (2026-10-29): request changes** — package
+`g30-capability-review-a7284c0`, results in `docs/TRACE_G30_REVIEW_RESULTS.md`
+(archive `trace-g30-review-results-2026-10-29.tar.gz`, sha256 `df5b65f6…4857`).
+Four findings, all fixed the same day, each test confirmed to fail with its fix
+removed and each with a control in `g30_controls.py`:
+
+- **R1 (P1), done** (`fb00ae2`, deployed) — the service passed `None` when the
+  variable was unset, so Compose, ECS and the README ran unrestricted. Now one
+  never-None loader for service and scripts (unset → shipped, empty → refuse);
+  the image is built from the repo root with an allowlist `.dockerignore` and
+  carries the layer — built and run once to confirm.
+- **R2, done** (`8a0a86c`) — `BrowserConnector.operation(policy)` holds one
+  lock from policy install through every redirect hop and the landing check.
+- **R3, done** (`0d6ea81`) — browser outputs go to `<root>/<instance_id>`.
+- **R4, done** (`0d6ea81`) — `browser_upload_file` checks `file_read` first;
+  directories refused.
+- **Content claim narrowed** — `allowed_hosts` governs the top-level page, not
+  content origin (connector docstring, THREAT_MODEL).
+
+**Next: round 2 package** — new guide (re-register `test_review_figures.py`,
+re-arm the three figure controls against it), state the qualified
+Python/SQLite runtime in "How to run" (the reviewer's 14 failures), run D3/E5
+and their controls in the capture.
+
+**Follow-ups found while fixing R1, not in scope:**
+- The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's
+  qualified build: the container starts with `learned_memory: unopenable`.
+  Needs the same interpreter treatment as CI before the image is deployable.
+- The Dockerfile syncs from `pyproject.toml` without `uv.lock`, so the image
+  is not built from the locked environment.
+- Browser enablement still needs pre-dispatch destination enforcement and
+  provenance-aware content claims; R2–R4 are now done but do not satisfy those.
 
 ### G17 — Proactive recall adoption (veracium 0.4.x, trigger-gated)
 

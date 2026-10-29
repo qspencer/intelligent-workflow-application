@@ -23,8 +23,10 @@ prose and fails on any that no claim covers and no labelled exemption explains.
 Limit, stated: the sweep sees DIGITS. A figure written as a word ("four
 consumers") is checked only if it is registered; the evidence-bearing ones are.
 
-Scope: the LIVE review package — G30 since 2026-10-29. G29's package closed
-and its registry was retired here, as this rule says; its archive is the record.
+Scope: the LIVE review package. G29's package closed and its registry was
+retired; G30 round 1 was answered on 2026-10-29 (request changes, R1-R4) and is
+retired too — `GUIDE` is None, so both tests skip — until the round-2 guide is
+written and registered here. Each package's archive is its record.
 A historical guide should not fail the build because a later commit added a test.
 """
 
@@ -40,7 +42,12 @@ import pytest
 BACKEND = Path(__file__).resolve().parents[1]
 REPO = BACKEND.parent
 DOCS = REPO / "docs"
-GUIDE = DOCS / "G30_CAPABILITY_REVIEW_GUIDE.md"
+#: The live guide, or None between packages. The CLAIMS below are G30 round 1's,
+#: kept as the starting point for round 2 — re-point and re-check them then.
+GUIDE: Path | None = None
+pytestmark = pytest.mark.skipif(
+    GUIDE is None, reason="no live review package (G30 round 1 answered 2026-10-29)"
+)
 GATES = DOCS / "archives" / "GATE_OUTPUT_G30.txt"
 LIVE = DOCS / "archives" / "LIVE_EVIDENCE_G30.txt"
 
@@ -121,12 +128,15 @@ EXEMPT: list[tuple[str, str]] = [
 ]
 
 
+def _guide_text() -> str:
+    assert GUIDE is not None
+    return GUIDE.read_text()
+
+
 def _prose_lines() -> list[tuple[int, str]]:
     """The guide with code removed: fenced blocks and inline code are code, not
     prose figures. Line numbers are preserved for the failure message."""
-    text = re.sub(
-        r"```.*?```", lambda m: "\n" * m.group(0).count("\n"), GUIDE.read_text(), flags=re.S
-    )
+    text = re.sub(r"```.*?```", lambda m: "\n" * m.group(0).count("\n"), _guide_text(), flags=re.S)
     blank = lambda m: " " * len(m.group(0))  # noqa: E731 — keep columns: positions map back
     return [(i, re.sub(r"`[^`]*`", blank, ln)) for i, ln in enumerate(text.splitlines(), 1)]
 
@@ -141,7 +151,7 @@ _NOT_A_FIGURE = re.compile(r"\d{4}-\d{2}-\d{2}|\d{2}:\d{2}|§\d+(\.\d+)*|10¹⁵
 
 @pytest.mark.parametrize("claim", CLAIMS, ids=lambda c: c.pattern[:48])
 def test_every_registered_figure_matches_what_produces_it(claim: Claim) -> None:
-    m = re.search(claim.pattern, GUIDE.read_text())
+    m = re.search(claim.pattern, _guide_text())
     assert m, f"claim pattern no longer matches the guide: {claim.pattern!r}"
     written = tuple(g for g in m.groups() if g is not None)
     truth = claim.truth()
@@ -152,7 +162,7 @@ def test_every_registered_figure_matches_what_produces_it(claim: Claim) -> None:
 
 
 def test_no_figure_in_the_guide_is_unaccounted_for() -> None:
-    text = GUIDE.read_text()
+    text = _guide_text()
     covered: list[tuple[int, int]] = []
     for claim in CLAIMS:
         for m in re.finditer(claim.pattern, text):
