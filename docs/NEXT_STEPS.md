@@ -2982,10 +2982,9 @@ removed and each with a control in `g30_controls.py`:
 - **Content claim narrowed** — `allowed_hosts` governs the top-level page, not
   content origin (connector docstring, THREAT_MODEL).
 
-**Next: round 2 package** — new guide (re-register `test_review_figures.py`,
-re-arm the three figure controls against it), state the qualified
-Python/SQLite runtime in "How to run" (the reviewer's 14 failures), run D3/E5
-and their controls in the capture.
+**Round 2 package built 2026-10-29** — `g30-capability-review-r2-5866f3d`
+(guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R2.md`; hashes in
+`docs/archives/README.md`). Awaiting the reviewer.
 
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's
