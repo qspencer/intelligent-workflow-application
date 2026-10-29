@@ -76,25 +76,23 @@ trigger:
     in_reply_to: null
     headers: {}
 
-# G29: the closed vocabularies this workflow's step outputs may show a
-# below-grant reader. Declared HERE because a category vocabulary is
-# per-workflow — the platform projector governs every workflow and cannot hold
-# any one of their business enums (GR4-R4). The values must stay identical to
-# `TRIAGE_CATEGORIES` / `ATTENTION_LEVELS` in `engine/functions.py`, which
-# `test_released_vocabulary_matches_the_triage_parser` pins.
+# G29 RELEASED VOCABULARIES — WITHDRAWN 2026-10-29, same day they shipped.
 #
-# What this buys: self-consistency and drift measurement over a run became
-# possible without an audited raw-trace grant over real mail. The 1,297-message
-# catch-up of 2026-10-28 could not be analysed at all — the verdicts were
-# withheld — and the only route was a grant, which is a far larger disclosure
-# taken repeatedly to answer what five enum values answer.
+# This workflow declared `released_fields: {category: [...], attention: [...]}`
+# so a below-grant reader could see the triage verdict without an audited
+# raw-trace grant. The mechanism worked on the write path and broke four
+# consumers that re-project a stored row: projection stopped being a FIXED
+# POINT, because the vocabulary is a per-call argument only the engine's three
+# write sites can supply. The read path stripped the verdict again, the frozen
+# §4.3 agreement predicate reported `mismatch` on correctly-written rows, and
+# the zero-raw B1 verifier flagged them as raw.
 #
-# `category_valid` is deliberately NOT declared: a value only survives if it is
-# a member of the set, so a released `category` already means the enum gate
-# passed. One signal, one place.
-released_fields:
-  category: [personal, notification, newsletter, promotion, spam]
-  attention: [urgent, awaiting-reply, review]
+# Re-adding these lines is not a config change — it re-opens a disclosure
+# question that is out for external ruling. `docs/TRACE_G29_REVIEW_GUIDE.md`
+# has the argument, the 28 reproductions and the three candidate dispositions;
+# `test_released_vocabulary_stays_withdrawn` fails if the declaration returns
+# without one. Until then, verdict-level analysis uses the grant, which is the
+# control working rather than a workaround.
 
 steps:
   # The codified-sender route (G13: a precheck that sent rule-covered

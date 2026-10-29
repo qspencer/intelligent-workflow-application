@@ -604,25 +604,29 @@ def test_postcondition_fails_when_tool_call_returns_error_then_prose() -> None:
 # ---------- G29: the released vocabulary (added 2026-10-29) ----------
 
 
-def test_released_vocabulary_matches_the_triage_parser() -> None:
-    """The YAML declaration and the parser's enums are two copies of one
-    vocabulary. A drift is silent and asymmetric, which is why it is pinned: a
-    value the parser emits but the declaration omits is WITHHELD (the field
-    quietly stops being analysable), and a value declared but never emitted is
-    dead weight that implies a verdict the classifier cannot produce."""
+def test_released_vocabulary_stays_withdrawn() -> None:
+    """G29 is WITHDRAWN pending an external ruling, so the live workflow must
+    not declare a vocabulary (`docs/TRACE_G29_REVIEW_GUIDE.md`).
+
+    This replaces the drift pin that asserted the declaration was PRESENT. It
+    is deliberately a test and not a comment: re-adding `released_fields`
+    restores a projection that is not a fixed point, which the read path, the
+    frozen §4.3 agreement predicate, the zero-raw verifier and the backfill all
+    get wrong — four consumers that hold a row and not a definition. If a
+    ruling says to proceed, this test is the thing to change, and changing it
+    should require reading why it exists."""
     from pathlib import Path
 
-    from workflow_platform.engine.functions import ATTENTION_LEVELS, TRIAGE_CATEGORIES
     from workflow_platform.workflow import load_definition_from_yaml
 
     root = Path(__file__).resolve().parents[2]
     definition = load_definition_from_yaml(
         (root / "examples/email_triage_apply/workflow.yaml").read_text()
     )
-    declared = definition.released_fields
-    assert declared is not None, "email_triage_apply must declare its vocabularies"
-    assert sorted(declared["category"]) == sorted(TRIAGE_CATEGORIES)
-    assert sorted(declared["attention"]) == sorted(ATTENTION_LEVELS)
+    assert definition.released_fields is None, (
+        "email_triage_apply declares released_fields again — G29 is withdrawn; "
+        "see docs/TRACE_G29_REVIEW_GUIDE.md §3 before re-enabling it"
+    )
 
 
 def test_declared_vocabulary_releases_only_declared_values() -> None:
