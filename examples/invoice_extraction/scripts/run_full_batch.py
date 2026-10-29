@@ -53,6 +53,7 @@ from workflow_platform.memory import MemoryManager  # noqa: E402
 from workflow_platform.orchestrator import seed_memory_from_workflow_dir  # noqa: E402
 from workflow_platform.persistence.db import make_engine, make_session_factory  # noqa: E402
 from workflow_platform.persistence.postgres import postgres_repositories  # noqa: E402
+from workflow_platform.security.capabilities import operator_system_capabilities
 from workflow_platform.tools import FileReadTool, FileWriteTool, PdfExtractTool  # noqa: E402
 from workflow_platform.workflow import load_definition_from_file  # noqa: E402
 from workflow_platform.world import real_world  # noqa: E402
@@ -110,6 +111,7 @@ async def main() -> int:
     await seed_memory_from_workflow_dir(definition, WORKFLOW_PATH, memory)
 
     engine = WorkflowEngine(
+        system_capabilities=operator_system_capabilities(),
         repositories=repos,
         functions=default_function_registry(),
         tools=ToolCatalog([PdfExtractTool(), FileReadTool(), FileWriteTool()]),
@@ -138,8 +140,7 @@ async def main() -> int:
             else:
                 failed += 1
                 print(
-                    f"  [{idx}/{len(pdf_files)}] FAIL: {name} "
-                    f"state={state} {error or ''}",
+                    f"  [{idx}/{len(pdf_files)}] FAIL: {name} state={state} {error or ''}",
                     file=sys.stderr,
                 )
             if idx % args.progress_every == 0 or idx == len(pdf_files):

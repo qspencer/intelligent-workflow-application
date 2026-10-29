@@ -17,6 +17,7 @@ tests exactly what production runs with:
 
 from __future__ import annotations
 
+import ast
 import re
 from pathlib import Path
 from typing import Any
@@ -395,3 +396,33 @@ async def test_without_a_layer_the_same_call_reads_the_file() -> None:
     call = await _file_read_call(None)
     assert "Capability denied" not in str(call)
     assert "hello" in str(call)
+
+
+def test_every_engine_built_outside_tests_carries_a_system_layer() -> None:
+    """The layer claims to bound EVERY workflow. Before 2026-10-29 that held only
+    for the service: seven operator scripts — `fire.py` among them, which runs
+    definitions against the production database with live tools — built a
+    `WorkflowEngine` with none. Derived from the source, so a new script that
+    builds one without a layer fails here."""
+    sites = []
+    for path in sorted(REPO.rglob("*.py")):
+        rel = path.relative_to(REPO)
+        if (
+            rel.parts[0] in {".venv", "node_modules"}
+            or "tests" in rel.parts
+            or ".venv" in rel.parts
+        ):
+            continue
+        try:
+            tree = ast.parse(path.read_text())
+        except SyntaxError, UnicodeDecodeError:
+            continue
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "WorkflowEngine":
+                passes = any(k.arg == "system_capabilities" for k in node.keywords)
+                sites.append((str(rel), node.lineno, passes))
+    assert len(sites) >= 8, (
+        f"derivation found only {len(sites)} engine constructions — it is broken"
+    )
+    missing = [f"{f}:{line}" for f, line, ok in sites if not ok]
+    assert not missing, f"WorkflowEngine built without a system layer at: {missing}"

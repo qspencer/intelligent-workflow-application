@@ -144,6 +144,25 @@ UNRESTRICTED: ResolvedCapabilities = ResolvedCapabilities(layers=[])
 when no policy is configured."""
 
 
+def cap_output_tokens(config: dict[str, Any] | None, cap: int | None) -> dict[str, Any] | None:
+    """Clamp a model call's `maxTokens` (its OUTPUT ceiling) to `cap`. ONE
+    implementation for every model call the capability layer bounds.
+
+    It began in the agent loop alone (G30 phase 1), so `max_tokens_per_call`
+    governed agent steps and nothing else. An independent red-team
+    (2026-10-29) showed the question-suggestion call sending
+    `maxTokens: 100000` — a size a scaffolded draft controls — and
+    learned-memory distillation sent none at all. A request that asks for less
+    keeps its own figure. With no cap the config is returned UNCHANGED (the
+    same object), so a recorded replay request hashes exactly as before."""
+    if cap is None:
+        return config
+    capped = dict(config or {})
+    requested = capped.get("maxTokens")
+    capped["maxTokens"] = min(requested, cap) if isinstance(requested, int) else cap
+    return capped
+
+
 #: Names the YAML file holding the SYSTEM layer. Unset = no system layer, which
 #: `/api/health` reports as `absent`. The production launcher sets it.
 SYSTEM_CAPABILITIES_ENV = "WORKFLOW_PLATFORM_SYSTEM_CAPABILITIES"
@@ -180,6 +199,29 @@ def load_system_capabilities(path: Path) -> CapabilityPolicy:
         return CapabilityPolicy.model_validate(data)
     except ValueError as exc:
         raise SystemCapabilitiesError(f"{path}: {exc}") from exc
+
+
+#: The tracked layer production runs with. capabilities.py lives at
+#: <repo>/backend/src/workflow_platform/security/, so parents[4] is the repo
+#: root — resolved from this file, not the CWD (the `templates.py` convention).
+SHIPPED_SYSTEM_CAPABILITIES = (
+    Path(__file__).resolve().parents[4] / "config" / "system_capabilities.yaml"
+)
+
+
+def operator_system_capabilities() -> CapabilityPolicy:
+    """The layer for OPERATOR SCRIPTS that build their own engine (`fire.py`,
+    the batch runners, `replay.py`, ...). Never None: the layer named by the
+    environment, else the shipped file.
+
+    Found in the G30 pre-package review (2026-10-29): seven scripts built a
+    `WorkflowEngine` with no system layer, so the config's "OUTERMOST bound on
+    every workflow" held only for workflows the SERVICE ran — not for
+    `fire.py`, which runs definitions against the production database with live
+    tools. A script that needs more than production allows names a different,
+    reviewed layer file through the environment; it does not run without one."""
+    configured = os.environ.get(SYSTEM_CAPABILITIES_ENV)
+    return load_system_capabilities(Path(configured) if configured else SHIPPED_SYSTEM_CAPABILITIES)
 
 
 def system_capabilities_from_env() -> CapabilityPolicy | None:

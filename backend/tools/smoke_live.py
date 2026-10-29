@@ -40,6 +40,7 @@ from workflow_platform.persistence import (
     WorkflowInstanceState,
     in_memory_repositories,
 )
+from workflow_platform.security.capabilities import operator_system_capabilities
 from workflow_platform.trace_bootstrap import init_tracing
 from workflow_platform.trace_flip import trace_safe_only_from_env
 from workflow_platform.workflow import load_definition
@@ -156,6 +157,7 @@ async def step_3_workflow_engine() -> None:
     )
     init_tracing()
     engine = WorkflowEngine(
+        system_capabilities=operator_system_capabilities(),
         repositories=repos,
         functions=FunctionRegistry(),
         tools=ToolCatalog(),

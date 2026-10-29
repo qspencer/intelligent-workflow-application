@@ -50,6 +50,7 @@ from workflow_platform.persistence.db import make_engine, make_session_factory
 from workflow_platform.persistence.postgres import postgres_repositories
 from workflow_platform.persistence.schema_version import assert_schema_current
 from workflow_platform.secrets import EnvSecretStore
+from workflow_platform.security.capabilities import operator_system_capabilities
 from workflow_platform.tools import (
     EmailLabelApplyTool,
     EmailSendTool,
@@ -109,6 +110,7 @@ async def fire(args: argparse.Namespace) -> int:
         )
         init_tracing()
         engine = WorkflowEngine(
+            system_capabilities=operator_system_capabilities(),
             repositories=repos,
             functions=default_function_registry(),
             tools=ToolCatalog(_build_tools()),

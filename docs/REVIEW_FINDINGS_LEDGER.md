@@ -197,6 +197,29 @@ written reason. Its first run, against a guide we had already corrected by
 hand, passed only after two pattern fixes; its controls plant a wrong figure, an
 unregistered figure, and evidence that disagrees with the prose.
 
+### G30 — our pre-package pass, then a second-seat red-team (2026-10-29)
+
+Two passes before an external package, as the veracium dev seat runs them. Ours
+derived populations and executed claims; the second seat (Research session) was
+given the code and the documents' claims, NOT our concerns, so it could not be
+anchored on them.
+
+| Finding | Found by | Class | Why our pass missed it (where it did) |
+|---|---|---|---|
+| Workflow/step ids became memory paths unconstrained — `../../x` read any `.md` into a prompt | us | M1 | — (found by deriving every file I/O site) |
+| Browser outputs escaped their directory (absolute `dest_filename` replaced it) | us | M1 | — |
+| Seven operator scripts built engines with no system layer | us | M3 | — (earlier "one construction site" searched only `src/`) |
+| Token cap missed question suggestion; a draft sets its size | **red-team** | M3 | We LOOKED at that call and wrote "bounded by its validated config" — without reading that the validator bounds only from below. A claim about a bound must name the upper bound. |
+| A parallel sibling undid a step's narrowing (shared context) | **red-team** | M3 | Every phase-2 test ran one step at a time. Per-step state on a shared object is a concurrency claim, and we tested it serially. |
+| `fetch_url` host check vs WHATWG parsing (backslash) | **red-team** | M1 | We tested hostile URLs through ONE parser. The bypass lives between two. |
+| Derived guard checked presence, not correctness | **red-team** | M6 | Our own population test, and we believed it. The property — the path checked is the path opened — was never asserted. |
+| Spend "bounded per step, per workflow" | **red-team** | M6 | A pre-existing sentence we did not re-execute while correcting the section around it. |
+
+**What the split says.** Our pass found the classes a derivation can see (every
+site of X); the second seat found the ones that need an ADVERSARIAL reading of
+a claim — concurrency, parser disagreement, a guard that tests itself. Neither
+pass alone would have been enough, which is the argument for running both.
+
 ### Self-inflicted, found by us mid-remediation (worth counting)
 
 Authorized-producer list written from memory (`record_invoice` for

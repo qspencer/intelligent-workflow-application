@@ -257,7 +257,12 @@ async def test_screenshot_tool_explicit_path(tmp_path: Path) -> None:
     finally:
         await conn.__aexit__(None, None, None)
     assert result.ok
-    assert result.content["local_path"] == target
+    # CHANGED 2026-10-29 (G30 pre-package review). This used to assert the shot
+    # landed at the requested path — OUTSIDE the downloads directory — which is
+    # the agent-chosen arbitrary write being closed. The name is kept; the
+    # location is the run's downloads directory.
+    assert result.content["local_path"] == str(tmp_path / "downloads" / "explicit-shot.png")
+    assert result.content["local_path"] != target
     assert result.content["full_page"] is True
 
 

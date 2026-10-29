@@ -310,3 +310,136 @@ async def test_route_aborts_only_off_list_navigations(
     route = _Route(url, navigation)
     await conn._route_navigation(route)
     assert route.outcome == outcome
+
+
+# --- browser outputs stay in the run's downloads directory ---------------------
+
+
+@pytest.mark.parametrize("name", ["../../escape.bin", "/etc/escape.bin", "sub/dir/escape.bin"])
+async def test_fetch_url_cannot_write_outside_the_downloads_directory(
+    tmp_path: Path, name: str
+) -> None:
+    """`downloads_dir / "/etc/x"` IS `/etc/x` — an absolute name replaced the
+    directory outright, and `../` climbed out of it."""
+    page = FakePlaywrightPage()
+    page.context.request.body_at["https://allowed.example/f"] = b"PAYLOAD"
+    conn = PlaywrightConnector(downloads_dir=tmp_path / "dl", page=page)
+    await conn.__aenter__()
+    got = await conn.fetch_url("https://allowed.example/f", dest_filename=name)
+    assert Path(got.local_path) == tmp_path / "dl" / "escape.bin"
+    assert not (tmp_path / "escape.bin").exists()
+
+
+async def test_a_screenshot_path_is_confined_to_the_downloads_directory(tmp_path: Path) -> None:
+    page = FakePlaywrightPage()
+    conn = PlaywrightConnector(downloads_dir=tmp_path / "dl", page=page)
+    await conn.__aenter__()
+    shot = await conn.screenshot(path=str(tmp_path / "outside" / "shot.png"))
+    assert shot.local_path == str(tmp_path / "dl" / "shot.png")
+
+
+async def test_a_server_suggested_download_name_is_confined(tmp_path: Path) -> None:
+    page = FakePlaywrightPage(url=ALLOWED)
+    page.expect_download_value = FakeDownload(url=ALLOWED, suggested_filename="../../evil.pdf")
+    conn = PlaywrightConnector(downloads_dir=tmp_path / "dl", page=page)
+    await conn.__aenter__()
+    got = await conn.download_via_click("a#dl")
+    assert Path(got.local_path) == tmp_path / "dl" / "evil.pdf"
+    assert not (tmp_path / "evil.pdf").exists()
+
+
+async def test_a_bare_dot_dot_name_is_refused(tmp_path: Path) -> None:
+    conn = PlaywrightConnector(downloads_dir=tmp_path / "dl", page=FakePlaywrightPage())
+    await conn.__aenter__()
+    with pytest.raises(ValueError, match="not a usable file name"):
+        await conn.fetch_url("https://allowed.example/f", dest_filename="..")
+
+
+# --- the host check and the browser must read the same host -------------------
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "http://evil.example\\@allowed.example/x",  # the red-team's: WHATWG ends the host at `\`
+        "http://allowed.example\t.evil/x",  # WHATWG strips tabs
+        "http://user@allowed.example/x",  # userinfo
+        "http://allowed%2eexample/x",  # percent-escape in the authority
+        "http://allowed。example/x",  # U+3002, which IDNA maps to a dot
+        "https://allowed.example/a b",  # whitespace
+    ],
+)
+def test_urls_the_two_parsers_could_read_differently_are_refused(url: str) -> None:
+    from workflow_platform.connectors.browser import url_host_allowed
+
+    assert not url_host_allowed(url, lambda host: host in {"allowed.example", "evil.example"})
+
+
+def test_an_ordinary_url_still_passes() -> None:
+    from workflow_platform.connectors.browser import url_host_allowed
+
+    assert url_host_allowed(
+        "https://allowed.example:8443/path/file.pdf?q=1#top", lambda h: h == "allowed.example"
+    )
+
+
+# --- the platform's own model calls are bounded too ---------------------------
+
+
+async def test_a_drafts_question_suggestion_cannot_exceed_the_system_cap() -> None:
+    """Independent red-team (2026-10-29): `questions.suggest.max_output_tokens`
+    is set by the definition and bounded only below, so a scaffolded draft sent
+    `maxTokens: 100000` on a call that never passed through the clamp."""
+    from workflow_platform.elicitation.store import InMemoryShadowStore
+    from workflow_platform.engine import ToolCatalog, WorkflowEngine, default_function_registry
+    from workflow_platform.persistence import in_memory_repositories
+    from workflow_platform.workflow import load_definition_from_yaml
+    from workflow_platform.world import mock_world
+
+    definition = load_definition_from_yaml(
+        """
+id: q
+name: q
+trigger: {type: manual}
+steps:
+  - {id: a, type: agentic, goal: "say hi", model: some-model, tools: [],
+     policy: {inference_config: {maxTokens: 100000}}}
+questions:
+  suggest: {model: a-draft-chosen-model, inputs: [trigger.subject], max_output_tokens: 100000}
+  subject: s
+  recipient: r
+  catalog: {topics: []}
+"""
+    )
+    fake = FakeBedrock([text_response("hi"), text_response("{}")])
+    engine = WorkflowEngine(
+        repositories=in_memory_repositories(),
+        functions=default_function_registry(),
+        tools=ToolCatalog([]),
+        bedrock=fake,
+        world=mock_world(),
+        system_capabilities=CapabilityPolicy(max_tokens_per_call=4096),
+        question_store=InMemoryShadowStore(),
+    )
+    await engine.run(definition, trigger_payload={"subject": "x"})
+    sent = {c["model_id"]: c["inference_config"] for c in fake.calls}
+    assert sent["a-draft-chosen-model"] == {"maxTokens": 4096}, (
+        "the suggestion call escaped the cap"
+    )
+    assert sent["some-model"] == {"maxTokens": 4096}
+
+
+async def test_memory_distillation_carries_the_cap_and_is_unchanged_without_one() -> None:
+    """It sent no output cap at all, over third-party mail content."""
+    import asyncio
+
+    from workflow_platform.memory.learned import _BedrockComplete
+
+    fake = FakeBedrock([text_response("a"), text_response("b")])
+    complete = _BedrockComplete(fake, MODEL)
+    complete.loop = asyncio.get_running_loop()
+    for cap in (4096, None):
+        complete.max_output_tokens = cap
+        await asyncio.to_thread(complete, "prompt")
+    assert fake.calls[0]["inference_config"] == {"maxTokens": 4096}
+    assert fake.calls[1]["inference_config"] is None, "an uncapped request changed shape"

@@ -16,6 +16,8 @@ import os
 import sys
 from pathlib import Path
 
+from workflow_platform.security.capabilities import operator_system_capabilities
+
 REPO_ROOT = Path(__file__).parent.parent.parent
 EXAMPLE_DIR = REPO_ROOT / "examples" / "rpa_challenge_ocr"
 sys.path.insert(0, str(REPO_ROOT / "backend" / "src"))
@@ -65,6 +67,7 @@ async def main() -> int:
     repos = in_memory_repositories()
     init_tracing()
     engine = WorkflowEngine(
+        system_capabilities=operator_system_capabilities(),
         repositories=repos,
         functions=default_function_registry(),
         tools=ToolCatalog(

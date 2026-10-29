@@ -20,7 +20,7 @@ from pydantic import BaseModel, Field
 
 from workflow_platform.agent.registry import ToolRegistry
 from workflow_platform.bedrock import BedrockClient
-from workflow_platform.security.capabilities import ResolvedCapabilities
+from workflow_platform.security.capabilities import cap_output_tokens
 from workflow_platform.tools import Tool, ToolContext, ToolResult
 
 
@@ -112,8 +112,9 @@ class Agent:
         usage = AgentUsage()
         tool_calls: list[ToolCallRecord] = []
         last_text = ""
-        inference_config = _cap_output_tokens(
-            self.policy.inference_config, context.capabilities if context is not None else None
+        caps = context.capabilities if context is not None else None
+        inference_config = cap_output_tokens(
+            self.policy.inference_config, caps.max_tokens_per_call if caps is not None else None
         )
 
         for _ in range(self.policy.max_iterations):
@@ -257,23 +258,3 @@ def _coerce_stop_reason(raw: str) -> StopReason:
         return StopReason(raw)
     except ValueError:
         return StopReason.ERROR
-
-
-def _cap_output_tokens(
-    config: dict[str, Any] | None, capabilities: ResolvedCapabilities | None
-) -> dict[str, Any] | None:
-    """Clamp each model call's output to the `max_tokens_per_call` capability.
-
-    The capability was declared, resolved most-restrictive-wins, shown on the
-    canvas — and enforced nowhere until G30's inventory (2026-10-29). Bedrock's
-    `maxTokens` is the per-call OUTPUT ceiling, so that is what it bounds; a
-    step that asks for less keeps its own figure. With no cap configured the
-    config is returned UNCHANGED (the same object), so a recorded replay request
-    hashes exactly as it did before."""
-    cap = capabilities.max_tokens_per_call if capabilities is not None else None
-    if cap is None:
-        return config
-    capped = dict(config or {})
-    requested = capped.get("maxTokens")
-    capped["maxTokens"] = min(requested, cap) if isinstance(requested, int) else cap
-    return capped

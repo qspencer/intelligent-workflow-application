@@ -33,6 +33,7 @@ from pydantic import BaseModel
 
 from workflow_platform.bedrock import BedrockClient
 from workflow_platform.cost.pricing import cost_for_usage
+from workflow_platform.security.capabilities import cap_output_tokens
 from workflow_platform.subject_identity import subject_from_namespace
 
 logger = logging.getLogger(__name__)
@@ -157,6 +158,9 @@ class _BedrockComplete:
         self._model_id = model_id
         self.loop: asyncio.AbstractEventLoop | None = None
         self.usage_records: list[dict[str, int]] = []
+        #: The system layer's per-call output cap, set per observation. None =
+        #: no `inferenceConfig` sent, exactly as before (replay hashes stable).
+        self.max_output_tokens: int | None = None
 
     def __call__(
         self,
@@ -173,6 +177,7 @@ class _BedrockComplete:
                 model_id=self._model_id,
                 messages=[{"role": "user", "content": [{"text": prompt}]}],
                 system=[{"text": system}] if system else None,
+                inference_config=cap_output_tokens(None, self.max_output_tokens),
             ),
             self.loop,
         )
@@ -250,6 +255,7 @@ class LearnedMemoryService:
         evidence_ref: str | None = None,
         derived_from: str | None = None,
         source_id: str | None = None,
+        max_output_tokens: int | None = None,
     ) -> LearnedObservation:
         """Ingest one event into `user_id`'s memory. `author` is the
         trust-critical input: "third_party" for received mail / external
@@ -271,6 +277,10 @@ class LearnedMemoryService:
             memory = self._get_memory()
             self._complete.loop = asyncio.get_running_loop()
             self._complete.usage_records = []
+            # Distillation reads third-party mail and sent NO output cap
+            # before 2026-10-29. Production's largest over 10,850 was 2,196
+            # tokens, so the system layer's 4096 does not truncate one.
+            self._complete.max_output_tokens = max_output_tokens
             try:
                 kwargs: dict[str, Any] = {
                     "author": author_enum,
@@ -286,6 +296,7 @@ class LearnedMemoryService:
                 result = await asyncio.to_thread(memory.remember, user_id, text, **kwargs)
             finally:
                 self._complete.loop = None
+                self._complete.max_output_tokens = None
             input_tokens = sum(r["input_tokens"] for r in self._complete.usage_records)
             output_tokens = sum(r["output_tokens"] for r in self._complete.usage_records)
         cost = cost_for_usage(

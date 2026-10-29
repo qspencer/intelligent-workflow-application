@@ -2900,6 +2900,65 @@ would have built on it. Fixed: absolute paths and patterns only, `..` refused
 its trigger path is relative, and the matcher refuses relative paths. Making it
 runnable needs an absolute path as well as a layer change.
 
+**Pre-package review (2026-10-29), before G30 goes out** — derived every
+population again rather than trusting the ones already gated, and executed the
+documents' claims. Four defects, each fixed with a test and a control:
+
+- **Path traversal through workflow and step ids.** Ids were unconstrained
+  strings and become `<memory>/steps/<workflow id>/<step id>.md`, loaded into
+  the agent's prompt. A definition imported with id `../../x` read any `.md`
+  file the service could reach — reproduced in-process; it needs only the
+  `steps/` directory production has. Read-only (the one memory write is
+  boot-time seeding of bundled YAMLs), localhost-only here, unreachable via
+  scaffold (it mints ids). Fixed in two layers: ids are plain tokens at every
+  definition path; the memory manager refuses a path outside its directory.
+- **Browser file outputs escaped their directory.** Screenshot `path`
+  (agent-chosen), `fetch_url`'s `dest_filename` (`downloads_dir / "/etc/x"` IS
+  `/etc/x`), and a server's suggested download name. Unreachable in production
+  (browser pinned off). Now confined to the run's downloads directory; one
+  existing test pinned the old write-anywhere behaviour and was changed, with
+  the reason in it.
+- **Seven operator scripts built engines with no system layer** — `fire.py`
+  runs definitions against the production database with live tools. Each now
+  takes `operator_system_capabilities()` (the named layer, else the shipped
+  file — never none). Consequence, intended: `probe_rpa.py` and the invoice
+  batch runner are blocked by the layer like their workflows; running them
+  needs a deliberately broader, reviewed layer file.
+- **`max_tokens_per_call` overclaimed** — it governed agent steps only, and
+  learned-memory distillation sent NO per-call cap over third-party email. Our
+  pass found that half; the red-team found the other (below). Both fixed.
+
+**Second-seat red-team (Research session, 2026-10-29)** — a cold read of
+`456c550`, given the code and the documents' claims, not our concerns.
+Headline: no read, write, tool or host got past the shipped system layer. Five
+findings, all reproduced, all fixed with a test and a control:
+
+1. **The token cap missed question suggestion**, whose `max_output_tokens` a
+   draft sets (bounded only below) — observed `maxTokens: 100000`. One clamp
+   now serves agent steps, suggestion and distillation.
+2. **A parallel sibling undid a step's narrowing.** Phase 2 wrote each step's
+   capabilities onto the SHARED context and `_require_path` re-reads them after
+   every await: a step restricted to no writes wrote two files. Still inside
+   system ∩ workflow, but step narrowing did not hold. Each deterministic call
+   now gets its own context view; the regression forces the interleaving
+   deterministically rather than by timing.
+3. **`fetch_url` reached a host outside `allowed_hosts`** through a parser
+   differential: `urlsplit` read `localhost:P\@127.0.0.1` as 127.0.0.1,
+   WHATWG ends the host at the backslash. Now refused: anything outside the
+   subset where both parsers agree. Reproduced against real Chromium; the live
+   regression fails on the old check.
+4. **The "derived from source" guard checked presence, not correctness** — a
+   mutant checking `dest_dir` instead of the file written passed. Added: every
+   access must follow a check of that same path in that mode.
+5. **The threat model overstated spend bounds** — step and workflow budgets
+   are author-set, and the workflow budget defaults to none. Corrected.
+   **Follow-up:** a platform-wide budget ceiling — a cost-policy decision.
+
+Claims executed and found TRUE: every capability resolution includes the
+system layer (one path, shared by run/resume/fork/retry); dry-run inherits it;
+`UNRESTRICTED` is never used in production code; no API path registers a
+trigger, so a draft's trigger config never runs.
+
 **Residuals, stated:** triggers' own I/O (operator config, never scaffolded);
 symlinks inside an allowed tree; the browser destination gap (browser pinned
 off). **Next: G30 to external review** — one control, both phases.

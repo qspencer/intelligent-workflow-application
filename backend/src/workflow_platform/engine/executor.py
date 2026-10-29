@@ -66,7 +66,7 @@ from workflow_platform.persistence import (
 )
 from workflow_platform.persistence.models import _utcnow
 from workflow_platform.security import CapabilityPolicy, resolve_capabilities
-from workflow_platform.security.capabilities import ResolvedCapabilities
+from workflow_platform.security.capabilities import ResolvedCapabilities, cap_output_tokens
 from workflow_platform.subject_identity import subject_from_namespace
 from workflow_platform.tools import Tool, ToolContext
 from workflow_platform.trace_projection import (
@@ -1384,6 +1384,13 @@ class WorkflowEngine:
             step_id=step.id,
         )
 
+    def _system_token_cap(self) -> int | None:
+        """The system layer's per-call output cap, for the platform's OWN model
+        calls — question suggestion and memory distillation — which no step's
+        capabilities reach."""
+        layer = self.system_capabilities
+        return layer.max_tokens_per_call if layer is not None else None
+
     async def _run_deterministic(
         self,
         step: DeterministicStep,
@@ -1393,8 +1400,15 @@ class WorkflowEngine:
         fn = self.functions.get(step.function)
         if fn is None:
             raise StepFailure(f"Unknown step function: {step.function!r}")
-        context.capabilities = capabilities
-        produced = await fn(step.config, context, self.world)
+        # The step's OWN view of the context. Capabilities are per step, and
+        # this used to write them onto the SHARED context — so a parallel
+        # sibling overwrote a step's narrowed capabilities mid-function, and
+        # `_require_path` re-reads them after every await. Found by an
+        # independent red-team (2026-10-29): a step restricted to no writes
+        # wrote two files. A shallow copy is enough: functions read the
+        # context and never mutate it (checked when this was written).
+        step_context = context.model_copy(update={"capabilities": capabilities})
+        produced = await fn(step.config, step_context, self.world)
         stripped = self._strip_engine_owned(produced, step)
         return stripped if isinstance(stripped, dict) else {}
 
@@ -1848,7 +1862,11 @@ class WorkflowEngine:
                         "content": [{"text": render_message(values, suggest.max_input_chars)}],
                     }
                 ],
-                inference_config={"maxTokens": suggest.max_output_tokens},
+                # A draft sets `max_output_tokens` (bounded only below); the
+                # system layer's cap bounds it from above (G30 red-team).
+                inference_config=cap_output_tokens(
+                    {"maxTokens": suggest.max_output_tokens}, self._system_token_cap()
+                ),
             )
         except Exception:
             logger.exception("question suggestion call failed")
@@ -1946,6 +1964,7 @@ class WorkflowEngine:
                 result = await self.learned_memory.observe(
                     namespace,
                     text,
+                    max_output_tokens=self._system_token_cap(),
                     author=obs.author,
                     event_type=obs.event_type,
                     date=date,

@@ -10,9 +10,10 @@ Conditional edges and parallel execution arrive in Phase 1 (Week 5).
 
 from __future__ import annotations
 
+import re
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import AfterValidator, BaseModel, ConfigDict, Field, model_validator
 
 from workflow_platform.elicitation.catalog import QuestionCatalog
 from workflow_platform.security import CapabilityPolicy
@@ -37,8 +38,29 @@ class StepRuntimePolicy(BaseModel):
     timeout_seconds: float | None = None
 
 
+#: Workflow and step ids become PATH SEGMENTS: an agentic step's memory file is
+#: `<memory dir>/steps/<workflow id>/<step id>.md`, loaded into its system
+#: prompt. Until 2026-10-29 ids were unconstrained strings, so an imported
+#: definition with id `../../x` made the engine load ANY `.md` file the service
+#: could read into an agent's prompt (found in the G30 pre-package review).
+#: Every id is now a plain token: no `/`, no `..`, no leading dot.
+_SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
+
+
+def _safe_id(value: str) -> str:
+    if not _SAFE_ID.match(value) or ".." in value:
+        raise ValueError(
+            f"id {value!r} must be 1-128 characters of letters, digits, '.', '_' or '-', "
+            f"start with a letter or digit, and contain no '..'"
+        )
+    return value
+
+
+SafeId = Annotated[str, AfterValidator(_safe_id)]
+
+
 class DeterministicStep(BaseModel):
-    id: str
+    id: SafeId
     type: Literal["deterministic"] = "deterministic"
     function: str
     config: dict[str, Any] = Field(default_factory=dict)
@@ -67,7 +89,7 @@ class RequireToolCall(BaseModel):
 
 
 class AgenticStep(BaseModel):
-    id: str
+    id: SafeId
     type: Literal["agentic"] = "agentic"
     goal: str
     tools: list[str] = Field(default_factory=list)
@@ -250,7 +272,7 @@ class QuestionSpec(BaseModel):
 
 
 class WorkflowDefinition(BaseModel):
-    id: str
+    id: SafeId
     name: str
     description: str = ""
     trigger: TriggerSpec

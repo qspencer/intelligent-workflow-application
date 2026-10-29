@@ -21,7 +21,15 @@ class MemoryManager:
         self.base_dir = Path(base_dir)
 
     def _path(self, agent_id: str) -> Path:
-        return self.base_dir / f"{agent_id}.md"
+        """Contained in `base_dir`, or refused. Defense in depth behind the id
+        rule on definitions: an agent id is built from workflow and step ids,
+        and before 2026-10-29 `steps/../../x` resolved OUTSIDE this directory
+        and fed any readable `.md` file into an agent's prompt. Resolved (so
+        `..` and symlinks are followed) before the check, not after."""
+        path = self.base_dir / f"{agent_id}.md"
+        if not path.resolve().is_relative_to(self.base_dir.resolve()):
+            raise ValueError(f"memory id {agent_id!r} resolves outside the memory directory")
+        return path
 
     async def load(self, agent_id: str) -> str:
         """Return the agent's memory file as a string, or empty string if none yet."""

@@ -45,6 +45,10 @@ file_write:
 # network destination. No live workflow uses the browser. Deny-all.
 allowed_hosts: []
 
-# Per-call OUTPUT ceiling. Live agents' largest single call over ~7,000 calls
-# was 147 tokens; 4096 is ~28x that, and bounds a runaway or a draft.
+# Per-call OUTPUT ceiling for every model call a workflow can drive: agent
+# steps, question suggestion (whose size a draft sets) and learned-memory
+# distillation (which sent none). Live agents' largest single call over ~7,000
+# was 147 tokens (~28x headroom); distillation's largest over 10,850 was at most
+# 2,196 (~1.9x). Scaffold drafting has a fixed 2000 of its own. This is the ONLY
+# platform-imposed spend ceiling — step and workflow budgets are author-set.
 max_tokens_per_call: 4096

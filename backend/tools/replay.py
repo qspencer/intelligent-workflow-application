@@ -41,6 +41,7 @@ from workflow_platform.engine import (
     default_function_registry,
 )
 from workflow_platform.persistence import in_memory_repositories
+from workflow_platform.security.capabilities import operator_system_capabilities
 from workflow_platform.tools import (
     FileReadTool,
     FileWriteTool,
@@ -71,6 +72,7 @@ async def replay(args: argparse.Namespace) -> int:
     init_tracing()
 
     engine = WorkflowEngine(
+        system_capabilities=operator_system_capabilities(),
         repositories=repos,
         functions=_default_functions(),
         tools=_default_tools(),

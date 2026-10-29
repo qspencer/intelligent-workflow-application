@@ -149,6 +149,70 @@ CONTROLS = [
         "tests/test_system_capabilities.py::"
         "test_the_layer_does_exactly_what_is_declared_to_each_armed_workflow",
     ),
+    (
+        "review: the id rule is switched off (traversal ids load again)",
+        "src/workflow_platform/workflow/definition.py",
+        '    if not _SAFE_ID.match(value) or ".." in value:\n',
+        "    if False:\n",
+        "tests/test_id_traversal.py",
+    ),
+    (
+        "review: the memory manager stops containing its paths",
+        "src/workflow_platform/memory/manager.py",
+        "        if not path.resolve().is_relative_to(self.base_dir.resolve()):\n",
+        "        if False:\n",
+        "tests/test_id_traversal.py::test_memory_refuses_an_id_that_resolves_outside_its_directory",
+    ),
+    (
+        "review: fetch_url joins the agent's file name onto the directory again",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "        target = self._contained(dest_filename)\n",
+        "        target = self.downloads_dir / dest_filename\n",
+        "tests/test_g30_capability_enforcement.py",
+    ),
+    (
+        "review: an operator script builds its engine without the layer",
+        "tools/fire.py",
+        "            system_capabilities=operator_system_capabilities(),\n",
+        "",
+        "tests/test_system_capabilities.py::"
+        "test_every_engine_built_outside_tests_carries_a_system_layer",
+    ),
+    (
+        "red-team 2: step capabilities written to the SHARED context again (the race)",
+        "src/workflow_platform/engine/executor.py",
+        '        step_context = context.model_copy(update={"capabilities": capabilities})\n        produced = await fn(step.config, step_context, self.world)\n',
+        "        context.capabilities = capabilities\n        produced = await fn(step.config, context, self.world)\n",
+        "tests/test_g30_function_capabilities.py::test_a_parallel_sibling_cannot_widen_a_steps_capabilities",
+    ),
+    (
+        "red-team 3: the host check stops refusing parser-divergent URLs",
+        "src/workflow_platform/connectors/browser/base.py",
+        '    if "@" in parts.netloc or "%" in parts.netloc:\n        return False\n',
+        "",
+        "tests/test_g30_capability_enforcement.py::test_urls_the_two_parsers_could_read_differently_are_refused",
+    ),
+    (
+        "red-team 1: the question-suggestion call escapes the cap",
+        "src/workflow_platform/engine/executor.py",
+        '                inference_config=cap_output_tokens(\n                    {"maxTokens": suggest.max_output_tokens}, self._system_token_cap()\n                ),\n',
+        '                inference_config={"maxTokens": suggest.max_output_tokens},\n',
+        "tests/test_g30_capability_enforcement.py::test_a_drafts_question_suggestion_cannot_exceed_the_system_cap",
+    ),
+    (
+        "red-team 1: memory distillation sends no cap again",
+        "src/workflow_platform/memory/learned.py",
+        "                inference_config=cap_output_tokens(None, self.max_output_tokens),\n",
+        "",
+        "tests/test_g30_capability_enforcement.py::test_memory_distillation_carries_the_cap_and_is_unchanged_without_one",
+    ),
+    (
+        "red-team 4: copy_files checks dest_dir instead of the file it writes (their mutant)",
+        "src/workflow_platform/engine/functions.py",
+        "        _require_path(context, out, write=True)\n        await world.fs.write_bytes(out, payload)\n",
+        "        _require_path(context, dest_dir, write=True)\n        await world.fs.write_bytes(out, payload)\n",
+        "tests/test_g30_function_capabilities.py::test_every_access_is_preceded_by_a_check_of_that_same_path",
+    ),
 ]
 
 

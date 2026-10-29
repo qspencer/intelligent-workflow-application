@@ -50,8 +50,23 @@ def url_host_allowed(url: str, allowed: Callable[[str], bool]) -> bool:
     under a policy, `file:`, `data:` and hostless URLs are refused, so a step
     restricted to named hosts cannot read the local filesystem through the
     browser either."""
+    # Python's `urlsplit` and the WHATWG parser the browser uses must agree on
+    # the host, or the check and the request see different destinations. They
+    # do not agree everywhere: an independent red-team (2026-10-29) fetched
+    # `http://localhost:P\@127.0.0.1:P/x` with only 127.0.0.1 allowed —
+    # `urlsplit` reads the host after the `@`, WHATWG ends the host at the
+    # backslash. Rather than chase each divergence, refuse everything outside
+    # the subset where both agree: non-ASCII (IDNA mapping, e.g. U+3002 as a
+    # dot), backslashes, whitespace and control characters (WHATWG strips or
+    # rewrites them), and userinfo or percent-escapes in the authority.
+    if not url.isascii() or any(
+        c == "\\" or c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F for c in url
+    ):
+        return False
     parts = urlsplit(url)
     if parts.scheme not in ("http", "https") or not parts.hostname:
+        return False
+    if "@" in parts.netloc or "%" in parts.netloc:
         return False
     return allowed(parts.hostname)
 
@@ -78,7 +93,11 @@ class BrowserConnector(Connector):
     effect even when nothing comes back, so "no content reached the agent" does
     not answer it. Destination enforcement must happen BEFORE dispatch, at the
     network layer, and is a prerequisite for enabling any browser tool in the
-    system layer — `test_system_capabilities.py` refuses that until it exists."""
+    system layer — `test_system_capabilities.py` refuses that until it exists.
+
+    FILES the browser writes — screenshots and downloads — land in the run's own
+    downloads directory under a bare file name, whatever path or name the agent
+    or the server supplies (`PlaywrightConnector._contained`)."""
 
     type: ClassVar[str]
 

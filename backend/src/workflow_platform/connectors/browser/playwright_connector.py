@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from datetime import UTC, datetime
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar
 from urllib.parse import urljoin
 
@@ -184,6 +184,27 @@ class PlaywrightConnector(BrowserConnector):
 
     # --- host policy (G30: `allowed_hosts`, see BrowserConnector) ---
 
+    def _contained(self, name: str) -> Path:
+        """Where a browser output may be written: this run's downloads
+        directory, under a bare file name — never anywhere else.
+
+        Found in the G30 pre-package review (2026-10-29): `screenshot(path=)`
+        wrote wherever the agent said, `fetch_url(dest_filename=)` joined the
+        agent's name onto the directory (so `../../x` climbed out and an
+        ABSOLUTE name replaced the directory outright), and `download_via_click`
+        trusted the server's suggested name. None was checked against
+        `file_write`. The browser is pinned out of the production layer, so
+        none was reachable — all would have been the moment it was enabled. The
+        directory is engine-owned per-run scratch, so containment, not a layer
+        entry, is the control."""
+        base = PurePosixPath(name.replace("\\", "/")).name
+        if base in ("", ".", ".."):
+            raise ValueError(f"{name!r} is not a usable file name")
+        target = self.downloads_dir / base
+        if not target.resolve().is_relative_to(self.downloads_dir.resolve()):
+            raise ValueError(f"{name!r} resolves outside this run's downloads directory")
+        return target
+
     async def _arm(self) -> None:
         """Intercept navigations once a policy is in force. Lazy, because
         routing disables Playwright's HTTP cache and an unrestricted run
@@ -311,6 +332,8 @@ class PlaywrightConnector(BrowserConnector):
         if path is None:
             ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
             path = str(self.downloads_dir / f"screenshot-{ts}.png")
+        else:
+            path = str(self._contained(path))
         await self._page.screenshot(path=path, full_page=full_page)
         size = Path(path).stat().st_size if Path(path).exists() else 0
         return BrowserScreenshot(local_path=path, bytes=size, full_page=full_page)
@@ -373,7 +396,7 @@ class PlaywrightConnector(BrowserConnector):
         if not dest_filename:
             tail = url.rsplit("/", 1)[-1].split("?", 1)[0]
             dest_filename = tail or "download"
-        target = self.downloads_dir / dest_filename
+        target = self._contained(dest_filename)
         target.parent.mkdir(parents=True, exist_ok=True)
         target.write_bytes(body)
         return BrowserDownload(
@@ -437,7 +460,7 @@ class PlaywrightConnector(BrowserConnector):
             # Refused BEFORE it is saved where the agent could read it.
             raise BrowserHostDenied(f"download from {source!r} is outside allowed_hosts")
         suggested: str = download.suggested_filename
-        target = self.downloads_dir / suggested
+        target = self._contained(suggested)
         await download.save_as(str(target))
         size = target.stat().st_size if target.exists() else 0
         source_url: str = download.url

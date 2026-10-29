@@ -325,3 +325,118 @@ def test_a_pattern_the_matcher_could_never_honour_is_refused(pattern: str) -> No
     name, anywhere. Refused loudly, not silently never-matching."""
     with pytest.raises(ValueError, match="absolute"):
         CapabilityPolicy(file_read=[pattern])
+
+
+# --- a parallel sibling cannot undo a step's narrowing --------------------------
+
+
+async def test_a_parallel_sibling_cannot_widen_a_steps_capabilities() -> None:
+    """Found by an independent red-team (2026-10-29). Step capabilities were
+    written onto the SHARED context, and `_require_path` re-reads them after
+    every await — so a sibling running in parallel overwrote a step's narrowed
+    set mid-function. Their repro relied on timing (a 50 MB read); this forces
+    the same interleaving deterministically: the narrowed step's read waits on
+    an event only the sibling step sets."""
+    import asyncio
+
+    gate = asyncio.Event()
+
+    async def open_gate(
+        config: dict[str, Any], context: WorkflowContext, world: World
+    ) -> dict[str, Any]:
+        gate.set()
+        return {}
+
+    world = mock_world()
+    await world.fs.write_bytes("/in/agg.xml", b"<feedback/>")
+    unguarded_read = world.fs.read_bytes
+
+    async def gated_read(path: str) -> bytes:
+        await gate.wait()  # the sibling runs while this step is suspended here
+        return await unguarded_read(path)
+
+    world.fs.read_bytes = gated_read  # type: ignore[method-assign]
+    functions = default_function_registry()
+    functions.register("open_gate", open_gate)
+    definition = load_definition_from_yaml(
+        """
+id: race
+name: race
+trigger: {type: manual}
+capabilities: {file_read: ["/in/*"], file_write: ["/out/*"]}
+steps:
+  - id: narrow
+    type: deterministic
+    function: copy_files
+    capabilities: {file_read: ["/in/*"], file_write: []}
+    config: {paths: ["/in/agg.xml"], dest_dir: "/out"}
+  - id: sibling
+    type: deterministic
+    function: open_gate
+    config: {}
+"""
+    )
+    engine = WorkflowEngine(
+        repositories=in_memory_repositories(),
+        functions=functions,
+        tools=ToolCatalog([]),
+        bedrock=FakeBedrock([]),
+        world=world,
+    )
+    instance = await engine.run(definition, trigger_payload={})
+    assert await _files_under(world, "/out") == [], "the narrowed step wrote after its sibling ran"
+    assert instance.state == WorkflowInstanceState.FAILED
+
+
+# --- the check is on the path ACTUALLY opened -----------------------------------
+
+
+class _RecordingCapabilities:
+    """Duck-typed stand-in that allows everything and logs each check."""
+
+    def __init__(self, log: list[tuple[str, str, str]]) -> None:
+        self._log = log
+
+    def can_read(self, path: str) -> bool:
+        self._log.append(("check", "read", path))
+        return True
+
+    def can_write(self, path: str) -> bool:
+        self._log.append(("check", "write", path))
+        return True
+
+
+@pytest.mark.parametrize("name", sorted(_CALLS))
+async def test_every_access_is_preceded_by_a_check_of_that_same_path(name: str) -> None:
+    """The population test above checks that a function CALLS `_require_path`
+    — presence, not correctness. An independent red-team (2026-10-29) showed a
+    `copy_files` mutant that checked `dest_dir` instead of the file it wrote
+    passed it. This is the property itself: every filesystem access, in order,
+    is preceded by a check of the same path in the same mode."""
+    call, fields, _ = _CALLS[name]
+    world = await _seeded()
+    log: list[tuple[str, str, str]] = []
+    fs = world.fs
+    real = {op: getattr(fs, op) for op in ("read_bytes", "write_bytes", "exists")}
+
+    def recording(op: str, mode: str) -> Callable[..., Awaitable[Any]]:
+        async def wrapped(path: str, *args: Any) -> Any:
+            log.append(("access", mode, path))
+            return await real[op](path, *args)
+
+        return wrapped
+
+    fs.read_bytes = recording("read_bytes", "read")  # type: ignore[method-assign,assignment]
+    fs.write_bytes = recording("write_bytes", "write")  # type: ignore[method-assign,assignment]
+    fs.exists = recording("exists", "read")  # type: ignore[method-assign,assignment]
+    ctx = _ctx(None, **fields)
+    ctx.capabilities = _RecordingCapabilities(log)  # type: ignore[assignment]
+
+    await call(ctx, world)
+
+    accesses = [(i, mode, path) for i, (kind, mode, path) in enumerate(log) if kind == "access"]
+    assert accesses, f"{name} touched no files — the probe is not exercising it"
+    for i, mode, path in accesses:
+        assert ("check", mode, path) in log[:i], (
+            f"{name}: {mode} of {path!r} happened without a prior {mode} check of that path"
+        )

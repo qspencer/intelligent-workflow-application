@@ -130,6 +130,10 @@ async def test_screenshot_with_explicit_path(tmp_path: Path) -> None:
         target = str(tmp_path / "explicit.png")
         result = await conn.screenshot(path=target, full_page=False)
     assert isinstance(result, BrowserScreenshot)
+    # CHANGED 2026-10-29 (G30 pre-package review): this asserted the shot
+    # landed at the requested path, outside the downloads directory — the
+    # agent-chosen write being closed. Same name, confined location.
+    target = str(tmp_path / "downloads" / "explicit.png")
     assert result.local_path == target
     assert result.bytes > 0  # FakePage writes a non-empty stub PNG
     assert result.full_page is False

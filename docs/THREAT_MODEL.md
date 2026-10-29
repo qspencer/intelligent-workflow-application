@@ -256,13 +256,32 @@ IdP is sole authority — D4). Fifteen pinned security tests in
     2026-10-29).** Before that, `copy_files`, `append_file`,
     `extract_archive`, `route_by_*` and `write_csv` called `world.fs`
     directly. Each now checks every path before access; a denial fails
-    the step and is never a silent skip. The set is DERIVED from source
-    — a function that touches the filesystem without checking fails the
-    build.
+    the step and is never a silent skip. Two tests, because one was not
+    enough: the set of file functions is derived from source (PRESENCE —
+    each calls the check), and every filesystem access is shown to follow
+    a check of that SAME path in that same mode (CORRECTNESS). An
+    independent red-team showed the first alone passed a mutant checking
+    the directory instead of the file written.
   - **The path matcher was unsound until the same day:** `*` matched
     `..` (`/allowed/*/*` admitted `/allowed/../secret`), relative
     patterns matched any directory of that name, and `**` was not
     recursive. Now absolute-only, `..` refused outright, whole-path match.
+  - **Found by the G30 pre-package review (2026-10-29), each fixed with a
+    test and a control:** (1) a workflow or step id was an unconstrained
+    string that became a path segment, so an imported definition with id
+    `../../x` made the engine load any readable `.md` file into an agent's
+    prompt — ids are now plain tokens and the memory manager refuses paths
+    outside its directory; (2) the browser's screenshot `path`, `fetch_url`'s
+    `dest_filename` (an ABSOLUTE name replaced the directory outright) and a
+    server's suggested download name could all write outside the run's
+    downloads directory — now confined to it; (3) seven operator scripts,
+    `fire.py` among them, built engines with no system layer — every engine
+    outside tests now carries one, derived and enforced.
+  - **`max_tokens_per_call` bounds every model call a workflow drives** —
+    agent steps, question suggestion and memory distillation, through one
+    clamp. The independent red-team showed suggestion escaping it with a
+    draft-set `maxTokens: 100000`; distillation had sent no cap at all.
+    Scaffold drafting keeps its own fixed 2000.
   - **Still outside, stated rather than claimed away:** triggers do their
     own I/O from operator config (a scaffolded draft's trigger is never
     registered); a symlink inside an allowed tree pointing out is
@@ -271,8 +290,15 @@ IdP is sole authority — D4). Fifteen pinned security tests in
     is for G30's external review to say, not this document.
 - Secrets: `.secrets/**` 0600 + gitignored; `SecretStore` abstraction
   (env / AWS Secrets Manager); tokens never logged or stored raw
-  (session tokens hashed; pinned). Bedrock spend is bounded per step,
-  per workflow (budget actions), and observable per run/model/day; the
+  (session tokens hashed; pinned). Bedrock spend is observable per
+  run/model/day and every call is metered. **Corrected 2026-10-29
+  (independent red-team): this said spend is "bounded per step, per
+  workflow". The bounds are AUTHOR-SET** — a step's `max_iterations` (10)
+  and `max_total_tokens` (200,000) are defaults any definition, scaffolded
+  drafts included, may raise without limit, and the workflow budget
+  `policies.max_total_tokens` defaults to NONE. The only platform-imposed
+  ceiling is per-call output (`max_tokens_per_call`, system layer). A
+  platform-wide budget ceiling is an open follow-up (NEXT_STEPS G30). The
   sampling HMAC key comes from the environment, not the repo.
 - Audit: every transition, tool call, capability denial, org bypass,
   budget event, memory write/recall/introspection. Org-scoped reads;

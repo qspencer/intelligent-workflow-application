@@ -155,3 +155,16 @@ async def test_fetch_url_never_follows_a_redirect_off_list(
     with pytest.raises(BrowserHostDenied):
         await browser.fetch_url(f"http://127.0.0.1:{site.port}/redir")
     assert "/landing" not in _paths(site, "localhost"), "fetch_url followed the redirect off-list"
+
+
+async def test_a_backslash_cannot_smuggle_a_disallowed_host_past_fetch_url(
+    site: _Site, browser: PlaywrightConnector
+) -> None:
+    """The independent red-team's repro (2026-10-29), kept as a regression:
+    Python's `urlsplit` read this host as 127.0.0.1 (allowed); Playwright's
+    request API reads it per WHATWG — the backslash ends the host — and
+    fetched from localhost."""
+    smuggled = f"http://localhost:{site.port}\\@127.0.0.1:{site.port}/x"
+    with pytest.raises(BrowserHostDenied):
+        await browser.fetch_url(smuggled)
+    assert _paths(site, "localhost") == [], "the smuggled request reached the disallowed host"

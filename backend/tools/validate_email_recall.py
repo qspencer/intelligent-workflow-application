@@ -37,6 +37,8 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from workflow_platform.security.capabilities import operator_system_capabilities
+
 REPO_ROOT = Path(__file__).resolve().parents[2]
 DATA_DIR = REPO_ROOT / "data" / "email_triage"
 LIVE_WF = REPO_ROOT / "examples" / "email_triage_live"
@@ -88,6 +90,7 @@ async def _run_one(definition: Any, trigger: dict[str, Any], learned: Any, deps:
     init_tracing()
 
     engine = WorkflowEngine(
+        system_capabilities=operator_system_capabilities(),
         repositories=in_memory_repositories(),
         functions=deps["functions"](),
         tools=deps["tools"],
