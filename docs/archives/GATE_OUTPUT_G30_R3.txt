@@ -1,0 +1,234 @@
+Captured standalone gate results
+
+Gates ran at tree: 78c29c3222554f97ed26509178ca11683f2f89d3   (manifest aggregate: 569c00d2379b5341a9cda11aa050267e1a15780e618eeda3734f92b21986310e)
+Full output; each exit code captured before any pipe.
+Host: Linux 7.0.0-1014-aws GNU/Linux · Python 3.14.7 · 2026-10-29T20:39:34Z
+Runtime: sqlite 3.45.1 · veracium 0.27.1 · runtime_supported() True
+
+=== ruff check ===
+All checks passed!
+exit: 0
+
+=== ruff format --check ===
+305 files already formatted
+exit: 0
+
+=== mypy src tests ===
+Success: no issues found in 260 source files
+exit: 0
+
+=== pytest ===
+........................................................................ [  4%]
+........................................................................ [  8%]
+.......................sssssssssss...................................... [ 13%]
+........................................................................ [ 17%]
+........................................................................ [ 21%]
+........................................................................ [ 26%]
+...........ss........................................................... [ 30%]
+........................................................................ [ 34%]
+........................................s............................... [ 39%]
+........................................................................ [ 43%]
+..............................................................ssss...... [ 47%]
+........................................................................ [ 52%]
+........................................................................ [ 56%]
+........................................................................ [ 60%]
+........................................................................ [ 65%]
+........................................................ssssssss........ [ 69%]
+........................................................................ [ 73%]
+........................................................................ [ 78%]
+......sss............................................................... [ 82%]
+........................................................................ [ 86%]
+............................................................s........... [ 91%]
+........................................................................ [ 95%]
+........................................................................ [100%]
+=============================== warnings summary ===============================
+.venv/lib/python3.14/site-packages/fastapi/testclient.py:1
+  /home/ubuntu/Dev/intelligent-workflow-application/backend/.venv/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_auth.py: 1 warning
+tests/test_health.py: 1 warning
+tests/test_schema_drift.py: 12 warnings
+tests/test_system_capabilities.py: 2 warnings
+  /home/ubuntu/Dev/intelligent-workflow-application/backend/.venv/lib/python3.14/site-packages/alembic/config.py:604: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_schema_conformance.py:29: SCHEMA_TESTS not set; skipping schemathesis contract tests
+SKIPPED [1] tests/test_browser_host_policy_live.py:121: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_host_policy_live.py:150: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_host_policy_live.py:156: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_host_policy_live.py:167: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_host_policy_live.py:175: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_host_policy_live.py:188: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_host_policy_live.py:204: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_live.py:66: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_live.py:74: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_live.py:102: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_live.py:115: BEDROCK_LIVE not set; skipping end-to-end live workflow test
+SKIPPED [1] tests/test_elicitation_c1.py:287: TEST_DATABASE_URL not set
+SKIPPED [1] tests/test_elicitation_c1.py:333: TEST_DATABASE_URL not set
+SKIPPED [1] tests/test_g29_withdrawn_postgres.py:56: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_gmail_live.py:97: GMAIL_LIVE not set; skipping live Gmail tests
+SKIPPED [1] tests/test_gmail_live.py:104: GMAIL_LIVE not set; skipping live Gmail tests
+SKIPPED [1] tests/test_gmail_live.py:125: GMAIL_LIVE not set; skipping live Gmail tests
+SKIPPED [1] tests/test_gmail_live.py:180: GMAIL_LIVE not set; skipping live Gmail tests
+SKIPPED [1] tests/test_postgres_repositories.py:55: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:109: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:132: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:156: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:223: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:256: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:294: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:334: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
+1626 passed, 31 skipped, 17 warnings in 64.44s (0:01:04)
+exit: 0
+
+=== pip-audit ===
+No known vulnerabilities found
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== claims: g30_reproductions.py (BROWSER_LIVE=1, TEST_DATABASE_URL set) ===
+claim     tests controls  status   (controls = aimed at this claim's own tests)
+A1      11/11          1  ok    The shipped system layer loads strictly: every attribute stated; a mis
+A2      10/10          6  ok    Every engine — the service on every launch path and every operator scr
+A3      11/11          1  ok    Every armed workflow is accounted for: runs under the layer, or is dec
+A4       2/2           1  ok    /api/health reports the layer as counts, never names, through the real
+B1       2/2           1  ok    Through the real engine, a tool the layer does not list is refused — o
+B2       7/7           3  ok    max_tokens_per_call clamps agent steps (most restrictive layer), quest
+C1      11/11          3  ok    The path matcher: absolute only, `..` refused, whole-path match, `**` 
+C2      24/24          3  ok    Every deterministic file function checks before access; a denial raise
+C3       8/8           3  ok    Every filesystem access follows a check of that SAME path in that same
+C4       1/1           1  ok    A parallel sibling step cannot widen a step's capabilities
+C5       3/3           1  ok    The live deterministic workflows run under the SHIPPED layer at their 
+D1      17/17          2  ok    Workflow and step ids are plain tokens; memory refuses paths outside i
+D3       1/1           1  ok    A definition stored around the API with a released vocabulary is refus
+E1      24/24          4  ok    allowed_hosts blocks agent-initiated requests before dispatch, and the
+E2       7/7           1  ok    URLs the host check and the browser could parse differently are refuse
+E3       7/7           2  ok    Browser outputs stay in the run's OWN downloads directory — one per in
+E6       3/3           2  ok    A step's host policy holds for its whole browser call: a parallel sibl
+E7       8/8           4  ok    A browser upload reads a local file, so file_read applies: refused bef
+E8      19/19          4  ok    A read returns only what the checked document gave it: a page that nav
+E4       1/1           1  ok    The browser stays out of the system layer until destinations are enfor
+E5       7/7           2  ok    Against real Chromium: off-list clicks and navigations send nothing; t
+
+21 claims; 184 test results run; 52 controls in g30_controls.py; pytest exit 0
+every runnable claim reproduced
+exit: 0
+
+=== controls: g30_controls.py (BROWSER_LIVE=1, TEST_DATABASE_URL set) ===
+--- max_tokens_per_call: the clamp is bypassed
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- allowed_hosts: the step's policy never reaches the connector
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- allowed_hosts: navigate stops checking the URL first
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- allowed_hosts: fetch_url lets the API context follow redirects again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- allowed_hosts: read_text stops checking where the page is
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- loader: a misspelt key is accepted (fails open)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- the launcher stops naming the layer
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- health leaks the tool names
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- an armed workflow goes undeclared
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- a browser tool is enabled before destinations are enforced
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- phase 2: copy_files stops checking what it reads
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- phase 2: a denial moves inside the skip-on-failure try (becomes a silent skip)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- phase 2: a file function stops consulting capabilities
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- matcher: back to PurePosixPath.match (admits ..)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- matcher: '..' segments no longer refused
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- pattern rule: relative patterns accepted again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- layer: DMARC spool pattern one level too shallow
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- layer: widened enough to run invoice-extraction, declaration not updated
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- review: the id rule is switched off (traversal ids load again)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- review: the memory manager stops containing its paths
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- review: fetch_url joins the agent's file name onto the directory again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- review: an operator script builds its engine without the layer
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 2: step capabilities written to the SHARED context again (the race)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 3: the host check stops refusing parser-divergent URLs
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 1: the question-suggestion call escapes the cap
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 1: memory distillation sends no cap again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 4: copy_files checks dest_dir instead of the file it writes (their mutant)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- re-check: copy_files checks only the FIRST file it writes (their weaker mutant)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- re-check: extract_archive checks only the FIRST member it writes
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- the agent stops checking whether a tool is allowed (B1)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- E5 (live Chromium): the host check stops refusing parser-divergent URLs
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- D3 (real Postgres): a stored released vocabulary loads again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R1: the service passes no layer again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R1: unset means no layer again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R1: the image stops carrying the layer
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2: the policy operation drops its lock
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2: a tool calls the connector outside a policy operation
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R3: every run shares one downloads directory again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R4: an upload stops consulting file_read
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2-F1: the ECR script builds from backend/ again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2-F1: a place that builds the image goes unlisted
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2-F2: the upload source is examined before the call owns the browser
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2-F2: the upload stops refusing a directory
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2-F2: the upload accepts a non-regular file
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2-F3: reads are not fenced
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2-F3: the fence compares URLs only (navigations go uncounted)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2-F3: a child frame's navigation counts as the page's
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2-F3: fill stops checking the page when it ends
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2-F3, real Chromium: reads are not fenced
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- figures: a number in the guide is typed wrong (21 -> 22 claims)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- figures: an unregistered number appears in the guide's prose
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- figures: the shipped evidence disagrees with the guide (184 -> 185 results)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+
+ALL CONTROLS FIRED
+exit: 0
