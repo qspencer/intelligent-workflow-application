@@ -9,6 +9,7 @@ live alongside in their own modules. See
 from workflow_platform.connectors.browser.base import (
     BrowserConnector,
     BrowserHostDenied,
+    BrowserPageNotCleared,
     detect_selector_type,
     url_host_allowed,
 )
@@ -28,6 +29,7 @@ __all__ = [
     "BrowserConnector",
     "BrowserDownload",
     "BrowserHostDenied",
+    "BrowserPageNotCleared",
     "BrowserScreenshot",
     "BrowserSelector",
     "BrowserUpload",

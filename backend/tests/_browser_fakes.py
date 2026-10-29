@@ -236,6 +236,10 @@ class FakePlaywrightPage:
         self.context = FakeBrowserContext()
         self.main_frame = FakeFrame()
         self._handlers: dict[str, list[Any]] = {}
+        #: Clearing (`goto("about:blank")`) fails with this, after the page is
+        #: taken to `clear_interrupted_to` — another navigation interrupting it.
+        self.clear_fails: Exception | None = None
+        self.clear_interrupted_to: str | None = None
         #: method name -> what happens to the page WHILE that call waits, e.g.
         #: a navigation committing between the connector's check and the reply.
         self.during: dict[str, Callable[[], None]] = {}
@@ -263,6 +267,10 @@ class FakePlaywrightPage:
 
     async def goto(self, url: str, *, wait_until: str = "load") -> None:
         self.calls.append(("goto", {"url": url, "wait_until": wait_until}))
+        if url == "about:blank" and self.clear_fails is not None:
+            if self.clear_interrupted_to is not None:
+                self.commit(self.clear_interrupted_to)
+            raise self.clear_fails
         self.commit(self.redirect_to.get(url, url))
 
     async def screenshot(self, *, path: str, full_page: bool = False) -> bytes:

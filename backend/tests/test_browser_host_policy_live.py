@@ -255,3 +255,31 @@ async def test_the_same_error_on_a_page_that_stays_put_is_kept(
     with pytest.raises(PlaywrightError, match="strict mode violation") as caught:
         await browser.read_text(".late")
     assert "ALLOWED-DUP" in str(caught.value)
+
+
+async def test_a_withheld_read_stays_withheld_when_clearing_really_fails(
+    site: _Site, browser: PlaywrightConnector
+) -> None:
+    """Round-4 review, R4-F1, with a REAL failing clear: the page leaves for the
+    disallowed host while the read waits, the fence withholds the result, and
+    the clearing navigation hits a page closed just before it — so Playwright
+    itself raises. The withheld error must survive that, say clearing failed,
+    and carry nothing of either. (The reviewer's interrupted-navigation timing
+    is not reproduced here; this is a real clearing failure of another kind.)"""
+    await browser.navigate(f"http://127.0.0.1:{site.port}/late-start")
+    page = browser._page
+    real_goto = page.goto
+
+    async def goto_after_closing(url: str, **kwargs: object) -> object:
+        if url == "about:blank":
+            await page.close()
+        return await real_goto(url, **kwargs)
+
+    page.goto = goto_after_closing
+    with pytest.raises(BrowserHostDenied) as caught:
+        await browser.read_text("#late")
+    message = str(caught.value)
+    assert "withheld" in message and "cleanup=failed" in message
+    assert "SECRET-LATE" not in message and "localhost" not in message
+    assert caught.value.__context__ is None
+    assert page.is_closed(), "the clearing failure was not the one designed"

@@ -29,6 +29,7 @@ from tests._browser_fakes import FakeDownload, FakeFrame, FakePlaywrightPage
 from workflow_platform.agent import Agent
 from workflow_platform.connectors.browser import (
     BrowserHostDenied,
+    BrowserPageNotCleared,
     BrowserUpload,
     PlaywrightConnector,
 )
@@ -453,6 +454,176 @@ async def test_an_error_about_the_checked_page_is_kept(tmp_path: Path, name: str
     with pytest.raises(PlaywrightError, match=MARKER):
         await _call(conn, name)
     assert page.url == ALLOWED
+
+
+# --- when CLEARING the page fails (round-4 review, R4-F1) ---
+
+#: The interrupting URL a failed clear's error can name — chosen by a server.
+CLEANUP = "CLEANUP_URL_FIXTURE"
+CLEANUP_URL = f"https://evil.example/{CLEANUP}"
+
+
+def _clearing_fails(page: FakePlaywrightPage) -> None:
+    from playwright.async_api import Error as PlaywrightError
+
+    page.clear_interrupted_to = CLEANUP_URL
+    page.clear_fails = PlaywrightError(
+        f'Page.goto: Navigation to "about:blank" is interrupted by another navigation to '
+        f'"{CLEANUP_URL}"'
+    )
+
+
+def _assert_withheld_and_uncleared(exc: BaseException, page: FakePlaywrightPage) -> None:
+    message = str(exc)
+    assert "withheld" in message and "cleanup=failed" in message
+    assert "could NOT be cleared" in message, "a failed clear reported as a cleared page"
+    assert CLEANUP not in message and MARKER not in message and "evil.example" not in message
+    assert exc.__context__ is None and exc.__cause__ is None
+    assert page.url == CLEANUP_URL, "the fixture did not leave the page uncleared"
+
+
+@pytest.mark.parametrize("name", _READS)
+async def test_a_withheld_result_stays_withheld_when_clearing_fails(
+    tmp_path: Path, name: str
+) -> None:
+    """The reviewer's sequence: the read succeeds on a page that navigated
+    off-list, the fence withholds it, and the clearing navigation is itself
+    interrupted — Playwright's error names the interrupting URL. Before the fix
+    that error replaced the withheld one and reached the agent."""
+    page = _page_with_late_content()
+    page.during[_PAGE_CALL[name]] = lambda: page.commit(OTHER)
+    _clearing_fails(page)
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(BrowserHostDenied) as caught:
+        await _read(conn, name, tmp_path)
+    _assert_withheld_and_uncleared(caught.value, page)
+
+
+@pytest.mark.parametrize("name", _ERRORING)
+async def test_a_withheld_error_stays_withheld_when_clearing_fails(
+    tmp_path: Path, name: str
+) -> None:
+    page = FakePlaywrightPage(url=ALLOWED)
+    _failing(name, page, lambda: page.commit(OTHER))
+    _clearing_fails(page)
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(BrowserHostDenied) as caught:
+        await _call(conn, name)
+    _assert_withheld_and_uncleared(caught.value, page)
+
+
+@pytest.mark.parametrize("clearing_fails", [False, True])
+async def test_a_rejected_screenshot_never_reaches_its_path(
+    tmp_path: Path, clearing_fails: bool
+) -> None:
+    """Before the fix the capture was written to its path first and deleted
+    only on the expected error, so a failed clear left it there."""
+    page = _page_with_late_content()
+    page.during["screenshot"] = lambda: page.commit(OTHER)
+    if clearing_fails:
+        _clearing_fails(page)
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(BrowserHostDenied, match="withheld"):
+        await conn.screenshot(path="shot.png")
+    assert list((tmp_path / "dl").iterdir()) == [], "a rejected capture was left on disk"
+
+
+async def test_a_page_found_off_list_that_cannot_be_cleared_says_so(tmp_path: Path) -> None:
+    """The same at the start of a call, where every call checks the page: the
+    error says clearing failed, carries none of Playwright's text, and the
+    next call checks again — and clears it once clearing works."""
+    page = FakePlaywrightPage(url=OTHER)
+    _clearing_fails(page)
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(BrowserPageNotCleared) as caught:
+        await conn.read_text("#x")
+    assert CLEANUP not in str(caught.value) and caught.value.__context__ is None
+    assert not [c for c in page.calls if c[0].startswith("locator")], "it read the page"
+    page.clear_fails = None
+    with pytest.raises(BrowserHostDenied, match="it was cleared"):
+        await conn.read_text("#x")
+    assert page.url == "about:blank"
+
+
+@pytest.mark.parametrize(
+    ("during", "cleanup"),
+    [("off_list", "cleared"), ("off_list_and_back", "not_needed")],
+)
+async def test_the_withheld_status_reports_what_clearing_did(
+    tmp_path: Path, during: str, cleanup: str
+) -> None:
+    page = _page_with_late_content()
+
+    def navigate() -> None:
+        page.commit(OTHER)
+        if during == "off_list_and_back":
+            page.commit(ALLOWED)
+
+    page.during["inner_text"] = navigate
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(BrowserHostDenied) as caught:
+        await conn.read_text("#late")
+    assert f"[document_changed; call=read; error=none; cleanup={cleanup}]" in str(caught.value)
+
+
+async def test_the_model_never_sees_a_failed_clear(tmp_path: Path) -> None:
+    """Through the real engine: the reviewer's probe, inverted. Before the fix
+    the interrupting URL reached the model's next turn and the step output."""
+    from playwright.async_api import Error as PlaywrightError
+
+    from tests._bedrock_fakes import tool_use_response
+    from workflow_platform.engine import ToolCatalog, WorkflowEngine, default_function_registry
+    from workflow_platform.persistence import in_memory_repositories
+    from workflow_platform.tools.browser import BrowserReadTextTool
+    from workflow_platform.workflow import load_definition
+    from workflow_platform.world import mock_world
+
+    page = FakePlaywrightPage(url=ALLOWED)
+    page.during["inner_text"] = lambda: page.commit(OTHER)
+    page.raise_on_text["#late"] = PlaywrightError(DIAGNOSTIC)
+    _clearing_fails(page)
+    conn = PlaywrightConnector(page=page, downloads_dir=tmp_path)
+    model = FakeBedrock(
+        [
+            tool_use_response(tool_uses=[("r1", "browser_read_text", {"selector": "#late"})]),
+            text_response("done"),
+        ]
+    )
+    repos = in_memory_repositories()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=default_function_registry(),
+        tools=ToolCatalog([BrowserReadTextTool()]),
+        bedrock=model,
+        world=mock_world(),
+        browser_connector_factory=lambda: conn,
+        system_capabilities=CapabilityPolicy(
+            tools=["browser_read_text"], allowed_hosts=["allowed.example"]
+        ),
+    )
+    definition = load_definition(
+        {
+            "id": "r4-cleanup",
+            "name": "r4 cleanup",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {
+                    "id": "read",
+                    "type": "agentic",
+                    "goal": "read",
+                    "model": "fixture-model",
+                    "tools": ["browser_read_text"],
+                }
+            ],
+            "edges": [],
+        }
+    )
+    instance = await engine.run(definition)
+    seen = str(model.calls[1]["messages"])
+    assert "cleanup=failed" in seen, "the tool result did not reach the model at all"
+    assert CLEANUP not in seen and MARKER not in seen
+    (step,) = await repos.steps.list_by_instance(instance.id)
+    assert CLEANUP not in str(step.output) and MARKER not in str(step.output)
 
 
 async def test_an_action_that_leaves_and_returns_is_not_detected(tmp_path: Path) -> None:

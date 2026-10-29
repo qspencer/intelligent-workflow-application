@@ -48,6 +48,12 @@ class BrowserHostDenied(Exception):
     """A URL, or the page itself, is outside the step's `allowed_hosts`."""
 
 
+class BrowserPageNotCleared(BrowserHostDenied):
+    """The page was found outside `allowed_hosts` and CLEARING it failed, so it
+    may still be there. Nothing from it was read; every browser call starts
+    by checking the page again (round-4 review, R4-F1)."""
+
+
 def url_host_allowed(url: str, allowed: Callable[[str], bool]) -> bool:
     """Whether `url` passes a host policy. Only http(s) URLs with a host can:
     under a policy, `file:`, `data:` and hostless URLs are refused, so a step
@@ -101,9 +107,18 @@ class BrowserConnector(Connector):
          the new document — its protocol messages arrive in order and the
          handler runs as each is dispatched — and real-Chromium tests pin it
          for a script navigation through a redirect;
+       - CLEARING the page can itself fail (another navigation interrupts it,
+         or the page is gone). Then the call still fails withheld, the error
+         says clearing failed — never Playwright's text, which can name the
+         interrupting URL — and the page is NOT reported cleared; the next
+         call's check sees it again (round-4 review, R4-F1). A rejected
+         screenshot never reaches its path: it is captured to a pending name
+         and moved there only once the check passes;
        - an ACTION (`click`, `fill`, `upload_file`, `submit_form`,
          `download_via_click`) starts only on an allowed page and is checked
-         on every exit. On a normal return the page is judged by where it
+         on every exit but cancellation, which passes through unchecked — no
+         result reaches the agent from a cancelled call, and the next call's
+         check clears what is left. On a normal return the page is judged by where it
          ENDS: off-list fails the call and clears the page; leaving and
          returning to an allowed URL is not detected (R3-F2). An error is
          withheld, as a read's is, if the page navigated during the action.

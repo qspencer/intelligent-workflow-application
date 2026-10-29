@@ -19,12 +19,14 @@ from datetime import UTC, datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, ClassVar, NoReturn
 from urllib.parse import urljoin
+from uuid import uuid4
 
 from bs4 import BeautifulSoup, Tag
 
 from workflow_platform.connectors.browser.base import (
     BrowserConnector,
     BrowserHostDenied,
+    BrowserPageNotCleared,
     url_host_allowed,
 )
 from workflow_platform.connectors.browser.models import (
@@ -248,7 +250,23 @@ class PlaywrightConnector(BrowserConnector):
         current: str = self._page.url
         if current in ("", "about:blank") or url_host_allowed(current, allowed):
             return
-        await self._page.goto("about:blank")
+        # Clearing can itself fail — another navigation interrupts it, or the
+        # page is gone — and Playwright's error can name the URL that
+        # interrupted it, which a server chose. So its TEXT never leaves here,
+        # only its class, and the failure is reported as such rather than as a
+        # cleared page (round-4 review, R4-F1). Raised outside the `except`, so
+        # the original is not chained.
+        failure: str | None = None
+        try:
+            await self._page.goto("about:blank")
+        except Exception as exc:
+            failure = exc.__class__.__name__
+        if failure is not None:
+            raise BrowserPageNotCleared(
+                f"the page reached {current!r}, outside this step's allowed_hosts, and "
+                f"clearing it failed ({failure}); nothing from it was read, and the next "
+                "browser call checks the page again"
+            )
         if current.startswith("chrome-error://"):
             # An ABORTED navigation: route interception blocked it, and Chromium
             # shows its own error page in its place (found by the live test —
@@ -345,16 +363,23 @@ class PlaywrightConnector(BrowserConnector):
         landing check's own error, so neither rides along as `__context__`."""
         what = f"its error ({failed})" if failed else "its result"
         withheld = f"the page navigated while this {call} was in progress, so {what} was withheld"
-        cleared = False
+        # Withheld whatever clearing does: its outcome is reported as one of
+        # three fixed values, never through the error it raised (R4-F1).
+        cleanup = "not_needed"
         try:
             await self._enforce_landing()
-        except BrowserHostDenied:  # it names the URL; raised outside, so not chained
-            cleared = True
-        if cleared:
-            raise BrowserHostDenied(
-                f"{withheld}; the page had left this step's allowed_hosts and was cleared"
-            )
-        raise BrowserHostDenied(f"{withheld}; check where the page is and try again")
+        except BrowserPageNotCleared:  # names the URL; raised outside, so not chained
+            cleanup = "failed"
+        except BrowserHostDenied:
+            cleanup = "cleared"
+        outcome = {
+            "cleared": "the page had left this step's allowed_hosts and was cleared",
+            "failed": "the page had left this step's allowed_hosts and could NOT be "
+            "cleared; the next browser call checks it again",
+            "not_needed": "check where the page is and try again",
+        }[cleanup]
+        status = f"[document_changed; call={call}; error={failed or 'none'}; cleanup={cleanup}]"
+        raise BrowserHostDenied(f"{withheld}; {outcome} {status}")
 
     # --- lifecycle ---
 
@@ -431,11 +456,18 @@ class PlaywrightConnector(BrowserConnector):
             path = str(self.downloads_dir / f"screenshot-{ts}.png")
         else:
             path = str(self._contained(path))
+        # Captured to a pending name and moved to `path` only once the fence
+        # passes, so an image of an unchecked page never sits at `path` —
+        # whatever the fence or clearing raised (round-4 review, R4-F1).
+        target = Path(path)
+        pending = target.with_name(f".pending-{uuid4().hex}{target.suffix}")
         try:
-            await self._fenced(lambda: self._page.screenshot(path=path, full_page=full_page))
-        except BrowserHostDenied:
-            Path(path).unlink(missing_ok=True)  # an image of an unchecked page
-            raise
+            await self._fenced(
+                lambda: self._page.screenshot(path=str(pending), full_page=full_page)
+            )
+            pending.replace(target)
+        finally:
+            pending.unlink(missing_ok=True)
         size = Path(path).stat().st_size if Path(path).exists() else 0
         return BrowserScreenshot(local_path=path, bytes=size, full_page=full_page)
 

@@ -138,9 +138,13 @@ async def test_screenshot_with_explicit_path(tmp_path: Path) -> None:
     assert result.local_path == target
     assert result.bytes > 0  # FakePage writes a non-empty stub PNG
     assert result.full_page is False
-    # Confirm the connector forwarded the right args to page.screenshot.
+    # The capture is taken to a pending name beside the target and moved there
+    # once the page check passes (round-4 review, R4-F1); nothing is left over.
     shot_call = next(kw for (m, kw) in fake.calls if m == "screenshot")
-    assert shot_call == {"path": target, "full_page": False}
+    assert Path(shot_call["path"]).parent == Path(target).parent
+    assert Path(shot_call["path"]).name.startswith(".pending-")
+    assert shot_call["full_page"] is False
+    assert sorted(p.name for p in Path(target).parent.iterdir()) == ["explicit.png"]
 
 
 async def test_screenshot_default_path_lands_in_downloads_dir(tmp_path: Path) -> None:

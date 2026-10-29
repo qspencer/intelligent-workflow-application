@@ -419,10 +419,8 @@ CONTROLS = [
     (
         "R3-F1: the withheld error chains the landing check's, which names the URL",
         "src/workflow_platform/connectors/browser/playwright_connector.py",
-        "        except BrowserHostDenied:  # it names the URL; raised outside, so not chained\n"
-        "            cleared = True\n",
-        "        except BrowserHostDenied:\n"
-        "            raise BrowserHostDenied(withheld)\n",
+        "        except BrowserHostDenied:\n            cleanup = \"cleared\"\n",
+        "        except BrowserHostDenied:\n            raise BrowserHostDenied(withheld)\n",
         "tests/test_g30_capability_enforcement.py::"
         "test_an_error_after_the_page_left_for_an_off_list_host_is_withheld",
     ),
@@ -443,6 +441,60 @@ CONTROLS = [
         "            if True:\n",
         "tests/test_browser_host_policy_live.py::"
         "test_an_error_quoting_an_off_list_page_is_withheld",
+        "BROWSER_LIVE",
+    ),
+    (
+        "R4-F1: a failed clear's error passes through (after a withheld result)",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "        try:\n            await self._page.goto(\"about:blank\")\n"
+        "        except Exception as exc:\n            failure = exc.__class__.__name__\n",
+        "        await self._page.goto(\"about:blank\")\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_a_withheld_result_stays_withheld_when_clearing_fails",
+    ),
+    (
+        "R4-F1: a failed clear's error passes through (seen by the model)",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "        try:\n            await self._page.goto(\"about:blank\")\n"
+        "        except Exception as exc:\n            failure = exc.__class__.__name__\n",
+        "        await self._page.goto(\"about:blank\")\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_the_model_never_sees_a_failed_clear",
+    ),
+    (
+        "R4-F1: a failed clear's error passes through (at the start of a call)",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "        try:\n            await self._page.goto(\"about:blank\")\n"
+        "        except Exception as exc:\n            failure = exc.__class__.__name__\n",
+        "        await self._page.goto(\"about:blank\")\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_a_page_found_off_list_that_cannot_be_cleared_says_so",
+    ),
+    (
+        "R4-F1: a failed clear is reported as a cleared page",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "        except BrowserPageNotCleared:  # names the URL; raised outside, so not chained\n"
+        "            cleanup = \"failed\"\n",
+        "",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_a_withheld_error_stays_withheld_when_clearing_fails",
+    ),
+    (
+        "R4-F1: a rejected screenshot's pending capture is not disposed of",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "        finally:\n            pending.unlink(missing_ok=True)\n",
+        "        except BrowserPageNotCleared:\n            raise\n",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_a_rejected_screenshot_never_reaches_its_path",
+    ),
+    (
+        "R4-F1, real Chromium: a failed clear's error passes through",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "        try:\n            await self._page.goto(\"about:blank\")\n"
+        "        except Exception as exc:\n            failure = exc.__class__.__name__\n",
+        "        await self._page.goto(\"about:blank\")\n",
+        "tests/test_browser_host_policy_live.py::"
+        "test_a_withheld_read_stays_withheld_when_clearing_really_fails",
         "BROWSER_LIVE",
     ),
     (

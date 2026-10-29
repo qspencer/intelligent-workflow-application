@@ -276,7 +276,9 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
         "withheld, quoting nothing of the page; late content, child-frame navigation and an "
         "error about the checked page pass; an action is checked on every exit, its error "
         "withheld the same way; the model never sees the quote; every page method is "
-        "routed through one of the two (R2-F3; round-3 R3-F1, R3-F2)",
+        "routed through one of the two; all of it holds when CLEARING the page fails — the "
+        "failure is reported, never its error, and a rejected screenshot never reaches its "
+        "path (R2-F3; R3-F1, R3-F2; round-4 R4-F1)",
         [
             f"{EN}::test_a_read_whose_page_leaves_for_an_off_list_host_mid_read_is_withheld",
             f"{EN}::test_a_read_through_an_off_list_page_and_back_is_withheld",
@@ -290,6 +292,12 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
             f"{EN}::test_an_error_about_the_checked_page_is_kept",
             f"{EN}::test_an_action_that_leaves_and_returns_is_not_detected",
             f"{EN}::test_the_model_never_sees_an_error_from_an_unchecked_page",
+            f"{EN}::test_a_withheld_result_stays_withheld_when_clearing_fails",
+            f"{EN}::test_a_withheld_error_stays_withheld_when_clearing_fails",
+            f"{EN}::test_a_rejected_screenshot_never_reaches_its_path",
+            f"{EN}::test_a_page_found_off_list_that_cannot_be_cleared_says_so",
+            f"{EN}::test_the_withheld_status_reports_what_clearing_did",
+            f"{EN}::test_the_model_never_sees_a_failed_clear",
         ],
         None,
     ),
@@ -306,7 +314,8 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
         "smuggle is refused; a read waiting while the page redirects itself off-list is "
         "withheld, beside a late element on a page that stays put (R2-F3); so is the error "
         "two matches on the off-list landing raise, beside the same error kept on a page "
-        "that stays put (R3-F1)",
+        "that stays put (R3-F1); a withheld read survives a clearing navigation that "
+        "really fails (R4-F1)",
         [
             f"{LIVE}::test_a_click_off_list_is_stopped_before_the_request_is_sent",
             f"{LIVE}::test_navigate_off_list_sends_nothing",
@@ -317,6 +326,7 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
             f"{LIVE}::test_a_read_waiting_on_a_page_that_stays_put_returns_its_content",
             f"{LIVE}::test_an_error_quoting_an_off_list_page_is_withheld",
             f"{LIVE}::test_the_same_error_on_a_page_that_stays_put_is_kept",
+            f"{LIVE}::test_a_withheld_read_stays_withheld_when_clearing_really_fails",
         ],
         "BROWSER_LIVE",
     ),
