@@ -2607,6 +2607,54 @@ new is legitimate). So the fix is not "fail on zero". Options, cheapest first:
 to the same observability class as the backend crash-looping 56,413 times over four
 days with nothing reporting it — the monitoring service cannot detect its own death.
 
+**ATTEMPTED AND REVERTED 2026-10-29 — the naive fix contradicts a reviewed
+ruling, and the attempt is worth more written down than repeated.**
+
+The obvious move is to release the triage verdict for below-grant reads: declare
+`category` / `attention` / `category_valid` in `_STEP_OUTPUT`, own them BUSINESS,
+add them to `_RELEASED_BUSINESS`, and gate their producer in `function_may_emit`
+beside `_PARSE_OK_PRODUCERS`. That was built (projector v23, value-validated via
+`_enum`, whole-list fail-closed for the attention axis, producer restricted to
+`record_email_triage`) and it **reverted on a test, correctly**:
+
+`test_rr_p1_registered_key_with_unvalidated_value_is_redacted` asserts
+`"category" not in redact_tool_data({"category": SECRET}, …)`, and its own
+comment states the ruling: *"a per-workflow business vocabulary is not
+platform-registered — GR4-R4: the key is now dropped and counted."* Fourteen
+tests went red, that one first.
+
+**Why the reviewers were right, which I had not seen.** A category vocabulary is
+PER-WORKFLOW: `pdf_classifier` classifies invoice/receipt/contract/report/…,
+`research_paper_triage` emits tags, `email_triage_apply` has its five sources.
+Registering one of those vocabularies in the platform projector puts a single
+workflow's business enum into the component that governs every workflow — so
+`document_type: "invoice"` would be validated against an email-triage list it
+has no relation to. The projector knows asset KIND and field PATH; it is the
+wrong place to know what a category means. Editing that test to match the change
+would have overridden a review decision by rewriting its pin, which is not a
+thing to do to a surface that took eighteen external rounds.
+
+**The corrected design, which is a spec round rather than a patch.**
+Per-workflow released vocabularies: the WORKFLOW DEFINITION declares the closed
+set for a field (`released_fields: {category: [personal, notification, …]}`), and
+the projector validates against that declaration. The declaration's provenance is
+what makes it sound — it is CONFIG, read from the platform-controlled YAML, never
+from model output or a trigger payload — so the §1.4a provenance requirement is
+met by the same argument that makes `wildcard_keys: "platform"` sound today.
+Open questions for whoever specs it: where the declaration is bound (definition
+load vs. projection time) so a definition edit cannot retroactively widen stored
+projections; whether a per-org cap on vocabulary size is needed; and whether
+`attention`-style multi-valued axes stay whole-value fail-closed (they should —
+a partially-dropped axis reads as a complete smaller one, a different
+classification rather than a redacted value).
+
+**Until that ships, routine verdict-level analysis needs the audited raw-trace
+grant.** That is not a workaround; it is the control working. The 1,297-message
+run's verdicts are all at rest (`raw_traces`: 3,907 `output`, 1,304
+`trigger_payload`, 3,897 `audit_detail`, all `committed` and AEAD-sealed), so no
+data was lost and no re-run is needed to recover it.
+
+
 ### G17 — Proactive recall adoption (veracium 0.4.x, trigger-gated)
 
 The one 0.4.x feature assessed and deliberately NOT consumed
