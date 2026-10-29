@@ -249,10 +249,13 @@ IdP is sole authority — D4). Fifteen pinned security tests in
   - **`allowed_hosts` is not an egress control.** It blocks requests the
     agent initiates before dispatch, and checks the TOP-LEVEL page before
     every read and action. A read returns only what the checked document
-    gave it: if the page navigates while the read waits, the result is
-    withheld (round-2 review R2-F3; pinned in real Chromium). An action
-    cannot be withheld — if its page navigates off-list mid-action, the
-    effect may land there; the call then fails and the page is cleared.
+    gave it — result or error, since Playwright's errors quote the page: if
+    the page navigates while the read waits, either is withheld (round-2
+    review R2-F3, round-3 R3-F1; pinned in real Chromium). An action cannot
+    be withheld — if its page navigates mid-action, the effect may land on
+    the new page and use that page's session. It is judged by where the
+    page ends (off-list: the call fails and the page is cleared); leaving
+    and returning to an allowed URL is not detected (R3-F2).
     Redirect hops, subresources, preconnect and WebSockets can still reach
     a disallowed host. Nor is it a content-origin guarantee: an allowed
     page can render a disallowed host's images, scripts or frames, and the

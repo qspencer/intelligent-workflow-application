@@ -273,6 +273,19 @@ build script fails before producing an image, and the browser is pinned off).
 check made before the wait. Re-derive what each check is about and whether
 it is still true when the action happens.
 
+### G30 external review, round 3 — request changes (2026-10-29)
+
+R2-F1 and R2-F2 closed; R2-F3 closed for successful replies only.
+
+| Finding | Class | Why we missed it |
+|---|---|---|
+| **R3-F1 (P2)** The read fence compared the page only after a NORMAL return; Playwright's errors quote the page (strict-mode previews every match), and the error went to the agent. Actions that errored skipped the landing check. Reproduced in real Chromium. | M6 + M3 | We fenced the RESULT channel and forgot the ERROR channel carries content too — the function's every exit is an output. Our shape test ("the last statement is the landing check") read as coverage of every exit; it covers one. |
+| **R3-F2 (P3)** The action wording promised detection of any off-list transition; the code checks where the page ends | M6 | The sentence described the intent, not the check. |
+
+**The lesson to keep:** when a guard gates what leaves a function, enumerate
+EVERY way out — return, raise, and what the raise carries — and test each.
+A structural test can pin routing; only behaviour pins exits.
+
 ### Self-inflicted, found by us mid-remediation (worth counting)
 
 Authorized-producer list written from memory (`record_invoice` for

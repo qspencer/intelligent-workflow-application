@@ -3010,7 +3010,21 @@ header prints its verdict and the round-3 guide's §7 tells the reviewer to run 
 **Round 3 package built 2026-10-29** — `g30-capability-review-r3-3e12786`
 (guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R3.md`; hashes in
 `docs/archives/README.md`). Dispatched to the reviewer 2026-10-29 by the
-operator; awaiting results.
+operator.
+
+**Round 3 (2026-10-29): request changes** — results in
+`docs/TRACE_G30_R3_REVIEW_RESULTS.md` (archive
+`trace-g30-r3-review-results-2026-10-29.tar.gz`, sha256 `694a2e10…1faa4`).
+R2-F1 and R2-F2 closed. Fixed the same day, each test seen to fail with its fix
+removed and each with a control:
+
+- **R3-F1 (P2), done** (`7b6dabb`, deployed) — a read whose page navigated and
+  then FAILED passed Playwright's error, which quotes the page, to the agent;
+  reproduced in real Chromium with the reviewer's two-match probe. Errors are
+  now fenced like results; every action goes through `_acted`, checked on every
+  exit.
+- **R3-F2 (P3), done** (`7b6dabb`) — action wording now states the endpoint
+  check: leaving and returning to an allowed URL is not detected.
 
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's
@@ -3023,6 +3037,13 @@ operator; awaiting results.
   satisfy those. Also unsettled for enablement: actions whose page navigates
   mid-action (detected and cleared, not prevented — R2-F3), and whether parallel
   browser steps should get a connector each rather than share a session.
+  From round 3: if `allowed_hosts` is to bound where an action's EFFECT lands,
+  actions must stay bound to the checked document and stop before dispatch
+  when that cannot be shown — a click on another page acts with that page's
+  logged-in session even when nothing typed leaves. And the fence's ordering
+  assumption needs a real-browser matrix before enablement: plain script
+  navigation, `pushState`/hash, history back/forward and BFCache restoration,
+  same-URL document replacement, abort-before-commit vs a committed error page.
 
 ### G17 — Proactive recall adoption (veracium 0.4.x, trigger-gated)
 
