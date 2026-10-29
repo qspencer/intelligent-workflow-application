@@ -38,6 +38,7 @@ blocking issues by reading code the spec described inaccurately.
 
 | Archive | SHA | Date | For | Cover note |
 |---|---|---|---|---|
+| `trace-g29-review-3d4040e.tar.gz` | `3d4040e` (branch `main`) | 2026-10-29 | **G29 / projector v23 — per-workflow released vocabularies, PACKAGED AND WITHDRAWN IN THE SAME PASS.** Not a remediation round: nothing here answers a returned finding. Assembling the package found that v23 breaks the projector's FIXED POINT — the vocabulary is a per-call argument only the three write sites can supply, so the read path strips the released verdict again, the frozen §4.3 agreement predicate reports `mismatch` on correctly-written rows, the zero-raw B1 verifier flags them as raw, and the backfill would strip them. The fix needs F3/F4 (both open) because any row-recorded vocabulary is a second fail-open bit. Asks the reviewer to rule between withdraw / after-F3-F4 / never-below-grant. Ships 28 executable reproductions (`docs/review-artifacts/g29_reproductions.py`). Start at `docs/TRACE_G29_REVIEW_GUIDE.md` | `docs/TRACE_G29_REVIEW_GUIDE.md` |
 | `trace-f1-review-r3-b7cc1d2.tar.gz` | `b7cc1d2` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 3** — the six round-2 findings (R2-1..6) fixed at the CLASS level. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R3 | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-r2-b2f913a.tar.gz` | `b2f913a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 2** — the four G-Trace-Review-4 findings (GR4-1..4) remediated. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-r11-dc79abe.tar.gz` | `dc79abe` (branch `main`) | 2026-09-18 | **Round-10 return + two detectors built before sending.** Template rewriting no longer touches DATA (the engine renders placeholders in exactly ONE field; our round-9 reasoning was inverted); context paths parse the way the resolver parses them, so a non-ASCII id no longer dangles; the schema gate ENUMERATES the models and ships a control that fires. Plus the two gaps our own ledger admitted: duplicate-definition sweep extended to FUNCTIONS, and grammar agreement — the scaffold now IMPORTS the engine's placeholder pattern instead of copying it. Sidecar: `docs/TRACE_F1_REVIEW_ROUND11.md`. |
@@ -57,6 +58,42 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (G29 / projector v23)
+
+```
+  28eae4134c770440671aa16a5a2522266a1df1d7243bcbf948afdb9283b430eb  docs/TRACE_G29_REVIEW_GUIDE.md
+  244c475538181e3db764552acf80d5872a08d876e9033d0793e1d77935ad6234  docs/review-artifacts/g29_reproductions.py
+  b4188a58799f3dbc828863d98f1b3618ad8c0cfd6f6bb3f54081e051aaac6047  docs/archives/GATE_OUTPUT_G29.txt
+  73024ff64b6f1401f367d9240b1857a56bdefcd468798c2d03cb1f1f20c6df61  docs/archives/CODE_MANIFEST_G29.txt
+  6070cb3d5a5c8ace3d6482eb0eb6f80cea7f687bfc09ffc088b3b899f3ff8ba2  docs/REVIEW_FINDINGS_LEDGER.md
+  900f83d7f3926ce7625718f54d78a9f0a705104f7b9d4f1e1b5d4f38e354e8c6  backend/src/workflow_platform/trace_projection.py
+```
+
+**Aggregate source hash** (recomputable from the extracted package, no git):
+
+```
+f89822849518a68edaa0e96212f4e928cee95d0fb22eb9e79772b4a1ee68ca33
+cd backend && find src tests -name '*.py' -type f | sort | xargs sha256sum | sha256sum
+```
+
+Tarball: `cc3137e1d6fe8428490c6731b54896081251ef4aedaa56c3ccd71230e674f8aa`
+(724 files). **Verified by EXTRACTING to an empty directory and recomputing with
+no git:** the aggregate matches, all seven package artifacts are present, and
+the 28 shipped reproductions were re-run *against the extracted source* (not the
+working tree) and all 28 reproduce. Secret and mail-data sweeps returned
+nothing — note this archive's sweep returns nothing at all, not even the
+`secrets/` source module, because that module lives under `backend/src` and the
+sweep pattern matches `.secrets`.
+
+Four of five gates green; **pip-audit is RED** (`pillow` 12.3.0, 8 advisories,
+fixed in 13.0.0, transitive via `pdf2image`/`pytesseract`; clean at round 18).
+Recorded rather than rolled into a trace change, and stated in the guide's §8 so
+the count is not reported as five green.
+
+```sh
+git archive --format=tar 3d4040e | gzip -n > docs/archives/trace-g29-review-3d4040e.tar.gz
+```
 
 ## Integrity hashes (F1/F5 review ROUND 11)
 
