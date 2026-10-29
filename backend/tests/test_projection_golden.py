@@ -253,11 +253,16 @@ def test_historical_fixtures_are_authentic_against_their_declared_source() -> No
                 if case.get("action"):
                     actual = mod.project_audit_detail_at_rest(case["action"], case["input"])
                 else:
+                    # Pass `vocab` ONLY when the case carries one. This test
+                    # imports each HISTORICAL commit's projector, and a
+                    # pre-v23 `redact_tool_data` has no such parameter — an
+                    # unconditional kwarg makes every old fixture raise
+                    # TypeError, which is criterion 17 inverted: a projector
+                    # bump must not make pre-change rows unreadable, and that
+                    # includes the guard that proves they are still readable.
+                    extra = {"vocab": case["vocab"]} if "vocab" in case else {}
                     actual = mod.redact_tool_data(
-                        case["input"],
-                        admin=False,
-                        kind=case["kind"],
-                        vocab=case.get("vocab"),
+                        case["input"], admin=False, kind=case["kind"], **extra
                     )
                 assert actual == case["expected"], (
                     f"v{version} case {case['id']} does not match what {commit} produces:\n"
