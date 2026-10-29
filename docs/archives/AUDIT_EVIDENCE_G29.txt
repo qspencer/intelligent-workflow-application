@@ -1,0 +1,98 @@
+Dependency-audit evidence — G29 review package
+
+WHY THIS FILE EXISTS. The first gate capture for this package piped every
+gate's output through `tail -12`. pip-audit prints its table sorted by
+package name, so the capture kept the LAST twelve lines of a much longer
+listing and dropped the header, the summary line, and every certifi and
+graphql-core row. The package then reported 8 pillow advisories and 11 in
+total, and explained the other packages as having 'surfaced after pillow was
+fixed'. Both were wrong. This file holds the producing output instead of a
+summary of it.
+
+METHOD. The pre-fix pins re-audited, untruncated, against the advisory DB as
+of 2026-10-29 (the original capture ran the same day, ~1h earlier).
+  python : uv.lock at 081cfb3 -> `uv export --frozen --no-hashes`
+           -> `pip-audit -r reqs.txt --disable-pip --no-deps`      exit 1
+  npm    : package-lock.json at a14d11b^
+           -> `npm audit --package-lock-only --json`               exit 1
+Exit codes captured before any pipe.
+
+MATCH WITH THE TRUNCATED CAPTURE. The original showed 8 pillow rows. They are
+the LAST 8 pillow rows of the full listing, in the same order: True.
+Same pins, same rows, same order — the capture was cut, not different.
+
+=== python: pip-audit, full listing ===
+Found 43 known vulnerabilities in 3 packages
+Name         Version   ID                  Fix Versions
+------------ --------- ------------------- ---------------
+certifi      2026.4.22 PYSEC-2026-4320     2026.10.18
+certifi      2026.4.22 PYSEC-2026-4320     2026.10.19
+graphql-core 3.2.11    CVE-2026-75507      3.2.12,3.3.0rc1
+graphql-core 3.2.11    CVE-2026-75508      3.2.12,3.3.0rc1
+pillow       12.3.0    PYSEC-2026-4327     13.0.0
+pillow       12.3.0    PYSEC-2026-4328     13.0.0
+pillow       12.3.0    PYSEC-2026-4326     13.0.0
+pillow       12.3.0    PYSEC-2026-4339     13.0.0
+pillow       12.3.0    PYSEC-2026-4340     13.0.0
+pillow       12.3.0    PYSEC-2026-4343     13.0.0
+pillow       12.3.0    PYSEC-2026-4334     13.0.0
+pillow       12.3.0    PYSEC-2026-4337     13.0.0
+pillow       12.3.0    PYSEC-2026-4341     13.0.0
+pillow       12.3.0    PYSEC-2026-4330     13.0.0
+pillow       12.3.0    PYSEC-2026-4338     13.0.0
+pillow       12.3.0    PYSEC-2026-4335     13.0.0
+pillow       12.3.0    PYSEC-2026-4336     13.0.0
+pillow       12.3.0    PYSEC-2026-4331     13.0.0
+pillow       12.3.0    PYSEC-2026-4332     13.0.0
+pillow       12.3.0    PYSEC-2026-4329     13.0.0
+pillow       12.3.0    PYSEC-2026-4333     13.0.0
+pillow       12.3.0    PYSEC-2026-4342     13.0.0
+pillow       12.3.0    CVE-2026-112895     13.0.0
+pillow       12.3.0    CVE-2026-112400     13.0.0
+pillow       12.3.0    CVE-2026-112897     13.0.0
+pillow       12.3.0    CVE-2026-112395     13.0.0
+pillow       12.3.0    CVE-2026-112404     13.0.0
+pillow       12.3.0    CVE-2026-112899     13.0.0
+pillow       12.3.0    CVE-2026-112900     13.0.0
+pillow       12.3.0    CVE-2026-112893     13.0.0
+pillow       12.3.0    CVE-2026-112891     13.0.0
+pillow       12.3.0    CVE-2026-112390     13.0.0
+pillow       12.3.0    CVE-2026-112401     13.0.0
+pillow       12.3.0    CVE-2026-112391     13.0.0
+pillow       12.3.0    CVE-2026-112894     13.0.0
+pillow       12.3.0    CVE-2026-112406     13.0.0
+pillow       12.3.0    CVE-2026-112399     13.0.0
+pillow       12.3.0    CVE-2026-112892     13.0.0
+pillow       12.3.0    CVE-2026-112393     13.0.0
+pillow       12.3.0    CVE-2026-96638      13.0.0
+pillow       12.3.0    CVE-2026-96640      13.0.0
+pillow       12.3.0    CVE-2026-96778      13.0.0
+pillow       12.3.0    GHSA-78g4-xqwv-q3g8 13.0.0
+
+rows: 43   distinct advisories: 42   packages: 3
+by package (distinct): {'pillow': 39, 'graphql-core': 2, 'certifi': 1}
+(certifi lists PYSEC-2026-4320 twice, once per fix version — one advisory, two rows)
+
+=== npm: advisories in the pre-fix lockfile ===
+undici   high      GHSA-2m5v-pch6-74hx    undici vulnerable to TLS certificate validation bypass via dropped tls options in Agent
+undici   high      GHSA-4w7w-5xrc-9h26    undici vulnerable to cache poisoning and cross-user disclosure via cross-origin redirects
+undici   high      GHSA-qrxm-fqhp-jwvm    undici vulnerable to Denial of Service via TLS 1.2 certificate-changing renegotiation
+undici   high      GHSA-xjj6-f33q-929c    undici vulnerable to Denial of Service via unhandled error on excessive content-encodings
+undici   moderate  GHSA-4qv8-2p9j-2685    undici vulnerable to Denial of Service via unbounded memory in the EventSource parser
+undici   moderate  GHSA-55wc-3pg8-jfw6    undici vulnerable to Denial of Service via unhandled exception in the decompress intercept
+undici   moderate  GHSA-9fm3-97px-rjf6    undici WebSocket client vulnerable to Denial of Service via unbounded automatic PONG buffe
+undici   moderate  GHSA-f72v-6w45-q472    undici vulnerable to Subresource Integrity bypass via non-lowercase algorithm tokens
+vite     high      GHSA-587h-7wmj-h5pm    launch-editor: `fs.existsSync()` existence check can be bypassed on Windows
+vite     low       GHSA-9jrq-w75r-8gcw    Vite: Cross origin script execution through Vite custom middleware
+vite     moderate  GHSA-698v-4r3x-3vcv    launch-editor: escapeCmdArgs() omits % escaping on Windows
+vite     moderate  GHSA-r825-w8mm-5pxw    launch-editor: Editor CLI flag misinterpretation causing arbitrary command execution for s
+vite     moderate  GHSA-rq7h-c2jc-7f22    Vite: Files outside `server.fs.allow` could be served when project paths match system path
+vite     moderate  GHSA-vfpm-58rq-9qcg    Vite: First 4 bytes of files outside of `server.fs` setting is exposed by `?vite-wasm-inst
+
+distinct advisories: 14   by package: {'undici': 8, 'vite': 6}
+by severity: {'moderate': 8, 'high': 5, 'low': 1}
+npm's own summary counts vulnerable PACKAGES: {'high': 2, 'total': 2}
+(a package is rated at the severity of its worst advisory, so '2 high' means
+ two packages, not two or nine high-severity advisories)
+
+TOTAL cleared this session: 56 distinct advisories across 5 packages.

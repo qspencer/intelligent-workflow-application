@@ -89,11 +89,13 @@ even the `secrets/` source module, because that module lives under
 All five gates green at the shipped tree (1,428 tests). An earlier capture of
 this package was cut at a tree whose test file then changed, so the manifest
 published an aggregate the package no longer contained; both were regenerated
-rather than shipped stale. pip-audit was RED at that first capture — 11
-advisories across `pillow`, `graphql-core` and `certifi`, all transitive, all
-cleared in `805fc88` — and the red exit is preserved verbatim in the gate
-capture's Appendix A, because two of the three only surfaced once the first was
-fixed: the initial reading took pip-audit's exit code through `tail`.
+rather than shipped stale. pip-audit was RED at that first capture. *(Corrected after review: this
+block said "11 advisories", with two packages surfacing only once the first was
+fixed.)* The capture piped pip-audit through `tail -12` and its table sorts by
+package name, so certifi and graphql-core were cut off, not absent: re-audited
+untruncated, the pre-fix pins carry 43 rows / 42 distinct advisories in 3
+packages, plus 14 frontend advisories in 2 — 56 in all, cleared in `805fc88` and
+`a14d11b`. Producing output: `docs/archives/AUDIT_EVIDENCE_G29.txt`.
 
 ```sh
 git archive --format=tar 0ecfa72 | gzip -n > docs/archives/trace-g29-review-0ecfa72.tar.gz

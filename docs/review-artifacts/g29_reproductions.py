@@ -1,14 +1,20 @@
 """G29 (projector v23) — executable reproductions for the external reviewer.
 
-Run from `backend/` with no AWS, no Postgres and no veracium:
+Run from `backend/`, in the locked environment:
 
     uv run python ../docs/review-artifacts/g29_reproductions.py
-    # or, with no project env at all:
-    PYTHONPATH=src python3 ../docs/review-artifacts/g29_reproductions.py
 
-Imports only `trace_projection`, `trace_rehydrate`, `trace_migration` and
-`trace_vault`; none of them import veracium. Every line the review guide
-asserts is checked here, so a discrepancy on your machine is itself a finding.
+Needs no AWS, no Postgres and no veracium — but it is NOT dependency-free.
+`trace_migration` reaches the persistence models, so the imports pull in
+pydantic and SQLAlchemy, and the source uses Python 3.14 syntax (PEP 758
+`except A, B:`). An earlier version of this docstring offered
+`PYTHONPATH=src python3` as a no-environment route; it fails on its first
+import, and the external review returned that as P3. Measured, not asserted:
+the third-party modules the four imports load are exactly pydantic and
+sqlalchemy.
+
+Every line the review guide asserts is checked here, so a discrepancy on your
+machine is itself a finding.
 
 Sections A and B are what G29 claims to do, and they pass.
 Section C is the defect found while packaging: the projection is no longer a
@@ -18,6 +24,7 @@ FIXED POINT, and the four consumers that re-project a stored row rely on that.
 from __future__ import annotations
 
 import json
+import math
 
 from workflow_platform.trace_migration import _has_raw
 from workflow_platform.trace_projection import (
@@ -166,9 +173,21 @@ check(
     redact_tool_data({"attention": ["urgent"] * 33}, vocab=VOCAB, **STEP),
     {"_withheld_keys": True},
 )
+# COMPUTED, not typed. An earlier version printed "~53 bits" as a string literal,
+# so a reader re-running this script "reproduced" a figure nobody had computed;
+# it was 51.3. A reproduction that prints a typed number is not evidence.
+_ALPHABET = len(VOCAB["attention"])
+_SEQUENCES = sum(_ALPHABET**k for k in range(MAX_VOCAB_VALUES + 1))
+_DEDUPED = sum(math.perm(_ALPHABET, k) for k in range(_ALPHABET + 1))
 print("      -> channel for a list field is sequences over the alphabet, not the")
-print("         subset lattice: ~53 bits for a 3-value set at length<=32.")
-print("         Live exposure is ~4 bits ONLY because `record_email_triage`")
+print(
+    f"         subset lattice: {math.log2(_SEQUENCES):.1f} bits for a {_ALPHABET}-value"
+    f" set at length<={MAX_VOCAB_VALUES} ({_SEQUENCES:.3g} sequences)."
+)
+print(
+    f"         Live exposure is {math.log2(_DEDUPED):.1f} bits ({_DEDUPED} ordered subsets)"
+    " ONLY because `record_email_triage`"
+)
 print("         dedupes first — a parser property, not a projector guarantee.")
 
 print("\nC. THE DEFECT — projection is no longer a fixed point")

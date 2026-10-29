@@ -181,7 +181,10 @@ A **list**-valued declared field releases its *arrangement*, not just its
 members. `_vocab_member` accepts up to `MAX_VOCAB_VALUES` elements with repeats
 and order preserved, so the channel is the set of **sequences** over the
 alphabet, not the subset lattice: for `attention` (3 values, length ≤ 32) that is
-~3^32 ≈ **53 bits per run**, not the ~3 bits the declaration reads like.
+**51.3 bits per run** (2.78 × 10¹⁵ sequences), not the 3 bits the declaration
+reads like. *(Corrected after review: this package said "~3^32 ≈ 53 bits",
+a figure typed rather than computed — 3^32 alone is 50.7. The reproduction
+script now computes it.)*
 
 Live exposure today is far smaller — `record_email_triage` dedupes the axis
 before the projector sees it, leaving 16 ordered subsets ≈ 4 bits. **But that is
@@ -227,7 +230,7 @@ pressure:
   vocabulary — the same function every consumer calls, so the repair cannot be a
   second implementation of the rule. Backed up first; the sweep asserts its own
   output is a fixed point before writing.
-- **Verified after:** 0 rows carry a released key, all 75 of that day's v23 rows
+- **Verified after:** 0 rows carry a released key, all 78 of that day's v23 rows
   are fixed points, and the zero-raw B1 verifier flags none of them.
 - **No data was at risk at any point.** Raw stayed vaulted and AEAD-sealed; a
   raw-trace grant still recovers every verdict. The harm was to two *controls*,
@@ -249,15 +252,16 @@ deterministic step's output — is also still unanswered and unrelated.
 ## 8. Verification, stated honestly
 
 - **1,428 tests pass**, 23 skipped. Ruff, ruff-format, mypy strict clean.
-- **pip-audit went RED while this package was being captured**, and not from
-  this change: 11 advisories across three transitive pins (`pillow` 12.3.0 → 8
-  of them, plus `graphql-core` and `certifi`), all clean at round 18. Fixed by
-  lockfile upgrade in `805fc88`, and `GATE_OUTPUT_G29.txt` is the re-capture at
-  the shipped tree: **all five green**, with the red exit and its eight pillow
-  advisories preserved verbatim in its Appendix A. Two of the three pins only
-  surfaced after the first was fixed, because the first reading took
-  pip-audit's exit code through `tail`, which reports tail's status — the
-  masking this project has been bitten by before.
+- **pip-audit went RED while this package was being captured**, not from this
+  change. *(Corrected after review.)* This bullet said 11 advisories, 8 of them
+  pillow's, with two packages surfacing only after the first was fixed. The
+  first capture piped pip-audit through `tail -12`, and its table sorts by
+  package name, so certifi and graphql-core were cut off rather than absent. The
+  pre-fix pins re-audited untruncated: **43 rows, 42 distinct advisories in 3
+  packages** (pillow 39). The frontend had **14 more** in 2 packages. All 56
+  cleared (`805fc88`, `a14d11b`); the producing output is
+  `docs/archives/AUDIT_EVIDENCE_G29.txt`, and the gate capture's Appendix A now
+  points there instead of summarizing.
 - The golden corpus has **7 new cases** freezing every branch of the new code
   (released scalar, released list, out-of-set value, partially-valid list,
   undeclared field, an attempt to release `_withheld_keys`, and

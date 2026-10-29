@@ -42,22 +42,23 @@ exit: 0
 
 === APPENDIX A: the audit gate was RED when this package was first captured ===
 
-Recorded because it is evidence, not noise. The first capture of this
-package (tree 5a48a0bc, aggregate f8982284) had pip-audit exit 1:
+CORRECTED after review. This appendix previously summarized the red audit as
+"8 pillow advisories ... 11 cleared", with graphql-core and certifi "exposed"
+only after pillow was fixed. That was wrong: the first capture piped pip-audit
+through `tail -12`, and the table is sorted by package name, so the header,
+the summary line and every certifi and graphql-core row were cut off. All three
+packages were vulnerable in the first audit.
 
-    pillow 12.3.0  CVE-2026-112406 / 112399 / 112892 / 112393 /
-                   96638 / 96640 / 96778 / GHSA-78g4-xqwv-q3g8   -> 13.0.0
+The producing output — the pre-fix pins re-audited untruncated, with the
+original 8 rows shown to be the LAST 8 of the full listing in the same order —
+is in docs/archives/AUDIT_EVIDENCE_G29.txt:
 
-pillow is transitive (pdf2image, pytesseract — the PDF/OCR path) and was
-clean at round 18, so these were new advisories rather than drift. Fixing
-it exposed two more that had been masked, because the first reading took
-pip-audit's exit code THROUGH `tail`, which reports tail's status:
+    python: 43 rows, 42 distinct advisories in 3 packages (pillow 39,
+            graphql-core 2, certifi 1)          — cleared in 805fc88
+    npm:    14 distinct advisories in 2 packages (undici 8, vite 6;
+            5 high / 8 moderate / 1 low)        — cleared in a14d11b
 
-    graphql-core 3.2.11  CVE-2026-75507, CVE-2026-75508  -> 3.2.13
-    certifi 2026.4.22    PYSEC-2026-4320                 -> 2026.10.23
-
-All three upgraded in the lockfile (805fc88); the capture above is the
-state of the shipped tree. 11 advisories cleared, none of them ours.
+The capture above is the state of the shipped tree.
 
 === reproductions: docs/review-artifacts/g29_reproductions.py ===
 (run from backend/: uv run python ../docs/review-artifacts/g29_reproductions.py)

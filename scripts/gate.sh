@@ -23,7 +23,10 @@ run() {
     printf '  \033[32m✓\033[0m %-22s\n' "$name"
   else
     printf '  \033[31m✗\033[0m %-22s exit=%s\n' "$name" "$code"
-    echo "$out" | tail -15 | sed 's/^/      /'
+    # The WHOLE output. A failing gate is rare and you need all of it: pip-audit
+    # sorts its table by package, so a tail hides the alphabetically early
+    # packages — which is how 42 advisories were once read as 11.
+    echo "$out" | sed 's/^/      /'
     failed+=("$name")
   fi
 }
