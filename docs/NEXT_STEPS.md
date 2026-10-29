@@ -3026,6 +3026,10 @@ removed and each with a control:
 - **R3-F2 (P3), done** (`7b6dabb`) — action wording now states the endpoint
   check: leaving and returning to an allowed URL is not detected.
 
+**Round 4 package built 2026-10-29** — `g30-capability-review-r4-8be82be`
+(guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R4.md`; hashes in
+`docs/archives/README.md`). Awaiting the reviewer.
+
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's
   qualified build: the container starts with `learned_memory: unopenable`.
