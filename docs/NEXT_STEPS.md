@@ -2982,9 +2982,30 @@ removed and each with a control in `g30_controls.py`:
 - **Content claim narrowed** — `allowed_hosts` governs the top-level page, not
   content origin (connector docstring, THREAT_MODEL).
 
-**Round 2 package built 2026-10-29** — `g30-capability-review-r2-5866f3d`
-(guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R2.md`; hashes in
-`docs/archives/README.md`). Awaiting the reviewer.
+**Round 2 (2026-10-29): request changes** — package
+`g30-capability-review-r2-5866f3d` (guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R2.md`),
+results in `docs/TRACE_G30_R2_REVIEW_RESULTS.md` (archive
+`trace-g30-r2-review-results-2026-10-29.tar.gz`, sha256 `96f09772…9a747`).
+R1–R4 accepted; both design questions answered yes (per-connector lock; unset
+means the shipped layer). Three P2s, all fixed the same day, each test seen to
+fail with its fix removed and each with a control:
+
+- **R2-F1, done** (`f502c9b`) — `infra/scripts/build_and_push.sh` still built
+  from `backend/`; now `-f backend/Dockerfile` with the root context. Image
+  build sites are derived by scanning, and the real script runs with docker
+  and terraform stubbed.
+- **R2-F2, done** (`a41e146`) — a queued upload of a missing path could become
+  a directory upload. The source is now examined after the call owns the
+  browser, must be one regular file, and reaches the page as its bytes.
+- **R2-F3, done** (`a41e146`, deployed) — a read could return an off-list
+  page's text when the page navigated while the read waited (reproduced in
+  real Chromium). Reads are fenced by URL and main-frame navigation count;
+  actions re-check the page when they end, and the contract for actions is
+  narrowed to that.
+
+Also from the review: preflight should run veracium's own qualification check
+(`runtime_supported()`), not only print the SQLite version — for the round-3
+guide.
 
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's
@@ -2993,7 +3014,10 @@ removed and each with a control in `g30_controls.py`:
 - The Dockerfile syncs from `pyproject.toml` without `uv.lock`, so the image
   is not built from the locked environment.
 - Browser enablement still needs pre-dispatch destination enforcement and
-  provenance-aware content claims; R2–R4 are now done but do not satisfy those.
+  provenance-aware content claims; R2–R4 and R2-F2/F3 are done but do not
+  satisfy those. Also unsettled for enablement: actions whose page navigates
+  mid-action (detected and cleared, not prevented — R2-F3), and whether parallel
+  browser steps should get a connector each rather than share a session.
 
 ### G17 — Proactive recall adoption (veracium 0.4.x, trigger-gated)
 

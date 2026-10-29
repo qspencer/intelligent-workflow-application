@@ -247,15 +247,22 @@ IdP is sole authority — D4). Fifteen pinned security tests in
     until the same day. Now: per-call output clamp; host policy in the
     browser connector.
   - **`allowed_hosts` is not an egress control.** It blocks requests the
-    agent initiates before dispatch, and lets the agent read or act only
-    while the TOP-LEVEL page is on an allowed host; redirect hops,
-    subresources, preconnect and WebSockets can still reach one. Nor is it
-    a content-origin guarantee: an allowed page can render a disallowed
-    host's images, scripts or frames, and the agent reads what they put
-    there (G30 external review, 2026-10-29). A step's policy holds for the
-    whole tool call, even beside parallel steps sharing the page (R2). Destination enforcement must happen
-    at the network layer before dispatch; until it does, no browser tool
-    may enter the system layer (test-pinned).
+    agent initiates before dispatch, and checks the TOP-LEVEL page before
+    every read and action. A read returns only what the checked document
+    gave it: if the page navigates while the read waits, the result is
+    withheld (round-2 review R2-F3; pinned in real Chromium). An action
+    cannot be withheld — if its page navigates off-list mid-action, the
+    effect may land there; the call then fails and the page is cleared.
+    Redirect hops, subresources, preconnect and WebSockets can still reach
+    a disallowed host. Nor is it a content-origin guarantee: an allowed
+    page can render a disallowed host's images, scripts or frames, and the
+    agent reads what they put there (G30 external review, 2026-10-29). A
+    step's policy holds for the whole tool call, even beside parallel steps
+    sharing the page (R2). Browser uploads are `file_read`s, and send the
+    bytes of one regular file examined once the call owns the browser
+    (R4, R2-F2). Destination enforcement must happen at the network layer
+    before dispatch; until it does, no browser tool may enter the system
+    layer (test-pinned).
   - **Deterministic file functions consult capabilities (G30 phase 2,
     2026-10-29).** Before that, `copy_files`, `append_file`,
     `extract_archive`, `route_by_*` and `write_csv` called `world.fs`

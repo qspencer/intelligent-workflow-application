@@ -258,6 +258,21 @@ same mistake, found a day apart by two different readers.
 because "How to run" never said veracium needs the qualified SQLite build —
 uv's own Python links one it refuses. State the runtime in the next guide.
 
+### G30 external review, round 2 — request changes (2026-10-29)
+
+The four round-1 fixes held. Three P2s remained; none reaches production (the
+build script fails before producing an image, and the browser is pinned off).
+
+| Finding | Class | Why we missed it |
+|---|---|---|
+| **R2-F1** The ECR build script kept the old `backend/` context after R1 moved the image to a repo-root context | M6 | The layout test checked the two build sites we REMEMBERED (Compose, Dockerfile). A claim about "the image" is a claim about every place that builds it — derive the sites, then run the real script. Same shape as R1: constructions derived, callers not. |
+| **R2-F2** A queued upload of a missing path became a directory upload — type checked before waiting for the new lock, path handed over after | M3 | R2's lock created a wait; we did not ask which earlier checks the wait made stale. A check is only as good as the moment it describes, and the path was re-read by Playwright later still. Fixed by sending bytes from the checked open file. |
+| **R2-F3** A read checked the page, waited for its element, and returned text from the off-list page the browser had navigated to meanwhile | M6 | The contract said "acts only while the top-level page is allowed"; the code checked once at the start. Reproduced in real Chromium before the fix. A URL check at the end would still miss an off-list page the browser has left — counting navigations is what binds the read to the checked document. |
+
+**The lesson to keep:** a fix that adds a wait (a lock, a queue) moves every
+check made before the wait. Re-derive what each check is about and whether
+it is still true when the action happens.
+
 ### Self-inflicted, found by us mid-remediation (worth counting)
 
 Authorized-producer list written from memory (`record_invoice` for
