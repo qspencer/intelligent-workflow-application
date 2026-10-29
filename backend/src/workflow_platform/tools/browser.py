@@ -20,6 +20,7 @@ Capability gating runs at the `Agent` layer via `tool_allowed(name)`, and
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -38,14 +39,16 @@ def _get_connector(context: ToolContext | None) -> BrowserConnector | None:
     conn = context.connectors.get(CONNECTOR_KEY)
     if not isinstance(conn, BrowserConnector):
         return None
-    # Every browser tool comes through here, so this is the ONE place the
-    # step's `allowed_hosts` reaches the connector (G30). The connector lives
-    # for the run and capabilities are per step, so it is set on every call —
-    # and cleared to None when no layer restricts hosts, which keeps an
-    # unrestricted run exactly as it was.
-    caps = context.capabilities
-    conn.set_host_policy(caps.host_allowed if caps is not None and caps.restricts_hosts else None)
     return conn
+
+
+def _host_policy(context: ToolContext | None) -> Callable[[str], bool] | None:
+    """The step's `allowed_hosts` as a predicate (G30), or None when no layer
+    restricts hosts — which keeps an unrestricted run exactly as it was. Every
+    connector call runs inside `connector.operation(_host_policy(context))`, so
+    the policy is this step's for the whole call (external review R2)."""
+    caps = context.capabilities if context is not None else None
+    return caps.host_allowed if caps is not None and caps.restricts_hosts else None
 
 
 def _selector_param(params: dict[str, Any]) -> str | ToolResult:
@@ -93,7 +96,8 @@ class BrowserNavigateTool(Tool):
         if wait_until not in ("load", "domcontentloaded", "networkidle", "commit"):
             return ToolResult(error=f"Invalid wait_until {wait_until!r}")
         try:
-            await connector.navigate(url, wait_until=wait_until)
+            async with connector.operation(_host_policy(context)):
+                await connector.navigate(url, wait_until=wait_until)
         except Exception as exc:
             return ToolResult(error=f"browser_navigate failed: {exc}")
         return ToolResult(content={"url": url, "wait_until": wait_until})
@@ -123,7 +127,8 @@ class BrowserReadTextTool(Tool):
         if connector is None:
             return ToolResult(error="No browser connector wired into this run")
         try:
-            text = await connector.read_text(sel)
+            async with connector.operation(_host_policy(context)):
+                text = await connector.read_text(sel)
         except Exception as exc:
             return ToolResult(error=f"browser_read_text failed: {exc}")
         return ToolResult(content={"selector": sel, "text": text})
@@ -154,7 +159,8 @@ class BrowserReadTableTool(Tool):
         if connector is None:
             return ToolResult(error="No browser connector wired into this run")
         try:
-            rows = await connector.read_table(sel)
+            async with connector.operation(_host_policy(context)):
+                rows = await connector.read_table(sel)
         except Exception as exc:
             return ToolResult(error=f"browser_read_table failed: {exc}")
         return ToolResult(content={"selector": sel, "rows": rows, "row_count": len(rows)})
@@ -199,7 +205,8 @@ class BrowserWaitForTool(Tool):
         if not isinstance(timeout_ms, int) or timeout_ms < 100:
             return ToolResult(error="timeout_ms must be an integer >= 100")
         try:
-            await connector.wait_for(sel, state=state, timeout_ms=timeout_ms)
+            async with connector.operation(_host_policy(context)):
+                await connector.wait_for(sel, state=state, timeout_ms=timeout_ms)
         except Exception as exc:
             return ToolResult(error=f"browser_wait_for failed: {exc}")
         return ToolResult(content={"selector": sel, "state": state})
@@ -237,7 +244,8 @@ class BrowserScreenshotTool(Tool):
         if path is not None and not isinstance(path, str):
             return ToolResult(error="path must be a string if provided")
         try:
-            shot = await connector.screenshot(path=path, full_page=full_page)
+            async with connector.operation(_host_policy(context)):
+                shot = await connector.screenshot(path=path, full_page=full_page)
         except Exception as exc:
             return ToolResult(error=f"browser_screenshot failed: {exc}")
         return ToolResult(
@@ -280,7 +288,8 @@ class BrowserClickTool(Tool):
         if not isinstance(timeout_ms, int) or timeout_ms < 100:
             return ToolResult(error="timeout_ms must be an integer >= 100")
         try:
-            await connector.click(sel, timeout_ms=timeout_ms)
+            async with connector.operation(_host_policy(context)):
+                await connector.click(sel, timeout_ms=timeout_ms)
         except Exception as exc:
             return ToolResult(error=f"browser_click failed: {exc}")
         return ToolResult(content={"selector": sel, "clicked": True})
@@ -320,7 +329,8 @@ class BrowserFillTool(Tool):
         if not isinstance(clear_first, bool):
             return ToolResult(error="clear_first must be a boolean")
         try:
-            await connector.fill(sel, value, clear_first=clear_first)
+            async with connector.operation(_host_policy(context)):
+                await connector.fill(sel, value, clear_first=clear_first)
         except Exception as exc:
             return ToolResult(error=f"browser_fill failed: {exc}")
         return ToolResult(
@@ -373,7 +383,8 @@ class BrowserUploadFileTool(Tool):
                 error=f"browser_upload_file uploads one file; {file_path!r} is a directory"
             )
         try:
-            await connector.upload_file(sel, file_path)
+            async with connector.operation(_host_policy(context)):
+                await connector.upload_file(sel, file_path)
         except Exception as exc:
             return ToolResult(error=f"browser_upload_file failed: {exc}")
         return ToolResult(content={"selector": sel, "file_path": file_path})
@@ -415,7 +426,8 @@ class BrowserDownloadTool(Tool):
         if not isinstance(timeout_ms, int) or timeout_ms < 100:
             return ToolResult(error="timeout_ms must be an integer >= 100")
         try:
-            download = await connector.download_via_click(sel, timeout_ms=timeout_ms)
+            async with connector.operation(_host_policy(context)):
+                download = await connector.download_via_click(sel, timeout_ms=timeout_ms)
         except Exception as exc:
             return ToolResult(error=f"browser_download failed: {exc}")
         return ToolResult(
@@ -455,7 +467,8 @@ class BrowserSubmitFormTool(Tool):
         if connector is None:
             return ToolResult(error="No browser connector wired into this run")
         try:
-            await connector.submit_form(sel)
+            async with connector.operation(_host_policy(context)):
+                await connector.submit_form(sel)
         except Exception as exc:
             return ToolResult(error=f"browser_submit_form failed: {exc}")
         return ToolResult(content={"selector": sel})
@@ -508,7 +521,8 @@ class BrowserFetchUrlTool(Tool):
         if connector is None:
             return ToolResult(error="No browser connector wired into this run")
         try:
-            download = await connector.fetch_url(url, dest_filename=dest_filename)
+            async with connector.operation(_host_policy(context)):
+                download = await connector.fetch_url(url, dest_filename=dest_filename)
         except Exception as exc:
             return ToolResult(error=f"browser_fetch_url failed: {exc}")
         return ToolResult(

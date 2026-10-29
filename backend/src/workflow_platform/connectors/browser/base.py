@@ -21,8 +21,10 @@ collision case.
 
 from __future__ import annotations
 
+import asyncio
 from abc import abstractmethod
-from collections.abc import Callable
+from collections.abc import AsyncIterator, Callable
+from contextlib import asynccontextmanager
 from typing import ClassVar
 from urllib.parse import urlsplit
 
@@ -83,7 +85,15 @@ class BrowserConnector(Connector):
     1. requests the AGENT initiates — blocked before dispatch: `navigate`, the
        first hop of a navigation a click or form submit sets off, and every
        hop of `fetch_url`;
-    2. CONTENT — nothing a disallowed host returns reaches the agent.
+    2. the TOP-LEVEL PAGE — the agent reads or acts only while the page's own
+       URL is on an allowed host (`_enforce_landing` clears it otherwise), and
+       `fetch_url` / `download_via_click` save nothing from a disallowed host.
+
+    It is NOT a content-origin guarantee. A page on an allowed host can load a
+    disallowed host's images, scripts or frames, and what they render or write
+    into that page is read along with it. The second external review
+    (2026-10-29) caught the earlier wording, "nothing a disallowed host returns
+    reaches the agent", claiming this.
 
     It is NOT a destination (egress) control. Requests the agent did not choose
     can still reach a disallowed host: a server redirect hop during a page
@@ -101,12 +111,35 @@ class BrowserConnector(Connector):
 
     type: ClassVar[str]
 
-    #: The CURRENT step's host predicate; None = unrestricted. The connector
-    #: lives for a whole run but capabilities are per step, so every tool call
-    #: sets it (`tools.browser._get_connector`) before acting.
+    #: The host predicate of the OPERATION in progress; None = unrestricted.
     _host_allowed: Callable[[str], bool] | None = None
+    _operation_lock: asyncio.Lock | None = None
+
+    @asynccontextmanager
+    async def operation(self, allowed: Callable[[str], bool] | None) -> AsyncIterator[None]:
+        """Run one tool call under ONE step's host policy, start to finish.
+
+        The connector — and its page — live for the whole run, and parallel
+        steps share them, while capabilities are per step. Setting the policy
+        and then acting let a sibling replace it at any await in between: a
+        narrow step's redirect, re-checked after its first response arrived,
+        was judged by the sibling's wider policy (G30 external review R2).
+        Holding one lock from installing the policy through the action, every
+        redirect hop and the landing check closes that, including the route
+        callback, which reads the policy while the action runs. Two steps
+        cannot sensibly drive one page at once anyway.
+
+        Between operations the last policy stays installed; a navigation a
+        page starts on its own then is judged by it, and the next operation's
+        landing check judges the result under its own."""
+        if self._operation_lock is None:
+            self._operation_lock = asyncio.Lock()
+        async with self._operation_lock:
+            self._host_allowed = allowed
+            yield
 
     def set_host_policy(self, allowed: Callable[[str], bool] | None) -> None:
+        """Connector-level tests only. Tools go through `operation`."""
         self._host_allowed = allowed
 
     def check_url(self, url: str) -> None:

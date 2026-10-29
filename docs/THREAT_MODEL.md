@@ -247,9 +247,13 @@ IdP is sole authority — D4). Fifteen pinned security tests in
     until the same day. Now: per-call output clamp; host policy in the
     browser connector.
   - **`allowed_hosts` is not an egress control.** It blocks requests the
-    agent initiates before dispatch and keeps a disallowed host's content
-    from the agent; redirect hops, subresources, preconnect and
-    WebSockets can still reach one. Destination enforcement must happen
+    agent initiates before dispatch, and lets the agent read or act only
+    while the TOP-LEVEL page is on an allowed host; redirect hops,
+    subresources, preconnect and WebSockets can still reach one. Nor is it
+    a content-origin guarantee: an allowed page can render a disallowed
+    host's images, scripts or frames, and the agent reads what they put
+    there (G30 external review, 2026-10-29). A step's policy holds for the
+    whole tool call, even beside parallel steps sharing the page (R2). Destination enforcement must happen
     at the network layer before dispatch; until it does, no browser tool
     may enter the system layer (test-pinned).
   - **Deterministic file functions consult capabilities (G30 phase 2,

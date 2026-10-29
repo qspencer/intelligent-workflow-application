@@ -443,3 +443,181 @@ async def test_memory_distillation_carries_the_cap_and_is_unchanged_without_one(
         await asyncio.to_thread(complete, "prompt")
     assert fake.calls[0]["inference_config"] == {"maxTokens": 4096}
     assert fake.calls[1]["inference_config"] is None, "an uncapped request changed shape"
+
+
+# --- a parallel sibling cannot swap a step's host policy mid-call (review R2) -----
+
+_FIRST = "https://narrow.example/start"
+_WIDE = "https://wide.example/data"
+
+
+async def _parallel_host_run(tmp_path: Path, *, with_sibling: bool) -> tuple[str, list[str]]:
+    """The reviewer's real-engine reproduction. `narrow` fetches a URL whose
+    response is a redirect to `wide.example`, which its own policy forbids; the
+    first response is HELD so a parallel sibling with the wider policy can act
+    in the middle. Before the fix the sibling's call installed its policy on
+    the shared connector, the held redirect was judged by it, and the narrow
+    step saved the wide host's bytes.
+
+    The hold has a timeout: with the fix the sibling cannot start until the
+    narrow call ends, so waiting for it would deadlock. Either way the
+    redirect is judged after the sibling had its chance to act."""
+    import asyncio
+    import contextlib
+
+    from tests._bedrock_fakes import tool_use_response
+    from tests._browser_fakes import FakeAPIResponse, FakeRequest
+    from workflow_platform.engine import ToolCatalog, WorkflowEngine, default_function_registry
+    from workflow_platform.persistence import in_memory_repositories
+    from workflow_platform.tools.browser import BrowserReadTextTool
+    from workflow_platform.workflow import load_definition
+    from workflow_platform.world import mock_world
+
+    entered, release = asyncio.Event(), asyncio.Event()
+    gets: list[str] = []
+
+    class HeldRequest(FakeRequest):
+        async def get(self, url: str, **kwargs: Any) -> FakeAPIResponse:
+            gets.append(url)
+            if url == _FIRST:
+                entered.set()
+                with contextlib.suppress(TimeoutError):
+                    await asyncio.wait_for(release.wait(), 0.5)
+                return FakeAPIResponse(b"", 302, {"location": _WIDE})
+            return FakeAPIResponse(b"WIDE-HOST-BYTES")
+
+    page = FakePlaywrightPage()
+    page.context.request = HeldRequest()
+    connector = PlaywrightConnector(page=page, downloads_dir=tmp_path)
+
+    class ByGoal(FakeBedrock):
+        def __init__(self) -> None:
+            super().__init__([])
+            self.turns: dict[str, int] = {}
+
+        async def converse(
+            self,
+            model_id: str,
+            messages: list[dict[str, Any]],
+            system: list[dict[str, Any]] | None = None,
+            tool_config: dict[str, Any] | None = None,
+            inference_config: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            assert system is not None
+            goal = str(system[0]["text"])
+            self.turns[goal] = self.turns.get(goal, 0) + 1
+            if self.turns[goal] > 1:
+                if goal.startswith("SIBLING"):
+                    release.set()
+                return text_response("done")
+            if goal.startswith("SIBLING"):
+                await entered.wait()
+                return tool_use_response(
+                    tool_uses=[("s", "browser_read_text", {"selector": "body"})]
+                )
+            return tool_use_response(
+                tool_uses=[("n", "browser_fetch_url", {"url": _FIRST, "dest_filename": "got.txt"})]
+            )
+
+    steps: list[dict[str, object]] = [
+        {
+            "id": "narrow",
+            "type": "agentic",
+            "goal": "NARROW",
+            "model": MODEL,
+            "tools": ["browser_fetch_url"],
+            "capabilities": {"allowed_hosts": ["narrow.example"]},
+        }
+    ]
+    if with_sibling:
+        steps.append(
+            {
+                "id": "sibling",
+                "type": "agentic",
+                "goal": "SIBLING",
+                "model": MODEL,
+                "tools": ["browser_read_text"],
+            }
+        )
+    engine = WorkflowEngine(
+        repositories=in_memory_repositories(),
+        functions=default_function_registry(),
+        tools=ToolCatalog([BrowserFetchUrlTool(), BrowserReadTextTool()]),
+        bedrock=ByGoal(),
+        world=mock_world(),
+        browser_connector_factory=lambda: connector,
+        system_capabilities=CapabilityPolicy(
+            tools=["browser_fetch_url", "browser_read_text"],
+            allowed_hosts=["narrow.example", "wide.example"],
+        ),
+    )
+    definition = load_definition(
+        {"id": "r2", "name": "r2", "trigger": {"type": "manual"}, "steps": steps, "edges": []}
+    )
+    instance = await asyncio.wait_for(engine.run(definition), 10)
+    narrow = next(
+        s
+        for s in await engine.repositories.steps.list_by_instance(instance.id)
+        if s.step_id == "narrow"
+    )
+    assert narrow.output is not None
+    return str(narrow.output["tool_calls"]), gets
+
+
+async def test_a_parallel_sibling_cannot_widen_a_step_host_policy_mid_call(tmp_path: Path) -> None:
+    record, gets = await _parallel_host_run(tmp_path, with_sibling=True)
+    assert gets == [_FIRST], "the narrow step requested a host its policy forbids"
+    assert "allowed_hosts" in record
+    assert not (tmp_path / "got.txt").exists()
+
+
+async def test_the_serial_twin_refuses_the_same_redirect(tmp_path: Path) -> None:
+    """Same step, no sibling: the refusal above is the step's own policy."""
+    record, gets = await _parallel_host_run(tmp_path, with_sibling=False)
+    assert gets == [_FIRST]
+    assert "allowed_hosts" in record
+    assert not (tmp_path / "got.txt").exists()
+
+
+def test_every_browser_tool_acts_only_inside_one_policy_operation() -> None:
+    """Derived from the source: every connector call a browser tool makes sits
+    inside `async with connector.operation(_host_policy(context))`. A new tool
+    that calls the connector outside one fails here; the engine tests above
+    show what the scope buys."""
+    import ast
+
+    import workflow_platform.tools.browser as browser_tools
+
+    tree = ast.parse(Path(browser_tools.__file__).read_text())
+    parents: dict[ast.AST, ast.AST] = {}
+    for node in ast.walk(tree):
+        for child in ast.iter_child_nodes(node):
+            parents[child] = node
+
+    def scoped(node: ast.AST) -> bool:
+        while node in parents:
+            node = parents[node]
+            if isinstance(node, ast.AsyncWith):
+                for item in node.items:
+                    call = item.context_expr
+                    if (
+                        isinstance(call, ast.Call)
+                        and isinstance(call.func, ast.Attribute)
+                        and call.func.attr == "operation"
+                        and ast.unparse(call.args[0]) == "_host_policy(context)"
+                    ):
+                        return True
+        return False
+
+    calls = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.Await)
+        and isinstance(n.value, ast.Call)
+        and isinstance(n.value.func, ast.Attribute)
+        and isinstance(n.value.func.value, ast.Name)
+        and n.value.func.value.id == "connector"
+    ]
+    assert len(calls) >= 11, f"derivation found only {len(calls)} connector calls — it is broken"
+    bare = [n.lineno for n in calls if not scoped(n)]
+    assert not bare, f"browser connector called outside a policy operation at lines {bare}"
