@@ -122,6 +122,30 @@ everything, which is what makes rounds expensive.**
 | Rewriter's identifier grammar narrower than the resolver's (`prépare`) | M3 | yes — grammar agreement (NOT YET BUILT) |
 | The "schema-derived" gate enumerated nothing | M6 | yes — R-b, a gate must be seen to fail |
 
+### G29 (projector v23) — found by US, while packaging it for review
+
+Not a returned round: these are the findings our own pre-package pass produced
+against `3f1c77e`/`081cfb3`. They are counted here because the package would
+otherwise have asked the reviewer to rule on an argument while the
+implementation was broken underneath it.
+
+| Finding | Class | Self? |
+|---|---|---|
+| Projection stopped being a FIXED POINT: a per-call `vocab` parameter that only the three write sites can supply, so `project(project(x)) != project(x)` | M3 | **yes — and this is the detector we owed (R-i)** |
+| Read path (`get_instance`, `explain_step`) re-projects the stored row without the vocabulary → the released verdict is stripped again, so the feature does not reach Contract A's surface at all | M3 | yes — round-trip a STORED row, not just a raw one |
+| The frozen §4.3 agreement predicate returns `mismatch` on a correctly-written row → a grant-holder read degrades and a real tamper is indistinguishable | M3 | yes — same probe |
+| The zero-raw B1 verifier flags correctly-projected rows as raw | M3 | yes — same probe |
+| A list-valued vocabulary releases its ARRANGEMENT (repeats + order), ~53 bits where the declaration reads like 3; live exposure is small only because a PARSER dedupes | M1 | yes — count the channel, don't read the enum |
+| Load-time validator accepts any ≤120-char string; the projector keeps only `_short_token` members, so a declaration can silently release a smaller set than written | M3 | yes — two-layer agreement probe |
+
+**The meta-lesson, which is the one that matters.** Eleven tests covered the new
+branch and every one of them drove it through the WRITE path, where the
+vocabulary is supplied. The guards were all on the side of the change we were
+thinking about. Nothing asserted the invariant the rest of the system actually
+depends on, and the invariant was already written down — in the verifier's own
+docstring, as *"the default-deny projection is a fixed point on already-safe
+data."* We broke a stated invariant and tested the feature instead.
+
 ### Self-inflicted, found by us mid-remediation (worth counting)
 
 Authorized-producer list written from memory (`record_invoice` for
@@ -158,6 +182,18 @@ round narrative, because they apply at the moment a detector is written:
 > completeness check, so a missing record was reported as a full release.
 > Sources and consumers are different lists — a value can be read
 > correctly and still be absent from the decision that reports it.
+>
+> **R-i. When you add a parameter to a function other code RE-RUNS, enumerate
+> the callers that cannot supply it.** G29 gave `redact_tool_data` a `vocab`
+> argument. Three write sites pass it; the read path, the agreement predicate,
+> the zero-raw verifier and the backfill hold a row and not a definition, so
+> they cannot — and all four silently got a different projection than the one
+> that was stored. The detector is the invariant, not the argument list:
+> **re-project every golden fixture and assert it is unchanged.** Two lines,
+> and it fails the moment projection stops being idempotent. Round 6 had
+> already removed process-global state from this projector "so projection is a
+> pure function again"; a parameter only some callers can supply is the same
+> defect wearing a cleaner shape.
 >
 > **R-g. Step 0 is an ENUMERATION, not a recollection.** Round 15 returned
 > two M9 findings in code changed the round before, because

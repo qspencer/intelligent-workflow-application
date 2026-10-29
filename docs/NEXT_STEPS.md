@@ -2648,7 +2648,54 @@ projections; whether a per-org cap on vocabulary size is needed; and whether
 a partially-dropped axis reads as a complete smaller one, a different
 classification rather than a redacted value).
 
-**Until that ships, routine verdict-level analysis needs the audited raw-trace
+**BUILT 2026-10-29 (projector v23, `3f1c77e` + `081cfb3`) AND WITHDRAWN THE SAME
+DAY — the open question above was not answered before building, and that is
+exactly what broke.**
+
+The corrected design shipped: `released_fields` on the WORKFLOW DEFINITION,
+bounded 8×32, validated loudly at load and defensively at the projection
+boundary, gated on `node is _STEP_OUTPUT` so the R7-P1 nesting property comes
+for free, lists failing whole. Seven golden cases, four unit tests, 1,428 green,
+and a live run that stored `category: "promotion"` below grant. All of that
+works.
+
+What it got wrong is the question this item had already written down: *where the
+declaration is bound*. It was bound at **projection time** — a per-call `vocab`
+parameter — so projection stopped being a **fixed point**:
+`project(project(x)) != project(x)`. Only the three write sites in
+`engine/executor.py` can supply the vocabulary. Four consumers hold a row and
+not a definition, and all four are wrong as a result:
+
+- the **read path** (`get_instance`, `explain_step`) strips the released verdict
+  again, so the feature never reached the surface it was built for;
+- the frozen **§4.3 agreement predicate** returns `mismatch` on a correctly
+  written row, degrading grant-holder reads and masking real tampering;
+- the **zero-raw B1 verifier** flags correctly-projected rows as raw;
+- the **backfill** would silently strip released fields on any future sweep.
+
+Proven, not reasoned: `docs/review-artifacts/g29_reproductions.py` (28 checks).
+Blast radius was **18 step rows** in one window, 2026-10-29 03:19–10:31 UTC; no
+data at risk (raw is vaulted and sealed; a grant recovers everything), the harm
+is to two controls. Removing the four `released_fields` lines restores exact v22
+behaviour.
+
+**The fix depends on open findings.** Recording the vocabulary on the row — the
+only way to make projection reproducible from the row alone, and the only way a
+later definition edit cannot retroactively rewrite how history projects — makes
+the agreement predicate consult operational metadata a DB adversary controls.
+That is **F3** (mutable fail-open stamp), still open, and binding it into an
+authenticated commitment is **F4**, also open. So this is sequenced *after*
+F3/F4 rather than attempted a third time.
+
+Packaged for external ruling: `docs/TRACE_G29_REVIEW_GUIDE.md` asks the reviewer
+to choose between (a) withdraw, (b) row-recorded vocabulary after F3/F4, or (c)
+a business verdict should never be below grant. **Two further findings from the
+same pass** are in that guide and the ledger: a list-valued vocabulary releases
+its *arrangement* (~53 bits, not 3 — bounded today only by a parser's dedupe,
+which is the wrong component for the guarantee), and the load-time validator
+accepts members the projector silently drops.
+
+**Until a ruling lands, routine verdict-level analysis needs the audited raw-trace
 grant.** That is not a workaround; it is the control working. The 1,297-message
 run's verdicts are all at rest (`raw_traces`: 3,907 `output`, 1,304
 `trigger_payload`, 3,897 `audit_detail`, all `committed` and AEAD-sealed), so no

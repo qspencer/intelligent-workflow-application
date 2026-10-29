@@ -1,0 +1,120 @@
+Captured standalone gate results — G29 review package (projector v23)
+
+Gates ran at tree: 5a48a0bc65fbf1980f51d214cb335c4a8b2b81d2   (manifest aggregate: f89822849518a68edaa0e96212f4e928cee95d0fb22eb9e79772b4a1ee68ca33)
+Exit codes captured before any pipe; all five also run under
+scripts/gate.sh as ONE exit code, chained to the commit with &&.
+
+Host: Linux 7.0.0-1014-aws GNU/Linux · Python Python 3.14.7 · 2026-10-29T10:33:51Z
+
+=== uv run ruff check . ===
+All checks passed!
+exit: 0
+
+=== uv run ruff format --check . ===
+296 files already formatted
+exit: 0
+
+=== uv run mypy src tests ===
+Success: no issues found in 251 source files
+exit: 0
+
+=== uv run pytest ===
+SKIPPED [1] tests/test_postgres_repositories.py:109: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:132: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:156: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:223: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:256: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:294: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:334: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
+1428 passed, 23 skipped, 15 warnings in 55.32s
+exit: 0
+
+=== uv run pip-audit ===
+pillow       12.3.0    CVE-2026-112406     13.0.0
+pillow       12.3.0    CVE-2026-112399     13.0.0
+pillow       12.3.0    CVE-2026-112892     13.0.0
+pillow       12.3.0    CVE-2026-112393     13.0.0
+pillow       12.3.0    CVE-2026-96638      13.0.0
+pillow       12.3.0    CVE-2026-96640      13.0.0
+pillow       12.3.0    CVE-2026-96778      13.0.0
+pillow       12.3.0    GHSA-78g4-xqwv-q3g8 13.0.0
+
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 1
+
+NOTE on the pip-audit gate — RED, and not from this change.
+`pillow` 12.3.0 carries 8 advisories fixed in 13.0.0. It is a TRANSITIVE
+dependency (pdf2image, pytesseract — the PDF/OCR path), not a direct pin,
+and it was clean at round 18; the advisories are new. Reported rather than
+bundled into a trace change: four gates green, this one red, stated so the
+count is honest. Tracked separately for the operator.
+
+=== reproductions: docs/review-artifacts/g29_reproductions.py ===
+(run from backend/: uv run python ../docs/review-artifacts/g29_reproductions.py)
+
+projector version 23 · bounds 8 fields / 32 values
+
+A. what the mechanism does — these are the guarantees G29 claims
+  [ok  ] A1 no declaration behaves exactly as v22
+  [ok  ] A2 a declared scalar drawn from the set survives
+  [ok  ] A3 a declared list drawn from the set survives
+  [ok  ] A4 a declared field with an UNDECLARED value is withheld AND flagged
+  [ok  ] A5 a list fails WHOLE, never per-element
+  [ok  ] A6 an undeclared field is still dropped whole
+  [ok  ] A7 a declaration cannot release a reserved projector field
+  [ok  ] A8 a declaration cannot override a platform-declared child's validator
+  [ok  ] A9 R7-P1: honoured where a step output NESTS (context.steps.<id>)
+  [ok  ] A10 R7-P1: and NOT at the top level of another asset kind
+  [ok  ] A11 hostile declaration normalizes away: None
+  [ok  ] A11 hostile declaration normalizes away: nope
+  [ok  ] A11 hostile declaration normalizes away: 42
+  [ok  ] A11 hostile declaration normalizes away: [1, 2]
+  [ok  ] A11 hostile declaration normalizes away: {'ok': 'not-a-list'}
+  [ok  ] A11 hostile declaration normalizes away: {'bad key': ['x']}
+  [ok  ] A11 hostile declaration normalizes away: {'has@at': ['x']}
+  [ok  ] A11 hostile declaration normalizes away: {'category': []}
+  [ok  ] A11 hostile declaration normalizes away: {'category': ['xxxxxxxxx
+
+B. the residual we would have asked you to challenge
+      a LIST-valued field releases its ARRANGEMENT, not just its members:
+         repeats survive: {"attention": ["urgent", "urgent", "review"]}
+         order survives  : {"attention": ["review", "urgent"]}
+  [ok  ] B1 a 32-long list of members survives whole
+  [ok  ] B2 33 exceeds MAX_VOCAB_VALUES and is withheld
+      -> channel for a list field is sequences over the alphabet, not the
+         subset lattice: ~53 bits for a 3-value set at length<=32.
+         Live exposure is ~4 bits ONLY because `record_email_triage`
+         dedupes first — a parser property, not a projector guarantee.
+
+C. THE DEFECT — projection is no longer a fixed point
+  [ok  ] C0 the write path stores the released verdict (this part works)
+  [ok  ] C1 re-projecting an already-projected row CHANGES it (fixed point broken)
+  [ok  ] C2 the read path (GET instance -> kind='step_row') strips it again
+  [ok  ] C3 the frozen §4.3 agreement predicate reports integrity failure
+  [ok  ] C4 the zero-raw (B1) verifier flags the correctly-projected row
+  [ok  ] C5 ... whereas a v22-era row is a fixed point, as the verifier assumes
+
+D. the authoring-time / projection-time disagreement (minor, fails closed)
+      the definition validator accepts any string <=120 chars; the
+      projector keeps only `_short_token` members (no spaces, no `@`):
+  [ok  ] D1 a declared member with a space is silently dropped from the set
+  [ok  ] D2 ... and a mixed declaration silently releases a SMALLER set
+
+all checks reproduced as the review guide states them.
+repro exit: 0
+
+=== live blast radius (production Postgres, counts and enum values only) ===
+Queried 2026-10-29. No message content was read; only key sets and the
+released enum values, which are the five operator-authored strings.
+step rows stamped projector_version=23: 68
+of those, rows carrying a released key: 18
+window: 2026-10-29 03:19:40.991011+00 -> 2026-10-29 10:31:04.049287+00
+their output key set: _withheld_keys,attention,category,parse_ok
+distinct released category values: newsletter, notification, promotion
+DONE
