@@ -20,6 +20,7 @@ Capability gating runs at the `Agent` layer via `tool_allowed(name)`, and
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any, ClassVar
 
 from workflow_platform.connectors.browser import BrowserConnector
@@ -356,6 +357,21 @@ class BrowserUploadFileTool(Tool):
         file_path = params.get("file_path")
         if not isinstance(file_path, str) or not file_path:
             return ToolResult(error="`file_path` is required (non-empty string)")
+        # An upload READS a local file and sends it to a page, so it is a
+        # `file_read` like any other: an allowed destination host does not
+        # authorize every local source (G30 external review R4). Checked before
+        # Playwright sees the path, on exactly the string it will open.
+        caps = context.capabilities if context is not None else None
+        if caps is not None and not caps.can_read(file_path):
+            return ToolResult(
+                error=f"Capability denied: read {file_path!r} is outside file_read ACL"
+            )
+        # Playwright uploads a directory's contents on some inputs; the check
+        # above is on the directory's path, not each file in it, so refuse.
+        if Path(file_path).is_dir():
+            return ToolResult(
+                error=f"browser_upload_file uploads one file; {file_path!r} is a directory"
+            )
         try:
             await connector.upload_file(sel, file_path)
         except Exception as exc:

@@ -13,10 +13,13 @@ real Chromium is launched. The fake records `__aenter__` and
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import Any
 
+import pytest
+
 from tests._bedrock_fakes import FakeBedrock, text_response, tool_use_response
-from workflow_platform.connectors.browser import BrowserConnector
+from workflow_platform.connectors.browser import BrowserConnector, PlaywrightConnector
 from workflow_platform.engine import (
     FunctionRegistry,
     ToolCatalog,
@@ -542,3 +545,78 @@ def test_workflow_context_connectors_excluded_from_dump() -> None:
 
 
 # asyncio_mode = "auto" in pyproject covers the async tests above.
+
+
+# ---------- each run's outputs are its own (G30 external review R3) ----------
+
+
+async def test_two_runs_saving_the_same_name_keep_both_outputs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The reviewer's reproduction, inverted. Through the DEFAULT construction
+    path (only the Playwright page is faked), two runs fetch different bodies
+    under the same `dest_filename`. Before the fix both landed at
+    `./downloads/report.txt`: the second overwrote the first, and the first
+    run's recorded path then held the second run's bytes."""
+    from tests._browser_fakes import FakePlaywrightPage
+    from workflow_platform.engine import executor as executor_module
+    from workflow_platform.tools import BrowserFetchUrlTool
+
+    pages: list[FakePlaywrightPage] = []
+
+    def connector_with_fake_page(*, downloads_dir: Path) -> PlaywrightConnector:
+        page = FakePlaywrightPage()
+        page.context.request.body_at["https://example.com/r"] = (
+            b"FIRST_RUN" if not pages else b"SECOND_RUN"
+        )
+        pages.append(page)
+        return PlaywrightConnector(downloads_dir=downloads_dir, page=page)
+
+    monkeypatch.setattr(executor_module, "PlaywrightConnector", connector_with_fake_page)
+    repos = in_memory_repositories()
+    definition = load_definition(
+        {
+            "id": "r3-two-runs",
+            "name": "r3",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {
+                    "id": "fetch",
+                    "type": "agentic",
+                    "goal": "fetch",
+                    "model": "us.anthropic.claude-haiku-4-5-20251001-v1:0",
+                    "tools": ["browser_fetch_url"],
+                }
+            ],
+            "edges": [],
+        }
+    )
+    call = (
+        "c1",
+        "browser_fetch_url",
+        {"url": "https://example.com/r", "dest_filename": "report.txt"},
+    )
+    root = tmp_path / "downloads"
+    recorded: dict[str, str] = {}
+    for _ in range(2):
+        engine = WorkflowEngine(
+            repositories=repos,
+            functions=FunctionRegistry(),
+            tools=ToolCatalog([BrowserFetchUrlTool()]),
+            bedrock=FakeBedrock([tool_use_response(tool_uses=[call]), text_response("done")]),
+            world=mock_world(),
+            browser_downloads_dir=root,
+        )
+        instance = await engine.run(definition)
+        (step,) = await repos.steps.list_by_instance(instance.id)
+        assert step.output is not None
+        (record,) = step.output["tool_calls"]
+        recorded[instance.id] = str(record)
+
+    first_id, second_id = recorded
+    assert (root / first_id / "report.txt").read_bytes() == b"FIRST_RUN"
+    assert (root / second_id / "report.txt").read_bytes() == b"SECOND_RUN"
+    # Each run's record names ITS file, not a shared one.
+    for instance_id, record_text in recorded.items():
+        assert str(root / instance_id / "report.txt") in record_text
+    assert sorted(p.name for p in root.iterdir()) == sorted(recorded)

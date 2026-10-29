@@ -203,9 +203,10 @@ class WorkflowEngine:
     events: EventBus | None = None
     metrics: Metrics = field(default_factory=NoopMetrics)
     pause_check_interval: float = 0.0  # seconds; 0 disables polling-based pause checks
-    # Browser-connector run-scope config. `browser_downloads_dir` is where
-    # `download_via_click` and `screenshot` files land; defaults to a
-    # process-local `./downloads/` folder. `browser_connector_factory` is
+    # Browser-connector run-scope config. `browser_downloads_dir` is the ROOT
+    # under which each instance gets its own directory for `download_via_click`,
+    # `fetch_url` and `screenshot` files; defaults to a process-local
+    # `./downloads/` folder. `browser_connector_factory` is
     # the injection seam for tests: when None, `_build_run_connectors`
     # constructs a default `PlaywrightConnector`; tests pass a factory
     # that returns a fake instead so no real Chromium is launched.
@@ -781,8 +782,17 @@ class WorkflowEngine:
         if not _workflow_uses_browser(definition):
             return
         try:
+            # One directory per INSTANCE under the configured root: outputs are
+            # "the run's own", and the connector's containment check is only
+            # as good as the directory it is handed. A shared root let a second
+            # run overwrite the first's artifact under the same name, leaving
+            # its recorded path pointing at another run's bytes (G30 external
+            # review R3). Resume and retry keep the instance id, so they reuse
+            # its directory; a fork is a new instance and gets a new one.
+            # Instance ids are engine-minted UUIDs, never caller-supplied.
+            run_downloads = self.browser_downloads_dir / instance_id
             factory = self.browser_connector_factory or (
-                lambda: PlaywrightConnector(downloads_dir=self.browser_downloads_dir)
+                lambda: PlaywrightConnector(downloads_dir=run_downloads)
             )
             connector = factory()
             await connector.__aenter__()

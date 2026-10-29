@@ -635,3 +635,51 @@ async def test_submit_form_tool_surfaces_errors(tmp_path: Path) -> None:
         await conn.__aexit__(None, None, None)
     assert not result.ok
     assert "no such form" in (result.error or "")
+
+
+# ---------- upload reads a local file: `file_read` applies (G30 review R4) ----------
+
+
+async def _upload(tmp_path: Path, file_path: str, file_read: list[str]) -> tuple[Any, list[Any]]:
+    from workflow_platform.security.capabilities import CapabilityPolicy, resolve_capabilities
+
+    fake = FakePlaywrightPage()
+    ctx, conn = await _ctx_with_browser(tmp_path, fake)
+    ctx.capabilities = resolve_capabilities(
+        CapabilityPolicy(tools=["browser_upload_file"], file_read=file_read)
+    )
+    try:
+        result = await BrowserUploadFileTool().execute(
+            {"selector": "#f", "file_path": file_path}, context=ctx
+        )
+    finally:
+        await conn.__aexit__(None, None, None)
+    return result, [kw for (m, kw) in fake.calls if m == "locator.set_input_files"]
+
+
+async def test_upload_outside_file_read_never_reaches_the_page(tmp_path: Path) -> None:
+    """The reviewer's reproduction: an EXISTING file, `file_read=[]`. Before the
+    fix the page's `set_input_files` received this exact path."""
+    secret = tmp_path / "private.txt"
+    secret.write_text("PRIVATE-FIXTURE")
+    result, uploads = await _upload(tmp_path, str(secret), file_read=[])
+    assert not result.ok and "Capability denied: read" in (result.error or "")
+    assert uploads == []
+
+
+async def test_upload_inside_file_read_reaches_the_page(tmp_path: Path) -> None:
+    """The twin: same file, allowed — so the refusal above is the policy."""
+    allowed = tmp_path / "out" / "upload.csv"
+    allowed.parent.mkdir()
+    allowed.write_text("a,b\n")
+    result, uploads = await _upload(tmp_path, str(allowed), file_read=[f"{allowed.parent}/*"])
+    assert result.ok, result.error
+    assert [u["files"] for u in uploads] == [str(allowed)]
+
+
+async def test_upload_refuses_a_directory_even_when_its_path_is_allowed(tmp_path: Path) -> None:
+    folder = tmp_path / "out" / "batch"
+    folder.mkdir(parents=True)
+    result, uploads = await _upload(tmp_path, str(folder), file_read=[f"{folder.parent}/*"])
+    assert not result.ok and "directory" in (result.error or "")
+    assert uploads == []
