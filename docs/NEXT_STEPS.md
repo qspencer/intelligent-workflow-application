@@ -2674,10 +2674,15 @@ not a definition, and all four are wrong as a result:
 - the **backfill** would silently strip released fields on any future sweep.
 
 Proven, not reasoned: `docs/review-artifacts/g29_reproductions.py` (28 checks).
-Blast radius was **18 step rows** in one window, 2026-10-29 03:19–10:31 UTC; no
-data at risk (raw is vaulted and sealed; a grant recovers everything), the harm
-is to two controls. Removing the four `released_fields` lines restores exact v22
-behaviour.
+Blast radius was **19 step rows + 19 instance contexts** in one window,
+2026-10-29 03:19–10:47 UTC. No data at risk — raw is vaulted and AEAD-sealed and
+a grant recovers every verdict; the harm was to two controls. **Withdrawn,
+deployed and swept the same day** (`286fda7`): the declaration is gone, the
+service restarted, a dry-run confirms exact v22 output behaviourally, and all 38
+rows were re-projected through the real projector. After: 0 rows carry a
+released key, all of that day's v23 rows are fixed points, the B1 verifier flags
+none. The 1,997 older instances carrying business keys are the known pre-flip
+backfill backlog, scoped apart by `projector_version` rather than by date.
 
 **The fix depends on open findings.** Recording the vocabulary on the row — the
 only way to make projection reproducible from the row alone, and the only way a

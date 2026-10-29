@@ -20,7 +20,7 @@ returned. It asks about one new widening of the below-grant disclosure surface.
 | Reproductions | `docs/review-artifacts/g29_reproductions.py` — 28 checks, all executed |
 | Gates / manifest | `docs/archives/GATE_OUTPUT_G29.txt` · `CODE_MANIFEST_G29.txt` |
 | Prior ruling this answers | `test_rr_p1_registered_key_with_unvalidated_value_is_redacted` (GR4-R4) |
-| Live state | declared on `email_triage_apply`; **18 affected production rows**, §6 |
+| Live state | **withdrawn, deployed and swept** before this package left — §6 |
 
 ---
 
@@ -119,8 +119,9 @@ four consumers that hold only the row — not the definition — are wrong:
 | — | `trace_migration` backfill re-projection (lines 169/205/218) | Would **strip** a released field out of a stored row on any future sweep. Over-redaction, not disclosure — but it is silent data loss on the operational row. |
 
 All six checks are in §C of `docs/review-artifacts/g29_reproductions.py` and all
-reproduce. The shape used is the real one, confirmed against the 18 affected
-production rows (`_withheld_keys, attention, category, parse_ok`).
+reproduce. The shape used is the real one, confirmed against the affected
+production rows before they were repaired (`_withheld_keys, attention,
+category, parse_ok` — see §6).
 
 ### 3.1 Why this is the architecture, not a wiring omission
 
@@ -204,21 +205,38 @@ disagree — the class the ledger lists as top-three recurring. Not fixed here:
 with the change withdrawn the inconsistency is dormant, and patching it would
 add churn to code whose disposition you have not ruled on yet.
 
-## 6. Live state, and what we are asking the operator to do
+## 6. Live state — withdrawn and swept before this package left
 
-The declaration is live on `email_triage_apply` under
+The declaration was live on `email_triage_apply` for one window under
 `WORKFLOW_PLATFORM_TRACE_SAFE_ONLY=1` and
-`WORKFLOW_PLATFORM_RAW_GRANT_DUAL_CONTROL=1`.
+`WORKFLOW_PLATFORM_RAW_GRANT_DUAL_CONTROL=1`. It has been **withdrawn, deployed
+and repaired** (`286fda7`), so you are not being asked to rule under time
+pressure:
 
-- **18 step rows** carry a released key, in a single window **2026-10-29
-  03:19 → 10:31 UTC**. Key set `_withheld_keys, attention, category, parse_ok`;
-  released values seen: `newsletter`, `notification`, `promotion`.
-- **No data is at risk.** The raw is vaulted and AEAD-sealed as always; a grant
-  still recovers everything. The harm is to two *controls*: those 18 rows read
-  as integrity mismatches to a grant holder, and as findings to the B1 verifier.
-- Removing the four `released_fields` lines restores **exact v22 behaviour** —
-  check A1 proves the no-declaration path is byte-identical — after which the 18
-  rows need one re-projection sweep to become fixed points again.
+- **Blast radius:** 19 `step_executions` and 19 `workflow_instances` contexts,
+  in a single window **2026-10-29 03:19 → 10:47 UTC**. Key set
+  `_withheld_keys, attention, category, parse_ok`; released values seen were
+  `newsletter`, `notification`, `promotion` — three of the five
+  operator-authored strings.
+- **Withdrawn:** `released_fields` removed from the workflow, service restarted,
+  the re-seeded definition in Postgres now carries `released_fields: null`.
+  Verified behaviourally rather than by assuming the restart took: a sandboxed
+  dry-run's `record` step stores `{"parse_ok": true, "_withheld_keys": true}`,
+  which is exact v22 output.
+- **Swept:** all 38 rows re-projected through the real projector with no
+  vocabulary — the same function every consumer calls, so the repair cannot be a
+  second implementation of the rule. Backed up first; the sweep asserts its own
+  output is a fixed point before writing.
+- **Verified after:** 0 rows carry a released key, all 75 of that day's v23 rows
+  are fixed points, and the zero-raw B1 verifier flags none of them.
+- **No data was at risk at any point.** Raw stayed vaulted and AEAD-sealed; a
+  raw-trace grant still recovers every verdict. The harm was to two *controls*,
+  not to the record.
+
+One thing worth separating, because the crude query misleads: **1,997 older
+instances also carry business keys in their step snapshots, going back to
+2026-07-12.** Those are the known pre-flip backfill backlog (round 18 §5 item 1),
+not this change. They are scoped apart by `projector_version`, not by date.
 
 ## 7. Out of scope — please do not spend the review here
 
@@ -231,9 +249,15 @@ deterministic step's output — is also still unanswered and unrelated.
 ## 8. Verification, stated honestly
 
 - **1,428 tests pass**, 23 skipped. Ruff, ruff-format, mypy strict clean.
-- **pip-audit is RED** and not from this change: `pillow` 12.3.0 carries 8
-  advisories fixed in 13.0.0, transitively via `pdf2image`/`pytesseract`. It was
-  clean at round 18. Four gates green, one red — stated so the count is honest.
+- **pip-audit went RED while this package was being captured**, and not from
+  this change: 11 advisories across three transitive pins (`pillow` 12.3.0 → 8
+  of them, plus `graphql-core` and `certifi`), all clean at round 18. Fixed by
+  lockfile upgrade in `805fc88`; all five gates are green at the packaged
+  commit. `GATE_OUTPUT_G29.txt` is the capture from *before* that fix and still
+  shows the red exit — it is the evidence of the state the gates were run in,
+  not a claim about now. Two of the three only surfaced after the first was
+  fixed, because the first reading took pip-audit's exit code through `tail`,
+  which reports tail's status.
 - The golden corpus has **7 new cases** freezing every branch of the new code
   (released scalar, released list, out-of-set value, partially-valid list,
   undeclared field, an attempt to release `_withheld_keys`, and
