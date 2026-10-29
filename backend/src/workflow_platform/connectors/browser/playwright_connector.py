@@ -261,11 +261,15 @@ class PlaywrightConnector(BrowserConnector):
             await self._page.goto("about:blank")
         except Exception as exc:
             failure = exc.__class__.__name__
+        # None of these names the page's URL: a redirect's server or the page's
+        # own script chose it, and a retry after a failed clear would hand the
+        # model the very URL the withheld call kept back (round-5 review,
+        # R5-F1). Every caller gets this, so none has to remember to redact.
         if failure is not None:
             raise BrowserPageNotCleared(
-                f"the page reached {current!r}, outside this step's allowed_hosts, and "
-                f"clearing it failed ({failure}); nothing from it was read, and the next "
-                "browser call checks the page again"
+                "the page is on a host outside this step's allowed_hosts and clearing it "
+                "failed; nothing from it was read, and the next browser call checks the "
+                f"page again [page_not_allowed; error={failure}; cleanup=failed]"
             )
         if current.startswith("chrome-error://"):
             # An ABORTED navigation: route interception blocked it, and Chromium
@@ -273,10 +277,12 @@ class PlaywrightConnector(BrowserConnector):
             # the page does not stay where it was).
             raise BrowserHostDenied(
                 "a navigation outside this step's allowed_hosts was blocked; "
-                "the page was cleared — navigate again to an allowed URL"
+                "the page was cleared — navigate again to an allowed URL "
+                "[navigation_blocked; cleanup=cleared]"
             )
         raise BrowserHostDenied(
-            f"the page reached {current!r}, outside this step's allowed_hosts; it was cleared"
+            "the page reached a host outside this step's allowed_hosts; it was cleared "
+            "[page_not_allowed; cleanup=cleared]"
         )
 
     async def _guard(self) -> None:
@@ -553,7 +559,12 @@ class PlaywrightConnector(BrowserConnector):
             if not (300 <= response.status < 400 and location):
                 return response
             current = urljoin(current, location)
-            self.check_url(current)
+            if not url_host_allowed(current, self._host_allowed):
+                # Not named: the redirecting server chose it (R5-F1).
+                raise BrowserHostDenied(
+                    "a redirect led outside this step's allowed_hosts; nothing was "
+                    "fetched from it [url_not_allowed; source=redirect]"
+                )
         raise BrowserHostDenied(f"more than {_MAX_REDIRECTS} redirects from {url!r}")
 
     async def upload_file(self, selector: str, upload: BrowserUpload) -> None:
@@ -596,8 +607,12 @@ class PlaywrightConnector(BrowserConnector):
             and source
             and not url_host_allowed(source, self._host_allowed)
         ):
-            # Refused BEFORE it is saved where the agent could read it.
-            raise BrowserHostDenied(f"download from {source!r} is outside allowed_hosts")
+            # Refused BEFORE it is saved where the agent could read it, and not
+            # named: the server chose where it came from (R5-F1).
+            raise BrowserHostDenied(
+                "the download came from a host outside this step's allowed_hosts; it was "
+                "not saved [url_not_allowed; source=download]"
+            )
         suggested: str = download.suggested_filename
         target = self._contained(suggested)
         await download.save_as(str(target))

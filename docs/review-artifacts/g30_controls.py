@@ -498,6 +498,64 @@ CONTROLS = [
         "BROWSER_LIVE",
     ),
     (
+        "R5-F1: the start-of-call check names the page it cleared",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "\"the page reached a host outside this step's allowed_hosts; it was cleared \"",
+        "f\"the page reached {current!r}, outside this step's allowed_hosts; it was cleared \"",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_a_call_starting_on_an_off_list_page_does_not_name_it",
+    ),
+    (
+        "R5-F1: a refusal formats the page's URL (derivation)",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "\"the page reached a host outside this step's allowed_hosts; it was cleared \"",
+        "f\"the page reached {current!r}, outside this step's allowed_hosts; it was cleared \"",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_no_refusal_formats_a_url_a_page_or_server_chose",
+    ),
+    (
+        "R5-F1: a failed clear names the page, and the retry delivers it",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "\"the page is on a host outside this step's allowed_hosts and clearing it \"",
+        "f\"the page is on {current!r}, outside this step's allowed_hosts and clearing it \"",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_a_retry_after_a_failed_clear_does_not_deliver_the_withheld_url",
+    ),
+    (
+        "R5-F1: a redirect refusal names where it led",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "\"a redirect led outside this step's allowed_hosts; nothing was \"",
+        "f\"a redirect to {current!r} led outside this step's allowed_hosts; nothing was \"",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_a_redirect_off_list_is_refused_without_naming_it",
+    ),
+    (
+        "R5-F1: a download refusal names its source",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "\"the download came from a host outside this step's allowed_hosts; it was \"",
+        "f\"the download came from {source!r}, outside this step's allowed_hosts; it was \"",
+        "tests/test_g30_capability_enforcement.py::"
+        "test_an_off_list_download_is_refused_without_naming_it",
+    ),
+    (
+        "R5-F1, real Chromium: the retry after a failed clear names the page",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "\"the page is on a host outside this step's allowed_hosts and clearing it \"",
+        "f\"the page is on {current!r}, outside this step's allowed_hosts and clearing it \"",
+        "tests/test_browser_host_policy_live.py::"
+        "test_a_withheld_read_stays_withheld_when_clearing_really_fails",
+        "BROWSER_LIVE",
+    ),
+    (
+        "R5-F1, real Chromium: a fetch_url redirect refusal names where it led",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "\"a redirect led outside this step's allowed_hosts; nothing was \"",
+        "f\"a redirect to {current!r} led outside this step's allowed_hosts; nothing was \"",
+        "tests/test_browser_host_policy_live.py::"
+        "test_fetch_url_never_follows_a_redirect_off_list",
+        "BROWSER_LIVE",
+    ),
+    (
         "R2-F3, real Chromium: reads are not fenced",
         "src/workflow_platform/connectors/browser/playwright_connector.py",
         "        if self._host_allowed is None:\n            return await read()\n",

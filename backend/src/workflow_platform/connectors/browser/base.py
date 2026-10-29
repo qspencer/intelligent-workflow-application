@@ -125,7 +125,13 @@ class BrowserConnector(Connector):
          The effect cannot be undone either way: if the page navigates while
          Playwright waits for the element, the action can land on the new page
          and act with whatever session that page has;
-       - `fetch_url` / `download_via_click` save nothing from a disallowed host.
+       - `fetch_url` / `download_via_click` save nothing from a disallowed host;
+       - no refusal names a URL a page or server chose — where the page went,
+         a redirect's target, a download's source. Each carries a bounded
+         status instead (`[page_not_allowed; cleanup=…]`,
+         `[url_not_allowed; source=…]`). Only a URL the agent itself asked for
+         is named (round-5 review, R5-F1: a retry after a failed clear
+         delivered the very URL the withheld call kept back).
 
     It is NOT a content-origin guarantee. A page on an allowed host can load a
     disallowed host's images, scripts or frames, and what they render or write
@@ -181,9 +187,14 @@ class BrowserConnector(Connector):
         self._host_allowed = allowed
 
     def check_url(self, url: str) -> None:
-        """Refuse a URL BEFORE any request is made for it."""
+        """Refuse a URL the AGENT asked for, BEFORE any request is made for it.
+        The one refusal that names a URL: the agent chose it. A URL a page or
+        server chose — a redirect, a download's source, where the page went —
+        is never named (round-5 review, R5-F1)."""
         if self._host_allowed is not None and not url_host_allowed(url, self._host_allowed):
-            raise BrowserHostDenied(f"{url!r} is outside this step's allowed_hosts")
+            raise BrowserHostDenied(
+                f"{url!r} is outside this step's allowed_hosts [url_not_allowed; source=request]"
+            )
 
     # --- abstract: subclasses must implement ---
 

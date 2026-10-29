@@ -26,7 +26,11 @@ from pathlib import Path
 
 import pytest
 
-from workflow_platform.connectors.browser import BrowserHostDenied, PlaywrightConnector
+from workflow_platform.connectors.browser import (
+    BrowserHostDenied,
+    BrowserPageNotCleared,
+    PlaywrightConnector,
+)
 from workflow_platform.security.capabilities import CapabilityPolicy, resolve_capabilities
 
 pytestmark = [
@@ -185,9 +189,11 @@ async def test_a_redirect_hop_is_the_residual_and_its_content_never_reaches_the_
 async def test_fetch_url_never_follows_a_redirect_off_list(
     site: _Site, browser: PlaywrightConnector
 ) -> None:
-    with pytest.raises(BrowserHostDenied):
+    with pytest.raises(BrowserHostDenied) as caught:
         await browser.fetch_url(f"http://127.0.0.1:{site.port}/redir")
     assert "/landing" not in _paths(site, "localhost"), "fetch_url followed the redirect off-list"
+    # Round-5 review, R5-F1: the redirecting server chose that URL; not named.
+    assert "localhost" not in str(caught.value)
 
 
 async def test_a_backslash_cannot_smuggle_a_disallowed_host_past_fetch_url(
@@ -283,3 +289,8 @@ async def test_a_withheld_read_stays_withheld_when_clearing_really_fails(
     assert "SECRET-LATE" not in message and "localhost" not in message
     assert caught.value.__context__ is None
     assert page.is_closed(), "the clearing failure was not the one designed"
+    # Round-5 review, R5-F1: the retry. The page is still where it was left;
+    # the next call refuses it without reading it and without naming it.
+    with pytest.raises(BrowserPageNotCleared) as retry:
+        await browser.read_text("#late")
+    assert "localhost" not in str(retry.value) and "SECRET-LATE" not in str(retry.value)

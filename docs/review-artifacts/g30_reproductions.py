@@ -278,7 +278,9 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
         "withheld the same way; the model never sees the quote; every page method is "
         "routed through one of the two; all of it holds when CLEARING the page fails — the "
         "failure is reported, never its error, and a rejected screenshot never reaches its "
-        "path (R2-F3; R3-F1, R3-F2; round-4 R4-F1)",
+        "path; and no refusal names a URL a page or server chose — not at the next call's "
+        "check, not for a redirect or a download — while the agent's own URL is still named "
+        "(R2-F3; R3-F1, R3-F2; R4-F1; round-5 R5-F1)",
         [
             f"{EN}::test_a_read_whose_page_leaves_for_an_off_list_host_mid_read_is_withheld",
             f"{EN}::test_a_read_through_an_off_list_page_and_back_is_withheld",
@@ -298,6 +300,12 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
             f"{EN}::test_a_page_found_off_list_that_cannot_be_cleared_says_so",
             f"{EN}::test_the_withheld_status_reports_what_clearing_did",
             f"{EN}::test_the_model_never_sees_a_failed_clear",
+            f"{EN}::test_a_call_starting_on_an_off_list_page_does_not_name_it",
+            f"{EN}::test_a_retry_after_a_failed_clear_does_not_deliver_the_withheld_url",
+            f"{EN}::test_a_redirect_off_list_is_refused_without_naming_it",
+            f"{EN}::test_an_off_list_download_is_refused_without_naming_it",
+            f"{EN}::test_a_url_the_agent_asked_for_is_still_named",
+            f"{EN}::test_no_refusal_formats_a_url_a_page_or_server_chose",
         ],
         None,
     ),
@@ -315,7 +323,8 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
         "withheld, beside a late element on a page that stays put (R2-F3); so is the error "
         "two matches on the off-list landing raise, beside the same error kept on a page "
         "that stays put (R3-F1); a withheld read survives a clearing navigation that "
-        "really fails (R4-F1)",
+        "really fails, and the retry neither reads nor names the page; a fetch_url redirect "
+        "refusal does not name where it led (R4-F1, R5-F1)",
         [
             f"{LIVE}::test_a_click_off_list_is_stopped_before_the_request_is_sent",
             f"{LIVE}::test_navigate_off_list_sends_nothing",

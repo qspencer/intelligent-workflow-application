@@ -626,6 +626,172 @@ async def test_the_model_never_sees_a_failed_clear(tmp_path: Path) -> None:
     assert CLEANUP not in str(step.output) and MARKER not in str(step.output)
 
 
+# --- no refusal names a URL a page or server chose (round-5 review, R5-F1) ---
+
+#: Where the page went, or where a server pointed — never the agent's choice.
+CHOSEN = "SERVER_CHOSEN_URL_FIXTURE"
+CHOSEN_URL = f"https://evil.example/{CHOSEN}"
+
+
+@pytest.mark.parametrize("clearing_fails", [False, True])
+async def test_a_call_starting_on_an_off_list_page_does_not_name_it(
+    tmp_path: Path, clearing_fails: bool
+) -> None:
+    """Before the fix the start-of-call check named the page's URL, cleared or
+    not — which is how a retry delivered what the withheld call kept back."""
+    page = FakePlaywrightPage(url=CHOSEN_URL)
+    if clearing_fails:
+        page.clear_fails = RuntimeError("closed")
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(BrowserHostDenied) as caught:
+        await conn.read_text("#x")
+    message = str(caught.value)
+    assert CHOSEN not in message and "evil.example" not in message
+    assert f"[page_not_allowed; {'error=RuntimeError; ' if clearing_fails else ''}" in message
+    assert ("cleanup=failed" if clearing_fails else "cleanup=cleared") in message
+    assert not [c for c in page.calls if c[0].startswith("locator")], "it read the page"
+
+
+@pytest.mark.parametrize("second_clear_fails", [True, False])
+async def test_a_retry_after_a_failed_clear_does_not_deliver_the_withheld_url(
+    tmp_path: Path, second_clear_fails: bool
+) -> None:
+    """The reviewer's two-call sequence through the real engine and agent loop:
+    the first read is withheld and clearing fails, leaving the page on the
+    interrupting URL; the model retries. Before the fix the retry's refusal
+    carried that URL to the model and the step output."""
+    from playwright.async_api import Error as PlaywrightError
+
+    from tests._bedrock_fakes import tool_use_response
+    from workflow_platform.engine import ToolCatalog, WorkflowEngine, default_function_registry
+    from workflow_platform.persistence import in_memory_repositories
+    from workflow_platform.tools.browser import BrowserReadTextTool
+    from workflow_platform.workflow import load_definition
+    from workflow_platform.world import mock_world
+
+    page = FakePlaywrightPage(url=ALLOWED)
+    page.during["inner_text"] = lambda: page.commit(OTHER)
+    page.raise_on_text["#late"] = PlaywrightError(DIAGNOSTIC)
+    page.clear_interrupted_to = CHOSEN_URL
+    page.clear_fails = PlaywrightError(
+        f"Page.goto: interrupted by another navigation to {CHOSEN_URL}"
+    )
+    conn = PlaywrightConnector(page=page, downloads_dir=tmp_path)
+
+    class SecondClearDecides(FakeBedrock):
+        """Before the model's retry is executed, decide whether that clear works."""
+
+        async def converse(
+            self,
+            model_id: str,
+            messages: list[dict[str, Any]],
+            system: list[dict[str, Any]] | None = None,
+            tool_config: dict[str, Any] | None = None,
+            inference_config: dict[str, Any] | None = None,
+        ) -> dict[str, Any]:
+            if len(self.calls) == 1 and not second_clear_fails:
+                page.clear_fails = None
+            return await super().converse(model_id, messages, system, tool_config, inference_config)
+
+    model = SecondClearDecides(
+        [
+            tool_use_response(tool_uses=[("r1", "browser_read_text", {"selector": "#late"})]),
+            tool_use_response(tool_uses=[("r2", "browser_read_text", {"selector": "#late"})]),
+            text_response("done"),
+        ]
+    )
+    repos = in_memory_repositories()
+    engine = WorkflowEngine(
+        repositories=repos,
+        functions=default_function_registry(),
+        tools=ToolCatalog([BrowserReadTextTool()]),
+        bedrock=model,
+        world=mock_world(),
+        browser_connector_factory=lambda: conn,
+        system_capabilities=CapabilityPolicy(
+            tools=["browser_read_text"], allowed_hosts=["allowed.example"]
+        ),
+    )
+    definition = load_definition(
+        {
+            "id": "r5-retry",
+            "name": "r5 retry",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {
+                    "id": "read",
+                    "type": "agentic",
+                    "goal": "read",
+                    "model": "fixture-model",
+                    "tools": ["browser_read_text"],
+                }
+            ],
+            "edges": [],
+        }
+    )
+    instance = await engine.run(definition)
+    assert len(model.calls) == 3
+    retry_seen = str(model.calls[2]["messages"])
+    assert retry_seen.count("page_not_allowed") == 1, "the retry's refusal never reached the model"
+    assert ("cleanup=failed" if second_clear_fails else "cleanup=cleared") in retry_seen
+    assert CHOSEN not in retry_seen and MARKER not in retry_seen
+    (step,) = await repos.steps.list_by_instance(instance.id)
+    assert CHOSEN not in str(step.output) and MARKER not in str(step.output)
+    assert len([c for c in page.calls if c[0] == "locator.inner_text"]) == 1, "the retry read"
+
+
+async def test_a_redirect_off_list_is_refused_without_naming_it(tmp_path: Path) -> None:
+    conn, page = await _connector(tmp_path, "allowed.example")
+    page.context.request.redirect_at[ALLOWED] = CHOSEN_URL
+    with pytest.raises(BrowserHostDenied, match=r"source=redirect") as caught:
+        await conn.fetch_url(ALLOWED)
+    assert CHOSEN not in str(caught.value)
+
+
+async def test_an_off_list_download_is_refused_without_naming_it(tmp_path: Path) -> None:
+    page = FakePlaywrightPage(url=ALLOWED)
+    page.expect_download_value = FakeDownload(url=CHOSEN_URL, suggested_filename="x.pdf")
+    conn, page = await _connector(tmp_path, "allowed.example", page=page)
+    with pytest.raises(BrowserHostDenied, match=r"source=download") as caught:
+        await conn.download_via_click("a#dl")
+    assert CHOSEN not in str(caught.value)
+
+
+async def test_a_url_the_agent_asked_for_is_still_named(tmp_path: Path) -> None:
+    """The positive control: the agent chose this URL, and the refusal is more
+    useful naming it."""
+    conn, _ = await _connector(tmp_path, "allowed.example")
+    with pytest.raises(BrowserHostDenied, match=r"source=request") as caught:
+        await conn.navigate(OTHER)
+    assert OTHER in str(caught.value)
+
+
+def test_no_refusal_formats_a_url_a_page_or_server_chose() -> None:
+    """Derived from the source: every value formatted into a host refusal is
+    one of a fixed set — the error's class, the withheld parts, the agent's
+    own `url`. A refusal that formats `current`, `source`, `location` or any
+    other name fails here until it is looked at."""
+    import ast
+
+    from workflow_platform.connectors.browser import base, playwright_connector
+
+    allowed = {"failure", "withheld", "outcome", "status", "url", "_MAX_REDIRECTS"}
+    found: list[str] = []
+    for module in (base, playwright_connector):
+        tree = ast.parse(Path(module.__file__ or "").read_text())
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Name)
+                and node.func.id in {"BrowserHostDenied", "BrowserPageNotCleared"}
+            ):
+                for value in ast.walk(node):
+                    if isinstance(value, ast.FormattedValue):
+                        found.append(ast.unparse(value.value))
+    assert found, "the derivation found no formatted refusal — it is broken"
+    assert set(found) <= allowed, f"a refusal formats {set(found) - allowed}"
+
+
 async def test_an_action_that_leaves_and_returns_is_not_detected(tmp_path: Path) -> None:
     """R3-F2, the contract as stated rather than a defect: an action is judged
     by where the page ENDS. Leaving and returning to the checked URL during a
