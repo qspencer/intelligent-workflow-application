@@ -3042,6 +3042,10 @@ R3-F2 closed; the error rule accepted.
   are now reported as a fixed status, never as their error, at every caller;
   screenshots go to a pending name and move into place only after the check.
 
+**Round 5 package built 2026-10-29** — `g30-capability-review-r5-93cc364`
+(guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R5.md`; hashes in
+`docs/archives/README.md`). Awaiting the reviewer.
+
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's
   qualified build: the container starts with `learned_memory: unopenable`.
