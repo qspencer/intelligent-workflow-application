@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import random
 from collections.abc import Collection
 from datetime import UTC, datetime
 from email.message import EmailMessage as RawMimeMessage
@@ -108,21 +109,73 @@ class GmailConnector(EmailConnector):
         self._service_token = token
         return self._service
 
+    # Gmail meters an aggregate "Total Query Cost" per user per MINUTE, not just
+    # the per-second ceiling on any one method, and `messages.get` costs 5 units
+    # apiece — so a bulk read (a corpus capture, a long catch-up) exhausts it
+    # even though steady-state polling never comes close. Measured 2026-10-29: a
+    # 1400-message capture died on `HttpError 403 … Quota exceeded for quota
+    # metric 'Total Query Cost' and limit 'Units per minute per user'`.
+    RATE_LIMIT_REASONS: ClassVar[tuple[str, ...]] = (
+        "rateLimitExceeded",
+        "userRateLimitExceeded",
+        "quotaExceeded",
+        "Quota exceeded",
+    )
+    RATE_LIMIT_MAX_ATTEMPTS: ClassVar[int] = 6
+    RATE_LIMIT_BASE_DELAY_SECONDS: ClassVar[float] = 2.0
+
+    @classmethod
+    def _is_rate_limited(cls, exc: Any) -> bool:
+        """A 429, or a 403 whose reason is a rate/quota one.
+
+        The status alone is not enough: Gmail returns 403 both for "slow down"
+        and for "you may not do this at all", and retrying the second forever
+        would turn a permanent misconfiguration into a hang.
+        """
+        status = getattr(getattr(exc, "resp", None), "status", None)
+        if status == 429:
+            return True
+        if status != 403:
+            return False
+        blob = str(exc) + str(getattr(exc, "content", b"") or b"")
+        return any(reason in blob for reason in cls.RATE_LIMIT_REASONS)
+
     async def _execute(self, request: Any) -> Any:
         """Run a googleapiclient Request via to_thread, mapping known errors.
 
         Held under `self._call_lock` because the shared service object's
         internal `httplib2.Http()` isn't thread-safe (see `__init__`).
+
+        Rate limits get bounded exponential backoff with jitter. The sleep
+        happens while STILL HOLDING `_call_lock`, deliberately: when Gmail says
+        the per-minute budget is spent, letting other callers through would
+        spend the next minute's budget too. Serialising them behind the backoff
+        is the throttle. After `RATE_LIMIT_MAX_ATTEMPTS` the original error is
+        raised rather than swallowed — a caller that cannot proceed should hear
+        so, not get a silent empty result.
         """
         from googleapiclient.errors import HttpError
 
         async with self._call_lock:
-            try:
-                return await asyncio.to_thread(request.execute)
-            except HttpError as exc:
-                if exc.resp.status == 404:
-                    raise GmailMessageNotFound(str(exc)) from exc
-                raise
+            for attempt in range(1, self.RATE_LIMIT_MAX_ATTEMPTS + 1):
+                try:
+                    return await asyncio.to_thread(request.execute)
+                except HttpError as exc:
+                    if exc.resp.status == 404:
+                        raise GmailMessageNotFound(str(exc)) from exc
+                    if not self._is_rate_limited(exc) or attempt == self.RATE_LIMIT_MAX_ATTEMPTS:
+                        raise
+                    delay = self.RATE_LIMIT_BASE_DELAY_SECONDS * (2 ** (attempt - 1))
+                    delay += random.uniform(0, delay / 2)  # jitter: de-sync parallel callers
+                    logger.warning(
+                        "Gmail rate limit for %r (attempt %d/%d); backing off %.1fs.",
+                        self.account,
+                        attempt,
+                        self.RATE_LIMIT_MAX_ATTEMPTS,
+                        delay,
+                    )
+                    await asyncio.sleep(delay)
+            raise AssertionError("unreachable: loop either returns or raises")
 
     # --- EmailConnector abstract methods ---
 

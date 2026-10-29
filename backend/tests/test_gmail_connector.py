@@ -11,6 +11,7 @@ Covers:
 
 from __future__ import annotations
 
+import asyncio
 import base64
 from email import message_from_bytes
 from typing import Any
@@ -495,3 +496,100 @@ async def test_get_message_single_fetch() -> None:
     assert msg.subject == "Single fetch"
     get_calls = [c for c in svc.calls if c[0] == "messages.get"]
     assert get_calls and get_calls[0][1]["format"] == "full"
+
+
+# ---------- rate-limit backoff (added 2026-10-29) ----------
+#
+# A 1400-message corpus capture died on Gmail's AGGREGATE per-minute quota
+# ("Total Query Cost"), which `messages.get` spends 5 units at a time. Steady
+# polling never reaches it; any bulk read does. These pin the one distinction
+# that matters: 403-means-slow-down is retried, 403-means-forbidden is not.
+
+
+class _Resp:
+    def __init__(self, status: int) -> None:
+        self.status = status
+        self.reason = "x"
+
+
+class _FlakyRequest:
+    """Raises `error` for the first `fail_times` calls, then returns `value`."""
+
+    def __init__(self, error: Exception, fail_times: int, value: object = "ok") -> None:
+        self.error = error
+        self.fail_times = fail_times
+        self.value = value
+        self.calls = 0
+
+    def execute(self) -> object:
+        self.calls += 1
+        if self.calls <= self.fail_times:
+            raise self.error
+        return self.value
+
+
+def _quota_error() -> HttpError:
+    return HttpError(
+        _Resp(403),
+        b'{"error": {"message": "Quota exceeded for quota metric '
+        b"'Total Query Cost' and limit 'Units per minute per user'\"}}",
+    )
+
+
+def _forbidden_error() -> HttpError:
+    return HttpError(
+        _Resp(403),
+        b'{"error": {"message": "Request had insufficient authentication scopes."}}',
+    )
+
+
+async def test_rate_limited_call_is_retried_and_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    slept: list[float] = []
+
+    async def _no_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+    conn = _make_connector()
+    req = _FlakyRequest(_quota_error(), fail_times=2)
+
+    assert await conn._execute(req) == "ok"
+    assert req.calls == 3, "should have retried twice then succeeded"
+    assert len(slept) == 2
+    assert slept[0] < slept[1], "backoff must grow between attempts"
+
+
+async def test_forbidden_is_NOT_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A permissions 403 is permanent: retrying it would hang on a
+    misconfiguration instead of surfacing it."""
+    slept: list[float] = []
+
+    async def _no_sleep(seconds: float) -> None:
+        slept.append(seconds)
+
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+    conn = _make_connector()
+    req = _FlakyRequest(_forbidden_error(), fail_times=99)
+
+    with pytest.raises(HttpError):
+        await conn._execute(req)
+    assert req.calls == 1, "a non-rate 403 must fail on the first attempt"
+    assert slept == []
+
+
+async def test_rate_limit_gives_up_and_raises(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Exhausted retries re-raise rather than returning an empty result — a
+    caller must not mistake 'throttled' for 'no mail'."""
+
+    async def _no_sleep(seconds: float) -> None:
+        return None
+
+    monkeypatch.setattr(asyncio, "sleep", _no_sleep)
+    conn = _make_connector()
+    req = _FlakyRequest(_quota_error(), fail_times=99)
+
+    with pytest.raises(HttpError):
+        await conn._execute(req)
+    assert req.calls == GmailConnector.RATE_LIMIT_MAX_ATTEMPTS

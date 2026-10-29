@@ -349,3 +349,107 @@ total over a corpus this size). That is the cheapest available test of whether t
 different purpose is legitimate precisely because the corpus was frozen before any
 of its numbers were seen.
 
+---
+
+## Results: the Oct-2026 catch-up run (recorded 2026-10-29)
+
+**Run:** 1,297 messages, 21:39 → 01:53 (4h 14m), **1,297 completed / 0 failed**,
+**$16.31** total (`$0.01257`/msg, 9.0s/msg). Rubric constant throughout —
+`memory_hash = sha256:3bef3b8b35614a77` on all 1,297 triage steps, matching the
+pre-run fingerprint, so nothing drifted mid-flight.
+
+### 🔴 Q1 and Q2 are NOT ANSWERABLE from the live run — my pre-registration error
+
+Both need fields Contract A withholds from the read surface:
+
+| needed | what the read surface gives |
+|---|---|
+| category / attention verdict | `record` → `{"parse_ok": true, "_withheld_keys": true}` |
+| sender (to group repeats) | trigger payload withheld |
+| applied label | `apply.tool_calls[].name` → `[redacted — raw-trace grant required]` |
+
+I checked `parse_ok` when writing the questions and did not check these. The
+pre-registration therefore specified two measures the deployed privacy posture
+makes unmeasurable — a planning defect, not a platform one: **the flip is working
+as designed.** Q1/Q2 need either a raw-trace grant (audited, the C6 path) or the
+captured corpus re-classified offline where outputs are not vaulted.
+
+### ✅ Q3 — recall fires on EVERYTHING, and its price is now measured
+
+`memory_recalled` audit detail is projection-safe (`edges`, `episodes`,
+`injected`, `recall_seconds`, `context_hash`), so the firing half is answerable
+without a grant:
+
+| | |
+|---|---|
+| recalls emitted | **1,297 / 1,297 — 100% firing**, `injected: true` every time |
+| injected edges | avg **18.5**, range 2–40 (varies by sender, as intended) |
+| injected episodes | **exactly 12 on all 1,297** |
+| recall latency | avg **2.79s**, max 15.6s, **60.4 minutes total** |
+| share of runtime | **31%** of the 9.0s per message |
+| memory WRITES | 1,297 observations, **$4.57**, avg 1.52 facts + 1.22 quarantined |
+
+**Against the pre-registered threshold** (fires >50% while changing <2% of
+verdicts ⇒ paying rent it does not earn): the firing clause is met emphatically —
+100%. The verdict-change clause is **gated**, so the rent question is **half
+open**. What is now established is the *price*: memory costs **$4.57 of $16.31
+(28%) and 31% of wall-clock**. Whether it buys anything still needs the verdicts.
+
+Cost decomposition, stated with its remainder rather than tidied:
+triage $6.88 + apply $3.29 + memory writes $4.57 = **$14.74** against $16.31 —
+**$1.57 (9.6%) unreconciled**, most likely off-schema distill retries (a second
+LLM call per off-schema relation, per specs/0039).
+
+### ✅ Q4 — mechanical health: clean
+
+**0 parse failures in 1,297** (95% upper bound ≈ **0.23%**, against the 5%
+ceiling). 1,297/1,297 label writes. Latency 9.0s/msg — well under the ~60s
+regression signature, though note **31% of it is recall**, up from the 1.9s
+measured 2026-09-20 against a smaller store.
+
+### Store growth (the cost nobody had written down)
+
+| | before | after |
+|---|---|---|
+| edges | 7,154 | **10,714** (+3,560, **+50%**) |
+| episodes | 75,370 | **76,667** (+1,297, one per message) |
+
+A 50% increase in the graph that feeds every future recall, from one catch-up.
+Reversible only because of the pre-run snapshot
+(`learned.db.PRE-CATCHUP-BASELINE.20261028T212823Z`).
+
+### Exploratory — found by looking, NOT pre-registered
+
+Labelled as such on purpose; the pre-registration says any question added after
+seeing data is recorded as exploratory.
+
+1. **The question-elicitation catalogue is emitting again — and still asks
+   nothing.** `question_candidate_shadowed` = **127 / 1,297 (9.8%)**, where the
+   2026-09-20 follow-up found **zero across 43 runs** and flagged it as "the one
+   with a real chance of changing plans". Its row-3 query now returns a single
+   bucket: **`already_asked` = 127, 100%**. So emission is fixed and *suppression*
+   is now the whole story — the feature would have asked zero new questions.
+   That updates G12 from "emits nothing" to "emits, dedupes everything".
+2. **`episodes` is pinned at exactly 12 on every one of 1,297 recalls** while
+   edges range 2–40. Earlier hand-checks returned 12 episodes for every
+   correspondent tried, at differing context lengths — so content varies and the
+   *count* is a cap, not a constant slice. But a cap that never once binds
+   differently across 1,297 draws is worth a look: it carries no per-sender
+   signal.
+3. **Gmail's aggregate per-minute quota is reachable and was undocumented.** A
+   1,400-message capture died on `403 … Quota exceeded for quota metric 'Total
+   Query Cost' and limit 'Units per minute per user'`. `EMAIL_CONNECTOR_PLAN.md`
+   had concluded the opposite ("comfortably above the rates we ever hit") by
+   reasoning from `label_apply`'s per-second ceiling; the binding limit is the
+   aggregate one, which `messages.get` spends 5 units at a time. Fixed by adding
+   bounded backoff at the connector's single `_execute` chokepoint.
+
+### What Q5 needs, given the above
+
+Q5 compares labels to the classifier's verdict — also gated. So Q5 runs on the
+captured corpus with the sample **re-classified offline** (~100 messages ≈ $1.26),
+not against the live run's withheld outputs. Caveat to state in the write-up: the
+offline harness does not wire `LearnedMemoryService`, so those re-classifications
+are recall-OFF and are therefore a *cold-store* accuracy estimate, not an estimate
+for the regime Q1–Q4 measured.
+
