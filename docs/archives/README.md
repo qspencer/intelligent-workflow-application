@@ -38,6 +38,7 @@ blocking issues by reading code the spec described inaccurately.
 
 | Archive | SHA | Date | For | Cover note |
 |---|---|---|---|---|
+| `g30-capability-review-a7284c0.tar.gz` | `a7284c0` (branch `main`) | 2026-10-29 | **G30 — the capability layer, phases 1 and 2.** Asked for by the G29 closure. Production had NO system capability layer, and `allowed_hosts` / `max_tokens_per_call` were enforced nowhere; phase 1 adds the layer (`config/system_capabilities.yaml`, strict loader) and enforces both, phase 2 makes the deterministic file functions consult capabilities. Our pre-package pass found four defects; a cold second seat (Research session) then found five more under the layer — sibling-step race, suggestion escaping the token cap, a `urlsplit`/WHATWG backslash differential, a presence-only guard, a spend overclaim — all fixed and re-checked. Ships 18 claims mapped to the tests that execute them (`g30_reproductions.py`), 35 sabotage controls, live evidence, and the second seat's reports verbatim. Start at `docs/G30_CAPABILITY_REVIEW_GUIDE.md` | `docs/G30_CAPABILITY_REVIEW_GUIDE.md` |
 | `trace-g29-review-0ecfa72.tar.gz` | `0ecfa72` (branch `main`) | 2026-10-29 | **G29 / projector v23 — per-workflow released vocabularies, PACKAGED AND WITHDRAWN IN THE SAME PASS.** Not a remediation round: nothing here answers a returned finding. Assembling the package found that v23 breaks the projector's FIXED POINT — the vocabulary is a per-call argument only the three write sites can supply, so the read path strips the released verdict again, the frozen §4.3 agreement predicate reports `mismatch` on correctly-written rows, the zero-raw B1 verifier flags them as raw, and the backfill would strip them. The fix needs F3/F4 (both open) because any row-recorded vocabulary is a second fail-open bit. Withdrawn, deployed and 38 rows repaired before the package left. Asks the reviewer to rule between withdraw / after-F3-F4 / never-below-grant. Ships 29 executable reproductions (`docs/review-artifacts/g29_reproductions.py`). Start at `docs/TRACE_G29_REVIEW_GUIDE.md` | `docs/TRACE_G29_REVIEW_GUIDE.md` |
 | `trace-f1-review-r3-b7cc1d2.tar.gz` | `b7cc1d2` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 3** — the six round-2 findings (R2-1..6) fixed at the CLASS level. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R3 | `docs/TRACE_F1_REVIEW_GUIDE.md` |
 | `trace-f1-review-r2-b2f913a.tar.gz` | `b2f913a` (branch `p1-reprimitive`) | 2026-08-09 | **F1/F5 review ROUND 2** — the four G-Trace-Review-4 findings (GR4-1..4) remediated. Start at `docs/TRACE_F1_REVIEW_GUIDE.md` §R | `docs/TRACE_F1_REVIEW_GUIDE.md` |
@@ -58,6 +59,44 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (G30 / capability layer)
+
+```
+commit   a7284c0
+tree     554b5dc584eb51c1367bf1390965fde9a9890bf7
+archive  6493d57c42f2666f1c367cdc39c458c7c94b35078df7752c3c66f13b59c76875
+         g30-capability-review-a7284c0.tar.gz  (751 files, `git archive | gzip -n`)
+```
+
+```
+  2be5590fec095b04a9da2ea4f4d3b3b7e782079e7777dbe4e8b5792f34bec663  docs/G30_CAPABILITY_REVIEW_GUIDE.md
+  24b8f3b141c11c4466d9863c7f8038045158678e9d3e4ded6f55237df4a39f4a  docs/archives/SECOND_SEAT_G30.txt
+  37fabc6f459c322146fc787cbd9250241c7fdb4d0984007f3696abc6831a5d16  docs/archives/GATE_OUTPUT_G30.txt
+  7b70b9a02d63fc86a80470a1348f57094985d75eb08d59f42da4da8163c46099  docs/archives/LIVE_EVIDENCE_G30.txt
+  ca6c8414348679057afd2f6daa12be107fec73b90f34073fb9307b369650fab7  docs/archives/CODE_MANIFEST_G30.txt
+  0a8bd17d8f7f4278525221774486ffcf157f96424017b8e894715db4e8b15880  docs/review-artifacts/g30_reproductions.py
+  c51d0e5d71135c4f69e3e4fcd529ab94108b9dfa026eba28f7bf05242c34f51b  docs/review-artifacts/g30_controls.py
+  f28a343b153425b410a8623cac2471ec64a5208b93723841c047101ff09b4752  docs/review-artifacts/g30_capture.sh
+  5d586eb2a36abf38d7177dd007966f538ad70f24f10b60301d40d231159a039f  docs/review-artifacts/g30_live_evidence.sh
+  94c48330c9005dbbf07c21bfc644f2ff4e6248310cb1a8976cbe532494070051  config/system_capabilities.yaml
+```
+
+**Aggregate source hash** `cd32bf7e0a6029a6d1121679f17434032b8c95498c050c2b5ba5979e5f7e8415`
+(260 files; `cd backend && find src tests -name '*.py' -type f | sort | xargs sha256sum | sha256sum`).
+Extraction-verified: recomputed from the extracted archive, it matches `CODE_MANIFEST_G30.txt`
+and the capture header, and a probe confirmed pytest loaded the EXTRACTED source, not this tree's.
+All 18 claims were re-run from an earlier extraction of the same source and reproduced.
+
+The capture (`g30_capture.sh`) runs the five gates WITHOUT the opt-in env, as CI does — with
+`TEST_DATABASE_URL` exported, pytest also ran Postgres integration tests against an
+un-migrated database and two unrelated tests failed for that reason alone — then the claims
+and controls WITH both opt-in suites. The control-count figure in the guide is checked against
+the harness definition, not the capture, so the capture never grades its own sabotage.
+
+**Live evidence is not reproducible by a reviewer**: `LIVE_EVIDENCE_G30.txt` queries the
+production database; the script ships so the queries are on the record. Counts and enum
+values only.
 
 ## Integrity hashes (G29 / projector v23)
 
