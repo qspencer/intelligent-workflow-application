@@ -163,6 +163,22 @@ diagnose why our own pass missed it BEFORE fixing it.
 | **P2** Authoring and projection validators disagree | M3 | Found and disclosed by us. |
 | **P3** "No-environment" reproduction route fails on first import | **M6** | The docstring offered a command we never ran in that form; we verified with the project venv and wrote down a different command. |
 
+**Exchange record.** Results: `TRACE_G29_REVIEW_RESULTS.md`. Our response
+and errata: `TRACE_G29_REVIEW_RESPONSE.md`. Closure: `TRACE_G29_REVIEW_CLOSURE.md`
+— *"closed by enforced withdrawal, not approved for use."* The reviewed archive
+(`0ecfa72`) is kept immutable; corrections live in later commits and in the
+response, never in the archive.
+
+**Closure qualifications and what each became:**
+
+| Qualification | Disposition |
+|---|---|
+| Show every persistence path revalidates — clone, import, scaffold, update, repository LOADING | Writes were derived from source (`save` is an upsert, so update is one). Loading was not tested: now `test_g29_withdrawn_postgres.py` writes a declaration around the API and shows `get` and `list_all` refuse it, against real Postgres. |
+| If reopened, the property is reproducibility from immutable, row-bound, integrity-protected inputs — not "pass the current definition to every consumer" | Recorded as the enduring reopening property in NEXT_STEPS G29. |
+| Scaffold approval boundary must be resolved before reopening | Already reopening condition 2; restated. |
+| The redirect residual is NOT answered by "no content reaches the agent" — a request can leak metadata or cause a side effect | **Accepted as a finding (M6: a guarantee stated about the question we could test — content — under a control whose name asks a different one — destinations).** Contract restated in `BrowserConnector`; the gap also covers subresources, preconnect and WebSockets, which we had not listed. The browser is test-pinned OUT of the system layer until destinations are enforced before dispatch. |
+| Do not claim overall capability enforcement before phase 2 | THREAT_MODEL §7 corrected; it had described the model as enforced without the deterministic-function gap. |
+
 **Found by us AFTER the review returned, in a package it had already passed:**
 
 | Finding | Class | Why it got through |

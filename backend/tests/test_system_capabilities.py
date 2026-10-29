@@ -150,6 +150,22 @@ def test_the_live_triage_tool_is_the_only_tool_in_production() -> None:
     assert _shipped().tools == ["email_label_apply__qspencer_gmail_com"]
 
 
+def test_the_browser_stays_off_until_destinations_are_enforced_before_dispatch() -> None:
+    """`allowed_hosts` governs agent-initiated requests and returned content, NOT
+    destinations: redirect hops, subresources, preconnect and WebSockets can
+    still reach a disallowed host (external review, 2026-10-29). Until
+    destination enforcement exists at the network layer, no browser tool may
+    enter the system layer — so that residual is unreachable in production by
+    construction, not by convention."""
+    policy = _shipped()
+    browser = [t for t in policy.tools or [] if t.startswith("browser_")]
+    assert not browser, (
+        f"browser tool(s) {browser} enabled in the system layer, but `allowed_hosts` "
+        f"does not yet enforce destinations before dispatch (docs/NEXT_STEPS.md G30)"
+    )
+    assert policy.allowed_hosts == []
+
+
 def test_the_production_launcher_names_the_shipped_layer() -> None:
     """The guarantee CI can see: what production starts with is this file."""
     text = LAUNCHER.read_text()

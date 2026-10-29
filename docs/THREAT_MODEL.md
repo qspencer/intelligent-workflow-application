@@ -236,7 +236,27 @@ IdP is sole authority — D4). Fifteen pinned security tests in
 - Capability model: system ∩ workflow ∩ step ∩ runtime — narrowest
   wins; enforced at Agent dispatch AND inside tools (a tool absent from
   the intersection cannot be called; file tools check the capability's
-  path scope internally).
+  path scope internally). **Corrected 2026-10-29 (G30) — this line read
+  as more than was true:**
+  - **No system layer existed in production until 2026-10-29.** A
+    definition can only narrow the layers above it, so with nothing above
+    it — including one drafted by the scaffold model — it could declare
+    itself unrestricted. Now a tracked, strictly-loaded layer
+    (`config/system_capabilities.yaml`) that the launcher names.
+  - **`allowed_hosts` and `max_tokens_per_call` were enforced nowhere**
+    until the same day. Now: per-call output clamp; host policy in the
+    browser connector.
+  - **`allowed_hosts` is not an egress control.** It blocks requests the
+    agent initiates before dispatch and keeps a disallowed host's content
+    from the agent; redirect hops, subresources, preconnect and
+    WebSockets can still reach one. Destination enforcement must happen
+    at the network layer before dispatch; until it does, no browser tool
+    may enter the system layer (test-pinned).
+  - **OPEN — deterministic functions bypass the capability system.**
+    `copy_files`, `append_file`, `extract_archive` and the other file
+    functions call `world.fs` directly; only `pdf_extract` routes through
+    a checked tool. Capability enforcement is NOT complete until G30
+    phase 2 closes this, and must not be described as complete before.
 - Secrets: `.secrets/**` 0600 + gitignored; `SecretStore` abstraction
   (env / AWS Secrets Manager); tokens never logged or stored raw
   (session tokens hashed; pinned). Bedrock spend is bounded per step,

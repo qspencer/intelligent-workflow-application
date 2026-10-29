@@ -2739,6 +2739,12 @@ by package name. Corrected, with the producing output in
 `docs/archives/AUDIT_EVIDENCE_G29.txt`. `tests/test_review_figures.py` now checks
 every digit in the live guide against something that produces it.
 
+**CLOSED 2026-10-29 by enforced withdrawal — not approved for use**
+(`docs/TRACE_G29_REVIEW_CLOSURE.md`). If ever reopened, the property to meet is
+the reviewer's: *projection is reproducible from immutable, row-bound,
+integrity-protected inputs.* Passing the current definition to every consumer
+does not satisfy it — that is the mutable-input defect again.
+
 **Until then, routine verdict-level analysis needs the audited raw-trace
 grant.** That is not a workaround; it is the control working. The 1,297-message
 run's verdicts are all at rest (`raw_traces`: 3,907 `output`, 1,304
@@ -2854,6 +2860,18 @@ Nineteen controls across G29 and G30 (`docs/review-artifacts/g{29,30}_controls.p
 plant each defect a detector claims to catch; all fire. Two did not on first
 run, and the tests were wrong: a "misspelt key" case that also tripped the
 missing-key check, and a launcher regex that matched a commented-out line.
+
+**Browser prerequisite (from the G29 reviewer's closure).** `allowed_hosts`
+governs agent-initiated requests and returned content, NOT destinations:
+redirect hops, subresources, preconnect and WebSockets can still reach a
+disallowed host, and a request can leak metadata or cause a side effect with
+nothing returned. Destination enforcement must happen before dispatch at the
+network layer — the system layer's host bound as launch-time network policy
+(host-resolver rules or a filtering proxy), per-step narrowing on top. Until it
+exists no browser tool may enter the system layer; a test refuses it.
+
+**G30 goes to its own external review once phase 2 is done** — one finished
+control rather than two halves.
 
 **Remaining — phase 2:** deterministic functions other than `pdf_extract` do
 their file I/O outside the capability system, so a scaffolded deterministic

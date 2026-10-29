@@ -91,6 +91,14 @@ CONTROLS = [
         "",
         "tests/test_system_capabilities.py",
     ),
+    (
+        "a browser tool is enabled before destinations are enforced",
+        "../config/system_capabilities.yaml",
+        "  - email_label_apply__qspencer_gmail_com\n",
+        "  - email_label_apply__qspencer_gmail_com\n  - browser_navigate\n",
+        "tests/test_system_capabilities.py::"
+        "test_the_browser_stays_off_until_destinations_are_enforced_before_dispatch",
+    ),
 ]
 
 

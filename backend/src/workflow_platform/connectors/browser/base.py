@@ -62,12 +62,23 @@ class BrowserConnector(Connector):
     surface where the agent chooses a network destination: email goes to a
     fixed API host and connectors take their URL from operator config.
 
-    The guarantee, under a host policy: no content from a disallowed host
-    reaches the agent, and no agent-initiated request is sent to one — EXCEPT a
-    server redirect hop during a page navigation, which leaves before anything
-    in-process can see it. Its response is discarded (the page is cleared and
-    the action fails), but the request has been made. Closing that needs a
-    network-layer proxy, not a browser hook."""
+    THE CONTRACT, stated precisely because the external reviewer (2026-10-29)
+    showed the earlier wording overclaimed. This governs two things:
+
+    1. requests the AGENT initiates — blocked before dispatch: `navigate`, the
+       first hop of a navigation a click or form submit sets off, and every
+       hop of `fetch_url`;
+    2. CONTENT — nothing a disallowed host returns reaches the agent.
+
+    It is NOT a destination (egress) control. Requests the agent did not choose
+    can still reach a disallowed host: a server redirect hop during a page
+    navigation (Playwright routes only the first hop), a page's own
+    subresources, `preconnect` / DNS prefetch (a connection with no request at
+    all), and WebSockets. A request can disclose metadata or cause a side
+    effect even when nothing comes back, so "no content reached the agent" does
+    not answer it. Destination enforcement must happen BEFORE dispatch, at the
+    network layer, and is a prerequisite for enabling any browser tool in the
+    system layer — `test_system_capabilities.py` refuses that until it exists."""
 
     type: ClassVar[str]
 
