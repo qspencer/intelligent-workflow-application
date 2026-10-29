@@ -215,6 +215,23 @@ anchored on them.
 | Derived guard checked presence, not correctness | **red-team** | M6 | Our own population test, and we believed it. The property — the path checked is the path opened — was never asserted. |
 | Spend "bounded per step, per workflow" | **red-team** | M6 | A pre-existing sentence we did not re-execute while correcting the section around it. |
 
+**Re-check of the fixes (second seat, at `32d49ea`):** all five held, including
+neighbours we had not tried (tab/newline inside the host, U+FF3C, backslash
+redirect Locations) and positive controls proving the filter does not refuse
+everything. Two leftovers, both fixed:
+
+| Leftover | Class | Why it survived |
+|---|---|---|
+| A weaker mutant — `copy_files` checking only its FIRST file — passed the new property test | M6 | Every input iterated over ONE file. A per-iteration check needs a multi-element input to be observable; now two of each, and the mutant is a control. |
+| THREAT_MODEL §7a repeated the spend claim §7 had just corrected | M6 | We fixed the sentence the finding pointed at, not every place it was said. Grep the claim, not the line. |
+
+**A lesson from the second seat's own run, worth keeping:** its first mutation
+pass reported every mutant green — a FALSE GREEN, because pytest's
+`pythonpath = ["src"]` loaded the unmutated package, not the mutant. It caught
+this with a probe printing which module loaded. Any mutation run must prove the
+mutant is the code under test; our controls harness edits the source in place,
+which is why it is immune, and a harness that copies the tree is not.
+
 **What the split says.** Our pass found the classes a derivation can see (every
 site of X); the second seat found the ones that need an ADVERSARIAL reading of
 a claim — concurrency, parser disagreement, a guard that tests itself. Neither

@@ -213,6 +213,20 @@ CONTROLS = [
         "        _require_path(context, dest_dir, write=True)\n        await world.fs.write_bytes(out, payload)\n",
         "tests/test_g30_function_capabilities.py::test_every_access_is_preceded_by_a_check_of_that_same_path",
     ),
+    (
+        "re-check: copy_files checks only the FIRST file it writes (their weaker mutant)",
+        "src/workflow_platform/engine/functions.py",
+        "        _require_path(context, out, write=True)\n        await world.fs.write_bytes(out, payload)\n",
+        "        if not copied:\n            _require_path(context, out, write=True)\n        await world.fs.write_bytes(out, payload)\n",
+        "tests/test_g30_function_capabilities.py::test_every_access_is_preceded_by_a_check_of_that_same_path",
+    ),
+    (
+        "re-check: extract_archive checks only the FIRST member it writes",
+        "src/workflow_platform/engine/functions.py",
+        "        _require_path(context, out, write=True)\n        await world.fs.write_bytes(out, data)\n",
+        "        if not extracted:\n            _require_path(context, out, write=True)\n        await world.fs.write_bytes(out, data)\n",
+        "tests/test_g30_function_capabilities.py::test_every_access_is_preceded_by_a_check_of_that_same_path",
+    ),
 ]
 
 

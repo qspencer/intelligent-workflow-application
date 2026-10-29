@@ -74,9 +74,15 @@ def _ctx(policy: CapabilityPolicy | None, **fields: Any) -> WorkflowContext:
 
 async def _seeded() -> World:
     world = mock_world()
-    await world.fs.write_bytes("/in/report.zip", _zip({"agg.xml": b"<feedback/>"}))
+    # TWO of everything a function iterates over. With one, a function that
+    # checked only its first file passed every test here — the second-seat
+    # re-check (2026-10-29) killed nothing with an `if not copied:` mutant.
+    await world.fs.write_bytes(
+        "/in/report.zip", _zip({"agg.xml": b"<feedback/>", "agg2.xml": b"<feedback2/>"})
+    )
     await world.fs.write_bytes("/in/doc.pdf", b"%PDF")
     await world.fs.write_bytes("/in/agg.xml", b"<feedback/>")
+    await world.fs.write_bytes("/in/agg2.xml", b"<feedback2/>")
     return world
 
 
@@ -86,7 +92,9 @@ Call = Callable[[WorkflowContext, World], Awaitable[Any]]
 #: under /out (or only write, for write_csv).
 _CALLS: dict[str, tuple[Call, dict[str, Any], bool]] = {
     "copy_files": (
-        lambda c, w: copy_files({"paths": ["/in/agg.xml"], "dest_dir": "/out"}, c, w),
+        lambda c, w: copy_files(
+            {"paths": ["/in/agg.xml", "/in/agg2.xml"], "dest_dir": "/out"}, c, w
+        ),
         {},
         True,
     ),

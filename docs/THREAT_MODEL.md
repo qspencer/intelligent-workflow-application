@@ -281,7 +281,10 @@ IdP is sole authority — D4). Fifteen pinned security tests in
     agent steps, question suggestion and memory distillation, through one
     clamp. The independent red-team showed suggestion escaping it with a
     draft-set `maxTokens: 100000`; distillation had sent no cap at all.
-    Scaffold drafting keeps its own fixed 2000.
+    Scaffold drafting keeps its own fixed 2000. Scope, stated: agent steps
+    take the most restrictive cap across all layers; suggestion and
+    distillation take the SYSTEM layer's only — a workflow's narrower
+    `max_tokens_per_call` does not reach them.
   - **Still outside, stated rather than claimed away:** triggers do their
     own I/O from operator config (a scaffolded draft's trigger is never
     registered); a symlink inside an allowed tree pointing out is
@@ -330,8 +333,10 @@ IdP is sole authority — D4). Fifteen pinned security tests in
   audit/full-trace path (§8 raw-trace row). No prompt content is sent
   anywhere else.
 - **Availability/cost:** provider outage or throttle fails the agentic
-  step (retries per §4 rules); spend is bounded per-step and per-workflow
-  and observable per model/day; model substitution/version drift is a
+  step (retries per §4 rules); spend is metered and observable per
+  model/day, but its bounds are AUTHOR-SET apart from the system layer's
+  per-call output cap — see §7 (corrected 2026-10-29; this line repeated the
+  old claim until the second-seat re-check caught it); model substitution/version drift is a
   known eval concern (the G18 benchmark exists to detect quality drift).
 
 ## 7b. The workflow-author surface
