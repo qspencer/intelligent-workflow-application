@@ -1,11 +1,13 @@
 import { defineConfig, devices } from '@playwright/test';
+import { E2E_BACKEND, E2E_BACKEND_PORT, E2E_FRONTEND, E2E_FRONTEND_PORT } from './e2e/ports';
 
 /** E2E + a11y harness (C8.2 / docs/TESTING.md T4). Real-browser coverage of the
  *  canvas flows jsdom can't do, plus axe accessibility scans.
  *
  *  webServer starts a self-contained backend (in-memory repos, dev auth, no
  *  triggers, replay Bedrock — no AWS, no side effects) and the Vite dev server
- *  that proxies /api to it. Single worker: the in-memory backend is shared
+ *  that proxies /api to it, on ports only the harness uses (`e2e/ports.ts` —
+ *  it once shared production's, and reused it). Single worker: the in-memory backend is shared
  *  state across specs. */
 export default defineConfig({
   testDir: './e2e',
@@ -14,7 +16,7 @@ export default defineConfig({
   retries: process.env.CI ? 1 : 0,
   reporter: process.env.CI ? 'line' : 'list',
   use: {
-    baseURL: 'http://localhost:4200',
+    baseURL: E2E_FRONTEND,
     trace: 'on-first-retry',
   },
   projects: [
@@ -36,14 +38,15 @@ export default defineConfig({
     {
       command:
         'cd ../backend && AUTH_MODE=dev BEDROCK_MODE=replay WORKFLOW_PLATFORM_START_TRIGGERS=0 ' +
-        'uv run uvicorn workflow_platform.main:app --port 8001',
-      url: 'http://localhost:8001/api/health',
+        `uv run uvicorn workflow_platform.main:app --port ${E2E_BACKEND_PORT}`,
+      url: `${E2E_BACKEND}/api/health`,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },
     {
-      command: 'npm run dev -- --port 4200',
-      url: 'http://localhost:4200',
+      // Proxies to the e2e backend, never the default (production's 8001).
+      command: `VITE_API_TARGET=${E2E_BACKEND} npm run dev -- --port ${E2E_FRONTEND_PORT}`,
+      url: E2E_FRONTEND,
       reuseExistingServer: !process.env.CI,
       timeout: 120_000,
     },

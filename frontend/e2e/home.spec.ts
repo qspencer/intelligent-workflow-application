@@ -1,3 +1,4 @@
+import { E2E_BACKEND } from './ports';
 import { expect, test } from '@playwright/test';
 
 import { expectNoSeriousA11y, seedAdmin } from './a11y';
@@ -27,7 +28,7 @@ const DEV_HEADERS = { 'X-Dev-User': 'e2e', 'X-Dev-Groups': 'admins' };
 // Fixture setup/teardown talks to the backend directly — the Vite dev-server
 // proxy has shown flaky hangs on bodyless DELETEs, and fixtures don't need
 // to exercise the proxy path anyway.
-const BACKEND = 'http://localhost:8001';
+const BACKEND = E2E_BACKEND;
 
 async function importFixture(
   page: import('@playwright/test').Page,
