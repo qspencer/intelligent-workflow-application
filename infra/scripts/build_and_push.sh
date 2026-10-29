@@ -21,8 +21,11 @@ REPO_URL="$(terraform output -raw ecr_repository_url)"
 REGION="$(terraform output -raw -no-color region 2>/dev/null || echo us-east-1)"
 ACCOUNT_ID="${REPO_URL%%.dkr.*}"
 
-echo "Building $REPO_URL:$TAG from $REPO_ROOT/backend"
-docker build -t "$REPO_URL:$TAG" "$REPO_ROOT/backend"
+# The context is the repo ROOT: the image carries config/system_capabilities.yaml
+# beside backend/. backend/Dockerfile.dockerignore allowlists what the root may
+# send (Docker reads <Dockerfile>.dockerignore when -f names the Dockerfile).
+echo "Building $REPO_URL:$TAG from $REPO_ROOT with backend/Dockerfile"
+docker build -f "$REPO_ROOT/backend/Dockerfile" -t "$REPO_URL:$TAG" "$REPO_ROOT"
 
 echo "Logging in to ECR ($REGION)"
 aws ecr get-login-password --region "$REGION" \

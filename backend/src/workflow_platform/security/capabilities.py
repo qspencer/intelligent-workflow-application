@@ -163,8 +163,9 @@ def cap_output_tokens(config: dict[str, Any] | None, cap: int | None) -> dict[st
     return capped
 
 
-#: Names the YAML file holding the SYSTEM layer. Unset = no system layer, which
-#: `/api/health` reports as `absent`. The production launcher sets it.
+#: Names the YAML file holding the SYSTEM layer. Unset = the shipped layer
+#: (`SHIPPED_SYSTEM_CAPABILITIES`); set but empty, or unreadable, stops startup.
+#: See `configured_system_capabilities`.
 SYSTEM_CAPABILITIES_ENV = "WORKFLOW_PLATFORM_SYSTEM_CAPABILITIES"
 
 

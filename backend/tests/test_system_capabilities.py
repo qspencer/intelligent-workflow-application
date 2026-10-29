@@ -18,7 +18,9 @@ tests exactly what production runs with:
 from __future__ import annotations
 
 import ast
+import os
 import re
+import subprocess
 from pathlib import Path
 from typing import Any
 
@@ -561,3 +563,59 @@ def test_the_image_carries_the_layer_where_the_service_looks_for_it() -> None:
         "!backend/src/",
         "!config/system_capabilities.yaml",
     }
+
+
+#: Every place that builds the backend image. Derived below: a new one must be
+#: added here, and so gets the same check.
+IMAGE_BUILD_SITES = {"docker-compose.yml", "infra/scripts/build_and_push.sh"}
+_NOT_SOURCE = {".git", ".venv", "node_modules", "archives", "review-artifacts"}
+
+
+def test_every_image_build_site_is_known() -> None:
+    """External review round 2, R2-F1: the layout test checked Compose and the
+    Dockerfile, and the ECR script kept the old context. Derive the sites."""
+    found = set()
+    for path in REPO.rglob("*"):
+        rel = path.relative_to(REPO)
+        if _NOT_SOURCE & set(rel.parts) or not path.is_file():
+            continue
+        if path.suffix not in {".sh", ".yml", ".yaml"} and path.name != "Makefile":
+            continue
+        text = path.read_text(errors="replace")
+        if "docker build" in text or "backend/Dockerfile" in text:
+            found.add(rel.as_posix())
+    assert found == IMAGE_BUILD_SITES
+
+
+def test_the_ecr_script_builds_from_the_root_context(tmp_path: Path) -> None:
+    """Runs the real script with `terraform` and `docker` stubbed; the docker
+    stub records its arguments and exits at the build, before login or push."""
+    bindir = tmp_path / "bin"
+    bindir.mkdir()
+    argv_file = tmp_path / "docker-argv"
+    (bindir / "terraform").write_text(
+        '#!/bin/sh\ncase "$*" in\n*ecr_repository_url*) echo 1.dkr.ecr.x/r ;;\n'
+        "*) echo us-east-1 ;;\nesac\n"
+    )
+    (bindir / "docker").write_text(f'#!/bin/sh\nprintf "%s\\n" "$@" > {argv_file}\nexit 31\n')
+    for stub in bindir.iterdir():
+        stub.chmod(0o755)
+    env = {**os.environ, "PATH": f"{bindir}{os.pathsep}{os.environ['PATH']}"}
+    script = REPO / "infra" / "scripts" / "build_and_push.sh"
+    result = subprocess.run(["bash", str(script)], env=env, capture_output=True, text=True)
+    assert result.returncode == 31, result.stderr
+
+    argv = argv_file.read_text().splitlines()
+    assert argv[0] == "build"
+    dockerfile = Path(argv[argv.index("-f") + 1])
+    context = Path(argv[-1])
+    assert dockerfile == REPO / "backend" / "Dockerfile"
+    assert context == REPO
+    # Every COPY source the Dockerfile names exists under that context.
+    sources = [
+        m.split()[0]
+        for m in re.findall(r"^COPY (\S+ \S+)", dockerfile.read_text(), re.M)
+        if not m.startswith("--")
+    ]
+    assert sources, "found no COPY lines — the parse is broken"
+    assert [s for s in sources if not (context / s).exists()] == []
