@@ -258,7 +258,9 @@ IdP is sole authority — D4). Fifteen pinned security tests in
     and returning to an allowed URL is not detected (R3-F2). All of this
     holds when clearing the page itself fails: the call is withheld, the
     failure is reported without Playwright's text, and a rejected screenshot
-    never reaches its path (R4-F1).
+    never reaches its path (R4-F1). No refusal names a URL a page or server
+    chose — not the next call's check, not a redirect, not a download; only
+    a URL the agent itself asked for (R5-F1).
     Redirect hops, subresources, preconnect and WebSockets can still reach
     a disallowed host. Nor is it a content-origin guarantee: an allowed
     page can render a disallowed host's images, scripts or frames, and the

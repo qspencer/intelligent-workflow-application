@@ -3044,7 +3044,20 @@ R3-F2 closed; the error rule accepted.
 
 **Round 5 package built 2026-10-29** — `g30-capability-review-r5-93cc364`
 (guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R5.md`; hashes in
-`docs/archives/README.md`). Awaiting the reviewer.
+`docs/archives/README.md`). Dispatched to the reviewer 2026-10-29 by the
+operator.
+
+**Round 5 (2026-10-29): request changes** — results in
+`docs/TRACE_G30_R5_REVIEW_RESULTS.md` (archive
+`trace-g30-r5-review-results-2026-10-29.tar.gz`, sha256 `f660d326…468f0`).
+R4-F1 closed for a single call; screenshot staging and the bounded status
+accepted; leaving an uncleared page in place accepted for this review.
+
+- **R5-F1 (P2), done** (`d2f6627`, deployed) — after a failed clear, the
+  retry's start-of-call refusal named the URL the withheld call kept back.
+  No refusal now names a URL a page or server chose (page check, redirect
+  target, download source — the last two found by grep, not in the review);
+  only a URL the agent asked for is named. A source derivation pins it.
 
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's
@@ -3064,6 +3077,10 @@ R3-F2 closed; the error rule accepted.
   assumption needs a real-browser matrix before enablement: plain script
   navigation, `pushState`/hash, history back/forward and BFCache restoration,
   same-URL document replacement, abort-before-commit vs a committed error page.
+  From round 5 (a recommendation, not a finding): on a failed clear, mark the
+  page unusable for document operations and open a fresh page on the next
+  explicit navigation — a page that cannot be cleared may be closed or broken
+  and never recover — and never replay the failed mutating action.
 
 ### G17 — Proactive recall adoption (veracium 0.4.x, trigger-gated)
 

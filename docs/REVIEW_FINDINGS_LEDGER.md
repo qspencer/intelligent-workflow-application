@@ -299,6 +299,19 @@ called on the way out — cleanup, rollback, clearing. Make the safe outcome
 not depend on the cleanup succeeding, and report the cleanup's result as
 data, never as its error.
 
+### G30 external review, round 5 — request changes (2026-10-29)
+
+R4-F1 closed for a single call; screenshot staging accepted.
+
+| Finding | Class | Why we missed it |
+|---|---|---|
+| **R5-F1 (P2)** The next call's start-of-call check named the page's URL — the very URL a withheld call had kept back after a failed clear — and the model's retry received it | M6 + M3 | We sanitized the path we were shown (withholding) instead of the property (no page-chosen URL in any refusal). Our tests stopped after one call, though the error itself invites a retry. A grep of every refusal then found two more (redirect target, download source). |
+
+**The lesson to keep:** fix the PROPERTY at the producer, not the path at the
+consumer — and when an error invites a next step, test the next step. A
+refusal formatter that every caller shares is where redaction belongs; a
+derivation over every formatted value keeps it there.
+
 ### Self-inflicted, found by us mid-remediation (worth counting)
 
 Authorized-producer list written from memory (`record_invoice` for
