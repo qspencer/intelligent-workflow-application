@@ -12,6 +12,7 @@ than what §2 states. You asked for this separately when closing G29.
 | Gates, claims and controls as run | `docs/archives/GATE_OUTPUT_G30.txt` |
 | What production did under the layer | `docs/archives/LIVE_EVIDENCE_G30.txt` (and the script that produced it) |
 | What two passes found before sending | §4 |
+| The second seat's two reports, verbatim | `docs/archives/SECOND_SEAT_G30.txt` |
 | Live state | deployed; real runs under the layer — §6 |
 
 ---
@@ -125,7 +126,8 @@ gated, and executed the documents' claims:
 
 **A second seat** — another session, given the code and the documents' claims
 but not our concerns, so it could not be anchored on them — reported that
-nothing got past the shipped system layer itself. What broke was underneath it:
+nothing got past the shipped system layer itself. What broke was underneath it
+(its reports are shipped verbatim in `docs/archives/SECOND_SEAT_G30.txt`):
 
 | Finding | Why our pass missed it |
 |---|---|

@@ -1,0 +1,81 @@
+G30 second-seat reports — verbatim
+
+From the Research session (a separate Claude Code session, a cold seat: given the
+code and the documents' claims, not our concerns). Received as cross-session
+messages and copied byte for byte from the session transcript; nothing edited.
+The rt/ scripts they name lived in that session's scratch directory and are not
+part of this package; every finding is now pinned by a test in claims B2, C4, C3
+and E2/E5 (see the guide's §3), with a control aimed at it.
+
+=== report 1: red-team of 456c550 ===
+
+G30 red-team results, research seat. Run on a git-archive export of 456c550. Nothing touched your tree, port 8001 or db `workflow`.
+
+Repros are in /tmp/claude-1000/-home-ubuntu-Documents-veracium-veracium-research/418bd771-544d-451a-a2d0-95f45d8d9a49/scratchpad/wf-redteam.ECeX40/rt/ (with a .venv in that export's backend/ and a 50 MB fs/in/big.bin). The system-layer test files pass, 95 tests in 3 files.
+
+HEADLINE: no read, write, tool or host gets past the shipped system layer. What breaks is the per-call token cap, step-level narrowing, and the browser host contract.
+
+1. THE TOKEN CAP MISSES THE QUESTION-SUGGESTION CALL, and a scaffolded draft controls it.
+   - Claims broken: NEXT_STEPS.md:2847 "clamps each model call's maxTokens"; THREAT_MODEL.md:247 "per-call output clamp"; the yaml header "bounds a runaway or a draft".
+   - Where: executor.py:1851 sends inference_config={"maxTokens": suggest.max_output_tokens}. The value comes from the definition and is bounded only below (definition.py:218, ge=50). It never passes through _cap_output_tokens, and the model is the definition's choice. main.py:153 always configures a question store, so the call runs on every completed run.
+   - Repro rt/suggest.py, with the system layer at max_tokens_per_call=4096. Observed Bedrock calls: `some-model {'maxTokens': 4096}` and `any-model-the-draft-likes {'maxTokens': 100000}`.
+   - Same class, read only and not run: memory/learned.py:172 calls converse with NO inferenceConfig.
+
+2. A SIBLING STEP UNDOES A STEP'S NARROWING.
+   - Claim broken: "a workflow or step can only narrow ... never widen" at step level.
+   - Where: executor.py:1396 stores step capabilities on the SHARED WorkflowContext (context.capabilities = capabilities). _require_path re-reads it after every await, so parallel steps overwrite each other mid-function.
+   - Repro rt/race2.py: step `narrow` is copy_files with step file_write: [], beside a parallel branch pre -> sibling (no step restriction), with a 50 MB first read. Observed: completed, two files written to out_narrow/. Control rt/race.py (no pre-step, tiny file): "Capability denied: write".
+   - Bound: still within system ∩ workflow.
+
+3. fetch_url REACHES A HOST OUTSIDE allowed_hosts.
+   - Claim broken: base.py:70, "every hop of fetch_url" is blocked before dispatch.
+   - Where: base.py:56 checks parts.hostname from Python's urlsplit, so http://localhost:P\@127.0.0.1:P/x reads as 127.0.0.1. Playwright's request API parses it per WHATWG (`\` ends the host) and goes to localhost. _fetch_checked (playwright_connector.py:396) isn't covered by route interception. A redirect Location with a backslash passes the same check (same parse; not run separately).
+   - Repro rt/bslash.py, real Chromium, allowed_hosts=["127.0.0.1"]:
+     - DENIED the plain localhost control;
+     - FETCHED the backslash URL; the server saw Host localhost and got "SECRET from localhost".
+   - navigate with the same URL IS blocked (ERR_BLOCKED_BY_CLIENT).
+   - Not reachable today (no browser tools in the shipped layer; allowed_hosts: []), but it must be fixed before a browser tool enters the system layer.
+
+4. OVERSTATED: the "derived from source" guard checks PRESENCE, not correctness.
+   - THREAT_MODEL.md:258-261 says "a function that touches the filesystem without checking fails the build". The test only checks that _require_path is called, not on the path actually opened.
+   - Repro rt/functions_mutant.py: copy_files checks dest_dir instead of `out`, and the derivation test PASSES on the mutant.
+
+5. OVERSTATED (read only, not run): THREAT_MODEL.md:274, "Bedrock spend is bounded per step, per workflow". max_iterations, max_total_tokens and policies.max_total_tokens (default None) have no ceiling a scaffolded draft can't set. The system layer bounds only per-call output.
+
+TRIED AND COULDN'T BREAK:
+- _path_match: `..` in every position, /./, `//` mid-path (a leading // is refused), trailing / and /., case changes, `\..`, %2e%2e, U+2024, newline plus `..`, NUL, glob metacharacters. Each resolved to the same file the OS opens inside the allowed tree, or was refused.
+- The pattern validator and strict loader.
+- No symlinks in spool, extracted, xml-files or health dirs (checked read-only), and no stock function creates one.
+- Layer merging: AND-ed, None skips, the token cap takes the min, so no layer widens another. The tool check sits at Agent._dispatch, and the executor is the only builder of Agent and ToolContext.
+- Every world.fs call in functions.py is preceded by a check on that same path. Denials raise. Zip members are reduced to their basename, and `..` is refused.
+- Host checks: userinfo, IPv6, a trailing dot and %5C all fail closed; navigate, click and submit are stopped by routing.
+- "A scaffolded draft's trigger is never registered": TRUE (orchestrator.py:121).
+
+Research spot-checked findings 1–3's cited lines against the export (executor.py:1851, executor.py:1396, base.py:56): they match.
+
+=== report 2: re-check of the fixes at 32d49ea ===
+
+G30 re-check at 32d49ea, research seat: ALL FIVE FIXES HOLD, plus two small leftovers. Run on a fresh git-archive export: /tmp/claude-1000/-home-ubuntu-Documents-veracium-veracium-research/418bd771-544d-451a-a2d0-95f45d8d9a49/scratchpad/wf-fix.fWUFGm. Scripts are unchanged from round one; no API they use had moved.
+
+1. TOKEN CLAMP holds. rt/suggest.py: both calls {'maxTokens': 4096}. Learned memory, via the new rt/learned.py, calls _BedrockComplete directly: distill inference_config is [{'maxTokens': 4096}, None] for a cap of 4096 and then no cap, and the engine passes max_output_tokens=4096 to observe. converse is now called only from scaffold, suggestion, distillation and the agent loop.
+2. SIBLING RACE holds. rt/race2.py: failed, "Capability denied: write of .../out_narrow/big.bin", written []. Control: failed, written []. Nothing in src assigns context.capabilities any more.
+3. BACKSLASH holds, real Chromium, allowed_hosts=["127.0.0.1"].
+   - rt/bslash.py: both URLs DENIED, server hits [].
+   - Neighbours (rt/bslash2.py): a tab or newline inside the host, a tab before @, %5C@ and U+FF3C (fullwidth reverse solidus) were all DENIED with no hits.
+   - Redirect Locations: an absolute one with a backslash, a relative /\localhost, and a plain off-list one were all DENIED after the first allowed hop.
+   - Positive controls: a direct allowed fetch and an allowed-to-allowed redirect both FETCHED, so the filter isn't refusing everything.
+4. PROPERTY TEST holds for both mutants we named.
+   - Caution: the first run reported 47 passed for every mutant. That was a FALSE GREEN: pytest's pythonpath=["src"] loaded the unmutated module.
+   - Re-run with -o pythonpath=rt/mutN/src, plus a probe printing which module loaded:
+     - mut1 (checks dest_dir): 3 failed, including test_every_access_is_preceded_by_a_check_of_that_same_path[copy_files];
+     - mut2 (a read check before a write, i.e. the right path in the wrong mode): 3 failed;
+     - unmutated: 48 passed.
+5. THREAT_MODEL §7 spend wording holds. It says author-set bounds (defaults 10 iterations and 200,000 tokens, workflow budget None), which matches definition.py.
+
+LEFTOVERS:
+- A WEAKER MUTANT SURVIVES the property test. mut3 checks only the FIRST file's write in copy_files (`if not copied:`), and all 48 pass with it loaded. Every test input copies ONE file, so a check skipped on later iterations is invisible. The shipped code checks each file, so this is a test gap, not a product defect. A two-file input would kill it.
+- STALE CLAIM: THREAT_MODEL.md:333 (§7a) still says "spend is bounded per-step and per-workflow", which contradicts the corrected §7.
+- Note, not a defect: suggestion and distillation are clamped to the SYSTEM layer's cap only, not to a workflow's narrower max_tokens_per_call. That's consistent with the claim as written; worth stating.
+- "Deployed" is unverified beyond: origin/main contains 32d49ea by the local ref (no fetch), and workflow-be's start time equals the commit time. Nothing was sent to port 8001.
+
+No database used, your tree only read with git, and no processes left running.
