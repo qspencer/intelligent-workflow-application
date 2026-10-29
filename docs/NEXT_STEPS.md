@@ -3009,7 +3009,8 @@ header prints its verdict and the round-3 guide's §7 tells the reviewer to run 
 
 **Round 3 package built 2026-10-29** — `g30-capability-review-r3-3e12786`
 (guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R3.md`; hashes in
-`docs/archives/README.md`). Awaiting the reviewer.
+`docs/archives/README.md`). Dispatched to the reviewer 2026-10-29 by the
+operator; awaiting results.
 
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's
