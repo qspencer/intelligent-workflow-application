@@ -106,12 +106,62 @@ def test_the_golden_corpus_covers_every_asset_kind() -> None:
 def test_every_golden_case_is_a_projection_fixed_point() -> None:
     """Repeated projection must not move — the backfill and its verifier rely
     on it, and a marker that is stripped-and-rewritten on re-projection made an
-    already-backfilled row look raw forever (R5)."""
+    already-backfilled row look raw forever (R5).
+
+    THE SECOND PASS GETS NO VOCABULARY, and that is the whole point. This test
+    existed through G29 and stayed green while the property it protects broke,
+    because it re-projected with `{**case, "input": once}` — carrying the
+    case's `vocab` into the second pass. No consumer can do that: the read
+    path, `verify_projection_agreement`, the zero-raw verifier and the backfill
+    all hold a ROW and not a definition. Feeding the second pass something only
+    the write path has is testing idempotence against the wrong reader, and it
+    is how a detector came to certify the defect it was written to catch.
+
+    A case that is NOT a fixed point must be declared below, with a reason, and
+    the declaration is checked both ways so it cannot rot."""
     fixture = _fixtures()[PROJECTOR_VERSION]
+    declared = _declared_non_fixed_points(fixture)
     for case in fixture["cases"]:
         once = _project(case)
-        twice = _project({**case, "input": once})
-        assert twice == once, f"{case['id']}: not idempotent\n  once={once}\n  twice={twice}"
+        # A consumer re-projects a stored row with no definition in hand.
+        twice = _project({**case, "input": once, "vocab": None})
+        if case["id"] in declared:
+            assert twice != once, (
+                f"{case['id']} is declared a non-fixed-point but IS one now. If the "
+                f"per-workflow vocabulary was resolved (see docs/TRACE_G29_REVIEW_GUIDE.md), "
+                f"remove it from the declaration rather than leaving a stale exemption."
+            )
+            continue
+        assert twice == once, (
+            f"{case['id']}: not idempotent without the vocabulary.\n"
+            f"  once={once}\n  twice={twice}\n"
+            f"Every consumer that re-projects a stored row holds no definition, so a "
+            f"projection they cannot reproduce reads as tampering (the §4.3 predicate), "
+            f"as raw (the zero-raw verifier) and as withheld (the read path)."
+        )
+
+
+def _declared_non_fixed_points(fixture: dict[str, Any]) -> set[str]:
+    """The cases whose expected output is NOT reproducible from the row alone.
+
+    G29 (projector v23) froze six cases carrying a per-workflow released
+    vocabulary. The mechanism is WITHDRAWN and under external review
+    (`docs/TRACE_G29_REVIEW_GUIDE.md`), but a released version's output is
+    immutable, so the fixtures stay and their defect is declared rather than
+    skipped. Derived from the data, not listed by hand: a hand list of a
+    derivable set drifts.
+
+    The property is "a key survived BECAUSE the vocabulary released it", not
+    "the case carries a vocabulary". Two of the six frozen vocab cases release
+    nothing — the value was outside the declared set, so it was withheld anyway
+    — and their output is identical with or without the declaration. Those ARE
+    fixed points and must keep being checked as such; declaring them would
+    exempt a case that has no defect."""
+    return {
+        c["id"]
+        for c in fixture["cases"]
+        if c.get("vocab") and (set(c["expected"]) & set(c["vocab"]))
+    }
 
 
 @pytest.mark.parametrize("old_version", sorted(set(_fixtures()) - {PROJECTOR_VERSION}) or [None])

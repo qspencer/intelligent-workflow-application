@@ -265,15 +265,31 @@ deterministic step's output — is also still unanswered and unrelated.
   Six of the seven carry a `vocab` key — the seventh is the vocabulary-absent
   case and deliberately carries none, which is what lets the authenticity guard
   replay it through pre-v23 projectors that have no `vocab` parameter.
-- **The tests did not catch the §3 defect**, which is the thing to hold us to.
-  Four unit tests and seven golden cases all exercise the projector *through the
-  write path*, where the vocabulary is supplied. Nothing asserted the fixed
-  point, and nothing round-tripped a stored row back through a read surface.
-  The detector this earns — *re-project every golden fixture and assert the
-  projection is a fixed point* — is a two-line property test that would have
-  failed immediately. It is **recorded in `docs/REVIEW_FINDINGS_LEDGER.md` and
-  deliberately not yet built**, because it is red until §3.2 is ruled on and we
-  are not shipping a red gate to make a point.
+- **A detector for the §3 defect ALREADY EXISTED, and the change defeated it.**
+  This is the part to hold us to, and it is worse than "the tests missed it".
+  `test_every_golden_case_is_a_projection_fixed_point` has guarded repeated
+  projection since R5, and its docstring names the consumers G29 broke: *"the
+  backfill and its verifier rely on it."* It stayed green because it
+  re-projected with `{**case, "input": once}` — which carries the case's
+  `vocab` into the **second** pass. No consumer can do that. Feeding the second
+  pass something only the write path holds tested idempotence against the wrong
+  reader, so the detector certified the very defect it was written to catch.
+
+  Repaired in this package: the second pass is given **no** vocabulary, and a
+  case that is not a fixed point must be *declared*, with the declaration
+  checked both ways so a stale exemption cannot hide a fix. The declared set is
+  **derived** from the data — a key survived because the vocabulary released it
+  — not hand-listed, because two of the six frozen vocab cases release nothing
+  and are still fixed points; exempting them would have hidden a real case.
+
+  Two controls, each planted on the check's own input, each seen to fail:
+  stop declaring the known non-fixed-points → `vocab_released_scalar: not
+  idempotent without the vocabulary`; restore the pre-G29 second pass → the
+  both-ways assertion fires. Restored: 29 passed.
+
+- **The eleven tests written for G29 were, in effect, one test.** Seven golden
+  cases and four unit tests, every one driving the projector through the write
+  path where the vocabulary is supplied. None re-projected a stored row.
 
 ## 9. What we most want from you
 
