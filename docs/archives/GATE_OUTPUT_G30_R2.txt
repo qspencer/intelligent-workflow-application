@@ -1,8 +1,9 @@
 Captured standalone gate results
 
-Gates ran at tree: 4956719e7d19de53106580e6f7b2c24bdc8593d5   (manifest aggregate: 3a8bb5025427b4493bba7c433d75f1826adbd810043748346234b80c7509860a)
+Gates ran at tree: d688eb58c2fca72c970537f02006dc50baa5652c   (manifest aggregate: 3a8bb5025427b4493bba7c433d75f1826adbd810043748346234b80c7509860a)
 Full output; each exit code captured before any pipe.
-Host: Linux 7.0.0-1014-aws GNU/Linux · Python 3.14.7 · 2026-10-29T18:02:07Z
+Host: Linux 7.0.0-1014-aws GNU/Linux · Python 3.14.7 · 2026-10-29T18:11:45Z
+Runtime: sqlite 3.45.1 · veracium 0.27.1
 
 === ruff check ===
 All checks passed!
@@ -33,55 +34,13 @@ exit: 0
 ........................................................................ [ 61%]
 ........................................................................ [ 66%]
 ...............................ssssssss................................. [ 70%]
-....................................................F................... [ 75%]
+........................................................................ [ 75%]
 .....................................................sss................ [ 79%]
 ........................................................................ [ 83%]
 ........................................................................ [ 88%]
 .................................s...................................... [ 92%]
 ........................................................................ [ 97%]
 .............................................                            [100%]
-=================================== FAILURES ===================================
-_ test_every_registered_figure_matches_what_produces_it[reports (\\d+) claims, (\\d+) test results] _
-
-claim = Claim(pattern='reports (\\d+) claims, (\\d+) test results', truth=<function <lambda> at 0x7742f90c7ed0>, source='the reproductions run captured in GATE_OUTPUT_G30_R2.txt')
-
-    @pytest.mark.parametrize("claim", CLAIMS, ids=lambda c: c.pattern[:48])
-    def test_every_registered_figure_matches_what_produces_it(claim: Claim) -> None:
-        m = re.search(claim.pattern, _guide_text())
-        assert m, f"claim pattern no longer matches the guide: {claim.pattern!r}"
-        written = tuple(g for g in m.groups() if g is not None)
->       truth = claim.truth()
-                ^^^^^^^^^^^^^
-
-tests/test_review_figures.py:165: 
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-tests/test_review_figures.py:81: in <lambda>
-    _printed(GATES, r"^(\d+) claims; \d+ test results run"),
-    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-tests/test_review_figures.py:54: in _printed
-    m = re.search(pattern, path.read_text(), re.M)
-                           ^^^^^^^^^^^^^^^^
-../../../.local/opt/python-3.14.7-gh/lib/python3.14/pathlib/__init__.py:787: in read_text
-    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
-         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
-
-self = PosixPath('/home/ubuntu/Dev/intelligent-workflow-application/docs/archives/GATE_OUTPUT_G30_R2.txt')
-mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
-
-    def open(self, mode='r', buffering=-1, encoding=None,
-             errors=None, newline=None):
-        """
-        Open the file pointed to by this path and return a file object, as
-        the built-in open() function does.
-        """
-        if "b" not in mode:
-            encoding = io.text_encoding(encoding)
->       return io.open(self, mode, buffering, encoding, errors, newline)
-               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-E       FileNotFoundError: [Errno 2] No such file or directory: '/home/ubuntu/Dev/intelligent-workflow-application/docs/archives/GATE_OUTPUT_G30_R2.txt'
-
-../../../.local/opt/python-3.14.7-gh/lib/python3.14/pathlib/__init__.py:771: FileNotFoundError
 =============================== warnings summary ===============================
 .venv/lib/python3.14/site-packages/fastapi/testclient.py:1
   /home/ubuntu/Dev/intelligent-workflow-application/backend/.venv/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
@@ -125,9 +84,8 @@ SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bed
 SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
 SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
 SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
-FAILED tests/test_review_figures.py::test_every_registered_figure_matches_what_produces_it[reports (\\d+) claims, (\\d+) test results]
-1 failed, 1600 passed, 29 skipped, 17 warnings in 64.38s (0:01:04)
-exit: 1
+1601 passed, 29 skipped, 17 warnings in 96.24s (0:01:36)
+exit: 0
 
 === pip-audit ===
 No known vulnerabilities found
@@ -243,17 +201,11 @@ exit: 0
 --- R4: an upload stops consulting file_read
     sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
 --- figures: a number in the guide is typed wrong (20 -> 21 claims)
-    sabotaged exit=1 (want 1)   restored exit=1 (want 0)   DID NOT FIRE
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
 --- figures: an unregistered number appears in the guide's prose
     sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
-Traceback (most recent call last):
-  File "/home/ubuntu/Dev/intelligent-workflow-application/docs/review-artifacts/g30_controls.py", line 352, in <module>
-    original = f.read_text()
-  File "/home/ubuntu/.local/opt/python-3.14.7-gh/lib/python3.14/pathlib/__init__.py", line 787, in read_text
-    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
-         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/ubuntu/.local/opt/python-3.14.7-gh/lib/python3.14/pathlib/__init__.py", line 771, in open
-    return io.open(self, mode, buffering, encoding, errors, newline)
-           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-FileNotFoundError: [Errno 2] No such file or directory: '/home/ubuntu/Dev/intelligent-workflow-application/backend/../docs/archives/GATE_OUTPUT_G30_R2.txt'
-exit: 1
+--- figures: the shipped evidence disagrees with the guide (156 -> 157 results)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+
+ALL CONTROLS FIRED
+exit: 0
