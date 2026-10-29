@@ -3028,7 +3028,8 @@ removed and each with a control:
 
 **Round 4 package built 2026-10-29** — `g30-capability-review-r4-8be82be`
 (guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R4.md`; hashes in
-`docs/archives/README.md`). Awaiting the reviewer.
+`docs/archives/README.md`). Dispatched to the reviewer 2026-10-29 by the
+operator; awaiting results.
 
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's
