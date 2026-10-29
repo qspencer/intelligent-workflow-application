@@ -356,7 +356,17 @@ def build_router(
                 raise HTTPException(status_code=404, detail=f"Template {template_id!r} not found")
             new_name = name or f"{source.name} (copy)"
             new_id = unique_id(slugify(new_name), existing)
-            definition = source.model_copy(deep=True, update={"id": new_id, "name": new_name})
+            # Re-VALIDATED, not `model_copy`: a copy skips validators, so a clone
+            # was the one persisting path that could carry a field the
+            # definition validator refuses (G29 review, P0 — `released_fields`).
+            # It was closed only transitively, by the source having been
+            # validated on load; this makes every save site validate directly.
+            try:
+                definition = WorkflowDefinition.model_validate(
+                    {**source.model_dump(), "id": new_id, "name": new_name}
+                )
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
         else:
             new_name = name or "Untitled workflow"
             new_id = unique_id(slugify(new_name), existing)

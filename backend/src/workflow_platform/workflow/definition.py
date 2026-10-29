@@ -262,41 +262,40 @@ class WorkflowDefinition(BaseModel):
     #: G12 C1 (`docs/ASK_THE_USER_PLAN.md`). Absent = no question
     #: machinery runs at all, which is the state of every workflow today.
     questions: QuestionSpec | None = None
-    #: G29: per-workflow RELEASED VOCABULARIES — `{field: [closed set of
-    #: values]}`. A declared field survives a below-grant read of this
-    #: workflow's step outputs when its value is drawn entirely from the
-    #: declared set; anything else is withheld and flagged, as today.
+    #: G29 per-workflow RELEASED VOCABULARIES — WITHDRAWN AT THE CODE BOUNDARY
+    #: (external review 2026-10-29, `docs/TRACE_G29_REVIEW_RESULTS.md`).
     #:
-    #: Why it lives on the DEFINITION and not in the projector: a category
-    #: vocabulary is per-workflow (`pdf_classifier` classifies invoices,
-    #: `research_paper_triage` emits tags, email triage has five sources), so a
-    #: platform-level enum would put one workflow's business vocabulary in the
-    #: component that governs all of them — rejected on review as GR4-R4.
+    #: The field is KEPT, and every non-null value is REJECTED, for one reason:
+    #: this model ignores unknown fields, so deleting it would make a declaration
+    #: vanish silently instead of failing. A loud refusal is the point.
     #:
-    #: Why declaring it is SOUND rather than a self-service widening: the
-    #: declaration is CONFIG, read from a definition the platform loads, never
-    #: from model output and never from a trigger payload. Shape cannot
-    #: establish who produced a value (the §1.4a lesson); provenance can, and
-    #: this is the same test that makes `wildcard_keys: "platform"` sound,
-    #: applied to a value position. Bounded by `MAX_VOCAB_FIELDS` /
-    #: `MAX_VOCAB_VALUES` at load AND again at projection.
+    #: Three findings close it. A projection that depends on a per-call
+    #: vocabulary is no longer a fixed point, so the read path, the §4.3
+    #: agreement predicate, the zero-raw verifier and the backfill all disagree
+    #: with what the write path stored. Removing the one bundled declaration did
+    #: NOT withdraw it — any new definition re-activated the same path. And the
+    #: soundness argument rested on "a declaration is config, never model
+    #: output", which is FALSE: `POST /api/workflows/scaffold` validates and
+    #: persists a model-authored definition in one request, with no field-level
+    #: approval.
     #:
-    #: Absent (the default, and the state of every workflow but one) = nothing
-    #: is released and the projector behaves exactly as it did at v22.
+    #: Every construction path validates — YAML load, create, import, scaffold
+    #: and both Postgres reads — so this one validator is the whole boundary
+    #: (`test_released_fields_is_rejected_on_every_definition_path`). Reopening
+    #: needs a row-bound, authenticated policy identity (after F3/F4), scalar
+    #: enums only, one validator shared with the projector, and an approval step
+    #: a scaffold cannot satisfy by itself.
     released_fields: dict[str, list[str]] | None = None
 
     @model_validator(mode="after")
-    def _released_fields_are_bounded_closed_sets(self) -> WorkflowDefinition:
-        """Reject a malformed declaration at AUTHORING time.
-
-        The projector normalizes defensively too (it silently drops a bad entry,
-        because a projection sits on the write path of every run and must never
-        be able to stop one being recorded). That makes a bad declaration fail
-        closed but SILENT — so the loud check belongs here, where an author can
-        still see it. Two layers, different jobs: this one tells you; that one
-        protects you."""
-        if self.released_fields is None:
-            return self
+    def _released_fields_are_withdrawn(self) -> WorkflowDefinition:
+        if self.released_fields is not None:
+            raise ValueError(
+                "released_fields is withdrawn: a per-workflow released vocabulary "
+                "breaks the projector's fixed point, and a model-authored definition "
+                "can declare one. See docs/TRACE_G29_REVIEW_RESULTS.md."
+            )
+        return self
         from workflow_platform.trace_projection import (
             MAX_VOCAB_FIELDS,
             MAX_VOCAB_VALUES,
