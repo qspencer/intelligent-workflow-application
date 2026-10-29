@@ -17,9 +17,9 @@ tests exactly what production runs with:
 
 from __future__ import annotations
 
-import ast
 import re
 from pathlib import Path
+from typing import Any
 
 import pytest
 import yaml
@@ -78,28 +78,77 @@ def _armed_definitions() -> dict[str, WorkflowDefinition]:
     return out
 
 
-def _functions_that_consult_capabilities() -> set[str]:
-    """Registry names of deterministic functions that route through a
-    capability-checked tool — DERIVED, so phase 2 (teaching the file-moving
-    functions to check) is reflected here without anyone editing a list."""
-    tree = ast.parse((REPO / "backend/src/workflow_platform/engine/functions.py").read_text())
-    checked = {
-        fn.name
-        for fn in ast.walk(tree)
-        if isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef))
-        and any(
-            isinstance(n, ast.Call)
-            and getattr(n.func, "id", None) == "ToolContext"
-            and any(k.arg == "capabilities" for k in n.keywords)
-            for n in ast.walk(fn)
-        )
+def _probe_accesses(definition: WorkflowDefinition) -> list[tuple[str, str, bool]]:
+    """(step id, a representative path, is-write) for every file access each
+    deterministic step will make — derived from its config and its trigger's,
+    so the layer is checked against the paths a run ACTUALLY touches rather than
+    against "does the layer allow any reads at all" (which, once the layer
+    admitted DMARC's paths, wrongly called `pdf-classifier` runnable).
+
+    A file function with no probe here fails the test: guessing for a new one
+    is how a declaration goes wrong silently."""
+    trig: dict[str, Any] = dict(definition.trigger.config or {})
+    steps = {s.id: s for s in definition.steps}
+
+    def resolve(ref: str) -> list[str]:
+        if ref == "trigger.file_path":
+            return [f"{trig.get('path')}/probe.pdf"]
+        if ref == "trigger.attachment_paths":
+            return [f"{trig.get('download_dir')}/probe-id/probe.zip"]
+        if ref.startswith("steps."):
+            source = steps[ref.split(".")[1]]
+            return [f"{getattr(source, 'config', {})['dest_dir']}/probe.xml"]
+        raise AssertionError(f"no probe for context reference {ref!r}")
+
+    out: list[tuple[str, str, bool]] = []
+    for step in definition.steps:
+        fn = getattr(step, "function", None)
+        cfg: dict[str, Any] = dict(getattr(step, "config", None) or {})
+        if fn is None or fn not in FILE_FUNCTIONS:
+            continue
+        if fn == "pdf_extract":
+            reads = (
+                [cfg["filepath"]]
+                if "filepath" in cfg
+                else resolve(cfg.get("filepath_from", "trigger.file_path"))
+            )
+            out += [(step.id, r, False) for r in reads]
+        elif fn in ("extract_archive", "copy_files"):
+            reads = cfg.get("paths") or resolve(cfg["paths_from"])
+            out += [(step.id, r, False) for r in reads]
+            out.append((step.id, f"{cfg['dest_dir']}/probe.xml", True))
+        elif fn == "append_file":
+            out += [(step.id, cfg["path"], False), (step.id, cfg["path"], True)]
+        elif fn in ("route_by_classification", "route_by_value"):
+            out += [
+                (step.id, r, False) for r in resolve(cfg.get("source_from", "trigger.file_path"))
+            ]
+            out.append((step.id, f"{cfg['output_root']}/probe/probe.pdf", True))
+        elif fn == "write_csv":
+            out.append((step.id, cfg["path"], True))
+        else:
+            raise AssertionError(f"file function {fn!r} has no probe — add one")
+    return out
+
+
+#: Registry names of every function whose file access is capability-checked —
+#: the five that check with `_require_path`, `write_csv`, and `pdf_extract`
+#: (through a checked tool). Pinned against the source derivation in
+#: `test_g30_function_capabilities.py`.
+FILE_FUNCTIONS = frozenset(
+    {
+        "pdf_extract",
+        "copy_files",
+        "extract_archive",
+        "append_file",
+        "route_by_classification",
+        "route_by_value",
+        "write_csv",
     }
-    registry = default_function_registry()
-    return {name for name, fn in registry._fns.items() if fn.__name__ in checked}
+)
 
 
 def _blocked_by(system: CapabilityPolicy, definition: WorkflowDefinition) -> list[str]:
-    checked_functions = _functions_that_consult_capabilities()
     reasons = []
     for step in definition.steps:
         resolved = resolve_capabilities(
@@ -108,10 +157,24 @@ def _blocked_by(system: CapabilityPolicy, definition: WorkflowDefinition) -> lis
         for tool in getattr(step, "tools", None) or []:
             if not resolved.tool_allowed(tool):
                 reasons.append(f"{step.id}: tool {tool}")
-        function = getattr(step, "function", None)
-        if function in checked_functions and system.file_read == []:
-            reasons.append(f"{step.id}: function {function} reads files")
+    for step_id, path, write in _probe_accesses(definition):
+        step = next(s for s in definition.steps if s.id == step_id)
+        resolved = resolve_capabilities(
+            system, definition.capabilities, getattr(step, "capabilities", None)
+        )
+        if not (resolved.can_write(path) if write else resolved.can_read(path)):
+            reasons.append(f"{step_id}: {'write' if write else 'read'} {path}")
     return reasons
+
+
+def test_the_file_function_set_matches_the_source() -> None:
+    """`FILE_FUNCTIONS` is a hand list, so it is checked against the derived
+    one: every registered function that does file I/O, plus `pdf_extract`."""
+    from tests.test_g30_function_capabilities import _fs_touching_functions
+
+    registered = {fn.__name__: name for name, fn in default_function_registry()._fns.items()}
+    derived = {registered[f] for f in _fs_touching_functions() if f in registered}
+    assert derived | {"pdf_extract"} == set(FILE_FUNCTIONS)
 
 
 # --- the shipped layer --------------------------------------------------------
@@ -249,8 +312,8 @@ def test_health_reports_the_layer_as_counts_never_contents(
     assert body["system_capabilities"] == {
         "status": "configured",
         "tools": 1,
-        "file_read": 0,
-        "file_write": 0,
+        "file_read": 3,
+        "file_write": 3,
         "allowed_hosts": 0,
         "max_tokens_per_call": 4096,
     }

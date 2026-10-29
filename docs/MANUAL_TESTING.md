@@ -393,7 +393,7 @@ If the named secret isn't set in the environment, the endpoint returns **503**
 
 **What:** the `scheduled_health_report` example workflow under
 `examples/scheduled_health_report/`. Fires hourly, appends a
-status line to `/tmp/scheduled-health-report.log`.
+status line to `~/.local/share/workflow-platform/health/scheduled-health-report.log`.
 
 **Why manual:** the schedule trigger has wall-clock behavior unit tests
 can only simulate. Watching the file grow is the most direct proof.
@@ -403,7 +403,7 @@ Start the backend (same command as 4b), then:
 ```bash
 # Wait for the first fire (hourly by default — drop interval_seconds for a
 # quicker check), then:
-tail -f /tmp/scheduled-health-report.log
+tail -f ~/.local/share/workflow-platform/health/scheduled-health-report.log
 
 # Instances per fire:
 curl -s -H 'X-Dev-User: alice' -H 'X-Dev-Groups: admins' \

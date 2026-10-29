@@ -252,11 +252,23 @@ IdP is sole authority — D4). Fifteen pinned security tests in
     WebSockets can still reach one. Destination enforcement must happen
     at the network layer before dispatch; until it does, no browser tool
     may enter the system layer (test-pinned).
-  - **OPEN — deterministic functions bypass the capability system.**
-    `copy_files`, `append_file`, `extract_archive` and the other file
-    functions call `world.fs` directly; only `pdf_extract` routes through
-    a checked tool. Capability enforcement is NOT complete until G30
-    phase 2 closes this, and must not be described as complete before.
+  - **Deterministic file functions consult capabilities (G30 phase 2,
+    2026-10-29).** Before that, `copy_files`, `append_file`,
+    `extract_archive`, `route_by_*` and `write_csv` called `world.fs`
+    directly. Each now checks every path before access; a denial fails
+    the step and is never a silent skip. The set is DERIVED from source
+    — a function that touches the filesystem without checking fails the
+    build.
+  - **The path matcher was unsound until the same day:** `*` matched
+    `..` (`/allowed/*/*` admitted `/allowed/../secret`), relative
+    patterns matched any directory of that name, and `**` was not
+    recursive. Now absolute-only, `..` refused outright, whole-path match.
+  - **Still outside, stated rather than claimed away:** triggers do their
+    own I/O from operator config (a scaffolded draft's trigger is never
+    registered); a symlink inside an allowed tree pointing out is
+    followed by the OS (the check is on the path); and the browser
+    destination gap above. Whether this amounts to complete enforcement
+    is for G30's external review to say, not this document.
 - Secrets: `.secrets/**` 0600 + gitignored; `SecretStore` abstraction
   (env / AWS Secrets Manager); tokens never logged or stored raw
   (session tokens hashed; pinned). Bedrock spend is bounded per step,

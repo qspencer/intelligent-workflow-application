@@ -15,17 +15,31 @@
 # key, because an omitted attribute means UNRESTRICTED — a typo would otherwise
 # fail open. `null` means "this layer does not restrict it" and must be written.
 #
-# What this does NOT bound (docs/NEXT_STEPS.md G30): deterministic functions
-# other than `pdf_extract` do their file I/O outside the capability system, and
-# triggers do theirs from config. Phase 2.
+# Deterministic file functions consult this too, as of G30 phase 2 — before
+# that they wrote wherever their config said. Triggers still do their own I/O
+# from operator config (a scaffolded draft's trigger is never registered).
+#
+# File patterns must be absolute and contain no '..'; `*` matches one path
+# segment and `**` any depth. A path with a '..' segment is refused outright.
 
 tools:
   - email_label_apply__qspencer_gmail_com
 
-# No live workflow reads or writes a file through a tool; their file I/O is in
-# deterministic steps and triggers. Deny-all.
-file_read: []
-file_write: []
+# Exactly the paths the live deterministic steps touch, and nothing else.
+file_read:
+  # dmarc-ingest / extract_reports — the trigger spools one folder per message
+  - /home/ubuntu/.local/share/workflow-platform/dmarc/spool/*/*
+  # dmarc-ingest / deliver_reports — reads what extract_reports wrote
+  - /home/ubuntu/.local/share/workflow-platform/dmarc/extracted/*
+  # scheduled-health-report / append — appending reads the log it appends to
+  - /home/ubuntu/.local/share/workflow-platform/health/scheduled-health-report.log
+file_write:
+  # dmarc-ingest / extract_reports
+  - /home/ubuntu/.local/share/workflow-platform/dmarc/extracted/*
+  # dmarc-ingest / deliver_reports — the viewer watches this directory
+  - /home/ubuntu/Dev/dmarc-viewer/xml-files/*
+  # scheduled-health-report / append
+  - /home/ubuntu/.local/share/workflow-platform/health/scheduled-health-report.log
 
 # Enforced in the browser connector, the only surface where an agent chooses a
 # network destination. No live workflow uses the browser. Deny-all.

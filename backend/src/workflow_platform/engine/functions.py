@@ -109,6 +109,8 @@ async def route_by_classification(
 
     filename = PurePosixPath(source).name
     destination = str(PurePosixPath(output_root) / document_type / filename)
+    _require_path(context, source, write=False)
+    _require_path(context, destination, write=True)
 
     payload = await world.fs.read_bytes(source)
     await world.fs.write_bytes(destination, payload)
@@ -142,6 +144,9 @@ async def append_file(
         raise StepFailure("append_file requires `path` in config")
 
     existing = b""
+    # Appending reads the target, so it needs read as well as write.
+    _require_path(context, path, write=False)
+    _require_path(context, path, write=True)
     if await world.fs.exists(path):
         existing = await world.fs.read_bytes(path)
     separator = b"" if not existing or existing.endswith(b"\n") else b"\n"
@@ -665,6 +670,8 @@ async def route_by_value(
 
     filename = PurePosixPath(source).name
     destination = str(PurePosixPath(output_root) / safe_value / filename)
+    _require_path(context, source, write=False)
+    _require_path(context, destination, write=True)
 
     payload = await world.fs.read_bytes(source)
     await world.fs.write_bytes(destination, payload)
@@ -955,6 +962,7 @@ async def write_csv(
         normalized = {c: ("" if row.get(c) is None else str(row[c])) for c in columns}
         writer.writerow(normalized)
 
+    _require_path(context, path, write=True)
     await world.fs.write_bytes(path, buf.getvalue().encode())
     return {
         "path": path,
@@ -1008,11 +1016,13 @@ async def extract_archive(
 
     async def _write(name: str, data: bytes) -> None:
         out = f"{dest_dir.rstrip('/')}/{_dest_name(name)}"
+        _require_path(context, out, write=True)
         await world.fs.write_bytes(out, data)
         extracted.append(out)
 
     for path in raw_paths:
         lower = path.lower()
+        _require_path(context, path, write=False)  # outside the try: a denial is not a skip
         try:
             blob = await world.fs.read_bytes(path)
         except Exception as exc:
@@ -1051,6 +1061,29 @@ async def extract_archive(
     }
 
 
+def _require_path(context: WorkflowContext, path: str, *, write: bool) -> None:
+    """Check a deterministic step's file access against its RESOLVED
+    capabilities before it happens (G30 phase 2, 2026-10-29).
+
+    Until then only `pdf_extract` consulted capabilities; every other file
+    function called `world.fs` directly, so a scaffolded deterministic step
+    could read or write any path its config named whatever the layers said.
+
+    A refusal RAISES — it never joins a function's "skipped" list. `copy_files`
+    and `extract_archive` skip unreadable sources quietly, and a denial skipped
+    the same way would be a delivery of zero files reported as success: the
+    silent DMARC outage of 2026-09 again. No capabilities in context (a direct
+    call, a unit test) means no restriction, as before."""
+    caps = context.capabilities
+    if caps is None:
+        return
+    if not (caps.can_write(path) if write else caps.can_read(path)):
+        raise StepFailure(
+            f"Capability denied: {'write' if write else 'read'} of {path!r} is outside "
+            f"this step's file_{'write' if write else 'read'}"
+        )
+
+
 async def copy_files(
     config: dict[str, Any], context: WorkflowContext, world: World
 ) -> dict[str, Any]:
@@ -1084,12 +1117,14 @@ async def copy_files(
         if suffix_l and not name.lower().endswith(suffix_l):
             skipped.append({"path": path, "reason": "suffix"})
             continue
+        _require_path(context, path, write=False)  # outside the try: a denial is not a skip
         try:
             payload = await world.fs.read_bytes(path)
         except Exception as exc:
             skipped.append({"path": path, "reason": f"unreadable: {exc}"})
             continue
         out = f"{dest_dir.rstrip('/')}/{name}"
+        _require_path(context, out, write=True)
         await world.fs.write_bytes(out, payload)
         copied.append(out)
 

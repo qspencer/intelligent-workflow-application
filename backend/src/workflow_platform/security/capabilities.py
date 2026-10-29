@@ -20,7 +20,7 @@ from fnmatch import fnmatch
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 class CapabilityPolicy(BaseModel):
@@ -36,6 +36,20 @@ class CapabilityPolicy(BaseModel):
     file_write: list[str] | None = None
     allowed_hosts: list[str] | None = None
     max_tokens_per_call: int | None = None
+
+    @field_validator("file_read", "file_write")
+    @classmethod
+    def _patterns_are_absolute(cls, patterns: list[str] | None) -> list[str] | None:
+        """Refuse, loudly, a file pattern the matcher could never honour: a
+        relative one (it used to match from the right — any directory of that
+        name, anywhere) or one with a `..` segment. Silently never matching
+        would be fail-closed but would hide an author's mistake."""
+        for pattern in patterns or []:
+            if not pattern.startswith("/") or ".." in PurePosixPath(pattern).parts:
+                raise ValueError(
+                    f"file pattern {pattern!r} must be absolute and contain no '..' segment"
+                )
+        return patterns
 
 
 class ResolvedCapabilities(BaseModel):
@@ -92,10 +106,29 @@ class ResolvedCapabilities(BaseModel):
 
 
 def _path_match(path: str, pattern: str) -> bool:
-    """File-ACL matcher: `*` does not cross `/`. Use multiple patterns to allow
-    multiple subtrees. Recursive `**` is not supported in Phase 1; if needed,
-    list explicit patterns (e.g. `["/processed/*", "/processed/*/*"]`)."""
-    return PurePosixPath(path).match(pattern)
+    """File-ACL matcher. `*` matches within one segment; `**` is a real
+    recursive wildcard.
+
+    Corrected 2026-10-29 (G30 phase 2). It was `PurePosixPath(path).match`,
+    which had three faults, each found by testing it before relying on it:
+    `*` matched `..`, so `/data/allowed/*/*` admitted `/data/allowed/../secret`
+    — a path OUTSIDE the allowed tree; a relative pattern matched from the
+    right, so `spool/*` allowed any `spool` directory anywhere; and `**` acted
+    as a single `*`, so a pattern that looked recursive was not.
+
+    Now: the path and the pattern must both be absolute; a path with a `..`
+    segment is REFUSED rather than normalized (lexical normalization can
+    disagree with how the OS resolves `..` through a symlink, so the path
+    checked and the path opened could differ); and the WHOLE path must match
+    (`full_match`). Residual, stated: a symlink inside an allowed tree that
+    points out of it is followed by the OS — the check is on the path, not on
+    what it resolves to."""
+    if not path.startswith("/") or not pattern.startswith("/") or "\x00" in path:
+        return False
+    candidate = PurePosixPath(path)
+    if ".." in candidate.parts:
+        return False
+    return candidate.full_match(pattern)
 
 
 def resolve_capabilities(*layers: CapabilityPolicy | None) -> ResolvedCapabilities:

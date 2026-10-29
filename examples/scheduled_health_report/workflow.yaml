@@ -44,7 +44,7 @@ steps:
     function: append_file
     config:
       content_from: steps.status.output_text
-      path: /tmp/scheduled-health-report.log
+      path: /home/ubuntu/.local/share/workflow-platform/health/scheduled-health-report.log
 
 edges:
   - from: status

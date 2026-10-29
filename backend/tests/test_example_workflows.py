@@ -133,10 +133,13 @@ def test_scheduled_health_report_yaml_parses() -> None:
 @pytest.mark.asyncio
 async def test_scheduled_health_report_runs_end_to_end(tmp_path: Path) -> None:
     yaml_path = EXAMPLES_ROOT / "scheduled_health_report" / "workflow.yaml"
-    # Redirect the log path into tmp_path so the test doesn't write to /tmp directly.
-    yaml_body = yaml_path.read_text().replace(
-        "/tmp/scheduled-health-report.log", str(tmp_path / "health.log")
-    )
+    # Redirect the log path into tmp_path so the test never writes the real log.
+    # Asserted, not assumed: when the path moved out of /tmp (G30 phase 2) this
+    # replace silently matched nothing and would have appended to the real file.
+    real_log = "/home/ubuntu/.local/share/workflow-platform/health/scheduled-health-report.log"
+    raw = yaml_path.read_text()
+    assert real_log in raw, "the example's log path changed — update this redirect"
+    yaml_body = raw.replace(real_log, str(tmp_path / "health.log"))
     definition = load_definition_from_yaml(yaml_body)
 
     status_line = "[2026-05-10T17:42:00+00:00] system: ok — no alerts pending"

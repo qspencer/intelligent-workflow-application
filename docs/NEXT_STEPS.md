@@ -2873,12 +2873,36 @@ exists no browser tool may enter the system layer; a test refuses it.
 **G30 goes to its own external review once phase 2 is done** — one finished
 control rather than two halves.
 
-**Remaining — phase 2:** deterministic functions other than `pdf_extract` do
-their file I/O outside the capability system, so a scaffolded deterministic
-step's paths are still unbounded. Teach the file-moving functions to consult
-`can_read`/`can_write`, then add the live DMARC and health-report paths to the
-layer. The derived "functions that consult capabilities" set in the tests will
-pick each one up as it changes.
+**PHASE 2 APPLIED 2026-10-29.** Every stock function that touches the
+filesystem now checks each path against the step's resolved capabilities before
+access — `copy_files`, `extract_archive`, `append_file`,
+`route_by_classification`, `route_by_value`, `write_csv` (plus `pdf_extract`,
+already). A denial fails the step; it is never added to a function's
+"skipped" list, which would turn it into a delivery of nothing reported as
+success. The population is derived from source.
+
+The layer now lists exactly the live deterministic paths — DMARC's spool
+(`spool/*/*`, one folder per message), its extracted folder and the viewer's
+`xml-files`, and the health-report log, MOVED out of `/tmp` (emptied on boot)
+to `~/.local/share/workflow-platform/health/`. Checked against every real file
+on disk before deploying: all admitted.
+
+**Found by testing the matcher before relying on it:** `*` matched `..`, so
+`/allowed/*/*` admitted `/allowed/../secret`; relative patterns matched any
+directory of that name; `**` was not recursive. That matcher had backed the
+file tools since Phase 1. No live exposure — production had no file
+restrictions until phase 1 and denied all file access after it — but phase 2
+would have built on it. Fixed: absolute paths and patterns only, `..` refused
+(not normalized — lexical and OS resolution can disagree through a symlink),
+`full_match`. Relative or `..` patterns are refused at authoring.
+
+**Recorded fact:** `pdf-classifier` can never run under any layer as written —
+its trigger path is relative, and the matcher refuses relative paths. Making it
+runnable needs an absolute path as well as a layer change.
+
+**Residuals, stated:** triggers' own I/O (operator config, never scaffolded);
+symlinks inside an allowed tree; the browser destination gap (browser pinned
+off). **Next: G30 to external review** — one control, both phases.
 
 ### G17 — Proactive recall adoption (veracium 0.4.x, trigger-gated)
 

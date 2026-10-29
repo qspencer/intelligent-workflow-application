@@ -64,13 +64,6 @@ CONTROLS = [
         "tests/test_system_capabilities.py",
     ),
     (
-        "layer widened without updating the declarations",
-        "../config/system_capabilities.yaml",
-        "file_read: []\n",
-        'file_read: ["/**"]\n',
-        "tests/test_system_capabilities.py",
-    ),
-    (
         "the launcher stops naming the layer",
         "../scripts/run-local-be.sh",
         "export WORKFLOW_PLATFORM_SYSTEM_CAPABILITIES=",
@@ -98,6 +91,63 @@ CONTROLS = [
         "  - email_label_apply__qspencer_gmail_com\n  - browser_navigate\n",
         "tests/test_system_capabilities.py::"
         "test_the_browser_stays_off_until_destinations_are_enforced_before_dispatch",
+    ),
+    (
+        "phase 2: copy_files stops checking what it reads",
+        "src/workflow_platform/engine/functions.py",
+        "        _require_path(context, path, write=False)  # outside the try: a denial is not a skip\n        try:\n            payload",
+        "        try:\n            payload",
+        "tests/test_g30_function_capabilities.py",
+    ),
+    (
+        "phase 2: a denial moves inside the skip-on-failure try (becomes a silent skip)",
+        "src/workflow_platform/engine/functions.py",
+        "        _require_path(context, path, write=False)  # outside the try: a denial is not a skip\n        try:\n            payload = await world.fs.read_bytes(path)\n",
+        "        try:\n            _require_path(context, path, write=False)\n            payload = await world.fs.read_bytes(path)\n",
+        "tests/test_g30_function_capabilities.py",
+    ),
+    (
+        "phase 2: a file function stops consulting capabilities",
+        "src/workflow_platform/engine/functions.py",
+        "    _require_path(context, path, write=True)\n    await world.fs.write_bytes(path, buf.getvalue().encode())\n",
+        "    await world.fs.write_bytes(path, buf.getvalue().encode())\n",
+        "tests/test_g30_function_capabilities.py",
+    ),
+    (
+        "matcher: back to PurePosixPath.match (admits ..)",
+        "src/workflow_platform/security/capabilities.py",
+        "    return candidate.full_match(pattern)\n",
+        "    return PurePosixPath(path).match(pattern)\n",
+        "tests/test_g30_function_capabilities.py",
+    ),
+    (
+        "matcher: '..' segments no longer refused",
+        "src/workflow_platform/security/capabilities.py",
+        '    if ".." in candidate.parts:\n        return False\n',
+        "",
+        "tests/test_g30_function_capabilities.py",
+    ),
+    (
+        "pattern rule: relative patterns accepted again",
+        "src/workflow_platform/security/capabilities.py",
+        '            if not pattern.startswith("/") or ".." in PurePosixPath(pattern).parts:\n',
+        "            if False:\n",
+        "tests/test_g30_function_capabilities.py",
+    ),
+    (
+        "layer: DMARC spool pattern one level too shallow",
+        "../config/system_capabilities.yaml",
+        "  - /home/ubuntu/.local/share/workflow-platform/dmarc/spool/*/*\n",
+        "  - /home/ubuntu/.local/share/workflow-platform/dmarc/spool/*\n",
+        "tests/test_g30_function_capabilities.py::test_dmarc_ingest_delivers_under_the_shipped_layer",
+    ),
+    (
+        "layer: widened enough to run invoice-extraction, declaration not updated",
+        "../config/system_capabilities.yaml",
+        "tools:\n  - email_label_apply__qspencer_gmail_com\n\n# Exactly the paths the live deterministic steps touch, and nothing else.\nfile_read:\n  # dmarc-ingest / extract_reports — the trigger spools one folder per message\n  - /home/ubuntu/.local/share/workflow-platform/dmarc/spool/*/*\n  # dmarc-ingest / deliver_reports — reads what extract_reports wrote\n  - /home/ubuntu/.local/share/workflow-platform/dmarc/extracted/*\n  # scheduled-health-report / append — appending reads the log it appends to\n  - /home/ubuntu/.local/share/workflow-platform/health/scheduled-health-report.log\nfile_write:\n  # dmarc-ingest / extract_reports\n  - /home/ubuntu/.local/share/workflow-platform/dmarc/extracted/*\n  # dmarc-ingest / deliver_reports — the viewer watches this directory\n  - /home/ubuntu/Dev/dmarc-viewer/xml-files/*\n  # scheduled-health-report / append\n  - /home/ubuntu/.local/share/workflow-platform/health/scheduled-health-report.log\n\n",
+        "tools:\n  - email_label_apply__qspencer_gmail_com\n  - email_send\n\nfile_read:\n  - /**\nfile_write:\n  - /**\n\n",
+        "tests/test_system_capabilities.py::"
+        "test_the_layer_does_exactly_what_is_declared_to_each_armed_workflow",
     ),
 ]
 

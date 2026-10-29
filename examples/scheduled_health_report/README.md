@@ -2,7 +2,7 @@
 
 Periodic workflow demonstrating the `schedule` trigger end to end. Fires
 every 60 seconds, asks Claude to write a one-line status, appends it to
-`/tmp/scheduled-health-report.log` via the `append_file` stock function.
+`~/.local/share/workflow-platform/health/scheduled-health-report.log` via the `append_file` stock function.
 
 ## Files
 
@@ -19,7 +19,7 @@ AUTH_MODE=dev \
   uv run uvicorn workflow_platform.main:app --port 8001
 
 # In another terminal — wait a minute for the first fire, then:
-tail -f /tmp/scheduled-health-report.log
+tail -f ~/.local/share/workflow-platform/health/scheduled-health-report.log
 
 # Dashboard view:
 open http://localhost:4200/instances?workflow_id=scheduled-health-report
@@ -46,7 +46,7 @@ BEDROCK_MODE=live \
 
 ## What's worth checking
 
-- `tail -f /tmp/scheduled-health-report.log` shows a new line each minute
+- `tail -f ~/.local/share/workflow-platform/health/scheduled-health-report.log` shows a new line each minute
   while the backend runs.
 - `/api/workflow-instances?workflow_id=scheduled-health-report` returns
   one instance per fire, each `completed`.
