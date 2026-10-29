@@ -63,8 +63,8 @@ from workflow_platform.persistence.schema_version import check_schema_drift
 from workflow_platform.recovery import sweep_interrupted_instances
 from workflow_platform.secrets import AwsSecretsManagerStore, EnvSecretStore, SecretStore
 from workflow_platform.security.capabilities import (
+    configured_system_capabilities,
     describe_system_capabilities,
-    system_capabilities_from_env,
 )
 from workflow_platform.templates import default_examples_dir
 from workflow_platform.tools import (
@@ -142,10 +142,10 @@ def _default_engine(
         # gate. See docs/TRACE_GOVERNANCE_PLAN.md §4.
         trace_safe_only=trace_safe_only_from_env(),
         # G30: the SYSTEM capability layer — the outermost bound, which no
-        # definition or scaffolded draft can widen. Loaded strictly: a
-        # configured layer that cannot be read stops startup rather than
-        # running unrestricted. Unset = no layer, reported by /api/health.
-        system_capabilities=system_capabilities_from_env(),
+        # definition or scaffolded draft can widen. Never absent: unset means
+        # the shipped layer, and one that cannot be read stops startup rather
+        # than running unrestricted (external review R1).
+        system_capabilities=configured_system_capabilities(),
         # G12 C1 shadow state. Postgres when there is a database, so the
         # capacity rule is the real conditional counter update; the
         # in-memory double cannot exhibit the concurrency invariant and

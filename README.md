@@ -68,6 +68,12 @@ Bedrock + all triggers + Gmail-from-`.secrets` + dev auth):
 ```
 
 `docker compose up --build` brings up Postgres + the backend container.
+
+Every launch path runs under the system capability layer
+(`config/system_capabilities.yaml`, the outermost bound on every workflow).
+Name a different reviewed file with `WORKFLOW_PLATFORM_SYSTEM_CAPABILITIES`;
+with nothing named the service uses the shipped one, and it refuses to start
+on a layer it cannot read. It never runs unrestricted.
 `docs/MANUAL_TESTING.md` is the full operator playbook (Part A: API, Part B: a
 tick-the-box GUI walkthrough).
 

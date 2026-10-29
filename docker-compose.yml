@@ -17,7 +17,11 @@ services:
 
   backend:
     build:
-      context: ./backend
+      # Repo root, so the image carries config/system_capabilities.yaml — the
+      # service will not start without its system layer. The Dockerfile's own
+      # .dockerignore allowlists what is sent.
+      context: .
+      dockerfile: backend/Dockerfile
     environment:
       DATABASE_URL: postgresql+asyncpg://workflow:workflow@postgres:5432/workflow
       BEDROCK_MODE: live
@@ -28,7 +32,7 @@ services:
       postgres:
         condition: service_healthy
     volumes:
-      - ./backend/src:/app/src
+      - ./backend/src:/app/backend/src
     command: uv run uvicorn workflow_platform.main:app --host 0.0.0.0 --port 8001 --reload
 
 volumes:

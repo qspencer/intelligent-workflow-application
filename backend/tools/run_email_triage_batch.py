@@ -33,7 +33,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from workflow_platform.security.capabilities import operator_system_capabilities
+from workflow_platform.security.capabilities import configured_system_capabilities
 
 logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(message)s")
 
@@ -158,7 +158,7 @@ async def run_batch(
             repos = in_memory_repositories()
             init_tracing()
             engine = WorkflowEngine(
-                system_capabilities=operator_system_capabilities(),
+                system_capabilities=configured_system_capabilities(),
                 repositories=repos,
                 functions=default_function_registry(),
                 tools=tool_catalog,

@@ -14,13 +14,23 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 
 COPY --from=ghcr.io/astral-sh/uv:0.5 /uv /usr/local/bin/uv
 
-WORKDIR /app
+# Built from the REPO ROOT (`docker build -f backend/Dockerfile .`; compose does
+# this) so the image can carry the system capability layer, which lives at
+# <repo>/config/. backend/Dockerfile.dockerignore is an allowlist: nothing else
+# from the repo — .secrets, mail data, the memory store — reaches the daemon.
+#
+# The layout mirrors the repo (/app/backend, /app/config) so the service finds
+# the shipped layer exactly as it does on the host. Without it the service
+# refuses to start; it never runs unrestricted (G30 external review R1).
+WORKDIR /app/backend
 
-COPY pyproject.toml ./
+COPY backend/pyproject.toml ./
 RUN uv sync --no-dev --no-install-project
 
-COPY src ./src
+COPY backend/src ./src
 RUN uv sync --no-dev
+
+COPY config/system_capabilities.yaml /app/config/system_capabilities.yaml
 
 EXPOSE 8001
 

@@ -1,0 +1,8 @@
+# Allowlist for backend/Dockerfile, whose build context is the repo root.
+# Everything is excluded unless named here: the root holds .secrets/, mail data
+# and the learned-memory store, none of which may reach the docker daemon.
+*
+!backend/pyproject.toml
+!backend/src/
+!config/system_capabilities.yaml
+**/__pycache__

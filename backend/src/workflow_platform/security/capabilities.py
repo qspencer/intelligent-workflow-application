@@ -209,26 +209,27 @@ SHIPPED_SYSTEM_CAPABILITIES = (
 )
 
 
-def operator_system_capabilities() -> CapabilityPolicy:
-    """The layer for OPERATOR SCRIPTS that build their own engine (`fire.py`,
-    the batch runners, `replay.py`, ...). Never None: the layer named by the
-    environment, else the shipped file.
+def configured_system_capabilities() -> CapabilityPolicy:
+    """The system layer for EVERYTHING that builds an engine outside tests — the
+    service and every operator script. Never None.
 
-    Found in the G30 pre-package review (2026-10-29): seven scripts built a
-    `WorkflowEngine` with no system layer, so the config's "OUTERMOST bound on
-    every workflow" held only for workflows the SERVICE ran — not for
-    `fire.py`, which runs definitions against the production database with live
-    tools. A script that needs more than production allows names a different,
-    reviewed layer file through the environment; it does not run without one."""
+    Unset: the shipped file. Set: that file, loaded strictly. Set but empty:
+    refused — it names nothing, and is what a deployment template produces
+    when the value it meant to substitute is missing.
+
+    History. G30's pre-package review (2026-10-29) found seven scripts building
+    a `WorkflowEngine` with no layer. The external review of G30 (R1) then found
+    the service had the same hole: its helper returned None when the variable
+    was unset, so every launch path but `run-local-be.sh` — Docker Compose,
+    the ECS task, the README's `uvicorn` line — ran workflows unrestricted."""
     configured = os.environ.get(SYSTEM_CAPABILITIES_ENV)
-    return load_system_capabilities(Path(configured) if configured else SHIPPED_SYSTEM_CAPABILITIES)
-
-
-def system_capabilities_from_env() -> CapabilityPolicy | None:
-    """The system layer named by the environment, or None when none is named."""
-    configured = os.environ.get(SYSTEM_CAPABILITIES_ENV)
-    if not configured:
-        return None
+    if configured is None:
+        return load_system_capabilities(SHIPPED_SYSTEM_CAPABILITIES)
+    if not configured.strip():
+        raise SystemCapabilitiesError(
+            f"{SYSTEM_CAPABILITIES_ENV} is set but empty; unset it to use the shipped "
+            f"layer ({SHIPPED_SYSTEM_CAPABILITIES}) or name a layer file"
+        )
     return load_system_capabilities(Path(configured))
 
 

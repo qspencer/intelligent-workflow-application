@@ -33,9 +33,10 @@ from workflow_platform.security.capabilities import (
     SYSTEM_CAPABILITIES_ENV,
     CapabilityPolicy,
     SystemCapabilitiesError,
+    configured_system_capabilities,
+    describe_system_capabilities,
     load_system_capabilities,
     resolve_capabilities,
-    system_capabilities_from_env,
 )
 from workflow_platform.workflow import WorkflowDefinition, load_definition_from_yaml
 
@@ -286,12 +287,21 @@ def test_an_unreadable_configured_layer_refuses_rather_than_running_open(
 ) -> None:
     monkeypatch.setenv(SYSTEM_CAPABILITIES_ENV, str(tmp_path / "missing.yaml"))
     with pytest.raises(SystemCapabilitiesError):
-        system_capabilities_from_env()
+        configured_system_capabilities()
 
 
-def test_unset_means_no_layer(monkeypatch: pytest.MonkeyPatch) -> None:
+def test_unset_means_the_shipped_layer(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Until external review R1 this returned None for the service, and every
+    launch path but `run-local-be.sh` ran unrestricted."""
     monkeypatch.delenv(SYSTEM_CAPABILITIES_ENV, raising=False)
-    assert system_capabilities_from_env() is None
+    assert configured_system_capabilities() == _shipped()
+
+
+@pytest.mark.parametrize("empty", ["", "   "])
+def test_set_but_empty_is_refused(monkeypatch: pytest.MonkeyPatch, empty: str) -> None:
+    monkeypatch.setenv(SYSTEM_CAPABILITIES_ENV, empty)
+    with pytest.raises(SystemCapabilitiesError, match="set but empty"):
+        configured_system_capabilities()
 
 
 # --- /api/health reports it, through the real engine wiring --------------------
@@ -322,9 +332,96 @@ def test_health_reports_the_layer_as_counts_never_contents(
     assert "email_label_apply" not in str(body) and "@" not in str(body["system_capabilities"])
 
 
-def test_health_reports_an_absent_layer(monkeypatch: pytest.MonkeyPatch) -> None:
+# --- the SERVICE as actually constructed (external review R1) ------------------
+#
+# The first version of A2 checked that `system_capabilities=` appeared at the
+# service's engine construction. It did — with a value that could be None. These
+# build the real app, as every launch path does, and look at what it runs with.
+
+
+def _service(monkeypatch: pytest.MonkeyPatch) -> Any:
+    monkeypatch.setenv("AUTH_MODE", "dev")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    return create_app(repositories=in_memory_repositories(), start_triggers=False)
+
+
+def test_the_service_started_with_nothing_set_runs_the_shipped_layer(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Docker Compose, the ECS task and the README's `uvicorn` line set no
+    variable; this is what they now get."""
     monkeypatch.delenv(SYSTEM_CAPABILITIES_ENV, raising=False)
-    assert _health(monkeypatch)["system_capabilities"] == {"status": "absent"}
+    app = _service(monkeypatch)
+    assert app.state.engine.system_capabilities == _shipped()
+    health = TestClient(app).get("/api/health").json()
+    assert health["system_capabilities"]["status"] == "configured"
+
+
+def test_the_service_runs_a_named_layer(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    layer = tmp_path / "caps.yaml"
+    layer.write_text(
+        "tools: []\nfile_read: []\nfile_write: []\nallowed_hosts: []\nmax_tokens_per_call: 7\n"
+    )
+    monkeypatch.setenv(SYSTEM_CAPABILITIES_ENV, str(layer))
+    assert _service(monkeypatch).state.engine.system_capabilities.max_tokens_per_call == 7
+
+
+@pytest.mark.parametrize("value", ["", "missing.yaml"], ids=["empty", "unreadable"])
+def test_the_service_refuses_to_start_on_a_layer_it_cannot_use(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path, value: str
+) -> None:
+    monkeypatch.setenv(SYSTEM_CAPABILITIES_ENV, str(tmp_path / value) if value else value)
+    with pytest.raises(SystemCapabilitiesError):
+        _service(monkeypatch)
+
+
+async def test_the_service_default_refuses_an_unlisted_tool_on_a_real_file(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """The reviewer's reproduction, inverted: the service's OWN engine (real
+    tools, real filesystem), nothing set, only the model replaced. Before the
+    fix the step returned the file's text."""
+    from tests._bedrock_fakes import FakeBedrock, text_response, tool_use_response
+    from workflow_platform.workflow import load_definition
+
+    secret = tmp_path / "private.txt"
+    secret.write_text("PRIVATE-FIXTURE")
+    monkeypatch.delenv(SYSTEM_CAPABILITIES_ENV, raising=False)
+    engine = _service(monkeypatch).state.engine
+    engine.bedrock = FakeBedrock(
+        [
+            tool_use_response(tool_uses=[("c1", "file_read", {"path": str(secret)})]),
+            text_response("done"),
+        ]
+    )
+    definition = load_definition(
+        {
+            "id": "r1-service-probe",
+            "name": "r1",
+            "trigger": {"type": "manual"},
+            "steps": [
+                {
+                    "id": "read",
+                    "type": "agentic",
+                    "goal": "read",
+                    "model": _MODEL,
+                    "tools": ["file_read"],
+                }
+            ],
+            "edges": [],
+        }
+    )
+    instance = await engine.run(definition)
+    (step,) = await engine.repositories.steps.list_by_instance(instance.id)
+    assert step.output is not None
+    call = str(step.output["tool_calls"])
+    assert "Capability denied: tool 'file_read' is not in the allowlist" in call
+    assert "PRIVATE-FIXTURE" not in call
+
+
+def test_health_reports_an_absent_layer_honestly() -> None:
+    """Only a hand-built engine can lack a layer now; health still says so."""
+    assert describe_system_capabilities(None) == {"status": "absent"}
 
 
 # --- through the REAL engine: the layer lets production in and keeps the rest out ---
@@ -419,10 +516,48 @@ def test_every_engine_built_outside_tests_carries_a_system_layer() -> None:
             continue
         for node in ast.walk(tree):
             if isinstance(node, ast.Call) and getattr(node.func, "id", None) == "WorkflowEngine":
-                passes = any(k.arg == "system_capabilities" for k in node.keywords)
+                # The VALUE must be the never-None loader — presence alone is
+                # what external review R1 got past: the service passed a
+                # keyword whose value could be None.
+                passes = any(
+                    k.arg == "system_capabilities"
+                    and isinstance(k.value, ast.Call)
+                    and getattr(k.value.func, "id", None) == "configured_system_capabilities"
+                    for k in node.keywords
+                )
                 sites.append((str(rel), node.lineno, passes))
     assert len(sites) >= 8, (
         f"derivation found only {len(sites)} engine constructions — it is broken"
     )
     missing = [f"{f}:{line}" for f, line, ok in sites if not ok]
     assert not missing, f"WorkflowEngine built without a system layer at: {missing}"
+
+
+def test_the_image_carries_the_layer_where_the_service_looks_for_it() -> None:
+    """External review R1: the image was built from backend/ and could not
+    contain config/. Verified by building it once (2026-10-29: layer
+    `configured`; a missing named layer exits 1); pinned here by the layout
+    the service's own resolution needs — SHIPPED_SYSTEM_CAPABILITIES is
+    parents[4] of capabilities.py, so the image must mirror the repo."""
+    dockerfile = (REPO / "backend" / "Dockerfile").read_text()
+    workdirs = re.findall(r"^WORKDIR (\S+)", dockerfile, re.M)
+    (dest,) = re.findall(r"^COPY config/system_capabilities\.yaml (\S+)$", dockerfile, re.M)
+    module = Path(workdirs[-1]) / "src/workflow_platform/security/capabilities.py"
+    assert Path(dest) == module.parents[4] / "config" / "system_capabilities.yaml"
+
+    compose = yaml.safe_load((REPO / "docker-compose.yml").read_text())
+    build = compose["services"]["backend"]["build"]
+    assert (build["context"], build["dockerfile"]) == (".", "backend/Dockerfile")
+
+    # The root context holds .secrets/ and mail data: an allowlist, not a denylist.
+    rules = [
+        ln
+        for ln in (REPO / "backend" / "Dockerfile.dockerignore").read_text().splitlines()
+        if ln and not ln.startswith("#")
+    ]
+    assert rules[0] == "*"
+    assert {r for r in rules[1:] if r.startswith("!")} == {
+        "!backend/pyproject.toml",
+        "!backend/src/",
+        "!config/system_capabilities.yaml",
+    }

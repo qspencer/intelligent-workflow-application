@@ -32,6 +32,9 @@ resource "aws_ecs_task_definition" "backend" {
       portMappings = [
         { containerPort = 8001, protocol = "tcp" }
       ]
+      # No capability variable on purpose: the image carries
+      # config/system_capabilities.yaml and the service loads it when none is
+      # named — and refuses to start without one (G30 external review R1).
       environment = [
         { name = "AUTH_MODE", value = var.auth_mode },
         { name = "AWS_REGION", value = var.region },

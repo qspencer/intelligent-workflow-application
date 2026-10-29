@@ -174,7 +174,7 @@ CONTROLS = [
     (
         "review: an operator script builds its engine without the layer",
         "tools/fire.py",
-        "            system_capabilities=operator_system_capabilities(),\n",
+        "            system_capabilities=configured_system_capabilities(),\n",
         "",
         "tests/test_system_capabilities.py::"
         "test_every_engine_built_outside_tests_carries_a_system_layer",
