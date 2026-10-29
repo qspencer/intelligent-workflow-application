@@ -1,8 +1,8 @@
 Captured standalone gate results
 
-Gates ran at tree: 574a7902a13bd8f887aabcea1132ae168590f6c6   (manifest aggregate: cd32bf7e0a6029a6d1121679f17434032b8c95498c050c2b5ba5979e5f7e8415)
+Gates ran at tree: 59d6615278efd728b483dcc6678c2ce2eb03bec5   (manifest aggregate: cd32bf7e0a6029a6d1121679f17434032b8c95498c050c2b5ba5979e5f7e8415)
 Full output; each exit code captured before any pipe.
-Host: Linux 7.0.0-1014-aws GNU/Linux · Python 3.14.7 · 2026-10-29T16:00:03Z
+Host: Linux 7.0.0-1014-aws GNU/Linux · Python 3.14.7 · 2026-10-29T16:07:48Z
 
 === ruff check ===
 All checks passed!
@@ -83,7 +83,7 @@ SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bed
 SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
 SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
 SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
-1584 passed, 29 skipped, 17 warnings in 95.66s (0:01:35)
+1584 passed, 29 skipped, 17 warnings in 60.52s (0:01:00)
 exit: 0
 
 === pip-audit ===

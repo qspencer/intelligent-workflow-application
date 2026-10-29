@@ -3,7 +3,7 @@ Test-time code manifest — G30 review package
 Recompute from the extracted package, no git needed:
     cd backend && find src tests -name '*.py' -type f | sort | xargs sha256sum | sha256sum
 
-Gates ran at tree: 574a7902a13bd8f887aabcea1132ae168590f6c6
+Gates ran at tree: 59d6615278efd728b483dcc6678c2ce2eb03bec5
 AGGREGATE SOURCE HASH: cd32bf7e0a6029a6d1121679f17434032b8c95498c050c2b5ba5979e5f7e8415
 Files: 260
 
