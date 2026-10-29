@@ -31,6 +31,20 @@ class WorkflowContext(BaseModel):
     trigger: dict[str, Any] = Field(default_factory=dict)
     steps: dict[str, dict[str, Any]] = Field(default_factory=dict)
     capabilities: ResolvedCapabilities | None = None
+    #: G29: the definition's released vocabularies, carried on the CONTEXT for
+    #: the same reason `dry_run` is — the engine is shared across concurrent
+    #: runs, so per-run projection state on `self` would leak one run's
+    #: declaration into another's output. Set at run start from the definition
+    #: and read by every projection site, so a stored row, the instance context
+    #: and an audit detail all project the same way.
+    #: EXCLUDED from serialization: this is runtime plumbing, not run data. If
+    #: it were dumped it would land in the stored `instance.context`, where the
+    #: context schema does not declare it — so it would be dropped-and-flagged
+    #: on projection and the raw↔projected round-trip the vault verifier relies
+    #: on would stop agreeing (found exactly that way: `retrieval_failed` on a
+    #: grant-holder read). Resume/fork rebuild the context from the DEFINITION,
+    #: which is where the declaration lives anyway, so nothing is lost.
+    released_fields: dict[str, list[str]] | None = Field(default=None, exclude=True)
     total_tokens: int = 0
     total_cost_usd: float = 0.0
     #: This run executed in the dry-run sandbox (MockWorld + stubbed external

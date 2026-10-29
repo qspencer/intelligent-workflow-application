@@ -331,7 +331,7 @@ _TRIGGER_ROUTING_KEYS = ("message_id", "thread_id", "id")
 # Deliberately NOT registered: `output_text`, `summary`, `reasoning`, `recall`,
 # `error` and every other free-form field (raw by taint, §1.1).
 
-PROJECTOR_VERSION = "22"  # v22: `alert_low_disk` (free space on a watched filesystem).
+PROJECTOR_VERSION = "23"  # v23: per-workflow released vocabularies (G29).
 # Instance-less, so every field is released and validated: a mount point, sizes
 # in GB, and the configured floors — nothing about any person or mailbox.
 #
@@ -633,6 +633,83 @@ def _ts(value: Any) -> bool:
     if isinstance(value, datetime):
         return True
     return isinstance(value, str) and len(value) <= 40 and bool(_TS_RE.match(value))
+
+
+#: A per-workflow released vocabulary (G29): field name → the closed set of
+#: values that field may emit below grant. BOTH halves come from the workflow
+#: DEFINITION — platform-controlled YAML, loaded by us, never model output and
+#: never a trigger payload — which is the whole soundness argument. It is the
+#: same provenance test that makes `wildcard_keys: "platform"` sound, applied to
+#: a value position instead of a key position: shape cannot tell you who
+#: produced a value (the §1.4a lesson), so the answer has to come from where the
+#: declaration came from.
+#:
+#: Why this exists: the platform projector cannot hold any one workflow's
+#: business vocabulary (GR4-R4 — `pdf_classifier` classifies invoices,
+#: `research_paper_triage` emits tags, email triage has five sources), so a
+#: platform-level `category` enum is the wrong shape of fix and was rejected on
+#: review. A per-DEFINITION declaration puts the vocabulary where the vocabulary
+#: lives.
+Vocabulary = dict[str, frozenset[str]]
+
+#: See `is_safe_field_name` — same reason.
+RESERVED_PROJECTION_FIELDS: frozenset[str] = _RESERVED_PROJECTION_FIELDS
+
+#: Bounds, enforced at the projection boundary as well as at definition load. A
+#: declaration is config, but it is config that widens a disclosure surface, so
+#: it is bounded in both places rather than trusted once.
+MAX_VOCAB_FIELDS = 8
+MAX_VOCAB_VALUES = 32
+
+
+#: Public aliases for the definition loader's authoring-time check (G29). The
+#: projector owns both rules, so exporting them keeps ONE definition of "a safe
+#: field name" and "reserved by the projector" instead of a second copy in the
+#: schema layer — two equal literals are two things to keep equal (M3).
+def is_safe_field_name(name: Any) -> bool:
+    """Whether `name` may be used as a projected field name at all."""
+    return _safe_key(name)
+
+
+def _vocab_member(allowed: frozenset[str], value: Any) -> bool:
+    """Whether `value` is drawn ENTIRELY from a declared closed set.
+
+    A scalar must be a member. A list must be a bounded list of members, and it
+    fails WHOLE rather than per-element: a partially-dropped list reads as a
+    complete shorter list, which is a different value rather than a redacted one
+    (the same reasoning the triage parser applies to its attention axis — one
+    hostile element poisons the axis). Anything else — a dict, a number, a
+    nested structure — is not a vocabulary value and does not survive."""
+    if isinstance(value, str):
+        return value in allowed
+    if isinstance(value, list):
+        return len(value) <= MAX_VOCAB_VALUES and all(
+            isinstance(v, str) and v in allowed for v in value
+        )
+    return False
+
+
+def _normalize_vocabulary(declared: Any) -> Vocabulary:
+    """Accept a definition's declaration and return a projector-usable mapping,
+    DROPPING anything malformed rather than raising: a projection is on the
+    write path of every run, and a bad declaration must not be able to stop
+    runs from being recorded. It can only ever fail CLOSED — a dropped entry
+    means that field is withheld, which is the default anyway."""
+    if not isinstance(declared, dict):
+        return {}
+    out: Vocabulary = {}
+    for field_name, values in list(declared.items())[:MAX_VOCAB_FIELDS]:
+        if not isinstance(field_name, str) or not _safe_key(field_name):
+            continue
+        if field_name in _RESERVED_PROJECTION_FIELDS:
+            continue
+        if not isinstance(values, (list, tuple, set, frozenset)):
+            continue
+        members = {v for v in values if isinstance(v, str) and _short_token(v)}
+        if not members or len(members) > MAX_VOCAB_VALUES:
+            continue
+        out[field_name] = frozenset(members)
+    return out
 
 
 def _enum(*allowed: str) -> _Validator:
@@ -1056,7 +1133,7 @@ SCHEMAS: dict[str, Node] = {
 }
 
 
-def _project(node: Node | None, value: Any) -> Any:
+def _project(node: Node | None, value: Any, vocab: Vocabulary | None = None) -> Any:
     """Project `value` at a declared position. `node is None` = UNDECLARED at
     this path ⇒ the whole value is redacted, never recursed."""
     if value is None:
@@ -1077,7 +1154,7 @@ def _project(node: Node | None, value: Any) -> Any:
     if isinstance(node, Seq):
         if not isinstance(value, list):
             return _REDACTED_FIELD
-        return [_project(node.item, v) for v in value]
+        return [_project(node.item, v, vocab) for v in value]
     if isinstance(node, Obj):
         if not isinstance(value, dict):
             return _REDACTED_FIELD
@@ -1132,7 +1209,7 @@ def _project(node: Node | None, value: Any) -> Any:
                     # them in its own instance context.
                     withheld = True
                     continue
-                out[k] = _project(node.children[k], v)
+                out[k] = _project(node.children[k], v, vocab)
             elif not _safe_key(k):
                 # Hostile key (prose/email/whitespace) → drop the entry. R5:
                 # this branch dropped SILENTLY, leaving no withholding signal
@@ -1141,7 +1218,31 @@ def _project(node: Node | None, value: Any) -> Any:
                 continue
             elif node.wildcard is not None and node.wildcard_keys == "platform":
                 # Platform-generated key (a step id) — safe to emit.
-                out[k] = _project(node.wildcard, v)
+                out[k] = _project(node.wildcard, v, vocab)
+            elif vocab is not None and node is _STEP_OUTPUT and k in vocab:
+                # G29: a per-workflow RELEASED VOCABULARY. Both the key and the
+                # closed value set come from the workflow definition, so both
+                # have platform provenance — the test `wildcard_keys:
+                # "platform"` already applies to keys, here extended to values.
+                #
+                # Gated on `node is _STEP_OUTPUT` deliberately. A declaration is
+                # about a step's own output fields, and that identity check is
+                # also what gives the R7 P1 property for free: `_STEPS_SNAPSHOT`
+                # reuses this very object, so a declared field is honoured
+                # wherever a step output appears (stored row, instance context,
+                # audit detail) and NOWHERE else. Keying it by asset kind at the
+                # entry point is exactly the bug R7 P1 was: the rule fired on
+                # the outermost object alone.
+                if _vocab_member(vocab[k], v):
+                    out[k] = v
+                else:
+                    # Declared field, undeclared value: the model emitted
+                    # something outside the vocabulary. Withheld and FLAGGED —
+                    # this is the case the whole mechanism exists to contain,
+                    # because `category: "<prose>"` is precisely how a value
+                    # position becomes a content channel.
+                    withheld = True
+                    continue
             else:
                 # DATA-keyed wildcard, or no wildcard at all: the key may carry
                 # content that no shape test can rule out. Drop it whole and
@@ -1935,7 +2036,7 @@ def project_audit_detail_at_rest(action: str | None, detail: Any) -> Any:
     return project_audit_detail_final(action, detail)
 
 
-def redact_tool_data(obj: Any, admin: bool, *, kind: str) -> Any:
+def redact_tool_data(obj: Any, admin: bool, *, kind: str, vocab: Any = None) -> Any:
     """The below-grant projection (admin=True → unchanged). DEFAULT-DENY
     (external code review 2026-08-02 F1, tightened by the 08-03 re-review): a
     value survives ONLY because its field is registered in `_SAFE_FIELDS` AND
@@ -1957,4 +2058,4 @@ def redact_tool_data(obj: Any, admin: bool, *, kind: str) -> Any:
         raise ValueError(
             f"unknown projection asset kind {kind!r}; declare one of {sorted(SCHEMAS)}"
         )
-    return _project(schema, obj)
+    return _project(schema, obj, _normalize_vocabulary(vocab))

@@ -364,6 +364,12 @@ FIELD_CLASSIFICATION: dict[str, dict[str, str]] = {
         "capabilities": "data",
         "learned_memory": "data",
         "questions": "data",
+        # G29: a static per-workflow vocabulary declaration. `data`, not a
+        # reference of any kind — the scaffolder must never rewrite it, because
+        # its values are the closed set the projector validates against and a
+        # rewritten member would silently withhold a field it was meant to
+        # release.
+        "released_fields": "data",
     },
     "DeterministicStep": {
         "id": "ref_id",

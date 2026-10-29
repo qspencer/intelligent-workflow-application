@@ -36,9 +36,10 @@ def _project_case(case: tuple) -> object:
     audit ACTION and goes through the at-rest dispatcher instead."""
     _cid, kind, inp = case[0], case[1], case[2]
     action = case[3] if len(case) > 3 else None
+    vocab = case[4] if len(case) > 4 else None
     if action is not None:
         return project_audit_detail_at_rest(action, inp)
-    return redact_tool_data(inp, admin=False, kind=kind)
+    return redact_tool_data(inp, admin=False, kind=kind, vocab=vocab)
 
 
 def _verified_stamp() -> str:
@@ -87,7 +88,13 @@ def main() -> int:
             c["id"]
             for c in existing
             if _project_case(
-                (c["id"], c["kind"], c["input"], *([c["action"]] if c.get("action") else []))
+                (
+                    c["id"],
+                    c["kind"],
+                    c["input"],
+                    c.get("action"),
+                    c.get("vocab"),
+                )
             )
             != c["expected"]
         ]
@@ -126,7 +133,8 @@ def main() -> int:
                 "id": c[0],
                 "kind": c[1],
                 "input": c[2],
-                **({"action": c[3]} if len(c) > 3 else {}),
+                **({"action": c[3]} if len(c) > 3 and c[3] is not None else {}),
+                **({"vocab": c[4]} if len(c) > 4 else {}),
                 "expected": _project_case(c),
             }
             for c in added
@@ -157,7 +165,8 @@ def main() -> int:
                 "id": c[0],
                 "kind": c[1],
                 "input": c[2],
-                **({"action": c[3]} if len(c) > 3 else {}),
+                **({"action": c[3]} if len(c) > 3 and c[3] is not None else {}),
+                **({"vocab": c[4]} if len(c) > 4 else {}),
                 "expected": _project_case(c),
             }
             for c in CORPUS

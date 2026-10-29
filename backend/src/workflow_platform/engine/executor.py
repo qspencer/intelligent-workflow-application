@@ -291,6 +291,7 @@ class WorkflowEngine:
             org_id=instance.org_id,
             trigger=raw_trigger,  # in-memory context keeps FULL fidelity for the run
             dry_run=self.dry_run,
+            released_fields=definition.released_fields,
         )
         result = await self._drive(definition, instance, context, already_done=set())
         self._record_workflow_finished(definition.id, result, started)
@@ -343,6 +344,7 @@ class WorkflowEngine:
             trigger=dict(instance.trigger_payload),
             steps=dict(instance.context.get("steps", {}) or {}),
             dry_run=self.dry_run,
+            released_fields=definition.released_fields,
         )
 
         prior = await self.repositories.steps.list_by_instance(instance.id)
@@ -466,8 +468,11 @@ class WorkflowEngine:
                 started_at=started,
                 completed_at=started,
             )
-            # F3: project + stamp as one operation, else rehydrate skips the vault
-            self._project_step_output_onto(row, output)
+            # F3: project + stamp as one operation, else rehydrate skips the vault.
+            # The fork projects under the SAME definition's vocabulary as the
+            # source run, so a preserved step keeps the disclosure it already had
+            # rather than being re-withheld in the copy.
+            self._project_step_output_onto(row, output, definition.released_fields)
             await self.repositories.steps.create(row)
             await self._vault.record_step_output(
                 org_id=new_instance.org_id,
@@ -484,6 +489,7 @@ class WorkflowEngine:
             trigger=raw_trigger,  # in-memory context keeps FULL fidelity
             steps={sid: dict(out) for sid, out in usable_outputs.items()},
             dry_run=self.dry_run,
+            released_fields=definition.released_fields,
         )
 
         result = await self._drive(definition, new_instance, context, already_done=preserved)
@@ -1146,14 +1152,16 @@ class WorkflowEngine:
             row.projector_version = PROJECTOR_VERSION
             row.projection_schema_version = PROJECTION_SCHEMA_VERSION
 
-    def _project_step_output_onto(self, row: Any, output: dict[str, Any]) -> None:
+    def _project_step_output_onto(
+        self, row: Any, output: dict[str, Any], vocab: Any = None
+    ) -> None:
         """Project `output` onto `row.output` AND stamp the row — ONE operation
         (G-Trace-Review-4 F3). Every projected step row must go through this so a
         projected-but-unstamped row (which rehydrate treats as never-projected,
         skipping the vault and returning the marker) is unreachable by
         construction. No-op projection when the flip is off."""
         row.output = (
-            redact_tool_data(output, admin=False, kind="step_output")
+            redact_tool_data(output, admin=False, kind="step_output", vocab=vocab)
             if self.trace_safe_only
             else output
         )
@@ -1312,7 +1320,7 @@ class WorkflowEngine:
         )
         execution.state = StepExecutionState.COMPLETED
         execution.output = (
-            redact_tool_data(output, admin=False, kind="step_output")
+            redact_tool_data(output, admin=False, kind="step_output", vocab=context.released_fields)
             if self.trace_safe_only
             else output
         )
@@ -2033,7 +2041,7 @@ class WorkflowEngine:
         # step's output + the trigger) stores only the projection; the raw is
         # in the vault and rehydrated on resume/fork.
         instance.context = (
-            redact_tool_data(dumped, admin=False, kind="context")
+            redact_tool_data(dumped, admin=False, kind="context", vocab=context.released_fields)
             if self.trace_safe_only
             else dumped
         )

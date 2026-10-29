@@ -262,3 +262,71 @@ class WorkflowDefinition(BaseModel):
     #: G12 C1 (`docs/ASK_THE_USER_PLAN.md`). Absent = no question
     #: machinery runs at all, which is the state of every workflow today.
     questions: QuestionSpec | None = None
+    #: G29: per-workflow RELEASED VOCABULARIES — `{field: [closed set of
+    #: values]}`. A declared field survives a below-grant read of this
+    #: workflow's step outputs when its value is drawn entirely from the
+    #: declared set; anything else is withheld and flagged, as today.
+    #:
+    #: Why it lives on the DEFINITION and not in the projector: a category
+    #: vocabulary is per-workflow (`pdf_classifier` classifies invoices,
+    #: `research_paper_triage` emits tags, email triage has five sources), so a
+    #: platform-level enum would put one workflow's business vocabulary in the
+    #: component that governs all of them — rejected on review as GR4-R4.
+    #:
+    #: Why declaring it is SOUND rather than a self-service widening: the
+    #: declaration is CONFIG, read from a definition the platform loads, never
+    #: from model output and never from a trigger payload. Shape cannot
+    #: establish who produced a value (the §1.4a lesson); provenance can, and
+    #: this is the same test that makes `wildcard_keys: "platform"` sound,
+    #: applied to a value position. Bounded by `MAX_VOCAB_FIELDS` /
+    #: `MAX_VOCAB_VALUES` at load AND again at projection.
+    #:
+    #: Absent (the default, and the state of every workflow but one) = nothing
+    #: is released and the projector behaves exactly as it did at v22.
+    released_fields: dict[str, list[str]] | None = None
+
+    @model_validator(mode="after")
+    def _released_fields_are_bounded_closed_sets(self) -> WorkflowDefinition:
+        """Reject a malformed declaration at AUTHORING time.
+
+        The projector normalizes defensively too (it silently drops a bad entry,
+        because a projection sits on the write path of every run and must never
+        be able to stop one being recorded). That makes a bad declaration fail
+        closed but SILENT — so the loud check belongs here, where an author can
+        still see it. Two layers, different jobs: this one tells you; that one
+        protects you."""
+        if self.released_fields is None:
+            return self
+        from workflow_platform.trace_projection import (
+            MAX_VOCAB_FIELDS,
+            MAX_VOCAB_VALUES,
+            RESERVED_PROJECTION_FIELDS,
+            is_safe_field_name,
+        )
+
+        if len(self.released_fields) > MAX_VOCAB_FIELDS:
+            raise ValueError(
+                f"released_fields: at most {MAX_VOCAB_FIELDS} fields "
+                f"(got {len(self.released_fields)})"
+            )
+        for field_name, values in self.released_fields.items():
+            if not is_safe_field_name(field_name):
+                raise ValueError(f"released_fields: {field_name!r} is not a safe field name")
+            if field_name in RESERVED_PROJECTION_FIELDS:
+                raise ValueError(f"released_fields: {field_name!r} is reserved by the projector")
+            if not values:
+                raise ValueError(
+                    f"released_fields[{field_name!r}]: an empty vocabulary releases "
+                    "nothing — omit the field instead of declaring it empty"
+                )
+            if len(values) > MAX_VOCAB_VALUES:
+                raise ValueError(
+                    f"released_fields[{field_name!r}]: at most {MAX_VOCAB_VALUES} values "
+                    f"(got {len(values)})"
+                )
+            for v in values:
+                if not isinstance(v, str) or not v or len(v) > 120:
+                    raise ValueError(
+                        f"released_fields[{field_name!r}]: {v!r} is not a short string value"
+                    )
+        return self

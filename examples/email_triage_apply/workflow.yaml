@@ -76,6 +76,26 @@ trigger:
     in_reply_to: null
     headers: {}
 
+# G29: the closed vocabularies this workflow's step outputs may show a
+# below-grant reader. Declared HERE because a category vocabulary is
+# per-workflow — the platform projector governs every workflow and cannot hold
+# any one of their business enums (GR4-R4). The values must stay identical to
+# `TRIAGE_CATEGORIES` / `ATTENTION_LEVELS` in `engine/functions.py`, which
+# `test_released_vocabulary_matches_the_triage_parser` pins.
+#
+# What this buys: self-consistency and drift measurement over a run became
+# possible without an audited raw-trace grant over real mail. The 1,297-message
+# catch-up of 2026-10-28 could not be analysed at all — the verdicts were
+# withheld — and the only route was a grant, which is a far larger disclosure
+# taken repeatedly to answer what five enum values answer.
+#
+# `category_valid` is deliberately NOT declared: a value only survives if it is
+# a member of the set, so a released `category` already means the enum gate
+# passed. One signal, one place.
+released_fields:
+  category: [personal, notification, newsletter, promotion, spam]
+  attention: [urgent, awaiting-reply, review]
+
 steps:
   # The codified-sender route (G13: a precheck that sent rule-covered
   # senders to an attention-only classifier) was RETIRED 2026-09-28. It had

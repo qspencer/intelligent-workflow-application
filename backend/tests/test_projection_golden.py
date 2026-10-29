@@ -49,7 +49,7 @@ def _project(case: dict[str, Any]) -> Any:
     `audit_detail.tool_call` never reached `safe_tool_call` at all."""
     if case.get("action"):
         return project_audit_detail_at_rest(case["action"], case["input"])
-    return redact_tool_data(case["input"], admin=False, kind=case["kind"])
+    return redact_tool_data(case["input"], admin=False, kind=case["kind"], vocab=case.get("vocab"))
 
 
 def _fixtures() -> dict[str, dict[str, Any]]:
@@ -253,7 +253,12 @@ def test_historical_fixtures_are_authentic_against_their_declared_source() -> No
                 if case.get("action"):
                     actual = mod.project_audit_detail_at_rest(case["action"], case["input"])
                 else:
-                    actual = mod.redact_tool_data(case["input"], admin=False, kind=case["kind"])
+                    actual = mod.redact_tool_data(
+                        case["input"],
+                        admin=False,
+                        kind=case["kind"],
+                        vocab=case.get("vocab"),
+                    )
                 assert actual == case["expected"], (
                     f"v{version} case {case['id']} does not match what {commit} produces:\n"
                     f"  fixture: {json.dumps(case['expected'], sort_keys=True)}\n"
