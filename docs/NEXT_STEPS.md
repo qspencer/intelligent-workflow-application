@@ -2696,16 +2696,93 @@ Packaged for external ruling: `docs/TRACE_G29_REVIEW_GUIDE.md` asks the reviewer
 to choose between (a) withdraw, (b) row-recorded vocabulary after F3/F4, or (c)
 a business verdict should never be below grant. **Two further findings from the
 same pass** are in that guide and the ledger: a list-valued vocabulary releases
-its *arrangement* (~53 bits, not 3 — bounded today only by a parser's dedupe,
+its *arrangement* (51.3 bits, not 3 — bounded today only by a parser's dedupe,
 which is the wrong component for the guarantee), and the load-time validator
 accepts members the projector silently drops.
 
-**Until a ruling lands, routine verdict-level analysis needs the audited raw-trace
+**RULED 2026-10-29 — disposition (a), withdraw; (b) preserved as the design
+direction** (`docs/TRACE_G29_REVIEW_RESULTS.md`, verdict "request changes"). The
+review reproduced all 29 checks and returned **three P0s, two of which our own
+pass had missed**:
+
+- **The withdrawal was configuration-only.** Removing the one bundled
+  declaration left the field accepted and the executor plumbing live, so any new
+  definition re-activated the path. **Fixed (`111542f`):** the model validator
+  refuses any non-null `released_fields`; every persisting path was derived from
+  source rather than recalled, and the one that skipped validation — create's
+  clone branch, via `model_copy` — now re-validates. Deployed and verified live
+  (import of a declaration → 400, nothing persisted, all 27 definitions load).
+- **The provenance premise was false.** `POST /api/workflows/scaffold`
+  validates and persists a model-authored definition in one request; the
+  reviewer persisted `{'category': ['operator-looking-token']}` through it. The
+  validator closes it for this field. The general question is G30 below.
+- The fixed-point defect itself, which we had disclosed.
+
+Also returned: **P1** a scalar-looking declaration silently authorizes an
+ordered-list channel (v1 must be scalar enums only); **P2** the two validators
+disagree; **P3** our reproduction script's "no-environment" route fails on its
+first import (corrected — it needs pydantic and SQLAlchemy on Python 3.14).
+
+**Reopening needs all six of the reviewer's conditions:** withdrawal enforced in
+source (done); an approval boundary a scaffold cannot satisfy by itself (G30); an
+immutable, row-bound projection-policy identity authenticated with the F3/F4
+construction and included in historical replay; explicit shape, scalar enums
+first, sets canonicalized; ONE validator shared by authoring and projection; and
+tests of the consumer contract rather than same-argument idempotence (done for
+the core — the repaired fixed-point detector, `7a06183`).
+
+**Our own post-review pass found five more wrong figures** in the package — a
+channel size typed as ~53 bits that is 51.3, a row count of 75 where the shipped
+evidence says 78, and dependency counts of 11 (8 pillow) where an untruncated
+audit shows 42 (39 pillow), because the capture kept `tail -12` of a table sorted
+by package name. Corrected, with the producing output in
+`docs/archives/AUDIT_EVIDENCE_G29.txt`. `tests/test_review_figures.py` now checks
+every digit in the live guide against something that produces it.
+
+**Until then, routine verdict-level analysis needs the audited raw-trace
 grant.** That is not a workaround; it is the control working. The 1,297-message
 run's verdicts are all at rest (`raw_traces`: 3,907 `output`, 1,304
 `trigger_payload`, 3,897 `audit_detail`, all `committed` and AEAD-sealed), so no
 data was lost and no re-run is needed to recover it.
 
+
+### G30 — Model-authored definitions are persisted with privileged fields, and production has no system capability layer
+
+Surfaced by the G29 review, which said the scaffold concern "should be checked
+for other privileged definition fields". Checked; two facts, both verified
+rather than inferred:
+
+1. **`POST /api/workflows/scaffold` strips nothing.** It mints step ids,
+   validates and saves the model's whole object — `capabilities`, step-level
+   capabilities, `policies` (budgets), `learned_memory`, `questions` and
+   trigger config included. Draft creation is treated as approval of every
+   field in it.
+2. **The live engine runs with no system capability layer.**
+   `WorkflowEngine.system_capabilities` defaults to `None` and no production
+   code sets it, so a step's effective boundary is the intersection of the
+   workflow and step layers alone. For a scaffolded workflow, both are
+   model-authored. `docs/ARCHITECTURE.md`'s "System → Workflow → Step →
+   Runtime" stack is three layers in practice.
+
+What bounds it today: the intersection rule means a definition can only NARROW
+whatever outer layer exists, so with no outer layer a model-authored definition
+can declare itself unrestricted. Drafts are not auto-triggered (the orchestrator
+registers only bundled YAMLs), so nothing runs until an Administrator or
+Operator presses Run; the canvas shows each agent step's boundary (C6.3); and
+dry-run is sandboxed. That is a human approval at RUN time with the boundary
+displayed — materially better than G29, whose declaration took effect on every
+future run's stored rows and was shown nowhere. It is still not field-level
+approval.
+
+**Decide, in this order:** (1) whether to configure a system capability layer
+in production — the defence-in-depth the architecture describes, and the one
+that bounds every model-authored layer at once; it needs the live
+email-triage and DMARC workflows' real requirements enumerated first, or it
+breaks them; (2) whether scaffold should drop or stage privileged fields
+(`capabilities`, `policies`, `learned_memory`, trigger config) so a draft
+carries none until a human sets them on the canvas.
+
+**Not built; a deployment and design decision.**
 
 ### G17 — Proactive recall adoption (veracium 0.4.x, trigger-gated)
 

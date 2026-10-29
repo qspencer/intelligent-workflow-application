@@ -131,20 +131,55 @@ implementation was broken underneath it.
 
 | Finding | Class | Self? |
 |---|---|---|
-| Projection stopped being a FIXED POINT: a per-call `vocab` parameter that only the three write sites can supply, so `project(project(x)) != project(x)` | M3 | **yes — and this is the detector we owed (R-i)** |
+| Projection stopped being a FIXED POINT: a per-call `vocab` parameter that only the three write sites can supply, so `project(project(x)) != project(x)` | M3+M2 | **yes — and the detector EXISTED.** `test_every_golden_case_is_a_projection_fixed_point` re-projected with `{**case, "input": once}`, carrying the case's own vocabulary into the second pass. Repaired `7a06183` |
 | Read path (`get_instance`, `explain_step`) re-projects the stored row without the vocabulary → the released verdict is stripped again, so the feature does not reach Contract A's surface at all | M3 | yes — round-trip a STORED row, not just a raw one |
 | The frozen §4.3 agreement predicate returns `mismatch` on a correctly-written row → a grant-holder read degrades and a real tamper is indistinguishable | M3 | yes — same probe |
 | The zero-raw B1 verifier flags correctly-projected rows as raw | M3 | yes — same probe |
-| A list-valued vocabulary releases its ARRANGEMENT (repeats + order), ~53 bits where the declaration reads like 3; live exposure is small only because a PARSER dedupes | M1 | yes — count the channel, don't read the enum |
+| A list-valued vocabulary releases its ARRANGEMENT (repeats + order), 51.3 bits where the declaration reads like 3; live exposure is small only because a PARSER dedupes | M1 | yes — count the channel, don't read the enum |
 | Load-time validator accepts any ≤120-char string; the projector keeps only `_short_token` members, so a declaration can silently release a smaller set than written | M3 | yes — two-layer agreement probe |
 
-**The meta-lesson, which is the one that matters.** Eleven tests covered the new
-branch and every one of them drove it through the WRITE path, where the
-vocabulary is supplied. The guards were all on the side of the change we were
-thinking about. Nothing asserted the invariant the rest of the system actually
-depends on, and the invariant was already written down — in the verifier's own
-docstring, as *"the default-deny projection is a fixed point on already-safe
-data."* We broke a stated invariant and tested the feature instead.
+**The meta-lesson — corrected after the review.** We first wrote that
+"nothing asserted the invariant". That was false, and the truth is worse: a
+fixed-point detector had guarded this projector since R5, its docstring named
+the very consumers G29 broke, and it stayed GREEN because its second pass was
+fed the case's vocabulary — input that only the write path holds. The change
+did not evade the detector; it was threaded through the fixture into it. A test
+whose second input is derived from the thing under test certifies whatever that
+thing does. The eleven new tests, meanwhile, all drove the write path, so they
+were one test. (M2 as well as M3: our own fixture field read back as if it were
+an independent input.)
+
+### G29 external review (2026-10-29) — returned, with each pre-send miss diagnosed
+
+Per the veracium dev seat's practice: classify each returned finding and
+diagnose why our own pass missed it BEFORE fixing it.
+
+| Finding | Class | Why our pass missed it |
+|---|---|---|
+| **P0** Withdrawal was configuration-only — any new definition re-activated the path | M3 | We tested the bundled YAML (`test_released_vocabulary_stays_withdrawn`) and called the feature withdrawn. The invariant was "no definition can declare one"; the test asserted "this definition does not". **Asserting an instance where the claim was about a population.** |
+| **P0** Scaffold persists a model-authored declaration — provenance premise false | M1 | The guide NAMED this as the place the argument was most likely to fail, and asked the reviewer instead of probing it. One HTTP request through the existing scaffold test harness would have answered it. **A question we could have executed, delegated.** |
+| **P0** The fixed-point defect itself | M3+M2 | Disclosed by us; see above for why the existing detector stayed green. |
+| **P1** Scalar-looking declaration authorizes an ordered-list channel | M1 | We found the list channel, but framed it as a property of LIST fields. The reviewer saw that cardinality is undeclared, so every field — including `category` — accepts a list. We reasoned from the example field. |
+| **P2** Authoring and projection validators disagree | M3 | Found and disclosed by us. |
+| **P3** "No-environment" reproduction route fails on first import | **M6** | The docstring offered a command we never ran in that form; we verified with the project venv and wrote down a different command. |
+
+**Found by us AFTER the review returned, in a package it had already passed:**
+
+| Finding | Class | Why it got through |
+|---|---|---|
+| Channel size "~53 bits" — actually 51.3 | **M6** | Typed from "3^32 ≈ 53". The reproduction script PRINTED the typed string, so the reviewer's re-run "reproduced" it. A script that prints a literal is not evidence. |
+| "All 75 of that day's v23 rows" — the shipped evidence says 78 | **M6** | The figure came from an earlier run than the capture that shipped beside it. |
+| "8 pillow advisories, 11 in total" — 39 and 42 | **M6** | The capture kept `tail -12` of a pip-audit table sorted by package name, cutting the header, the summary line and every certifi and graphql-core row. We then explained the missing packages as having "surfaced after pillow was fixed", which inverted the cause. |
+| "9 high-severity frontend advisories" — 14, of which 5 high | **M6** | Read off a `tail -30` of a CI log; npm's "2 high" counts PACKAGES. |
+| 28 checks (29); "three consumers" (four) | **M6** | Typed, then corrected by hand before sending — caught that time, by luck. |
+
+**M6 is now the class to beat, again.** Every one of these is a figure a person
+typed. The detector is `tests/test_review_figures.py`: every digit in the live
+guide must be produced by a registered claim that agrees with it — computed
+from code and fixtures, or read from the shipped evidence — or be exempt with a
+written reason. Its first run, against a guide we had already corrected by
+hand, passed only after two pattern fixes; its controls plant a wrong figure, an
+unregistered figure, and evidence that disagrees with the prose.
 
 ### Self-inflicted, found by us mid-remediation (worth counting)
 
@@ -188,12 +223,21 @@ round narrative, because they apply at the moment a detector is written:
 > argument. Three write sites pass it; the read path, the agreement predicate,
 > the zero-raw verifier and the backfill hold a row and not a definition, so
 > they cannot — and all four silently got a different projection than the one
-> that was stored. The detector is the invariant, not the argument list:
-> **re-project every golden fixture and assert it is unchanged.** Two lines,
-> and it fails the moment projection stops being idempotent. Round 6 had
+> that was stored. The detector is the invariant, not the argument list — and
+> it already existed. It stayed green because its second pass inherited the
+> case's vocabulary. **The second pass of an idempotence check must get only
+> what the real re-reader has.** Repaired in `7a06183`; the call-site population
+> is now derived and declared (`test_projection_call_sites.py`). Round 6 had
 > already removed process-global state from this projector "so projection is a
 > pure function again"; a parameter only some callers can supply is the same
 > defect wearing a cleaner shape.
+>
+> **R-j. A figure in a review package is PRINTED, never typed — and never read
+> through a `tail`.** Five wrong figures shipped in one G29 package and the
+> reviewer re-ran the script that printed one of them. A count read from a
+> truncated listing is a count of the truncation. Evidence files carry the
+> producing output (`scripts/capture_gates.sh` keeps all of it), and
+> `tests/test_review_figures.py` checks the prose against them.
 >
 > **R-g. Step 0 is an ENUMERATION, not a recollection.** Round 15 returned
 > two M9 findings in code changed the round before, because
