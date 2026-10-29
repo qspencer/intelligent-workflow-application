@@ -1,0 +1,259 @@
+Captured standalone gate results
+
+Gates ran at tree: 4956719e7d19de53106580e6f7b2c24bdc8593d5   (manifest aggregate: 3a8bb5025427b4493bba7c433d75f1826adbd810043748346234b80c7509860a)
+Full output; each exit code captured before any pipe.
+Host: Linux 7.0.0-1014-aws GNU/Linux · Python 3.14.7 · 2026-10-29T18:02:07Z
+
+=== ruff check ===
+All checks passed!
+exit: 0
+
+=== ruff format --check ===
+305 files already formatted
+exit: 0
+
+=== mypy src tests ===
+Success: no issues found in 260 source files
+exit: 0
+
+=== pytest ===
+........................................................................ [  4%]
+........................................................................ [  8%]
+.......................sssssssss........................................ [ 13%]
+........................................................................ [ 17%]
+........................................................................ [ 22%]
+........................................................................ [ 26%]
+.....ss................................................................. [ 30%]
+........................................................................ [ 35%]
+..................................s..................................... [ 39%]
+........................................................................ [ 44%]
+.....................................ssss............................... [ 48%]
+........................................................................ [ 53%]
+........................................................................ [ 57%]
+........................................................................ [ 61%]
+........................................................................ [ 66%]
+...............................ssssssss................................. [ 70%]
+....................................................F................... [ 75%]
+.....................................................sss................ [ 79%]
+........................................................................ [ 83%]
+........................................................................ [ 88%]
+.................................s...................................... [ 92%]
+........................................................................ [ 97%]
+.............................................                            [100%]
+=================================== FAILURES ===================================
+_ test_every_registered_figure_matches_what_produces_it[reports (\\d+) claims, (\\d+) test results] _
+
+claim = Claim(pattern='reports (\\d+) claims, (\\d+) test results', truth=<function <lambda> at 0x7742f90c7ed0>, source='the reproductions run captured in GATE_OUTPUT_G30_R2.txt')
+
+    @pytest.mark.parametrize("claim", CLAIMS, ids=lambda c: c.pattern[:48])
+    def test_every_registered_figure_matches_what_produces_it(claim: Claim) -> None:
+        m = re.search(claim.pattern, _guide_text())
+        assert m, f"claim pattern no longer matches the guide: {claim.pattern!r}"
+        written = tuple(g for g in m.groups() if g is not None)
+>       truth = claim.truth()
+                ^^^^^^^^^^^^^
+
+tests/test_review_figures.py:165: 
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+tests/test_review_figures.py:81: in <lambda>
+    _printed(GATES, r"^(\d+) claims; \d+ test results run"),
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/test_review_figures.py:54: in _printed
+    m = re.search(pattern, path.read_text(), re.M)
+                           ^^^^^^^^^^^^^^^^
+../../../.local/opt/python-3.14.7-gh/lib/python3.14/pathlib/__init__.py:787: in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+_ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ _ 
+
+self = PosixPath('/home/ubuntu/Dev/intelligent-workflow-application/docs/archives/GATE_OUTPUT_G30_R2.txt')
+mode = 'r', buffering = -1, encoding = 'locale', errors = None, newline = None
+
+    def open(self, mode='r', buffering=-1, encoding=None,
+             errors=None, newline=None):
+        """
+        Open the file pointed to by this path and return a file object, as
+        the built-in open() function does.
+        """
+        if "b" not in mode:
+            encoding = io.text_encoding(encoding)
+>       return io.open(self, mode, buffering, encoding, errors, newline)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       FileNotFoundError: [Errno 2] No such file or directory: '/home/ubuntu/Dev/intelligent-workflow-application/docs/archives/GATE_OUTPUT_G30_R2.txt'
+
+../../../.local/opt/python-3.14.7-gh/lib/python3.14/pathlib/__init__.py:771: FileNotFoundError
+=============================== warnings summary ===============================
+.venv/lib/python3.14/site-packages/fastapi/testclient.py:1
+  /home/ubuntu/Dev/intelligent-workflow-application/backend/.venv/lib/python3.14/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_auth.py: 1 warning
+tests/test_health.py: 1 warning
+tests/test_schema_drift.py: 12 warnings
+tests/test_system_capabilities.py: 2 warnings
+  /home/ubuntu/Dev/intelligent-workflow-application/backend/.venv/lib/python3.14/site-packages/alembic/config.py:604: DeprecationWarning: No path_separator found in configuration; falling back to legacy splitting on spaces, commas, and colons for prepend_sys_path.  Consider adding path_separator=os to Alembic config.
+    util.warn_deprecated(
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+SKIPPED [1] tests/test_schema_conformance.py:29: SCHEMA_TESTS not set; skipping schemathesis contract tests
+SKIPPED [1] tests/test_browser_host_policy_live.py:106: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_host_policy_live.py:135: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_host_policy_live.py:141: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_host_policy_live.py:152: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_host_policy_live.py:160: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_live.py:66: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_live.py:74: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_live.py:102: BROWSER_LIVE not set; skipping live browser tests
+SKIPPED [1] tests/test_browser_live.py:115: BEDROCK_LIVE not set; skipping end-to-end live workflow test
+SKIPPED [1] tests/test_elicitation_c1.py:287: TEST_DATABASE_URL not set
+SKIPPED [1] tests/test_elicitation_c1.py:333: TEST_DATABASE_URL not set
+SKIPPED [1] tests/test_g29_withdrawn_postgres.py:56: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_gmail_live.py:97: GMAIL_LIVE not set; skipping live Gmail tests
+SKIPPED [1] tests/test_gmail_live.py:104: GMAIL_LIVE not set; skipping live Gmail tests
+SKIPPED [1] tests/test_gmail_live.py:125: GMAIL_LIVE not set; skipping live Gmail tests
+SKIPPED [1] tests/test_gmail_live.py:180: GMAIL_LIVE not set; skipping live Gmail tests
+SKIPPED [1] tests/test_postgres_repositories.py:55: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:109: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:132: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:156: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:223: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:256: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:294: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_postgres_repositories.py:334: TEST_DATABASE_URL not set; skipping Postgres integration tests
+SKIPPED [1] tests/test_smoke_live.py:50: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:63: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_smoke_live.py:76: BEDROCK_LIVE not set; skipping live Bedrock smoke tests
+SKIPPED [1] tests/test_trace_boundary_properties.py:988: the engine cannot resolve a reference to 'a.b' anyway
+FAILED tests/test_review_figures.py::test_every_registered_figure_matches_what_produces_it[reports (\\d+) claims, (\\d+) test results]
+1 failed, 1600 passed, 29 skipped, 17 warnings in 64.38s (0:01:04)
+exit: 1
+
+=== pip-audit ===
+No known vulnerabilities found
+Name              Skip Reason
+----------------- --------------------------------------------------------------------------------
+workflow-platform Dependency not found on PyPI and could not be audited: workflow-platform (0.0.1)
+exit: 0
+
+=== claims: g30_reproductions.py (BROWSER_LIVE=1, TEST_DATABASE_URL set) ===
+claim     tests controls  status   (controls = aimed at this claim's own tests)
+A1      11/11          1  ok    The shipped system layer loads strictly: every attribute stated; a mis
+A2       8/8           4  ok    Every engine — the service on every launch path and every operator scr
+A3      11/11          1  ok    Every armed workflow is accounted for: runs under the layer, or is dec
+A4       2/2           1  ok    /api/health reports the layer as counts, never names, through the real
+B1       2/2           1  ok    Through the real engine, a tool the layer does not list is refused — o
+B2       7/7           3  ok    max_tokens_per_call clamps agent steps (most restrictive layer), quest
+C1      11/11          3  ok    The path matcher: absolute only, `..` refused, whole-path match, `**` 
+C2      24/24          3  ok    Every deterministic file function checks before access; a denial raise
+C3       8/8           3  ok    Every filesystem access follows a check of that SAME path in that same
+C4       1/1           1  ok    A parallel sibling step cannot widen a step's capabilities
+C5       3/3           1  ok    The live deterministic workflows run under the SHIPPED layer at their 
+D1      17/17          2  ok    Workflow and step ids are plain tokens; memory refuses paths outside i
+D3       1/1           1  ok    A definition stored around the API with a released vocabulary is refus
+E1      24/24          4  ok    allowed_hosts blocks agent-initiated requests before dispatch, and the
+E2       7/7           1  ok    URLs the host check and the browser could parse differently are refuse
+E3       7/7           2  ok    Browser outputs stay in the run's OWN downloads directory — one per in
+E6       3/3           2  ok    A step's host policy holds for its whole browser call: a parallel sibl
+E7       3/3           1  ok    A browser upload reads a local file, so file_read applies: refused bef
+E4       1/1           1  ok    The browser stays out of the system layer until destinations are enfor
+E5       5/5           1  ok    Against real Chromium: off-list clicks and navigations send nothing; t
+
+20 claims; 156 test results run; 42 controls in g30_controls.py; pytest exit 0
+every runnable claim reproduced
+exit: 0
+
+=== controls: g30_controls.py (BROWSER_LIVE=1, TEST_DATABASE_URL set) ===
+--- max_tokens_per_call: the clamp is bypassed
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- allowed_hosts: the step's policy never reaches the connector
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- allowed_hosts: navigate stops checking the URL first
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- allowed_hosts: fetch_url lets the API context follow redirects again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- allowed_hosts: read_text stops checking where the page is
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- loader: a misspelt key is accepted (fails open)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- the launcher stops naming the layer
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- health leaks the tool names
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- an armed workflow goes undeclared
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- a browser tool is enabled before destinations are enforced
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- phase 2: copy_files stops checking what it reads
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- phase 2: a denial moves inside the skip-on-failure try (becomes a silent skip)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- phase 2: a file function stops consulting capabilities
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- matcher: back to PurePosixPath.match (admits ..)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- matcher: '..' segments no longer refused
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- pattern rule: relative patterns accepted again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- layer: DMARC spool pattern one level too shallow
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- layer: widened enough to run invoice-extraction, declaration not updated
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- review: the id rule is switched off (traversal ids load again)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- review: the memory manager stops containing its paths
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- review: fetch_url joins the agent's file name onto the directory again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- review: an operator script builds its engine without the layer
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 2: step capabilities written to the SHARED context again (the race)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 3: the host check stops refusing parser-divergent URLs
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 1: the question-suggestion call escapes the cap
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 1: memory distillation sends no cap again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- red-team 4: copy_files checks dest_dir instead of the file it writes (their mutant)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- re-check: copy_files checks only the FIRST file it writes (their weaker mutant)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- re-check: extract_archive checks only the FIRST member it writes
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- the agent stops checking whether a tool is allowed (B1)
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- E5 (live Chromium): the host check stops refusing parser-divergent URLs
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- D3 (real Postgres): a stored released vocabulary loads again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R1: the service passes no layer again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R1: unset means no layer again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R1: the image stops carrying the layer
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2: the policy operation drops its lock
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R2: a tool calls the connector outside a policy operation
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R3: every run shares one downloads directory again
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- R4: an upload stops consulting file_read
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+--- figures: a number in the guide is typed wrong (20 -> 21 claims)
+    sabotaged exit=1 (want 1)   restored exit=1 (want 0)   DID NOT FIRE
+--- figures: an unregistered number appears in the guide's prose
+    sabotaged exit=1 (want 1)   restored exit=0 (want 0)   FIRED
+Traceback (most recent call last):
+  File "/home/ubuntu/Dev/intelligent-workflow-application/docs/review-artifacts/g30_controls.py", line 352, in <module>
+    original = f.read_text()
+  File "/home/ubuntu/.local/opt/python-3.14.7-gh/lib/python3.14/pathlib/__init__.py", line 787, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors, newline=newline) as f:
+         ~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/ubuntu/.local/opt/python-3.14.7-gh/lib/python3.14/pathlib/__init__.py", line 771, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/home/ubuntu/Dev/intelligent-workflow-application/backend/../docs/archives/GATE_OUTPUT_G30_R2.txt'
+exit: 1

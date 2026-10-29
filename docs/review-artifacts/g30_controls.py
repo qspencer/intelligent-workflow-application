@@ -308,6 +308,27 @@ CONTROLS = [
         "        if False:\n",
         "tests/test_browser_tools.py::test_upload_outside_file_read_never_reaches_the_page",
     ),
+    (
+        "figures: a number in the guide is typed wrong (20 -> 21 claims)",
+        "../docs/G30_CAPABILITY_REVIEW_GUIDE_R2.md",
+        "reports 20 claims, 156 test results",
+        "reports 21 claims, 156 test results",
+        "tests/test_review_figures.py::test_every_registered_figure_matches_what_produces_it",
+    ),
+    (
+        "figures: an unregistered number appears in the guide's prose",
+        "../docs/G30_CAPABILITY_REVIEW_GUIDE_R2.md",
+        "Changed from round 1 are marked",
+        "Changed from round 1 (42 items) are marked",
+        "tests/test_review_figures.py::test_no_figure_in_the_guide_is_unaccounted_for",
+    ),
+    (
+        "figures: the shipped evidence disagrees with the guide (156 -> 157 results)",
+        "../docs/archives/GATE_OUTPUT_G30_R2.txt",
+        "20 claims; 156 test results run",
+        "20 claims; 157 test results run",
+        "tests/test_review_figures.py::test_every_registered_figure_matches_what_produces_it",
+    ),
 ]
 
 

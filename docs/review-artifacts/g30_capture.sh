@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Build docs/archives/GATE_OUTPUT_G30.txt: the five gates (full output, exit
+# Build the round's gate capture (default docs/archives/GATE_OUTPUT_G30_R2.txt): the five gates (full output, exit
 # codes before any pipe), then every claim (g30_reproductions.py) and every
 # control (g30_controls.py), both with the opt-in suites ENABLED.
 #
@@ -13,7 +13,9 @@
 set -uo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
-OUT="$REPO/docs/archives/GATE_OUTPUT_G30.txt"
+# Round 1 wrote GATE_OUTPUT_G30.txt; each round keeps its own file so an
+# earlier package's recorded hashes stay true of the tree.
+OUT="${1:-$REPO/docs/archives/GATE_OUTPUT_G30_R2.txt}"
 : "${TEST_DATABASE_URL:?set TEST_DATABASE_URL to a database whose tables you can lose}"
 export BROWSER_LIVE=1 TEST_DATABASE_URL
 TMP="$(mktemp)"
