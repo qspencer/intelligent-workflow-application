@@ -1,0 +1,36 @@
+# System capability layer — the OUTERMOST bound on every workflow (G30).
+#
+# Layers intersect, most restrictive wins: a workflow or step can only narrow
+# what is allowed here, never widen it. Before 2026-10-29 production ran with
+# no system layer at all, so a definition — including one drafted by the
+# scaffold model — could declare itself unrestricted.
+#
+# Derived from what production actually uses, not from what it might: of 27
+# definitions, three ran in the 30 days before this was set, and in
+# capability-governed terms all three together use ONE tool. Everything else is
+# an operator decision: to let a workflow use another tool or path, add it HERE,
+# in a reviewed commit. That is the approval a scaffolded draft cannot give itself.
+#
+# Every attribute is stated explicitly. The loader refuses a missing or unknown
+# key, because an omitted attribute means UNRESTRICTED — a typo would otherwise
+# fail open. `null` means "this layer does not restrict it" and must be written.
+#
+# What this does NOT bound (docs/NEXT_STEPS.md G30): deterministic functions
+# other than `pdf_extract` do their file I/O outside the capability system, and
+# triggers do theirs from config. Phase 2.
+
+tools:
+  - email_label_apply__qspencer_gmail_com
+
+# No live workflow reads or writes a file through a tool; their file I/O is in
+# deterministic steps and triggers. Deny-all.
+file_read: []
+file_write: []
+
+# Enforced in the browser connector, the only surface where an agent chooses a
+# network destination. No live workflow uses the browser. Deny-all.
+allowed_hosts: []
+
+# Per-call OUTPUT ceiling. Live agents' largest single call over ~7,000 calls
+# was 147 tokens; 4096 is ~28x that, and bounds a runaway or a draft.
+max_tokens_per_call: 4096

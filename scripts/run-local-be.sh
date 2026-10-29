@@ -298,6 +298,11 @@ else
   SUBJECT_KEY_STATUS="not set — subjects classified, no correlatable ref"
 fi
 [ "$GMAIL_OK" = 1 ] && export WORKFLOW_PLATFORM_GMAIL_ACCOUNT="$GMAIL_ACCOUNT"
+# The SYSTEM capability layer (G30) — the outermost bound no definition or
+# scaffolded draft can widen. Tracked in the repo so CI tests what production
+# runs with (`tests/test_system_capabilities.py`); override the path only to
+# point at another reviewed file, never to run without one.
+export WORKFLOW_PLATFORM_SYSTEM_CAPABILITIES="${WORKFLOW_PLATFORM_SYSTEM_CAPABILITIES:-$REPO_ROOT/config/system_capabilities.yaml}"
 ok "env set"
 
 echo "──────────────────────────────────────────────────────────────"
@@ -307,6 +312,7 @@ else
   echo "   repositories : in-memory (ephemeral)"
 fi
 echo "   bedrock      : $BEDROCK_MODE"
+echo "   capabilities : system layer from $WORKFLOW_PLATFORM_SYSTEM_CAPABILITIES"
 echo "   triggers     : $([ "$START_TRIGGERS" = 1 ] && echo "on (fs / webhook / schedule / gmail)" || echo "off")"
 if [ "$RELOAD" = 1 ]; then
   echo "   autoreload   : ON — a source edit RESTARTS this process"

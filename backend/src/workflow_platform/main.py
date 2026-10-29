@@ -62,6 +62,10 @@ from workflow_platform.persistence.postgres import postgres_repositories
 from workflow_platform.persistence.schema_version import check_schema_drift
 from workflow_platform.recovery import sweep_interrupted_instances
 from workflow_platform.secrets import AwsSecretsManagerStore, EnvSecretStore, SecretStore
+from workflow_platform.security.capabilities import (
+    describe_system_capabilities,
+    system_capabilities_from_env,
+)
 from workflow_platform.templates import default_examples_dir
 from workflow_platform.tools import (
     EmailLabelApplyTool,
@@ -137,6 +141,11 @@ def _default_engine(
         # resume/fork). Default OFF (dark dual-write); flip at the external-org
         # gate. See docs/TRACE_GOVERNANCE_PLAN.md §4.
         trace_safe_only=trace_safe_only_from_env(),
+        # G30: the SYSTEM capability layer — the outermost bound, which no
+        # definition or scaffolded draft can widen. Loaded strictly: a
+        # configured layer that cannot be read stops startup rather than
+        # running unrestricted. Unset = no layer, reported by /api/health.
+        system_capabilities=system_capabilities_from_env(),
         # G12 C1 shadow state. Postgres when there is a database, so the
         # capacity rule is the real conditional counter update; the
         # in-memory double cannot exhibit the concurrency invariant and
@@ -406,6 +415,12 @@ def create_app(
         # store the ambient environment names). Class name + SQLite version
         # only — health is unauthenticated, so no paths.
         body["learned_memory"] = {"sqlite": sqlite3.sqlite_version, **learned_state}
+        # G30: whether the outermost capability layer is in force. COUNTS only —
+        # health is unauthenticated and tool names embed mailbox addresses.
+        # Reported, not degrading: a dev or e2e backend runs without one by design.
+        body["system_capabilities"] = describe_system_capabilities(
+            engine.system_capabilities if engine is not None else None
+        )
         if learned_state["state"] == "unopenable":
             body["status"] = "degraded"
         if schema.state == "drift" or learned_state["state"] == "unopenable":

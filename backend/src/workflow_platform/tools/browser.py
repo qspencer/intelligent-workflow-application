@@ -14,7 +14,8 @@ Each tool looks up the per-workflow-run `BrowserConnector` from
 responsible for lazy-building the connector and populating that dict
 when a workflow definition references any `browser_*` tool.
 
-Capability gating runs at the `Agent` layer via `tool_allowed(name)`.
+Capability gating runs at the `Agent` layer via `tool_allowed(name)`, and
+`allowed_hosts` inside the connector (`BrowserConnector`, G30).
 """
 
 from __future__ import annotations
@@ -34,7 +35,16 @@ def _get_connector(context: ToolContext | None) -> BrowserConnector | None:
     if context is None:
         return None
     conn = context.connectors.get(CONNECTOR_KEY)
-    return conn if isinstance(conn, BrowserConnector) else None
+    if not isinstance(conn, BrowserConnector):
+        return None
+    # Every browser tool comes through here, so this is the ONE place the
+    # step's `allowed_hosts` reaches the connector (G30). The connector lives
+    # for the run and capabilities are per step, so it is set on every call —
+    # and cleared to None when no layer restricts hosts, which keeps an
+    # unrestricted run exactly as it was.
+    caps = context.capabilities
+    conn.set_host_policy(caps.host_allowed if caps is not None and caps.restricts_hosts else None)
+    return conn
 
 
 def _selector_param(params: dict[str, Any]) -> str | ToolResult:

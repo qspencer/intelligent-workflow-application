@@ -21,7 +21,11 @@ from urllib.parse import urljoin
 
 from bs4 import BeautifulSoup, Tag
 
-from workflow_platform.connectors.browser.base import BrowserConnector
+from workflow_platform.connectors.browser.base import (
+    BrowserConnector,
+    BrowserHostDenied,
+    url_host_allowed,
+)
 from workflow_platform.connectors.browser.models import (
     BrowserDownload,
     BrowserScreenshot,
@@ -29,6 +33,9 @@ from workflow_platform.connectors.browser.models import (
 )
 
 logger = logging.getLogger(__name__)
+
+#: Playwright's own default, kept so a policy changes WHERE redirects may go, not how many.
+_MAX_REDIRECTS = 20
 
 
 def parse_html_table(html: str, *, base_url: str | None = None) -> list[dict[str, str]]:
@@ -173,6 +180,64 @@ class PlaywrightConnector(BrowserConnector):
         self._playwright: Any = None
         self._browser: Any = None
         self._context: Any = None
+        self._route_armed = False
+
+    # --- host policy (G30: `allowed_hosts`, see BrowserConnector) ---
+
+    async def _arm(self) -> None:
+        """Intercept navigations once a policy is in force. Lazy, because
+        routing disables Playwright's HTTP cache and an unrestricted run
+        should not pay for a control it does not have. Live path only: an
+        injected test page has no context to route on."""
+        if self._host_allowed is None or self._route_armed or self._context is None:
+            return
+        await self._context.route("**/*", self._route_navigation)
+        self._route_armed = True
+
+    async def _route_navigation(self, route: Any) -> None:
+        """Abort a NAVIGATION to a disallowed host before it is sent — this is
+        what stops a click or a form submit, not just `navigate`. Subresources
+        pass: the control is which sites the agent may load, and a page's own
+        fonts and scripts are the page's behaviour, not the agent's choice.
+        Playwright routes only the FIRST hop of a redirect — the documented
+        residual, caught after the fact by `_enforce_landing`."""
+        request = route.request
+        allowed = self._host_allowed
+        if (
+            allowed is not None
+            and request.is_navigation_request()
+            and not url_host_allowed(request.url, allowed)
+        ):
+            await route.abort("blockedbyclient")
+            return
+        await route.continue_()
+
+    async def _enforce_landing(self) -> None:
+        """If the page sits on a disallowed host — a redirect, or a navigation
+        an action set off — clear it and fail, so nothing it shows can be read."""
+        allowed = self._host_allowed
+        if allowed is None:
+            return
+        current: str = self._page.url
+        if current in ("", "about:blank") or url_host_allowed(current, allowed):
+            return
+        await self._page.goto("about:blank")
+        if current.startswith("chrome-error://"):
+            # An ABORTED navigation: route interception blocked it, and Chromium
+            # shows its own error page in its place (found by the live test —
+            # the page does not stay where it was).
+            raise BrowserHostDenied(
+                "a navigation outside this step's allowed_hosts was blocked; "
+                "the page was cleared — navigate again to an allowed URL"
+            )
+        raise BrowserHostDenied(
+            f"the page reached {current!r}, outside this step's allowed_hosts; it was cleared"
+        )
+
+    async def _guard(self) -> None:
+        """Before any action that reads or acts on the page."""
+        await self._arm()
+        await self._enforce_landing()
 
     # --- lifecycle ---
 
@@ -224,7 +289,10 @@ class PlaywrightConnector(BrowserConnector):
     # --- BrowserConnector implementations (D2 surface) ---
 
     async def navigate(self, url: str, *, wait_until: str = "load") -> None:
+        self.check_url(url)
+        await self._arm()
         await self._page.goto(url, wait_until=wait_until)
+        await self._enforce_landing()
 
     async def health_check(self) -> bool:
         """Healthy iff the Page object is alive and reports a URL."""
@@ -239,6 +307,7 @@ class PlaywrightConnector(BrowserConnector):
     async def screenshot(
         self, *, path: str | None = None, full_page: bool = False
     ) -> BrowserScreenshot:
+        await self._guard()
         if path is None:
             ts = datetime.now(UTC).strftime("%Y%m%d-%H%M%S")
             path = str(self.downloads_dir / f"screenshot-{ts}.png")
@@ -249,9 +318,12 @@ class PlaywrightConnector(BrowserConnector):
     # --- BrowserConnector implementations (D3/D4 stubs) ---
 
     async def click(self, selector: str, *, timeout_ms: int = 5000) -> None:
+        await self._guard()
         await self._page.locator(selector).click(timeout=timeout_ms)
+        await self._enforce_landing()
 
     async def fill(self, selector: str, value: str, *, clear_first: bool = True) -> None:
+        await self._guard()
         locator = self._page.locator(selector)
         if clear_first:
             # Playwright's `fill` blanks the field before typing.
@@ -262,11 +334,13 @@ class PlaywrightConnector(BrowserConnector):
             await locator.press_sequentially(value)
 
     async def read_text(self, selector: str) -> str:
+        await self._guard()
         # `_page` is Any (Playwright not type-checked) — annotate explicitly.
         text: str = await self._page.locator(selector).inner_text()
         return text
 
     async def read_table(self, selector: str) -> list[dict[str, str]]:
+        await self._guard()
         html: str = await self._page.locator(selector).inner_html()
         # Wrap the locator's inner_html in a <table> shell so bs4 can parse
         # consistently — Playwright's inner_html returns the children of the
@@ -293,7 +367,8 @@ class PlaywrightConnector(BrowserConnector):
         (image JPGs, `target="_blank"` files) or that just won't fire a
         download event.
         """
-        response = await self._page.context.request.get(url)
+        self.check_url(url)
+        response = await self._fetch_checked(url)
         body: bytes = await response.body()
         if not dest_filename:
             tail = url.rsplit("/", 1)[-1].split("?", 1)[0]
@@ -308,7 +383,26 @@ class PlaywrightConnector(BrowserConnector):
             bytes=len(body),
         )
 
+    async def _fetch_checked(self, url: str) -> Any:
+        """GET `url`; under a host policy, follow redirects ONE HOP AT A TIME and
+        check each. `context.request` is an API context that Playwright's
+        routing does not intercept and that follows redirects on its own, so
+        without this a 302 to any host would be fetched and saved."""
+        request = self._page.context.request
+        if self._host_allowed is None:
+            return await request.get(url)
+        current = url
+        for _ in range(_MAX_REDIRECTS + 1):
+            response = await request.get(current, max_redirects=0)
+            location = (getattr(response, "headers", None) or {}).get("location")
+            if not (300 <= response.status < 400 and location):
+                return response
+            current = urljoin(current, location)
+            self.check_url(current)
+        raise BrowserHostDenied(f"more than {_MAX_REDIRECTS} redirects from {url!r}")
+
     async def upload_file(self, selector: str, file_path: str) -> None:
+        await self._guard()
         await self._page.locator(selector).set_input_files(file_path)
 
     async def submit_form(self, selector: str) -> None:
@@ -316,7 +410,9 @@ class PlaywrightConnector(BrowserConnector):
         # the form to POST. Element-handle evaluate runs the function with
         # the matched element as `el`, so no XSS-like arbitrary JS surface
         # is exposed via the tool — only `.submit()` on the resolved form.
+        await self._guard()
         await self._page.locator(selector).first.evaluate("el => el.submit()")
+        await self._enforce_landing()
 
     async def download_via_click(
         self, selector: str, *, timeout_ms: int = 30000
@@ -328,9 +424,18 @@ class PlaywrightConnector(BrowserConnector):
         get the Download object. We save it under the per-run downloads
         directory using the browser-suggested filename.
         """
+        await self._guard()
         async with self._page.expect_download(timeout=timeout_ms) as info:
             await self._page.locator(selector).click(timeout=timeout_ms)
         download = await info.value
+        source = getattr(download, "url", "")
+        if (
+            self._host_allowed is not None
+            and source
+            and not url_host_allowed(source, self._host_allowed)
+        ):
+            # Refused BEFORE it is saved where the agent could read it.
+            raise BrowserHostDenied(f"download from {source!r} is outside allowed_hosts")
         suggested: str = download.suggested_filename
         target = self.downloads_dir / suggested
         await download.save_as(str(target))
@@ -353,6 +458,7 @@ class PlaywrightConnector(BrowserConnector):
         # reaches `state`", so always operate on the first match. (Click
         # / fill / read_text stay strict — they're acting on a specific
         # element, so multiple matches there is a real ambiguity.)
+        await self._guard()
         await self._page.locator(selector).first.wait_for(state=state, timeout=timeout_ms)
 
     async def authenticate(self) -> None:

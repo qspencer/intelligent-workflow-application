@@ -15,8 +15,9 @@ every layer that *does* restrict the attr accepts it.
 
 from __future__ import annotations
 
+import os
 from fnmatch import fnmatch
-from pathlib import PurePosixPath
+from pathlib import Path, PurePosixPath
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -59,6 +60,14 @@ class ResolvedCapabilities(BaseModel):
     def can_write(self, path: str) -> bool:
         return self._all_layers_match("file_write", path, _path_match)
 
+    @property
+    def restricts_hosts(self) -> bool:
+        """Whether ANY layer restricts `allowed_hosts`. When none does, callers
+        apply no host policy at all — `host_allowed` would vacuously pass every
+        http(s) host but a host policy also refuses hostless schemes (`file:`,
+        `data:`), and an unrestricted run must behave exactly as it always has."""
+        return any(layer.allowed_hosts is not None for layer in self.layers)
+
     def host_allowed(self, host: str) -> bool:
         return self._all_layers_match("allowed_hosts", host, fnmatch)
 
@@ -100,3 +109,68 @@ def resolve_capabilities(*layers: CapabilityPolicy | None) -> ResolvedCapabiliti
 UNRESTRICTED: ResolvedCapabilities = ResolvedCapabilities(layers=[])
 """A capability set that allows everything — useful for tests and the default
 when no policy is configured."""
+
+
+#: Names the YAML file holding the SYSTEM layer. Unset = no system layer, which
+#: `/api/health` reports as `absent`. The production launcher sets it.
+SYSTEM_CAPABILITIES_ENV = "WORKFLOW_PLATFORM_SYSTEM_CAPABILITIES"
+
+
+class SystemCapabilitiesError(ValueError):
+    """The configured system layer cannot be loaded. Never ignored: starting
+    without the layer an operator configured would fail OPEN."""
+
+
+def load_system_capabilities(path: Path) -> CapabilityPolicy:
+    """Load the system layer, refusing anything that could silently widen it.
+
+    Every attribute must be present (an omitted one means unrestricted, so a
+    misspelt key would fail open) and no unknown key is allowed (the misspelt
+    key itself). `null` is how a layer says "I do not restrict this" — it has
+    to be written down."""
+    import yaml
+
+    try:
+        data = yaml.safe_load(path.read_text())
+    except (OSError, yaml.YAMLError) as exc:
+        raise SystemCapabilitiesError(f"cannot read system capabilities {path}: {exc}") from exc
+    if not isinstance(data, dict):
+        raise SystemCapabilitiesError(f"{path}: expected a mapping of capability attributes")
+    expected = set(CapabilityPolicy.model_fields)
+    missing, unknown = expected - set(data), set(data) - expected
+    if missing or unknown:
+        raise SystemCapabilitiesError(
+            f"{path}: every attribute must be stated and no other may appear "
+            f"(missing: {sorted(missing)}, unknown: {sorted(unknown)})"
+        )
+    try:
+        return CapabilityPolicy.model_validate(data)
+    except ValueError as exc:
+        raise SystemCapabilitiesError(f"{path}: {exc}") from exc
+
+
+def system_capabilities_from_env() -> CapabilityPolicy | None:
+    """The system layer named by the environment, or None when none is named."""
+    configured = os.environ.get(SYSTEM_CAPABILITIES_ENV)
+    if not configured:
+        return None
+    return load_system_capabilities(Path(configured))
+
+
+def describe_system_capabilities(policy: CapabilityPolicy | None) -> dict[str, Any]:
+    """What `/api/health` shows. COUNTS, never contents: the endpoint is
+    unauthenticated and tool names embed mailbox addresses."""
+    if policy is None:
+        return {"status": "absent"}
+
+    def shape(values: list[str] | None) -> str | int:
+        return "unrestricted" if values is None else len(values)
+
+    return {
+        "status": "configured",
+        "tools": shape(policy.tools),
+        "file_read": shape(policy.file_read),
+        "file_write": shape(policy.file_write),
+        "allowed_hosts": shape(policy.allowed_hosts),
+        "max_tokens_per_call": policy.max_tokens_per_call or "unrestricted",
+    }

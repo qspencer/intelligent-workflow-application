@@ -2816,7 +2816,51 @@ DB with `email_send` live in the catalog (bound to the project account), and
 two empty `*-secret-report` isolation fixtures. Manual-trigger only; deleting
 them is the operator's call.
 
-**Not built; a deployment and design decision.**
+**PHASE 1 APPLIED 2026-10-29**, with the two never-enforced attributes now
+enforced and the stale leftovers removed:
+
+- **System layer live.** `config/system_capabilities.yaml` (tracked) —
+  `tools: [email_label_apply__qspencer_gmail_com]`, `file_read: []`,
+  `file_write: []`, `allowed_hosts: []`, `max_tokens_per_call: 4096` — named
+  by `WORKFLOW_PLATFORM_SYSTEM_CAPABILITIES`, which the production launcher
+  sets. The loader requires every attribute and refuses unknown keys (an
+  omitted attribute means unrestricted, so a typo would fail open), and a
+  configured layer that cannot be read stops startup.
+- **`/api/health` reports it** as counts only — the endpoint is
+  unauthenticated and tool names embed mailbox addresses. `absent` is reported,
+  not degraded: dev and e2e backends run without one by design.
+- **Tested where CI can see it** (`tests/test_system_capabilities.py`): the
+  shipped file loads; every ARMED bundled workflow is accounted for both ways
+  — six run untouched, two (`invoice-extraction`, `pdf-classifier`, both
+  never run in production) are declared blocked; the launcher names the file;
+  and through the real engine the layer refuses an unlisted tool on a file
+  that exists while the same step without the layer reads it.
+- **Proven before deploying** on a throwaway candidate backend (in-memory,
+  triggers off, real Bedrock): all three live workflows complete, and triage's
+  `apply` step calls the label tool successfully under the layer.
+- **`max_tokens_per_call` enforced** — clamps each model call's `maxTokens`.
+  Live agents' largest single call over ~7,000 was 147 tokens.
+- **`allowed_hosts` enforced in the browser connector**, the only surface where
+  the agent picks a destination: URL pre-checks, navigation interception (so
+  clicks and form submits are covered), hop-by-hop `fetch_url` redirects, and a
+  landing check before every read. Residual, measured by the live browser
+  suite rather than asserted: a server redirect during a page navigation sends
+  one request before anything in-process can see it; its content never reaches
+  the agent.
+- **Twelve leftovers deleted** through the audited API, and their cause fixed:
+  the e2e harness shared production's ports and reused the live service.
+
+Nineteen controls across G29 and G30 (`docs/review-artifacts/g{29,30}_controls.py`)
+plant each defect a detector claims to catch; all fire. Two did not on first
+run, and the tests were wrong: a "misspelt key" case that also tripped the
+missing-key check, and a launcher regex that matched a commented-out line.
+
+**Remaining — phase 2:** deterministic functions other than `pdf_extract` do
+their file I/O outside the capability system, so a scaffolded deterministic
+step's paths are still unbounded. Teach the file-moving functions to consult
+`can_read`/`can_write`, then add the live DMARC and health-report paths to the
+layer. The derived "functions that consult capabilities" set in the tests will
+pick each one up as it changes.
 
 ### G17 — Proactive recall adoption (veracium 0.4.x, trigger-gated)
 

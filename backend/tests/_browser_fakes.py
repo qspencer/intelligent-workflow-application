@@ -54,6 +54,8 @@ class FakeLocator:
         self._page.calls.append(("locator.click", {"selector": self._selector, "timeout": timeout}))
         if self._selector in self._page.raise_on_click:
             raise self._page.raise_on_click[self._selector]
+        if self._selector in self._page.click_navigates:
+            self._page._url = self._page.click_navigates[self._selector]
 
     async def fill(self, value: str) -> None:
         self._page.calls.append(("locator.fill", {"selector": self._selector, "value": value}))
@@ -138,9 +140,12 @@ class FakeExpectDownload:
 class FakeAPIResponse:
     """Stand-in for Playwright's `APIResponse`. `body()` returns staged bytes."""
 
-    def __init__(self, body: bytes, status: int = 200) -> None:
+    def __init__(
+        self, body: bytes, status: int = 200, headers: dict[str, str] | None = None
+    ) -> None:
         self._body = body
         self.status = status
+        self.headers = headers or {}
 
     async def body(self) -> bytes:
         return self._body
@@ -152,13 +157,24 @@ class FakeRequest:
 
     def __init__(self) -> None:
         self.gets: list[str] = []
+        self.get_kwargs: list[dict[str, Any]] = []
         self.body_at: dict[str, bytes] = {}
         self.raise_on_get: dict[str, Exception] = {}
+        #: url -> Location. Served as a 302 when the caller disables redirects
+        #: (`max_redirects=0`); otherwise followed here, the way the real API
+        #: context follows them, so a test can show what an unchecked fetch does.
+        self.redirect_at: dict[str, str] = {}
 
-    async def get(self, url: str) -> FakeAPIResponse:
+    async def get(self, url: str, **kwargs: Any) -> FakeAPIResponse:
         self.gets.append(url)
+        self.get_kwargs.append(kwargs)
         if url in self.raise_on_get:
             raise self.raise_on_get[url]
+        if url in self.redirect_at:
+            location = self.redirect_at[url]
+            if kwargs.get("max_redirects") == 0:
+                return FakeAPIResponse(b"", 302, {"location": location})
+            return await self.get(location, **kwargs)
         return FakeAPIResponse(self.body_at.get(url, b""))
 
 
@@ -193,6 +209,10 @@ class FakePlaywrightPage:
         self.raise_on_fill: dict[str, Exception] = {}
         self.raise_on_set_files: dict[str, Exception] = {}
         self.raise_on_evaluate: dict[str, Exception] = {}
+        #: A server redirect: `goto(url)` lands on `redirect_to[url]`.
+        self.redirect_to: dict[str, str] = {}
+        #: A click that navigates: selector -> where the page ends up.
+        self.click_navigates: dict[str, str] = {}
         # The FakeDownload that expect_download() should yield. Tests
         # stage this before the connector's download_via_click runs.
         self.expect_download_value: FakeDownload | None = None
@@ -206,7 +226,7 @@ class FakePlaywrightPage:
 
     async def goto(self, url: str, *, wait_until: str = "load") -> None:
         self.calls.append(("goto", {"url": url, "wait_until": wait_until}))
-        self._url = url
+        self._url = self.redirect_to.get(url, url)
 
     async def screenshot(self, *, path: str, full_page: bool = False) -> bytes:
         self.calls.append(("screenshot", {"path": path, "full_page": full_page}))

@@ -8,7 +8,9 @@ live alongside in their own modules. See
 
 from workflow_platform.connectors.browser.base import (
     BrowserConnector,
+    BrowserHostDenied,
     detect_selector_type,
+    url_host_allowed,
 )
 from workflow_platform.connectors.browser.models import (
     BrowserDownload,
@@ -24,10 +26,12 @@ from workflow_platform.connectors.browser.playwright_connector import (
 __all__ = [
     "BrowserConnector",
     "BrowserDownload",
+    "BrowserHostDenied",
     "BrowserScreenshot",
     "BrowserSelector",
     "PlaywrightConnector",
     "SelectorType",
     "WaitState",
     "detect_selector_type",
+    "url_host_allowed",
 ]
