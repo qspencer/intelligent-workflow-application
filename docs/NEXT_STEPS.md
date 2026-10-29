@@ -3004,8 +3004,12 @@ fail with its fix removed and each with a control:
   narrowed to that.
 
 Also from the review: preflight should run veracium's own qualification check
-(`runtime_supported()`), not only print the SQLite version — for the round-3
-guide.
+(`runtime_supported()`), not only print the SQLite version — done: the capture
+header prints its verdict and the round-3 guide's §7 tells the reviewer to run it.
+
+**Round 3 package built 2026-10-29** — `g30-capability-review-r3-3e12786`
+(guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R3.md`; hashes in
+`docs/archives/README.md`). Awaiting the reviewer.
 
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's

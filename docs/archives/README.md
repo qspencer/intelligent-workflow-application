@@ -38,6 +38,7 @@ blocking issues by reading code the spec described inaccurately.
 
 | Archive | SHA | Date | For | Cover note |
 |---|---|---|---|---|
+| `g30-capability-review-r3-3e12786.tar.gz` | `3e12786` (branch `main`) | 2026-10-29 | **G30 round 3 — answers the round-2 review (request changes, three P2s).** R2-F1: the ECR build script still built from `backend/` — now the root context, with build sites derived by scanning and the real script run against stubs. R2-F2: a queued upload of a missing path could become a directory upload — the source is now examined once the call owns the browser, must be one regular file, and reaches the page as bytes. R2-F3: a read could return an off-list page's text when the page navigated mid-read — reproduced in real Chromium, now fenced by URL and main-frame navigation count; actions get a narrower, stated contract. Their probes mapped to ours; their five acceptance checks answered; veracium's own `runtime_supported()` in the capture header. Start at `docs/G30_CAPABILITY_REVIEW_GUIDE_R3.md` | `docs/G30_CAPABILITY_REVIEW_GUIDE_R3.md` |
 | `g30-capability-review-r2-5866f3d.tar.gz` | `5866f3d` (branch `main`) | 2026-10-29 | **G30 round 2 — answers the round-1 review (request changes).** R1 (P1): the service ran with no system layer on every launch path but the local launcher — now one never-None loader, the image carries the layer. R2: a parallel step swapped another's browser host policy mid-redirect — now one lock per connector across the whole call. R3: per-instance browser output directories. R4: uploads obey `file_read`. The content-origin claim withdrawn and narrowed. Each new test confirmed to fail with its fix removed; the reviewer's probes mapped to inverted tests; their six acceptance conditions answered one by one. States the qualified SQLite runtime up front — the cause of all 14 failures in their full-suite run. Start at `docs/G30_CAPABILITY_REVIEW_GUIDE_R2.md` | `docs/G30_CAPABILITY_REVIEW_GUIDE_R2.md` |
 | `g30-capability-review-a7284c0.tar.gz` | `a7284c0` (branch `main`) | 2026-10-29 | **G30 — the capability layer, phases 1 and 2.** Asked for by the G29 closure. Production had NO system capability layer, and `allowed_hosts` / `max_tokens_per_call` were enforced nowhere; phase 1 adds the layer (`config/system_capabilities.yaml`, strict loader) and enforces both, phase 2 makes the deterministic file functions consult capabilities. Our pre-package pass found four defects; a cold second seat (Research session) then found five more under the layer — sibling-step race, suggestion escaping the token cap, a `urlsplit`/WHATWG backslash differential, a presence-only guard, a spend overclaim — all fixed and re-checked. Ships 18 claims mapped to the tests that execute them (`g30_reproductions.py`), 35 sabotage controls, live evidence, and the second seat's reports verbatim. Start at `docs/G30_CAPABILITY_REVIEW_GUIDE.md` | `docs/G30_CAPABILITY_REVIEW_GUIDE.md` |
 | `trace-g29-review-0ecfa72.tar.gz` | `0ecfa72` (branch `main`) | 2026-10-29 | **G29 / projector v23 — per-workflow released vocabularies, PACKAGED AND WITHDRAWN IN THE SAME PASS.** Not a remediation round: nothing here answers a returned finding. Assembling the package found that v23 breaks the projector's FIXED POINT — the vocabulary is a per-call argument only the three write sites can supply, so the read path strips the released verdict again, the frozen §4.3 agreement predicate reports `mismatch` on correctly-written rows, the zero-raw B1 verifier flags them as raw, and the backfill would strip them. The fix needs F3/F4 (both open) because any row-recorded vocabulary is a second fail-open bit. Withdrawn, deployed and 38 rows repaired before the package left. Asks the reviewer to rule between withdraw / after-F3-F4 / never-below-grant. Ships 29 executable reproductions (`docs/review-artifacts/g29_reproductions.py`). Start at `docs/TRACE_G29_REVIEW_GUIDE.md` | `docs/TRACE_G29_REVIEW_GUIDE.md` |
@@ -60,6 +61,36 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (G30 round 3)
+
+```
+commit   3e12786
+tree     61a3495e08908d189199b94c83a5dce15d161cd5
+archive  2fd99266129f985cd97c8f023e4d2a21a43e9020913d7935403e88945ebabd00
+         g30-capability-review-r3-3e12786.tar.gz  (678 files, `git archive | gzip -n`)
+```
+
+```
+  326b094325e640e45617db57877e891c8b1d5fd4ab511935794a162f988b65f4  docs/G30_CAPABILITY_REVIEW_GUIDE_R3.md
+  aa77c0dc44e6897a85bbf8fd67612d0c48c1cbd1b03af5fdbe11d795ffee8662  docs/TRACE_G30_R2_REVIEW_RESULTS.md
+  73590b328e065ceef096072be5d30eb536b76117dad13f0156c1f9325792d99b  docs/archives/GATE_OUTPUT_G30_R3.txt
+  11703c07d0f26fa8c888004d78b41ba6e291b5105fe70e0f1f132352b6bf59b3  docs/archives/LIVE_EVIDENCE_G30_R3.txt
+  afd202bf0b06079e72f2fa57ef54f440544907e359241659189918adac3225f2  docs/archives/CODE_MANIFEST_G30_R3.txt
+  96f96f68b111acd6e409afaf4c111613f781c172d59f88198f8be57e52adac52  docs/review-artifacts/g30_reproductions.py
+  1060bb799eb9b4d4880068a5722b5c723adff316cb1f15a275ba81c999bbd8f8  docs/review-artifacts/g30_controls.py
+  6dc37f4bdbcec271cc78af70a2abc946204e9b59cc9e3d1f62791ba6294e3c52  docs/review-artifacts/g30_capture.sh
+  5d586eb2a36abf38d7177dd007966f538ad70f24f10b60301d40d231159a039f  docs/review-artifacts/g30_live_evidence.sh
+  94c48330c9005dbbf07c21bfc644f2ff4e6248310cb1a8976cbe532494070051  config/system_capabilities.yaml
+```
+
+**Aggregate source hash** `569c00d2379b5341a9cda11aa050267e1a15780e618eeda3734f92b21986310e`
+(260 files). Extraction-verified: recomputed from the extracted archive it matches
+`CODE_MANIFEST_G30_R3.txt` and the capture header; the extracted package's own locked
+environment (`uv sync --frozen` on the qualified Python) loaded the EXTRACTED source,
+reported `sqlite 3.45.1` and `runtime_supported() True`, and reproduced all 21 claims
+(184 test results, both opt-in suites). Round-1 and round-2 files keep their names and
+bytes; round-3 evidence is in `*_G30_R3.txt`.
 
 ## Integrity hashes (G30 round 2)
 
