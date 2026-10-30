@@ -3077,6 +3077,10 @@ R5-F1 closed.
   fetch-boundary fix and a total host check. Static checks restated as
   tripwires, with a self-test on the shapes the reviewer showed passing.
 
+**Round 7 package built 2026-10-30** — `g30-capability-review-r7-209955f`
+(guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R7.md`; hashes in
+`docs/archives/README.md`). Awaiting the reviewer.
+
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's
   qualified build: the container starts with `learned_memory: unopenable`.

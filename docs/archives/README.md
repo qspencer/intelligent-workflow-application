@@ -38,6 +38,7 @@ blocking issues by reading code the spec described inaccurately.
 
 | Archive | SHA | Date | For | Cover note |
 |---|---|---|---|---|
+| `g30-capability-review-r7-209955f.tar.gz` | `209955f` (branch `main`) | 2026-10-30 | **G30 round 7 — answers the round-6 review (request changes: R6-F1 P2).** A truncated off-list redirect's Playwright call log, and a malformed Location's parser error, reached the model. Fixed by inverting the default at one tool-layer boundary: under a policy, an error's text reaches the agent only if the application built it or the fence vouched it is about the checked page; anything else arrives as its class. Plus the fetch-boundary fix, a total host check, real-HTTP-client tests, and the static checks restated as tripwires with a self-test on the reviewer's snippets. Start at `docs/G30_CAPABILITY_REVIEW_GUIDE_R7.md` | `docs/G30_CAPABILITY_REVIEW_GUIDE_R7.md` |
 | `g30-capability-review-r6-fdf6ed3.tar.gz` | `fdf6ed3` (branch `main`) | 2026-10-30 | **G30 round 6 — answers the round-5 review (request changes: R5-F1 P2).** After a failed clear, the retry's start-of-call refusal named the URL the withheld call kept back. Fixed as a property in the refusals themselves: no refusal names a URL a page or server chose — page checks, and (found by grep, not in the review) redirect targets and download sources; only the agent's own URL is named. A source derivation over every formatted value pins it; the two-call engine sequence and a real-Chromium retry test it. Start at `docs/G30_CAPABILITY_REVIEW_GUIDE_R6.md` | `docs/G30_CAPABILITY_REVIEW_GUIDE_R6.md` |
 | `g30-capability-review-r5-93cc364.tar.gz` | `93cc364` (branch `main`) | 2026-10-29 | **G30 round 5 — answers the round-4 review (request changes: R4-F1 P2).** Withholding depended on the clearing navigation succeeding: a failed clear's error, which can name the interrupting URL, replaced the withheld one, and a rejected screenshot stayed on disk. Fixed where the page is cleared, covering every caller; a bounded withheld status (`cleanup=cleared/not_needed/failed`); screenshots staged and moved only after the check; a real failing clear in Chromium. Start at `docs/G30_CAPABILITY_REVIEW_GUIDE_R5.md` | `docs/G30_CAPABILITY_REVIEW_GUIDE_R5.md` |
 | `g30-capability-review-r4-8be82be.tar.gz` | `8be82be` (branch `main`) | 2026-10-29 | **G30 round 4 — answers the round-3 review (request changes: R3-F1 P2, R3-F2 P3).** R3-F1: a read whose page navigated and then FAILED passed Playwright's error — which quotes the page — to the agent; the reviewer's Chromium companion was run here and reproduced it. Errors are now fenced like results, carrying only the original's class name; every action is checked on every exit. R3-F2: the action contract states the endpoint check. Start at `docs/G30_CAPABILITY_REVIEW_GUIDE_R4.md` | `docs/G30_CAPABILITY_REVIEW_GUIDE_R4.md` |
@@ -64,6 +65,36 @@ blocking issues by reading code the spec described inaccurately.
 | `trace-governance-review-e397b8b.tar.gz` | `e397b8b` | 2026-08-02 | External **code** review of the trace-governance build (TG1–TG3d-1 + gate-wiring; Contract A + B1) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-0c847fa.tar.gz` | `0c847fa` | 2026-08-03 | **Round 3** — after the four build-conformance primitives (P1 typed projector, P2 surface inventory, P4 grant+vault CAS, P3a rehydration predicate); code at `29a42f5`, guide refreshed at `0c847fa` | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
 | `trace-governance-review-2cfacfc.tar.gz` | `2cfacfc` | 2026-08-02 | **Re-review** after remediating all 10 findings from the `e397b8b` review (code fixes at `5e0d84b`; see `docs/NEXT_STEPS.md` G-Trace-Review + `backend/tests/test_trace_review_fixes.py`) | `docs/TRACE_CODE_REVIEW_GUIDE.md` |
+
+## Integrity hashes (G30 round 7)
+
+```
+commit   209955f
+tree     b3f42bd0bf12442b137af2cf4588c324751ea724
+archive  7a51402a34789cc24ae739dbd69c971d2f31c9e08829b3f0ab443c02c6456678
+         g30-capability-review-r7-209955f.tar.gz  (699 files, `git archive | gzip -n`)
+```
+
+```
+  0fa42289a0bede30a28b70319ded09cc19588a89c6f831b74eb19c99f837b8a5  docs/G30_CAPABILITY_REVIEW_GUIDE_R7.md
+  079d64016463b17b6b45239b522ed42a94cabc9f3668b7537d1c5c9213034078  docs/TRACE_G30_R6_REVIEW_RESULTS.md
+  643559d722f79d78e99182eb9cf3e089ddd15eadf8c65db3efdd65f73b7c37fb  docs/archives/GATE_OUTPUT_G30_R7.txt
+  903972eb740db292ba2e7350c96cabdd103d572826218058d695d5e184aeb5e0  docs/archives/LIVE_EVIDENCE_G30_R7.txt
+  67e5e5ce94fbf796290dfb53ace6e5fbccb783cedb1ef37217fcc1470eb18133  docs/archives/CODE_MANIFEST_G30_R7.txt
+  9142d7bd103eac927d77d0ea03cd711ad56aff3aba125056401c22483ef2e6a0  docs/review-artifacts/g30_reproductions.py
+  a4f5598c4ab567dffc0a8eb0f0382d8ee5c349b0cdc6cc9a5c1d38d6368f697f  docs/review-artifacts/g30_controls.py
+  796815744c9617f1dbcaba28626b9c6e8a75435327dc0e09b7a1c83969f04053  docs/review-artifacts/g30_capture.sh
+  5d586eb2a36abf38d7177dd007966f538ad70f24f10b60301d40d231159a039f  docs/review-artifacts/g30_live_evidence.sh
+  94c48330c9005dbbf07c21bfc644f2ff4e6248310cb1a8976cbe532494070051  config/system_capabilities.yaml
+```
+
+**Aggregate source hash** `826c8dabf6bc4b02ab5f260bb19328bf136e8f6dcb7420265100eb5f07f960be`
+(261 files). Extraction-verified: recomputed from the extracted archive it matches
+`CODE_MANIFEST_G30_R7.txt` and the capture header; the extracted package's own frozen
+environment on the qualified Python loaded the EXTRACTED source (`sqlite 3.45.1`,
+`runtime_supported() True`) and reproduced all 21 claims (254 test results, both opt-in
+suites). Earlier rounds' files keep their names and bytes; round-7 evidence is in
+`*_G30_R7.txt`.
 
 ## Integrity hashes (G30 round 6)
 
