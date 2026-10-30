@@ -243,6 +243,17 @@ else
   ok "Bedrock: replay mode — no AWS calls"
 fi
 
+# Alert email. Unset is a legal "off", so the backend says nothing — which is
+# how alerts went unmailed for a week after a reboot dropped the variable
+# (2026-10-22). Say it here, where every restart prints.
+if [ -z "${WORKFLOW_PLATFORM_ALERT_EMAIL_TO:-}" ]; then
+  warn "alert emails: OFF — alerts stay in the audit log only (set WORKFLOW_PLATFORM_ALERT_EMAIL_TO in ~/.config/workflow-be.env)"
+elif [ "$GMAIL_OK" != 1 ]; then
+  warn "alert emails: OFF — WORKFLOW_PLATFORM_ALERT_EMAIL_TO is set but tools account $GMAIL_ACCOUNT has no credentials to send from"
+else
+  ok "alert emails: to $WORKFLOW_PLATFORM_ALERT_EMAIL_TO, from $GMAIL_ACCOUNT"
+fi
+
 # --- repositories -------------------------------------------------------------
 if [ "$USE_POSTGRES" = 1 ]; then
   command -v docker >/dev/null 2>&1 || die "docker not found. Re-run with --in-memory."

@@ -432,6 +432,34 @@ messages had no label:
   `options` dict) has NO upstream fix; our one decode call passes no
   `options` — `test_oidc.py` now fails if that ever changes.
 
+**Status review 2026-10-30 (email labeling).** Since the catch-up ended
+(10-29 02:00): 179 real `email-triage-apply` runs, 179 completed; triage,
+record, apply, recall and memory-write 179 each; 0 recall failures, 0 parse
+failures; one first-attempt label-tool failure (10-29 10:39) applied on the
+step retry 2 s later. $0.013/msg at 9-10 s (September: $0.017 at 12 s).
+Label CORRECTNESS is not readable here — verdict, sender and label name are
+withheld under TRACE_SAFE_ONLY (see the catch-up results in
+`EMAIL_RECALL_VALIDATION_PLAN.md`). Two operability gaps, neither in the
+runs themselves:
+- **Alert email was silently OFF from the 10-22 reboot to 10-30.** The
+  notifier sent 11 mails 09-28 → 10-13; its "Alert emails enabled" line
+  last appears 10-15. `WORKFLOW_PLATFORM_ALERT_EMAIL_TO` was set somewhere
+  that did not survive a reboot (not the env file, not the repo). Unset is
+  a legal "off", so nothing said so; unmailed meanwhile:
+  `alert_trigger_auth_revoked`, `alert_stale_trigger`, and five
+  `alert_low_disk` (one at 0.1 GB free, 10-29 23:02). **FIXED:** the
+  variable is in `~/.config/workflow-be.env` (persists across reboots), and
+  `run-local-be.sh` pre-flight now prints alert email on/off on every start.
+  Next consent-clock expiry for `qspencer@gmail.com`: ~**11-04 21:39 UTC**
+  (re-consented 10-28 21:39); its warning now has somewhere to go.
+- **No watchdog outside the process.** The 10-16 → 10-28 gap was the
+  service itself: stopped 10-16 14:13, then a crash loop after the 10-22
+  reboot (`Can't locate revision identified by '0014'` — the database was
+  ahead of the checked-out code). Monitoring runs in-process, so a dead
+  service raises nothing. *Option, not built:* a systemd user timer that
+  checks `/api/health` and mails on failure through a path that does not
+  need the backend.
+
 **G12 C1 — second topic, and the candidate moved out of the classifier
 (2026-10-04).** Two weeks of C1 shadow data (97 candidates / 1,706 runs,
 5.7%; 97/97 in-vocabulary; 96 correctly suppressed `already_asked`;
