@@ -312,6 +312,20 @@ consumer — and when an error invites a next step, test the next step. A
 refusal formatter that every caller shares is where redaction belongs; a
 derivation over every formatted value keeps it there.
 
+### G30 external review, round 6 — request changes (2026-10-30)
+
+R5-F1 closed for the reported retry paths.
+
+| Finding | Class | Why we missed it |
+|---|---|---|
+| **R6-F1 (P2)** A truncated off-list redirect made Playwright's HTTP client raise with a call log quoting the off-list `Location`; a malformed `Location` made the URL parser raise with the server's text. The tool passed both to the model. | M6 + M3 | We secured the errors we BUILD and assumed the rest carried nothing. Our "derivation" checked constructor spelling, not origin — the reviewer showed concatenation, rebinding and a prebuilt message all passed it. Rounds 3–6 each found one more exit. |
+
+**The lesson to keep:** when successive rounds keep finding one more exit,
+stop enumerating exits — invert the default. Under the policy, text reaches
+the agent only if we built it or vouched for it; everything else is reduced
+by construction at one boundary. And name a static check for what it is: a
+tripwire on shape, not a proof about data flow.
+
 ### Self-inflicted, found by us mid-remediation (worth counting)
 
 Authorized-producer list written from memory (`record_invoice` for

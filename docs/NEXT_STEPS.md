@@ -3062,7 +3062,20 @@ accepted; leaving an uncleared page in place accepted for this review.
 **Round 6 package built 2026-10-30** — `g30-capability-review-r6-fdf6ed3`
 (guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R6.md`; hashes in
 `docs/archives/README.md`). Dispatched to the reviewer 2026-10-30 by the
-operator; awaiting results.
+operator.
+
+**Round 6 (2026-10-30): request changes** — results in
+`docs/TRACE_G30_R6_REVIEW_RESULTS.md` (archive
+`trace-g30-r6-review-results-2026-10-30.tar.gz`, sha256 `a9b06f56…ed00e`).
+R5-F1 closed.
+
+- **R6-F1 (P2), done** (`a614de1`, deployed) — a truncated off-list redirect's
+  Playwright call log, and a malformed Location's parser error, reached the
+  model. Fixed as a default rather than an exit: one tool-layer boundary
+  passes an error's text under a policy only if the application built it or
+  the fence vouched for it; anything else arrives as its class. Plus the
+  fetch-boundary fix and a total host check. Static checks restated as
+  tripwires, with a self-test on the shapes the reviewer showed passing.
 
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's
