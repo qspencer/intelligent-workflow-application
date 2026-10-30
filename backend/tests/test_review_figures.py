@@ -23,8 +23,9 @@ prose and fails on any that no claim covers and no labelled exemption explains.
 Limit, stated: the sweep sees DIGITS. A figure written as a word ("four
 consumers") is checked only if it is registered; the evidence-bearing ones are.
 
-Scope: the LIVE review package — G30 round 7 since 2026-10-30. G29's package
-and G30 rounds 1 to 6 were answered and their registries retired; each package's
+Scope: the LIVE review package — none since 2026-10-30, when G30 was accepted
+at round 7. G29's package and every G30 round are answered and their
+registries retired; each package's
 archive is its record. Between packages `GUIDE` is None and both tests skip.
 A historical guide should not fail the build because a later commit added a test.
 """
@@ -42,7 +43,7 @@ BACKEND = Path(__file__).resolve().parents[1]
 REPO = BACKEND.parent
 DOCS = REPO / "docs"
 #: The live guide, or None between packages.
-GUIDE: Path | None = DOCS / "G30_CAPABILITY_REVIEW_GUIDE_R7.md"
+GUIDE: Path | None = None  # G30 accepted at round 7 (2026-10-30); no live package
 pytestmark = pytest.mark.skipif(GUIDE is None, reason="no live review package")
 GATES = DOCS / "archives" / "GATE_OUTPUT_G30_R7.txt"
 LIVE = DOCS / "archives" / "LIVE_EVIDENCE_G30_R7.txt"

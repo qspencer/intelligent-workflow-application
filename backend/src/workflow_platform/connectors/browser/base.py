@@ -50,7 +50,13 @@ class BrowserBoundedError(Exception):
     under a policy reaches the agent as its class only — a library's error can
     quote what a page or server sent (a call log's response headers, a
     parser echoing a `Location`; G30 round-6 review, R6-F1) — unless the
-    connector vouched for it with `vouch_checked_page_error`."""
+    connector vouched for it with `vouch_checked_page_error`.
+
+    This is a TRUST ASSERTION by the code that raises it, not a sanitizer:
+    the boundary passes its text as is. So every constructor must build the
+    message from literal text and controlled fields only — never a value a
+    page or server supplied (round-7 review). The refusal tripwire in
+    `test_g30_capability_enforcement.py` checks the shape, not the data flow."""
 
 
 class BrowserHostDenied(BrowserBoundedError):
@@ -165,15 +171,15 @@ class BrowserConnector(Connector):
          `[url_not_allowed; source=…]`). Only a URL the agent itself asked for
          is named (round-5 review, R5-F1: a retry after a failed clear
          delivered the very URL the withheld call kept back);
-       - and more generally, under a policy an error reaches the agent with
-         its TEXT only if this application built it (`BrowserBoundedError`)
-         or the fence vouched it is about the checked, unchanged page. Any
-         other error — a library's, a parser's, one nobody anticipated —
-         arrives as its class (`tools/browser.py` `_error`; round-6 review,
-         R6-F1: a truncated redirect's call log carried the off-list
-         `Location`). A vouched error can quote the checked page, URLs in it
-         included: this is not a secrecy guarantee for URLs, only that
-         nothing reaches the agent from a page or server it did not check.
+       - and more generally, under a host policy browser tools return
+         arbitrary exception text only when the document fence vouches for
+         it; otherwise they return application-built bounded errors
+         (`BrowserBoundedError`) or a class-only failure (`tools/browser.py`
+         `_error`; round-6 review, R6-F1: a truncated redirect's call log
+         carried the off-list `Location`). This does not establish the origin
+         of content quoted by an admitted document — an allowed page can
+         quote other origins — and it is not a secrecy guarantee for URLs
+         (wording from the round-7 review, which accepted the change).
 
     It is NOT a content-origin guarantee. A page on an allowed host can load a
     disallowed host's images, scripts or frames, and what they render or write

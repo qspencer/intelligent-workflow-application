@@ -326,6 +326,16 @@ the agent only if we built it or vouched for it; everything else is reduced
 by construction at one boundary. And name a static check for what it is: a
 tripwire on shape, not a proof about data flow.
 
+### G30 external review, round 7 — ACCEPTED (2026-10-30)
+
+R6-F1 closed; no blocking findings. The reviewer independently exercised all
+eleven browser tools with an unanticipated error, with and without a policy
+(56 probes). One non-blocking wording note, applied: the boundary rule is
+stated as what tools RETURN, not as an origin claim, and an application-built
+bounded error is a trust assertion whose constructors must use controlled
+fields. **Seven rounds.** Rounds 3–6 each found one more exit for page- or
+server-chosen text; inverting the default (round 7) ended the sequence.
+
 ### Self-inflicted, found by us mid-remediation (worth counting)
 
 Authorized-producer list written from memory (`record_invoice` for

@@ -3080,7 +3080,15 @@ R5-F1 closed.
 **Round 7 package built 2026-10-30** — `g30-capability-review-r7-209955f`
 (guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R7.md`; hashes in
 `docs/archives/README.md`). Dispatched to the reviewer 2026-10-30 by the
-operator; awaiting results.
+operator.
+
+**Round 7 (2026-10-30): ACCEPTED within the review's scope** — results in
+`docs/TRACE_G30_R7_REVIEW_RESULTS.md` (archive
+`trace-g30-r7-review-results-2026-10-30.tar.gz`, sha256 `f3302813…860e9`).
+R6-F1 closed; no blocking findings. The one non-blocking wording note is
+applied (connector contract and THREAT_MODEL). **G30's capability layer is
+done.** The acceptance explicitly does not approve browser enablement: the
+conditions below stay open, as do the image's SQLite and unlocked build.
 
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's

@@ -260,10 +260,14 @@ IdP is sole authority — D4). Fifteen pinned security tests in
     failure is reported without Playwright's text, and a rejected screenshot
     never reaches its path (R4-F1). No refusal names a URL a page or server
     chose — not the next call's check, not a redirect, not a download; only
-    a URL the agent itself asked for (R5-F1). Under a policy, an error's
-    text reaches the agent only if the application built it or the fence
-    vouched it is about the checked page; any other error — a transport
-    failure's call log, a parser's echo — arrives as its class (R6-F1).
+    a URL the agent itself asked for (R5-F1). Under a host policy, browser
+    tools return arbitrary exception text only when the document fence
+    vouches for it; otherwise they return application-built bounded errors
+    or a class-only failure — a transport failure's call log or a parser's
+    echo arrives as its class (R6-F1). This does not establish the origin of
+    content quoted by an admitted document, and an application-built error
+    is trusted by construction, so its constructors must use controlled
+    fields only (round-7 review, which accepted G30's error boundary).
     Redirect hops, subresources, preconnect and WebSockets can still reach
     a disallowed host. Nor is it a content-origin guarantee: an allowed
     page can render a disallowed host's images, scripts or frames, and the
