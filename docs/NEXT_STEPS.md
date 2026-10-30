@@ -3061,7 +3061,8 @@ accepted; leaving an uncleared page in place accepted for this review.
 
 **Round 6 package built 2026-10-30** — `g30-capability-review-r6-fdf6ed3`
 (guide `docs/G30_CAPABILITY_REVIEW_GUIDE_R6.md`; hashes in
-`docs/archives/README.md`). Awaiting the reviewer.
+`docs/archives/README.md`). Dispatched to the reviewer 2026-10-30 by the
+operator; awaiting results.
 
 **Follow-ups found while fixing R1, not in scope:**
 - The backend image's SQLite (3.46.1, `python:3.14-slim`) is not veracium's
