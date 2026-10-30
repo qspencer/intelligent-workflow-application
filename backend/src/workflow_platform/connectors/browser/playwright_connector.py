@@ -24,10 +24,12 @@ from uuid import uuid4
 from bs4 import BeautifulSoup, Tag
 
 from workflow_platform.connectors.browser.base import (
+    BrowserCallFailed,
     BrowserConnector,
     BrowserHostDenied,
     BrowserPageNotCleared,
     url_host_allowed,
+    vouch_checked_page_error,
 )
 from workflow_platform.connectors.browser.models import (
     BrowserDownload,
@@ -333,6 +335,7 @@ class PlaywrightConnector(BrowserConnector):
             result = await read()
         except Exception as exc:
             if self._document() == before:
+                vouch_checked_page_error(exc)
                 raise
             failed = exc.__class__.__name__
         if failed is not None or self._document() != before:
@@ -354,6 +357,7 @@ class PlaywrightConnector(BrowserConnector):
             result = await action()
         except Exception as exc:
             if self._document() == before:
+                vouch_checked_page_error(exc)
                 raise
             failed = exc.__class__.__name__
         if failed is not None:
@@ -529,8 +533,7 @@ class PlaywrightConnector(BrowserConnector):
         download event.
         """
         self.check_url(url)
-        response = await self._fetch_checked(url)
-        body: bytes = await response.body()
+        body = await self._fetched_body(url)
         if not dest_filename:
             tail = url.rsplit("/", 1)[-1].split("?", 1)[0]
             dest_filename = tail or "download"
@@ -543,6 +546,31 @@ class PlaywrightConnector(BrowserConnector):
             suggested_filename=dest_filename,
             bytes=len(body),
         )
+
+    async def _fetched_body(self, url: str) -> bytes:
+        """The body at `url`. Under a host policy a transport failure is
+        reduced to its class HERE, before any caller sees it: Playwright's
+        error for an aborted response carries a call log with the response's
+        headers — an off-list `Location` included — and it is raised before
+        the connector holds a response to inspect (round-6 review, R6-F1:
+        a truncated 302 put the off-list URL in front of the model)."""
+        if self._host_allowed is None:
+            unrestricted: bytes = await (await self._fetch_checked(url)).body()
+            return unrestricted
+        failure: str | None = None
+        body = b""
+        try:
+            body = await (await self._fetch_checked(url)).body()
+        except BrowserHostDenied:
+            raise
+        except Exception as exc:
+            failure = exc.__class__.__name__
+        if failure is not None:
+            raise BrowserCallFailed(
+                f"the request failed ({failure}); its details can quote a server's "
+                f"response, so they were withheld [call_failed; call=fetch; error={failure}]"
+            )
+        return body
 
     async def _fetch_checked(self, url: str) -> Any:
         """GET `url`; under a host policy, follow redirects ONE HOP AT A TIME and
@@ -558,7 +586,12 @@ class PlaywrightConnector(BrowserConnector):
             location = (getattr(response, "headers", None) or {}).get("location")
             if not (300 <= response.status < 400 and location):
                 return response
-            current = urljoin(current, location)
+            try:
+                current = urljoin(current, location)
+            except ValueError:
+                # Unparseable: refused like an off-list hop, not raised with
+                # the server's text (round-6 review, R6-F1).
+                current = ""
             if not url_host_allowed(current, self._host_allowed):
                 # Not named: the redirecting server chose it (R5-F1).
                 raise BrowserHostDenied(

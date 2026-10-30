@@ -32,6 +32,7 @@ from workflow_platform.connectors.browser import (
     BrowserPageNotCleared,
     BrowserUpload,
     PlaywrightConnector,
+    url_host_allowed,
 )
 from workflow_platform.security.capabilities import CapabilityPolicy, resolve_capabilities
 from workflow_platform.tools import ToolContext
@@ -766,30 +767,182 @@ async def test_a_url_the_agent_asked_for_is_still_named(tmp_path: Path) -> None:
     assert OTHER in str(caught.value)
 
 
-def test_no_refusal_formats_a_url_a_page_or_server_chose() -> None:
-    """Derived from the source: every value formatted into a host refusal is
-    one of a fixed set — the error's class, the withheld parts, the agent's
-    own `url`. A refusal that formats `current`, `source`, `location` or any
-    other name fails here until it is looked at."""
+_REFUSALS = {"BrowserHostDenied", "BrowserPageNotCleared", "BrowserCallFailed"}
+_FORMATTABLE = {"failure", "withheld", "outcome", "status", "url", "_MAX_REDIRECTS"}
+
+
+def _refusal_shape_problems(tree: Any) -> list[str]:
+    """What the refusal tripwire objects to in `tree`: a refusal argument
+    that is not literal text, a formatted name outside the fixed set, or the
+    agent's `url` rebound."""
+    import ast
+
+    problems: list[str] = []
+    for node in ast.walk(tree):
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Name)
+            and node.func.id in _REFUSALS
+        ):
+            for arg in node.args:
+                if not isinstance(arg, ast.Constant | ast.JoinedStr):
+                    problems.append(f"line {node.lineno}: built from {ast.unparse(arg)!r}")
+                    continue
+                for v in ast.walk(arg):
+                    if isinstance(v, ast.FormattedValue):
+                        name = ast.unparse(v.value)
+                        if name not in _FORMATTABLE:
+                            problems.append(f"line {node.lineno}: formats {name!r}")
+        targets: list[Any] = []
+        if isinstance(node, ast.Assign):
+            targets = node.targets
+        elif isinstance(node, ast.AnnAssign | ast.AugAssign | ast.For):
+            targets = [node.target]
+        if "url" in {n.id for t in targets for n in ast.walk(t) if isinstance(n, ast.Name)}:
+            problems.append(f"line {getattr(node, 'lineno', '?')}: `url` rebound")
+    return problems
+
+
+def test_refusals_are_built_from_literal_text_and_fixed_names() -> None:
+    """A source-shape TRIPWIRE over the connector, not dataflow analysis.
+    Every host refusal is built from literal text, formatting only names from
+    a fixed set, and `url` — the agent's own argument, the one URL a refusal
+    may name — is never rebound. What a tripwire cannot see, the tool
+    boundary withholds anyway
+    (`test_an_unanticipated_error_reaches_the_agent_as_its_class_only`)."""
     import ast
 
     from workflow_platform.connectors.browser import base, playwright_connector
 
-    allowed = {"failure", "withheld", "outcome", "status", "url", "_MAX_REDIRECTS"}
-    found: list[str] = []
+    found = 0
     for module in (base, playwright_connector):
         tree = ast.parse(Path(module.__file__ or "").read_text())
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Call)
-                and isinstance(node.func, ast.Name)
-                and node.func.id in {"BrowserHostDenied", "BrowserPageNotCleared"}
-            ):
-                for value in ast.walk(node):
-                    if isinstance(value, ast.FormattedValue):
-                        found.append(ast.unparse(value.value))
-    assert found, "the derivation found no formatted refusal — it is broken"
-    assert set(found) <= allowed, f"a refusal formats {set(found) - allowed}"
+        found += sum(
+            isinstance(n, ast.Call) and isinstance(n.func, ast.Name) and n.func.id in _REFUSALS
+            for n in ast.walk(tree)
+        )
+        assert _refusal_shape_problems(tree) == []
+    assert found >= 8, f"the tripwire found only {found} refusals — it is broken"
+
+
+@pytest.mark.parametrize(
+    "snippet",
+    [
+        'raise BrowserHostDenied("refused " + current)',
+        'url = current\nraise BrowserHostDenied(f"refused {url}")',
+        "raise BrowserHostDenied(message)",
+    ],
+)
+def test_the_tripwire_rejects_the_shapes_the_reviewer_showed_passing(snippet: str) -> None:
+    """The round-6 review showed each of these passed the previous check.
+    Parsed only; nothing is executed or written to source."""
+    import ast
+
+    assert _refusal_shape_problems(ast.parse(snippet)) != []
+
+
+# --- the tool boundary: an error nobody vouched for is withheld (R6-F1) ---
+
+
+async def _tool_error(tmp_path: Path, raise_from: str, exc: Exception, *, policy: bool) -> str:
+    """Run a browser tool whose page raises `exc`, and return the error the
+    agent would see."""
+    from workflow_platform.tools import Tool
+    from workflow_platform.tools.browser import BrowserClickTool, BrowserNavigateTool
+
+    page = FakePlaywrightPage(url=ALLOWED)
+    tool: Tool
+    if raise_from == "navigate":
+
+        async def failing_goto(url: str, *, wait_until: str = "load") -> None:
+            raise exc
+
+        page.goto = failing_goto  # type: ignore[method-assign]
+        tool, params = BrowserNavigateTool(), {"url": ALLOWED}
+    else:
+        page.raise_on_click["#x"] = exc
+        tool, params = BrowserClickTool(), {"selector": "#x"}
+    conn = PlaywrightConnector(downloads_dir=tmp_path / "dl", page=page)
+    await conn.__aenter__()
+    ctx = ToolContext(
+        connectors={"browser": conn},
+        capabilities=resolve_capabilities(
+            CapabilityPolicy(allowed_hosts=["allowed.example"] if policy else None)
+        ),
+    )
+    result = await tool.execute(params, ctx)
+    assert not result.ok
+    return result.error or ""
+
+
+async def test_an_unanticipated_error_reaches_the_agent_as_its_class_only(tmp_path: Path) -> None:
+    """The default the round-6 review asked for — not recognising one error
+    string: under a host policy, an error the connector neither built nor
+    vouched for (here, a navigation failing with text a server chose) reaches
+    the agent as its class only."""
+    error = await _tool_error(
+        tmp_path, "navigate", RuntimeError(f"net::ERR_X at {CHOSEN_URL}"), policy=True
+    )
+    assert "[call_failed; error=RuntimeError]" in error
+    assert CHOSEN not in error and "net::" not in error
+
+
+async def test_without_a_policy_a_library_error_is_unchanged(tmp_path: Path) -> None:
+    error = await _tool_error(tmp_path, "navigate", RuntimeError(f"at {CHOSEN_URL}"), policy=False)
+    assert CHOSEN in error
+
+
+async def test_an_error_about_the_checked_page_still_reaches_the_agent(tmp_path: Path) -> None:
+    """The fence vouches for an error on the checked, unchanged page; the tool
+    boundary passes it whole — the agent needs it to fix its selector."""
+    from playwright.async_api import Error as PlaywrightError
+
+    error = await _tool_error(tmp_path, "click", PlaywrightError(DIAGNOSTIC), policy=True)
+    assert MARKER in error and "call_failed" not in error
+
+
+def test_every_tool_error_goes_through_the_one_boundary() -> None:
+    """A source-shape tripwire over `tools/browser.py`: every `except
+    Exception` returns `_error(...)`, and an exception is formatted into text
+    only inside `_error` or the upload tool's own refusal."""
+    import ast
+
+    import workflow_platform.tools.browser as browser_tools
+
+    tree = ast.parse(Path(browser_tools.__file__ or "").read_text())
+    handlers = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.ExceptHandler)
+        and isinstance(n.type, ast.Name)
+        and n.type.id == "Exception"
+        and n.name == "exc"
+    ]
+    assert len(handlers) >= 11, f"found only {len(handlers)} handlers — the tripwire is broken"
+    for h in handlers:
+        (stmt,) = h.body
+        assert (
+            isinstance(stmt, ast.Return)
+            and isinstance(stmt.value, ast.Call)
+            and ast.unparse(stmt.value.func) == "_error"
+        ), f"line {h.lineno}: an error reaches the agent without the boundary"
+    error_fn = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == "_error")
+    upload_handlers = [
+        n
+        for n in ast.walk(tree)
+        if isinstance(n, ast.ExceptHandler)
+        and isinstance(n.type, ast.Name)
+        and n.type.id == "_UploadSourceError"
+    ]
+    exempt = {id(v) for root in [error_fn, *upload_handlers] for v in ast.walk(root)}
+    stray = [
+        v.lineno
+        for v in ast.walk(tree)
+        if isinstance(v, ast.FormattedValue)
+        and "exc" in {n.id for n in ast.walk(v.value) if isinstance(n, ast.Name)}
+        and id(v) not in exempt
+    ]
+    assert not stray, f"an exception formatted outside the boundary at lines {stray}"
 
 
 async def test_an_action_that_leaves_and_returns_is_not_detected(tmp_path: Path) -> None:
@@ -1044,6 +1197,14 @@ def test_urls_the_two_parsers_could_read_differently_are_refused(url: str) -> No
     from workflow_platform.connectors.browser import url_host_allowed
 
     assert not url_host_allowed(url, lambda host: host in {"allowed.example", "evil.example"})
+
+
+def test_the_host_check_refuses_a_url_it_cannot_parse() -> None:
+    """Total, not raising (round-6 review): Python cannot parse a bracketed
+    host that is not an IP, and raised with the server's text; the check now
+    refuses such a URL like any other it cannot vouch for."""
+    allowed = resolve_capabilities(CapabilityPolicy(allowed_hosts=["*"])).host_allowed
+    assert url_host_allowed(f"https://[{CHOSEN}]/x", allowed) is False
 
 
 def test_an_ordinary_url_still_passes() -> None:

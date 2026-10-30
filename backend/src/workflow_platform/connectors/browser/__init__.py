@@ -7,11 +7,15 @@ live alongside in their own modules. See
 """
 
 from workflow_platform.connectors.browser.base import (
+    BrowserBoundedError,
+    BrowserCallFailed,
     BrowserConnector,
     BrowserHostDenied,
     BrowserPageNotCleared,
     detect_selector_type,
+    is_vouched_page_error,
     url_host_allowed,
+    vouch_checked_page_error,
 )
 from workflow_platform.connectors.browser.models import (
     BrowserDownload,
@@ -26,6 +30,8 @@ from workflow_platform.connectors.browser.playwright_connector import (
 )
 
 __all__ = [
+    "BrowserBoundedError",
+    "BrowserCallFailed",
     "BrowserConnector",
     "BrowserDownload",
     "BrowserHostDenied",
@@ -37,5 +43,7 @@ __all__ = [
     "SelectorType",
     "WaitState",
     "detect_selector_type",
+    "is_vouched_page_error",
     "url_host_allowed",
+    "vouch_checked_page_error",
 ]

@@ -46,8 +46,8 @@ CONTROLS = [
     (
         "allowed_hosts: fetch_url lets the API context follow redirects again",
         "src/workflow_platform/connectors/browser/playwright_connector.py",
-        "        response = await self._fetch_checked(url)\n",
-        "        response = await self._page.context.request.get(url)\n",
+        "            body = await (await self._fetch_checked(url)).body()\n",
+        "            body = await (await self._page.context.request.get(url)).body()\n",
         "tests/test_g30_capability_enforcement.py::test_fetch_url_follows_redirects_one_checked_hop_at_a_time",
     ),
     (
@@ -238,8 +238,8 @@ CONTROLS = [
     (
         "E5 (live Chromium): the host check stops refusing parser-divergent URLs",
         "src/workflow_platform/connectors/browser/base.py",
-        '    if not url.isascii() or any(\n        c == "\\\\" or c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F for c in url\n    ):\n        return False\n    parts = urlsplit(url)\n    if parts.scheme not in ("http", "https") or not parts.hostname:\n        return False\n    if "@" in parts.netloc or "%" in parts.netloc:\n        return False\n',
-        '    parts = urlsplit(url)\n    if parts.scheme not in ("http", "https") or not parts.hostname:\n        return False\n',
+        "    if not url.isascii() or any(\n        c == \"\\\\\" or c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F for c in url\n    ):\n        return False\n    try:\n        parts = urlsplit(url)\n        hostname = parts.hostname\n    except ValueError:\n        # Total: a URL Python cannot parse \u2014 e.g. a bracketed host that is not\n        # an IP \u2014 is refused, not raised with its text (round-6 review).\n        return False\n    if parts.scheme not in (\"http\", \"https\") or not hostname:\n        return False\n    if \"@\" in parts.netloc or \"%\" in parts.netloc:\n        return False\n",
+        "    try:\n        parts = urlsplit(url)\n        hostname = parts.hostname\n    except ValueError:\n        # Total: a URL Python cannot parse \u2014 e.g. a bracketed host that is not\n        # an IP \u2014 is refused, not raised with its text (round-6 review).\n        return False\n    if parts.scheme not in (\"http\", \"https\") or not hostname:\n        return False\n",
         "tests/test_browser_host_policy_live.py::"
         "test_a_backslash_cannot_smuggle_a_disallowed_host_past_fetch_url",
         "BROWSER_LIVE",
@@ -511,7 +511,7 @@ CONTROLS = [
         "\"the page reached a host outside this step's allowed_hosts; it was cleared \"",
         "f\"the page reached {current!r}, outside this step's allowed_hosts; it was cleared \"",
         "tests/test_g30_capability_enforcement.py::"
-        "test_no_refusal_formats_a_url_a_page_or_server_chose",
+        "test_refusals_are_built_from_literal_text_and_fixed_names",
     ),
     (
         "R5-F1: a failed clear names the page, and the retry delivers it",
@@ -554,6 +554,55 @@ CONTROLS = [
         "tests/test_browser_host_policy_live.py::"
         "test_fetch_url_never_follows_a_redirect_off_list",
         "BROWSER_LIVE",
+    ),
+    (
+        "R6-F1: the fetch boundary passes a transport error through",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "        except BrowserHostDenied:\n            raise\n        except Exception as exc:\n            failure = exc.__class__.__name__\n",
+        "        except BrowserHostDenied:\n            raise\n        except ZeroDivisionError as exc:\n            failure = exc.__class__.__name__\n",
+        "tests/test_browser_fetch_transport.py::test_the_connector_itself_withholds_a_transport_error",
+    ),
+    (
+        "R6-F1: a malformed Location raises with the server's text",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "            try:\n                current = urljoin(current, location)\n            except ValueError:\n",
+        "            try:\n                current = urljoin(current, location)\n            except ZeroDivisionError:\n",
+        "tests/test_browser_fetch_transport.py::test_a_malformed_location_is_refused_without_its_text",
+    ),
+    (
+        "R6-F1: url_host_allowed raises on a URL it cannot parse",
+        "src/workflow_platform/connectors/browser/base.py",
+        "    except ValueError:\n        # Total: a URL Python cannot parse",
+        "    except ZeroDivisionError:\n        # Total: a URL Python cannot parse",
+        "tests/test_g30_capability_enforcement.py::test_the_host_check_refuses_a_url_it_cannot_parse",
+    ),
+    (
+        "R6-F1: the tool boundary passes every error's text",
+        "src/workflow_platform/tools/browser.py",
+        "        _host_policy(context) is None\n",
+        "        True\n",
+        "tests/test_g30_capability_enforcement.py::test_an_unanticipated_error_reaches_the_agent_as_its_class_only",
+    ),
+    (
+        "R6-F1: a tool returns its error without the boundary",
+        "src/workflow_platform/tools/browser.py",
+        "            return _error(\"browser_navigate\", exc, context)\n",
+        "            return ToolResult(error=f\"browser_navigate failed: {exc}\")\n",
+        "tests/test_g30_capability_enforcement.py::test_every_tool_error_goes_through_the_one_boundary",
+    ),
+    (
+        "R6-F1: a refusal built by concatenation",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "\"a redirect led outside this step's allowed_hosts; nothing was \"",
+        "\"a redirect led outside this step's allowed_hosts; nothing was \" + current + \" \"",
+        "tests/test_g30_capability_enforcement.py::test_refusals_are_built_from_literal_text_and_fixed_names",
+    ),
+    (
+        "R6-F1: an error about the checked page is no longer vouched for",
+        "src/workflow_platform/connectors/browser/playwright_connector.py",
+        "            result = await action()\n        except Exception as exc:\n            if self._document() == before:\n                vouch_checked_page_error(exc)\n",
+        "            result = await action()\n        except Exception as exc:\n            if self._document() == before:\n",
+        "tests/test_g30_capability_enforcement.py::test_an_error_about_the_checked_page_still_reaches_the_agent",
     ),
     (
         "R2-F3, real Chromium: reads are not fenced",

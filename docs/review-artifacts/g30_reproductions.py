@@ -41,6 +41,7 @@ PG = "tests/test_g29_withdrawn_postgres.py"
 BE = "tests/test_engine_browser_integration.py"
 BT = "tests/test_browser_tools.py"
 PC = "tests/test_playwright_connector.py"
+TR = "tests/test_browser_fetch_transport.py"
 
 #: (claim id, claim as the guide states it, test node ids, opt-in env var or None)
 CLAIMS: list[tuple[str, str, list[str], str | None]] = [
@@ -280,7 +281,10 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
         "failure is reported, never its error, and a rejected screenshot never reaches its "
         "path; and no refusal names a URL a page or server chose — not at the next call's "
         "check, not for a redirect or a download — while the agent's own URL is still named "
-        "(R2-F3; R3-F1, R3-F2; R4-F1; round-5 R5-F1)",
+        "(R2-F3; R3-F1, R3-F2; R4-F1; R5-F1); and under a policy an error reaches the agent "
+        "with its text only if the application built it or vouched it is about the checked "
+        "page — any other error, a transport failure on Playwright's real HTTP client "
+        "included, arrives as its class (round-6 R6-F1)",
         [
             f"{EN}::test_a_read_whose_page_leaves_for_an_off_list_host_mid_read_is_withheld",
             f"{EN}::test_a_read_through_an_off_list_page_and_back_is_withheld",
@@ -305,7 +309,19 @@ CLAIMS: list[tuple[str, str, list[str], str | None]] = [
             f"{EN}::test_a_redirect_off_list_is_refused_without_naming_it",
             f"{EN}::test_an_off_list_download_is_refused_without_naming_it",
             f"{EN}::test_a_url_the_agent_asked_for_is_still_named",
-            f"{EN}::test_no_refusal_formats_a_url_a_page_or_server_chose",
+            f"{EN}::test_refusals_are_built_from_literal_text_and_fixed_names",
+            f"{EN}::test_the_tripwire_rejects_the_shapes_the_reviewer_showed_passing",
+            f"{EN}::test_an_unanticipated_error_reaches_the_agent_as_its_class_only",
+            f"{EN}::test_without_a_policy_a_library_error_is_unchanged",
+            f"{EN}::test_an_error_about_the_checked_page_still_reaches_the_agent",
+            f"{EN}::test_every_tool_error_goes_through_the_one_boundary",
+            f"{EN}::test_the_host_check_refuses_a_url_it_cannot_parse",
+            f"{TR}::test_a_truncated_redirect_does_not_deliver_its_location",
+            f"{TR}::test_the_connector_itself_withholds_a_transport_error",
+            f"{TR}::test_a_malformed_location_is_refused_without_its_text",
+            f"{TR}::test_a_complete_off_list_redirect_is_refused",
+            f"{TR}::test_a_redirect_to_an_allowed_host_is_fetched",
+            f"{TR}::test_the_model_never_sees_a_transport_or_parse_error",
         ],
         None,
     ),

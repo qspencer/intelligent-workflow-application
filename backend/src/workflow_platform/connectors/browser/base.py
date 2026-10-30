@@ -44,8 +44,35 @@ def detect_selector_type(selector: str) -> SelectorType:
     return "xpath" if selector.startswith("/") else "css"
 
 
-class BrowserHostDenied(Exception):
+class BrowserBoundedError(Exception):
+    """An error whose text this application built from fixed parts, so the
+    agent may see it under a host policy. Any OTHER error from a browser call
+    under a policy reaches the agent as its class only — a library's error can
+    quote what a page or server sent (a call log's response headers, a
+    parser echoing a `Location`; G30 round-6 review, R6-F1) — unless the
+    connector vouched for it with `vouch_checked_page_error`."""
+
+
+class BrowserHostDenied(BrowserBoundedError):
     """A URL, or the page itself, is outside the step's `allowed_hosts`."""
+
+
+class BrowserCallFailed(BrowserBoundedError):
+    """A browser call failed in a way whose library error was withheld."""
+
+
+_CHECKED_PAGE = "_g30_about_the_checked_page"
+
+
+def vouch_checked_page_error(exc: Exception) -> None:
+    """Mark an error as about the document that was CHECKED and did not
+    change — the agent needs it (a strict-mode error to fix its selector).
+    Only the connector's fence calls this, on that one path."""
+    setattr(exc, _CHECKED_PAGE, True)
+
+
+def is_vouched_page_error(exc: BaseException) -> bool:
+    return getattr(exc, _CHECKED_PAGE, False) is True
 
 
 class BrowserPageNotCleared(BrowserHostDenied):
@@ -72,12 +99,18 @@ def url_host_allowed(url: str, allowed: Callable[[str], bool]) -> bool:
         c == "\\" or c.isspace() or ord(c) < 0x20 or ord(c) == 0x7F for c in url
     ):
         return False
-    parts = urlsplit(url)
-    if parts.scheme not in ("http", "https") or not parts.hostname:
+    try:
+        parts = urlsplit(url)
+        hostname = parts.hostname
+    except ValueError:
+        # Total: a URL Python cannot parse — e.g. a bracketed host that is not
+        # an IP — is refused, not raised with its text (round-6 review).
+        return False
+    if parts.scheme not in ("http", "https") or not hostname:
         return False
     if "@" in parts.netloc or "%" in parts.netloc:
         return False
-    return allowed(parts.hostname)
+    return allowed(hostname)
 
 
 class BrowserConnector(Connector):
@@ -131,7 +164,16 @@ class BrowserConnector(Connector):
          status instead (`[page_not_allowed; cleanup=…]`,
          `[url_not_allowed; source=…]`). Only a URL the agent itself asked for
          is named (round-5 review, R5-F1: a retry after a failed clear
-         delivered the very URL the withheld call kept back).
+         delivered the very URL the withheld call kept back);
+       - and more generally, under a policy an error reaches the agent with
+         its TEXT only if this application built it (`BrowserBoundedError`)
+         or the fence vouched it is about the checked, unchanged page. Any
+         other error — a library's, a parser's, one nobody anticipated —
+         arrives as its class (`tools/browser.py` `_error`; round-6 review,
+         R6-F1: a truncated redirect's call log carried the off-list
+         `Location`). A vouched error can quote the checked page, URLs in it
+         included: this is not a secrecy guarantee for URLs, only that
+         nothing reaches the agent from a page or server it did not check.
 
     It is NOT a content-origin guarantee. A page on an allowed host can load a
     disallowed host's images, scripts or frames, and what they render or write

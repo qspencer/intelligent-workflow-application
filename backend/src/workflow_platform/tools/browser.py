@@ -28,7 +28,12 @@ from collections.abc import Callable
 from pathlib import Path
 from typing import Any, ClassVar
 
-from workflow_platform.connectors.browser import BrowserConnector, BrowserUpload
+from workflow_platform.connectors.browser import (
+    BrowserBoundedError,
+    BrowserConnector,
+    BrowserUpload,
+    is_vouched_page_error,
+)
 from workflow_platform.tools.base import Tool, ToolContext, ToolResult
 
 CONNECTOR_KEY = "browser"
@@ -53,6 +58,29 @@ def _host_policy(context: ToolContext | None) -> Callable[[str], bool] | None:
     the policy is this step's for the whole call (external review R2)."""
     caps = context.capabilities if context is not None else None
     return caps.host_allowed if caps is not None and caps.restricts_hosts else None
+
+
+def _error(tool: str, exc: Exception, context: ToolContext | None) -> ToolResult:
+    """The ONE place a browser tool turns an exception into what the agent
+    sees. Under a host policy, an error's text passes only if this
+    application built it (`BrowserBoundedError`, an upload refusal) or the
+    connector vouched it is about the checked, unchanged page; any other
+    error — a library's or a parser's — is reduced to its class, because its
+    text can quote what a page or server sent (round-6 review, R6-F1: a
+    truncated redirect's call log carried the off-list `Location`). This is
+    a default: an error nobody anticipated is withheld, not passed on."""
+    if (
+        _host_policy(context) is None
+        or isinstance(exc, (BrowserBoundedError, _UploadSourceError))
+        or is_vouched_page_error(exc)
+    ):
+        return ToolResult(error=f"{tool} failed: {exc}")
+    kind = exc.__class__.__name__
+    return ToolResult(
+        error=f"{tool} failed ({kind}); under this step's allowed_hosts its details were "
+        f"withheld, because a library error can quote what a page or server sent "
+        f"[call_failed; error={kind}]"
+    )
 
 
 def _selector_param(params: dict[str, Any]) -> str | ToolResult:
@@ -103,7 +131,7 @@ class BrowserNavigateTool(Tool):
             async with connector.operation(_host_policy(context)):
                 await connector.navigate(url, wait_until=wait_until)
         except Exception as exc:
-            return ToolResult(error=f"browser_navigate failed: {exc}")
+            return _error("browser_navigate", exc, context)
         return ToolResult(content={"url": url, "wait_until": wait_until})
 
 
@@ -134,7 +162,7 @@ class BrowserReadTextTool(Tool):
             async with connector.operation(_host_policy(context)):
                 text = await connector.read_text(sel)
         except Exception as exc:
-            return ToolResult(error=f"browser_read_text failed: {exc}")
+            return _error("browser_read_text", exc, context)
         return ToolResult(content={"selector": sel, "text": text})
 
 
@@ -166,7 +194,7 @@ class BrowserReadTableTool(Tool):
             async with connector.operation(_host_policy(context)):
                 rows = await connector.read_table(sel)
         except Exception as exc:
-            return ToolResult(error=f"browser_read_table failed: {exc}")
+            return _error("browser_read_table", exc, context)
         return ToolResult(content={"selector": sel, "rows": rows, "row_count": len(rows)})
 
 
@@ -212,7 +240,7 @@ class BrowserWaitForTool(Tool):
             async with connector.operation(_host_policy(context)):
                 await connector.wait_for(sel, state=state, timeout_ms=timeout_ms)
         except Exception as exc:
-            return ToolResult(error=f"browser_wait_for failed: {exc}")
+            return _error("browser_wait_for", exc, context)
         return ToolResult(content={"selector": sel, "state": state})
 
 
@@ -251,7 +279,7 @@ class BrowserScreenshotTool(Tool):
             async with connector.operation(_host_policy(context)):
                 shot = await connector.screenshot(path=path, full_page=full_page)
         except Exception as exc:
-            return ToolResult(error=f"browser_screenshot failed: {exc}")
+            return _error("browser_screenshot", exc, context)
         return ToolResult(
             content={
                 "local_path": shot.local_path,
@@ -295,7 +323,7 @@ class BrowserClickTool(Tool):
             async with connector.operation(_host_policy(context)):
                 await connector.click(sel, timeout_ms=timeout_ms)
         except Exception as exc:
-            return ToolResult(error=f"browser_click failed: {exc}")
+            return _error("browser_click", exc, context)
         return ToolResult(content={"selector": sel, "clicked": True})
 
 
@@ -336,7 +364,7 @@ class BrowserFillTool(Tool):
             async with connector.operation(_host_policy(context)):
                 await connector.fill(sel, value, clear_first=clear_first)
         except Exception as exc:
-            return ToolResult(error=f"browser_fill failed: {exc}")
+            return _error("browser_fill", exc, context)
         return ToolResult(
             content={"selector": sel, "value_len": len(value), "cleared": clear_first}
         )
@@ -427,7 +455,7 @@ class BrowserUploadFileTool(Tool):
         except _UploadSourceError as exc:
             return ToolResult(error=f"browser_upload_file {exc}")
         except Exception as exc:
-            return ToolResult(error=f"browser_upload_file failed: {exc}")
+            return _error("browser_upload_file", exc, context)
         return ToolResult(content={"selector": sel, "file_path": file_path})
 
 
@@ -470,7 +498,7 @@ class BrowserDownloadTool(Tool):
             async with connector.operation(_host_policy(context)):
                 download = await connector.download_via_click(sel, timeout_ms=timeout_ms)
         except Exception as exc:
-            return ToolResult(error=f"browser_download failed: {exc}")
+            return _error("browser_download", exc, context)
         return ToolResult(
             content={
                 "selector": sel,
@@ -511,7 +539,7 @@ class BrowserSubmitFormTool(Tool):
             async with connector.operation(_host_policy(context)):
                 await connector.submit_form(sel)
         except Exception as exc:
-            return ToolResult(error=f"browser_submit_form failed: {exc}")
+            return _error("browser_submit_form", exc, context)
         return ToolResult(content={"selector": sel})
 
 
@@ -565,7 +593,7 @@ class BrowserFetchUrlTool(Tool):
             async with connector.operation(_host_policy(context)):
                 download = await connector.fetch_url(url, dest_filename=dest_filename)
         except Exception as exc:
-            return ToolResult(error=f"browser_fetch_url failed: {exc}")
+            return _error("browser_fetch_url", exc, context)
         return ToolResult(
             content={
                 "url": url,
